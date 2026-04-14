@@ -282,6 +282,7 @@ struct DefaultConversationDisplayTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             includeInfoInPublicPreview: false,
             isDraft: false,
             invite: nil,

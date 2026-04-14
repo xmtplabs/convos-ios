@@ -237,6 +237,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.deleteFailedMessage(id: id)
     }
 
+    public func insertPendingInvite(text: String) async throws -> String {
+        try await stateMachine.insertPendingInvite(text: text)
+    }
+
+    public func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        try await stateMachine.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
+    }
+
     public func delete() async throws {
         try await inboxStateManager.deleteInbox()
         await stateMachine.delete()

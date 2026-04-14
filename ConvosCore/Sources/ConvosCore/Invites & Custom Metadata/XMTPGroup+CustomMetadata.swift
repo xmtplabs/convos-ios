@@ -50,6 +50,31 @@ extension XMTPiOS.Group {
         }
     }
 
+    public var conversationEmoji: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasEmoji, !metadata.emoji.isEmpty else { return nil }
+            return metadata.emoji
+        }
+    }
+
+    public func ensureConversationEmoji(seed: String) async throws -> String {
+        if let existingEmoji = try conversationEmoji {
+            return existingEmoji
+        }
+
+        let generatedEmoji = EmojiSelector.emoji(for: seed)
+        try await atomicUpdateMetadata(operation: "ensureConversationEmoji") { metadata in
+            if !metadata.hasEmoji || metadata.emoji.isEmpty {
+                metadata.emoji = generatedEmoji
+            }
+        } verify: { metadata in
+            metadata.hasEmoji && !metadata.emoji.isEmpty
+        }
+
+        return try conversationEmoji ?? generatedEmoji
+    }
+
     public func updateExpiresAt(date: Date) async throws {
         let expiresAtUnix = Int64(date.timeIntervalSince1970)
         try await atomicUpdateMetadata(operation: "updateExpiresAt") { metadata in

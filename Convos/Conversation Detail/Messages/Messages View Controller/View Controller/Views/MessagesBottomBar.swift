@@ -16,8 +16,12 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteEmoji: String?
+    @Binding var pendingInviteConvoName: String
+    @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -250,11 +254,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     isCameraPresented: $isCameraPresented,
                     onVoiceMemoTap: startVoiceMemoRecording,
                     onConvosAction: {
+                        guard pendingInviteURL == nil else { return }
                         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                             isMessageInputFocused = true
                         }
                         onConvosAction()
-                    }
+                    },
+                    isSideConvoDisabled: pendingInviteURL != nil
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)
@@ -274,8 +280,12 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 isVideoAttachment: isVideoAttachment,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteEmoji: pendingInviteEmoji,
+                pendingInviteConvoName: $pendingInviteConvoName,
+                pendingInviteImage: $pendingInviteImage,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
+                onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
@@ -386,6 +396,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
             isPhotoPickerPresented: $isPhotoPickerPresented,

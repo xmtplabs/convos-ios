@@ -21,7 +21,7 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     var includeInfoWithInvites: Bool {
         get {
             access(keyPath: \.includeInfoWithInvites)
-            return UserDefaults.standard.object(forKey: Constant.includeInfoWithInvitesKey) as? Bool ?? false
+            return UserDefaults.standard.object(forKey: Constant.includeInfoWithInvitesKey) as? Bool ?? true
         }
         set {
             withMutation(keyPath: \.includeInfoWithInvites) {

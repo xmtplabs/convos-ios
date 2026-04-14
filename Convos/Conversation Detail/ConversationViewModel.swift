@@ -18,31 +18,53 @@ struct PendingInvite {
 }
 
 enum ExplodeDuration: CaseIterable {
+    case sixtySeconds
     case oneHour
-    case oneDay
-    case oneWeek
+    case twentyFourHours
+    case sundayAtMidnight
 
     var label: String {
         switch self {
+        case .sixtySeconds: return "60 seconds"
         case .oneHour: return "1 hour"
-        case .oneDay: return "1 day"
-        case .oneWeek: return "1 week"
+        case .twentyFourHours: return "24 hours"
+        case .sundayAtMidnight: return "Sunday at midnight"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .sixtySeconds: return "60s"
+        case .oneHour: return "1h"
+        case .twentyFourHours: return "24h"
+        case .sundayAtMidnight: return "Sun"
         }
     }
 
     var timeInterval: TimeInterval {
         switch self {
+        case .sixtySeconds: return 60
         case .oneHour: return 3600
-        case .oneDay: return 86400
-        case .oneWeek: return 604800
+        case .twentyFourHours: return 86400
+        case .sundayAtMidnight:
+            let calendar = Calendar.current
+            let now = Date()
+            var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+            components.weekday = 1
+            components.hour = 0
+            components.minute = 0
+            components.second = 0
+            if let nextSunday = calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 0, weekday: 1), matchingPolicy: .nextTime) {
+                return nextSunday.timeIntervalSince(now)
+            }
+            return 604800
         }
     }
 }
 
-// swiftlint:disable type_body_length
 @MainActor
 @Observable
-class ConversationViewModel {
+class ConversationViewModel { // swiftlint:disable:this type_body_length
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
@@ -294,6 +316,8 @@ class ConversationViewModel {
         isCurrentUserSuperAdmin
     }
     var pendingInvite: PendingInvite?
+    var pendingInviteConvoName: String = ""
+    var pendingInviteImage: UIImage?
 
     var sendButtonEnabled: Bool {
         !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil || pastedLinkPreview != nil
@@ -974,6 +998,12 @@ extension ConversationViewModel {
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
+        let sideConvoName = pendingInviteConvoName
+        let sideConvoLinkedId = pendingInvite?.linkedConversationId
+        let sideConvoClientId = pendingInvite?.linkedConversationClientId
+        let sideConvoInboxId = pendingInvite?.linkedConversationInboxId
+        let sideConvoExplodeDuration = pendingInvite?.explodeDuration
+        let sideConvoImage = pendingInviteImage
         let prevLinkURL = pastedLinkPreview?.url
         let prevVideoURL = selectedVideoURL
 
@@ -985,6 +1015,8 @@ extension ConversationViewModel {
         selectedVideoThumbnail = nil
         currentEagerUploadKey = nil
         pendingInvite = nil
+        pendingInviteConvoName = ""
+        pendingInviteImage = nil
         pastedLinkPreview = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
@@ -992,6 +1024,19 @@ extension ConversationViewModel {
 
         Task { [weak self] in
             guard let self else { return }
+
+            let sideConvoResult = await finalizeSideConvo(
+                inviteURL: prevInviteURL,
+                name: sideConvoName,
+                image: sideConvoImage,
+                explodeDuration: sideConvoExplodeDuration,
+                linkedId: sideConvoLinkedId,
+                clientId: sideConvoClientId,
+                inboxId: sideConvoInboxId,
+                messageWriter: messageWriter
+            )
+            let inviteURL = sideConvoResult.inviteURL
+            let pendingInviteMessageId = sideConvoResult.pendingMessageId
 
             do {
                 let photoTrackingKey = try await sendAttachmentIfNeeded(
@@ -1002,9 +1047,10 @@ extension ConversationViewModel {
                     messageWriter: messageWriter
                 )
 
+                let finalInviteURL = pendingInviteMessageId != nil ? nil : inviteURL
                 try await sendTextAndLinksIfNeeded(
                     text: hasText ? prevMessageText : nil,
-                    inviteURL: prevInviteURL,
+                    inviteURL: finalInviteURL,
                     linkURL: prevLinkURL,
                     photoTrackingKey: photoTrackingKey,
                     replyTarget: replyTarget,
@@ -1016,6 +1062,82 @@ extension ConversationViewModel {
 
             isSendingPhoto = false
         }
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private func finalizeSideConvo(
+        inviteURL: String?,
+        name: String,
+        image: UIImage?,
+        explodeDuration: ExplodeDuration?,
+        linkedId: String?,
+        clientId: String?,
+        inboxId: String?,
+        messageWriter: any OutgoingMessageWriterProtocol
+    ) async -> (inviteURL: String?, pendingMessageId: String?) {
+        var inviteURL = inviteURL
+        var pendingMessageId: String?
+
+        guard let linkedId, let clientId, let inboxId else {
+            return (inviteURL, nil)
+        }
+
+        do {
+            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let metadataWriter = messagingService.conversationMetadataWriter()
+            try await metadataWriter.updateIncludeInfoInPublicPreview(true, for: linkedId)
+            if !name.isEmpty {
+                try await metadataWriter.updateName(name, for: linkedId)
+            }
+            if let explodeDuration {
+                let explosionWriter = messagingService.conversationExplosionWriter()
+                let expiresAt = Date().addingTimeInterval(explodeDuration.timeInterval)
+                try await explosionWriter.scheduleExplosion(conversationId: linkedId, expiresAt: expiresAt)
+            }
+            if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId) {
+                inviteURL = updatedInvite.inviteURLString
+            }
+        } catch {
+            Log.error("Failed to finalize side convo metadata: \(error)")
+        }
+
+        guard let image, let inviteURL else {
+            return (inviteURL, nil)
+        }
+
+        if let invite = MessageInvite.from(text: inviteURL) {
+            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.imageURL?.absoluteString ?? invite.inviteSlug)
+        }
+        pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
+
+        do {
+            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let metadataWriter = messagingService.conversationMetadataWriter()
+            let stateManager = messagingService.conversationStateManager(for: linkedId)
+            if let convo = try stateManager.draftConversationRepository.fetchConversation() {
+                try await metadataWriter.updateImage(image, for: convo)
+                try await metadataWriter.updateIncludeInfoInPublicPreview(true, for: linkedId)
+                if !name.isEmpty {
+                    try await metadataWriter.updateName(name, for: linkedId)
+                }
+                if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId),
+                   let pendingMessageId {
+                    try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: updatedInvite.inviteURLString)
+                }
+            }
+        } catch {
+            Log.error("Failed to upload side convo image: \(error)")
+            if let pendingMessageId {
+                do {
+                    try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: inviteURL)
+                } catch {
+                    Log.error("Failed to finalize side convo invite fallback: \(error)")
+                    return (inviteURL, nil)
+                }
+            }
+        }
+
+        return (inviteURL, pendingMessageId)
     }
 
     private func sendAttachmentIfNeeded(
@@ -1778,22 +1900,7 @@ extension UNUserNotificationCenter {
 
 extension ConversationViewModel {
     func setInviteExplodeDuration(_ duration: ExplodeDuration?) {
-        explodeDurationTask?.cancel()
         pendingInvite?.explodeDuration = duration
-        guard let duration,
-              let clientId = pendingInvite?.linkedConversationClientId,
-              let inboxId = pendingInvite?.linkedConversationInboxId,
-              let conversationId = pendingInvite?.linkedConversationId else { return }
-        explodeDurationTask = Task { [weak self] in
-            guard let self else { return }
-            let newURL = await scheduleLinkedConversationExplosion(
-                duration: duration, clientId: clientId, inboxId: inboxId, conversationId: conversationId
-            )
-            guard !Task.isCancelled, let newURL else { return }
-            await MainActor.run {
-                self.pendingInvite?.fullURL = newURL
-            }
-        }
     }
 
     func scheduleLinkedConversationExplosion(
@@ -1811,6 +1918,26 @@ extension ConversationViewModel {
         } catch {
             Log.error("Failed to schedule explosion for linked conversation: \(error)")
             return nil
+        }
+    }
+    func updateLinkedConversationName(_ name: String) {
+        guard let clientId = pendingInvite?.linkedConversationClientId,
+              let inboxId = pendingInvite?.linkedConversationInboxId,
+              let conversationId = pendingInvite?.linkedConversationId else { return }
+        Task { [weak self, session] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let metadataWriter = messagingService.conversationMetadataWriter()
+                try await metadataWriter.updateName(name, for: conversationId)
+                let updatedInvite = try await metadataWriter.refreshInvite(for: conversationId)
+                guard let updatedInvite else { return }
+                await MainActor.run {
+                    self.pendingInvite?.fullURL = updatedInvite.inviteURLString
+                }
+            } catch {
+                Log.error("Failed to update linked conversation name: \(error)")
+            }
         }
     }
 }
@@ -1832,6 +1959,8 @@ extension ConversationViewModel {
     func clearPendingInvite() {
         guard let invite = pendingInvite else { return }
         pendingInvite = nil
+        pendingInviteConvoName = ""
+        pendingInviteImage = nil
         if let clientId = invite.linkedConversationClientId {
             let inboxId = invite.linkedConversationInboxId ?? ""
             Task { [session] in
@@ -1892,8 +2021,8 @@ extension ConversationViewModel {
                         linkedConversationId: convo.id
                     )
                     self.convosButtonCancellable = nil
+                    self.setInviteExplodeDuration(.twentyFourHours)
                 }
         }
     }
 }
-// swiftlint:enable type_body_length

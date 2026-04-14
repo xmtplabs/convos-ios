@@ -10,6 +10,8 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     func send(text: String) async throws
     func send(text: String, afterPhoto trackingKey: String?) async throws
     func send(image: ImageType) async throws
+    func insertPendingInvite(text: String) async throws -> String
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws
 
     /// Start uploading a photo eagerly (before user taps Send).
     /// Returns a tracking key that can be used with `sendEagerPhoto` or `cancelEagerUpload`.
@@ -63,6 +65,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let text: String
         let dependsOnPhotoKey: String?
         let replyContext: ReplyContext?
+        let isExistingLocalMessage: Bool
     }
 
     private struct QueuedPhotoMessage {
@@ -161,6 +164,39 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         try await sendText(text, afterPhoto: trackingKey, replyContext: nil)
     }
 
+    func insertPendingInvite(text: String) async throws -> String {
+        let clientMessageId = UUID().uuidString
+        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: nil)
+        return clientMessageId
+    }
+
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        let didUpdateMessage = try await databaseWriter.write { db in
+            guard var message = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .fetchOne(db) else {
+                return false
+            }
+            let invite = MessageInvite.from(text: finalText)
+            message = message.with(text: finalText, invite: invite)
+            try message.update(db)
+            return true
+        }
+        guard didUpdateMessage else {
+            Log.warning("Skipping finalizeInvite queueing for missing message: \(clientMessageId)")
+            return
+        }
+        let queued = QueuedTextMessage(
+            clientMessageId: clientMessageId,
+            text: finalText,
+            dependsOnPhotoKey: nil,
+            replyContext: nil,
+            isExistingLocalMessage: true
+        )
+        messageQueue.append(.text(queued))
+        startProcessingIfNeeded()
+    }
+
     private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?) async throws {
         let clientMessageId = UUID().uuidString
         try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: replyContext)
@@ -169,7 +205,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             clientMessageId: clientMessageId,
             text: text,
             dependsOnPhotoKey: trackingKey,
-            replyContext: replyContext
+            replyContext: replyContext,
+            isExistingLocalMessage: false
         )
 
         // If this text depends on a photo that hasn't been published yet, defer it
@@ -904,8 +941,28 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         Log.debug("Text prepare() returned xmtpMessageId=\(xmtpMessageId), clientMessageId=\(queued.clientMessageId), same=\(xmtpMessageId == queued.clientMessageId)")
 
-        if xmtpMessageId != queued.clientMessageId {
-            try await databaseWriter.write { db in
+        try await databaseWriter.write { db in
+            guard let message = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == queued.clientMessageId)
+                .fetchOne(db) else {
+                Log.warning("publishText: message not found for clientMessageId \(queued.clientMessageId)")
+                return
+            }
+
+            if queued.isExistingLocalMessage {
+                try db.execute(
+                    sql: "UPDATE message SET id = ?, status = ? WHERE id = ?",
+                    arguments: [xmtpMessageId, MessageStatus.unpublished.rawValue, message.id]
+                )
+                try db.execute(
+                    sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
+                    arguments: [xmtpMessageId, queued.clientMessageId]
+                )
+                Log.debug("Updated existing local text message id from \(queued.clientMessageId) to \(xmtpMessageId)")
+                return
+            }
+
+            if xmtpMessageId != queued.clientMessageId {
                 // Atomic primary key update - avoids the DELETE/INSERT pattern that causes message flash
                 try db.execute(
                     sql: "UPDATE message SET id = ? WHERE id = ?",
@@ -1335,7 +1392,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 clientMessageId: message.clientMessageId,
                 text: text,
                 dependsOnPhotoKey: nil,
-                replyContext: replyContext
+                replyContext: replyContext,
+                isExistingLocalMessage: false
             )
             messageQueue.append(.text(queued))
             startProcessingIfNeeded()

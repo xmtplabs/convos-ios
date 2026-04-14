@@ -476,6 +476,16 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("addConversationEmoji") { db in
+            let columns = try db.columns(in: "conversation")
+            let hasConversationEmoji = columns.contains(where: { $0.name == "conversationEmoji" })
+            guard !hasConversationEmoji else { return }
+
+            try db.alter(table: "conversation") { t in
+                t.add(column: "conversationEmoji", .text)
+            }
+        }
+
         return migrator
     }
 }

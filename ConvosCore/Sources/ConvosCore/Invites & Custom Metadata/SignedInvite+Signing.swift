@@ -8,7 +8,9 @@ extension SignedInvite {
         expiresAfterUse: Bool,
         privateKey: Data
     ) throws -> String {
-        try createSlug(
+        let emoji = conversation.conversationEmoji
+            ?? EmojiSelector.emoji(for: conversation.clientConversationId)
+        return try createSlug(
             conversationId: conversation.id,
             creatorInboxId: conversation.inboxId,
             privateKey: privateKey,
@@ -17,6 +19,7 @@ extension SignedInvite {
                 name: conversation.name,
                 description: conversation.description,
                 imageURL: conversation.publicImageURLString,
+                emoji: emoji,
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse,
                 conversationExpiresAt: conversation.expiresAt,

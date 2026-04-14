@@ -67,16 +67,7 @@ extension ConversationWriterProtocol {
     }
 }
 
-/// Writer for persisting conversations and their members to the database
-///
-/// ConversationWriter handles converting XMTP conversations to database representations
-/// and managing all related data including members, profiles, invites, and messages.
-/// Handles both initial storage and updates, with special logic for matching
-/// placeholder conversations created during invite flows.
-///
-/// Marked @unchecked Sendable because GRDB's DatabaseWriter provides its own
-/// concurrency safety via write{}/read{} closures - all database access is
-/// externally synchronized by GRDB's serialized database queue.
+// swiftlint:disable type_body_length
 class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol
@@ -155,13 +146,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 description: signedInvite.description_p,
                 imageURLString: signedInvite.imageURL,
                 publicImageURLString: nil,
-                includeInfoInPublicPreview: false,
+                includeInfoInPublicPreview: true,
                 expiresAt: signedInvite.conversationExpiresAt,
                 debugInfo: .empty,
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: signedInvite.emoji,
                 imageLastRenewed: nil,
                 isUnused: false,
                 hasHadVerifiedAssistant: false
@@ -301,6 +293,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let imageSalt: Data?
         let imageNonce: Data?
         let imageEncryptionKey: Data?
+        let conversationEmoji: String?
         let expiresAt: Date?
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
@@ -314,6 +307,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         let encryptedRef = try? conversation.encryptedGroupImage
         let imageEncryptionKey = try? conversation.imageEncryptionKey
+        let conversationEmoji = try? conversation.conversationEmoji
+        Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
 
         return ConversationMetadata(
             kind: .group,
@@ -323,6 +318,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageSalt: encryptedRef?.salt,
             imageNonce: encryptedRef?.nonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked,
@@ -359,13 +355,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             description: metadata.description,
             imageURLString: metadata.imageURLString,
             publicImageURLString: nil,
-            includeInfoInPublicPreview: false,
+            includeInfoInPublicPreview: true,
             expiresAt: metadata.expiresAt,
             debugInfo: metadata.debugInfo,
             isLocked: metadata.isLocked,
             imageSalt: metadata.imageSalt,
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
+            conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
             hasHadVerifiedAssistant: metadata.hasHadVerifiedAssistant
@@ -482,15 +479,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
         }
 
-        let existingConversationByTag: DBConversation?
-        if !dbConversation.inviteTag.isEmpty {
-            existingConversationByTag = try DBConversation
-                .filter(DBConversation.Columns.inviteTag == dbConversation.inviteTag)
-                .filter(DBConversation.Columns.id != dbConversation.id)
-                .fetchOne(db)
-        } else {
-            existingConversationByTag = nil
-        }
+        let existingConversationByTag = try existingConversationMatchingInviteTag(
+            inviteTag: dbConversation.inviteTag,
+            excludingConversationId: dbConversation.id,
+            in: db
+        )
 
         let conversationSaveLog: String = "Conversation save attempt. " +
             "incomingId=\(dbConversation.id) " +
@@ -544,11 +537,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
                 updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
             }
-            if !updatedConversation.inviteTag.isEmpty,
-               let conflictingConversation = try DBConversation
-                .filter(DBConversation.Columns.inviteTag == updatedConversation.inviteTag)
-                .filter(DBConversation.Columns.id != updatedConversation.id)
-                .fetchOne(db) {
+            if let conflictingConversation = try existingConversationMatchingInviteTag(
+                inviteTag: updatedConversation.inviteTag,
+                excludingConversationId: updatedConversation.id,
+                in: db
+            ) {
                 Log.error(
                     "Invite tag collision before save. " +
                         "incomingId=\(updatedConversation.id) " +
@@ -579,6 +572,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             oldImageURL: oldImageURL,
             preservedInviteTag: preservedInviteTag
         )
+    }
+
+    private func existingConversationMatchingInviteTag(
+        inviteTag: String,
+        excludingConversationId: String,
+        in db: Database
+    ) throws -> DBConversation? {
+        guard !inviteTag.isEmpty else { return nil }
+        return try DBConversation
+            .filter(DBConversation.Columns.inviteTag == inviteTag)
+            .filter(DBConversation.Columns.id != excludingConversationId)
+            .fetchOne(db)
     }
 
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
@@ -915,6 +920,7 @@ extension XMTPiOS.Conversation {
         }
     }
 }
+// swiftlint:enable type_body_length
 
 fileprivate extension XMTPiOS.ConsentState {
     var memberConsent: Consent {

@@ -18,6 +18,10 @@ struct MessageInviteContainerView: View {
                 .animation(.easeOut(duration: 0.15), value: isPressed)
         }
     }
+
+    private enum Constant {
+        static let bubbleCornerRadius: CGFloat = 20.0
+    }
 }
 
 #Preview {
@@ -68,50 +72,52 @@ struct MessageInviteView: View {
 
     var title: String {
         if let name = invite.conversationName, !name.isEmpty {
-            return "Pop into my convo \"\(name)\""
+            return name
         }
-        return "Pop into my convo"
+        return "New Convo"
     }
 
     var description: String {
-        if let description = invite.conversationDescription, !description.isEmpty {
-            return description
-        }
-        return "convos.org"
+        "Tap to join"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
-            Group {
-                if let image = cachedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .tint(.colorTextPrimaryInverted)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 76.0, alignment: .center)
-                        .frame(maxWidth: .infinity)
+            Color.colorFillMinimal
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let image = cachedImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else if let emoji = invite.emoji, !emoji.isEmpty {
+                        Text(emoji)
+                            .font(.system(size: 160))
+                    } else {
+                        Image("convosOrangeIcon")
+                            .resizable()
+                            .tint(.colorTextPrimaryInverted)
+                            .foregroundStyle(.colorTextPrimaryInverted)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 76.0)
+                    }
                 }
-            }
-            .frame(height: 172.0)
-            .clipped()
-            .background(.colorBackgroundInverted)
+                .clipped()
+                .accessibilityLabel(invite.imageURL != nil ? "Invite image preview" : (invite.emoji.map { "Invite emoji \($0)" } ?? "Invite placeholder"))
+                .accessibilityIdentifier("invite-preview-avatar")
 
             HStack {
                 VStack(alignment: .leading, spacing: 2.0) {
                     Text(title)
                         .lineLimit(2)
+                        .accessibilityIdentifier("invite-preview-title")
                         .multilineTextAlignment(.leading)
-                        .foregroundStyle(.black)
-                        .font(.callout.weight(.bold))
-                        .fontWeight(.bold)
+                        .foregroundStyle(.colorTextPrimary)
+                        .font(.callout.weight(.medium))
                         .truncationMode(.tail)
                     Text(description)
                         .font(.subheadline)
+                        .accessibilityIdentifier("invite-preview-subtitle")
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.colorTextSecondary)
                 }
@@ -124,9 +130,12 @@ struct MessageInviteView: View {
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.colorFillSubtle)
         }
         .frame(maxWidth: 280.0, alignment: .leading)
-        .background(.colorLinkBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("invite-preview-card")
         .cachedImage(for: invite) { image in
             cachedImage = image
         }
@@ -144,7 +153,6 @@ struct MessageInviteView: View {
                 }
             } catch {
                 Log.error("Error loading image for invite")
-                cachedImage = nil
             }
         }
     }

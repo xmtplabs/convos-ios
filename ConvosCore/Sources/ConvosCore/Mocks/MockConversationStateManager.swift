@@ -119,6 +119,12 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
         setState(.uninitialized)
     }
 
+    public func insertPendingInvite(text: String) async throws -> String {
+        UUID().uuidString
+    }
+
+    public func finalizeInvite(clientMessageId: String, finalText: String) async throws {}
+
     // MARK: - Test Helpers
 
     public func setState(_ state: ConversationStateMachine.State) {

@@ -762,6 +762,7 @@ private extension LightweightConversationDetails {
             imageSalt: conversation.imageSalt,
             imageNonce: conversation.imageNonce,
             imageEncryptionKey: conversation.imageEncryptionKey,
+            conversationEmoji: conversation.conversationEmoji,
             includeInfoInPublicPreview: conversation.includeInfoInPublicPreview,
             isDraft: conversation.isDraft,
             invite: nil,

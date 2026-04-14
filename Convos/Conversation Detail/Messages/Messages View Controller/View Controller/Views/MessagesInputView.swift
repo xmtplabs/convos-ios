@@ -13,8 +13,12 @@ struct MessagesInputView: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteEmoji: String?
+    @Binding var pendingInviteConvoName: String
+    @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
@@ -212,16 +216,20 @@ struct MessagesInputView: View {
     @ViewBuilder
     private func inviteAttachmentPreview(url: String) -> some View {
         ZStack(alignment: .topTrailing) {
-            ComposerInvitePreviewCard(
+            ComposerSideConvoCard(
                 inviteURL: url,
+                conversationEmoji: pendingInviteEmoji,
+                convoName: $pendingInviteConvoName,
+                convoImage: $pendingInviteImage,
                 explodeDuration: pendingInviteExplodeDuration,
-                onSetExplodeDuration: onSetInviteExplodeDuration
+                onSetExplodeDuration: onSetInviteExplodeDuration,
+                onNameEditingEnded: onInviteConvoNameEditingEnded
             )
             .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
             .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
             .blur(radius: isPoofingInvite ? 12.0 : 0.0)
             .opacity(isPoofingInvite ? 0.0 : 1.0)
-            .accessibilityLabel("Invite attachment preview")
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("invite-attachment-preview")
 
             Button {
@@ -409,86 +417,118 @@ private struct ComposerImageAreaModifier: ViewModifier {
     }
 }
 
-private struct ComposerInvitePreviewCard: View {
+private struct ComposerSideConvoCard: View {
     let inviteURL: String
+    var conversationEmoji: String?
+    @Binding var convoName: String
+    @Binding var convoImage: UIImage?
     var explodeDuration: ExplodeDuration?
     var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onNameEditingEnded: ((String) -> Void)?
 
-    @State private var ogTitle: String?
-    @State private var cachedImage: UIImage?
-    @State private var imageAspectRatio: CGFloat?
-    @State private var hasFetchedMetadata: Bool = false
+    @State private var isPhotoPickerPresented: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
 
-    private let previewWidth: CGFloat = 200.0
+    private let cardWidth: CGFloat = 200.0
 
-    private var clampedAspectRatio: CGFloat {
-        let ratio = imageAspectRatio ?? 1.91
-        return min(max(ratio, 0.75), 2.0)
+    private var invite: MessageInvite? {
+        MessageInvite.from(text: inviteURL)
     }
 
-    private var displayTitle: String {
-        ogTitle ?? "Join this convo"
+    private var resolvedEmoji: String? {
+        if let emoji = invite?.emoji, !emoji.isEmpty { return emoji }
+        if let emoji = conversationEmoji, !emoji.isEmpty { return emoji }
+        return nil
+    }
+
+    private var explodeDurationLabel: String {
+        guard let explodeDuration else { return "Not exploding" }
+        return "Explodes in \(explodeDuration.shortLabel)"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                if let image = cachedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .frame(width: 40, height: 40)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 80.0)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
-            .clipped()
-            .background(.colorBackgroundMedia)
-
-            HStack {
-                VStack(alignment: .leading, spacing: 2.0) {
-                    Text(displayTitle)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.colorTextPrimary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                    Text("You're invited")
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                if let explodeDuration {
-                    ExplodeCountdownBadge(duration: explodeDuration)
-                        .onTapGesture {}
-                } else if onSetExplodeDuration != nil {
-                    explodeMenu
-                }
+            emojiArea
+            VStack(spacing: DesignConstants.Spacing.step2x) {
+                nameField
+                explodeButton
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.vertical, DesignConstants.Spacing.step3x)
-            .frame(width: previewWidth, alignment: .leading)
-            .background(.colorFillSubtle)
         }
-        .frame(width: previewWidth)
-        .task {
-            await fetchMetadata()
-        }
+        .frame(width: cardWidth)
+        .background(.colorFillSubtle)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("side-convo-card")
     }
 
     @ViewBuilder
-    private var explodeMenu: some View {
+    private var emojiArea: some View {
+        emojiAreaContent
+            .onTapGesture {
+                isPhotoPickerPresented = true
+            }
+            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhotoItem, matching: .images)
+            .onChange(of: selectedPhotoItem) {
+                guard let selectedPhotoItem else { return }
+                Task { @MainActor in
+                    guard let data = try? await selectedPhotoItem.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else { return }
+                    convoImage = image
+                    self.selectedPhotoItem = nil
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var emojiAreaContent: some View {
+        ZStack {
+            if let convoImage {
+                Image(uiImage: convoImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if let emoji = resolvedEmoji {
+                Text(emoji)
+                    .font(.system(size: 120))
+            } else {
+                Image("convosOrangeIcon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 48, height: 48)
+            }
+        }
+        .frame(width: cardWidth, height: cardWidth)
+        .clipped()
+        .background(.colorFillMinimal)
+        .accessibilityLabel(convoImage != nil ? "Side convo image" : (resolvedEmoji.map { "Side convo emoji \($0)" } ?? "Side convo placeholder"))
+        .accessibilityIdentifier("side-convo-avatar-preview")
+    }
+
+    @ViewBuilder
+    private var nameField: some View {
+        TextField("Convo name", text: $convoName)
+            .font(.callout)
+            .foregroundStyle(.colorTextPrimary)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .background(.colorFillMinimal)
+            .clipShape(Capsule())
+            .accessibilityIdentifier("side-convo-name-field")
+            .onSubmit {
+                onNameEditingEnded?(convoName)
+            }
+    }
+
+    @ViewBuilder
+    private var explodeButton: some View {
         Menu {
-            Section("Explode in") {
+            Section("Explode messages and members") {
+                Button {
+                    onSetExplodeDuration?(nil)
+                } label: {
+                    Text("Never")
+                }
                 ForEach(ExplodeDuration.allCases, id: \.self) { duration in
                     Button {
                         onSetExplodeDuration?(duration)
@@ -498,43 +538,16 @@ private struct ComposerInvitePreviewCard: View {
                 }
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.colorTextSecondary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .accessibilityIdentifier("invite-explode-menu")
-    }
-
-    private func fetchMetadata() async {
-        guard !hasFetchedMetadata else { return }
-        let metadata = await OpenGraphService.shared.fetchMetadata(for: inviteURL)
-        if let metadata {
-            ogTitle = metadata.title
-            if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
-                imageAspectRatio = CGFloat(w) / CGFloat(h)
-            }
-            if let imageURLString = metadata.imageURL,
-               let imageURL = URL(string: imageURLString) {
-                await loadImage(from: imageURL)
+            HStack(spacing: DesignConstants.Spacing.stepX) {
+                Text(explodeDurationLabel)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.colorTextSecondary)
             }
         }
-        hasFetchedMetadata = true
-    }
-
-    private func loadImage(from url: URL) async {
-        let cacheKey = url.absoluteString
-        if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
-            cachedImage = cached
-            imageAspectRatio = cached.size.width / cached.size.height
-            return
-        }
-        if let image = await OpenGraphService.shared.loadImage(from: url) {
-            ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-            cachedImage = image
-            imageAspectRatio = image.size.width / image.size.height
-        }
+        .accessibilityIdentifier("side-convo-explode-menu")
     }
 }
 
@@ -569,6 +582,8 @@ private struct ComposerInvitePreviewCard: View {
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
