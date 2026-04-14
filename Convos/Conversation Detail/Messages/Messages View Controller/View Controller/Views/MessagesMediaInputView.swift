@@ -56,7 +56,7 @@ struct MessagesMediaButtonsView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(height: 18)
-                    .foregroundStyle(isSideConvoDisabled ? Color.colorTextSecondary.opacity(0.3) : Color.colorTextSecondary)
+                    .foregroundStyle(isSideConvoDisabled ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary)
                     .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                     .contentShape(.circle)
             }
