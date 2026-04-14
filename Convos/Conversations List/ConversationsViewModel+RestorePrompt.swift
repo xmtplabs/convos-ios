@@ -2,6 +2,13 @@ import ConvosCore
 import Foundation
 
 extension ConversationsViewModel {
+    /// Stores the `createdAt` of the most recently skipped backup. If a
+    /// newer backup becomes available, the prompt reappears — skipping
+    /// today's backup doesn't hide tomorrow's. Persisted in UserDefaults
+    /// so the skip survives app updates; wiped on delete-all-data via
+    /// `resetUserDefaults()` and on reinstall (the app container is
+    /// cleared, which is the correct behaviour for a "fresh install"
+    /// prompt).
     static let skippedRestoreBackupDateKey: String = "skippedRestoreBackupDate"
 
     /// Debug-only notification. Posted from settings to force the restore

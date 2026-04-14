@@ -21,6 +21,10 @@ final class BackupScheduler {
 
     private var factory: BackupManagerFactory?
     private var isRegistered: Bool = false
+    /// Process-global mutex across manual and background backup paths.
+    /// Safe to read+write without extra locking because the class is
+    /// `@MainActor`-isolated and every entry point checks+sets this flag
+    /// in a single synchronous block before any `await`.
     private(set) var isBackupInProgress: Bool = false
 
     private init() {}
@@ -29,7 +33,14 @@ final class BackupScheduler {
     /// `ConvosApp.init()` before launch completes, per `BGTaskScheduler`'s
     /// contract. The factory is invoked each time a backup runs so the
     /// caller can return `nil` when the vault isn't ready.
+    /// Guarded against double-registration because
+    /// `BGTaskScheduler.register(forTaskWithIdentifier:)` terminates the
+    /// app on a duplicate identifier.
     func register(factory: @escaping BackupManagerFactory) {
+        guard !isRegistered else {
+            Log.warning("[BackupScheduler] register called more than once — ignoring")
+            return
+        }
         self.factory = factory
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.taskIdentifier,
@@ -99,13 +110,36 @@ final class BackupScheduler {
         Log.info("[BackupScheduler] background task launched")
         QAEvent.emit(.backup, "bg_task_launched")
 
+        // Calling `setTaskCompleted` twice is undefined behaviour. The
+        // expiration handler runs on an arbitrary queue, so we share a
+        // lock-protected flag with the main path and let whichever side
+        // finishes first mark completion.
+        let state: BGTaskCompletionState = .init()
         task.expirationHandler = {
+            guard state.markCompletedOnce() else { return }
             Log.warning("[BackupScheduler] background task expired")
             task.setTaskCompleted(success: false)
         }
 
         await runBackupAndReschedule(source: "background")
+
+        guard state.markCompletedOnce() else { return }
         task.setTaskCompleted(success: true)
+    }
+
+    private final class BGTaskCompletionState: @unchecked Sendable {
+        private let lock: NSLock = NSLock()
+        private var completed: Bool = false
+
+        /// Returns `true` only on the first call — later callers get `false`
+        /// so they can skip their `setTaskCompleted`.
+        func markCompletedOnce() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if completed { return false }
+            completed = true
+            return true
+        }
     }
 
     private func runBackupAndReschedule(source: String) async {
