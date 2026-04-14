@@ -27,11 +27,17 @@ Two things are needed:
 
 1. **Background Modes capability** — enable "Background processing" in the Xcode target capabilities. This adds `processing` to `UIBackgroundModes` in the generated Info.plist. Without this, `BGTaskScheduler.submit` throws at runtime.
 
-2. **Task identifier registration** — since the project uses `GENERATE_INFOPLIST_FILE = YES` (no checked-in Info.plist), add the identifier via build settings. The plist key is an array, so use indexed syntax:
+2. **Task identifier registration** — since the project uses `GENERATE_INFOPLIST_FILE = YES` (no checked-in Info.plist), add the identifier via build settings. `INFOPLIST_KEY_*` treats array-typed plist keys as space-separated string lists:
    ```
-   INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers[0] = org.convos.backup.daily
+   INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = org.convos.backup.daily
    ```
-   This must be added to all xcconfig files (Dev, Local, Prod) since we build different apps from the same codebase.
+   Add this to all xcconfig files (Dev, Local, Prod) since we build different apps from the same codebase.
+
+   **Verify after first build** — Xcode's generation of array-typed plist keys from `INFOPLIST_KEY_*` can be quirky. After the first build, inspect the emitted Info.plist to confirm the key is an array of strings, not a single string:
+   ```
+   plutil -p .derivedData/.../Info.plist | grep -A2 BGTaskScheduler
+   ```
+   If the value is a string rather than an array, fall back to a checked-in Info.plist (set `GENERATE_INFOPLIST_FILE = NO` and `INFOPLIST_FILE = Convos/Info.plist`) with the key declared explicitly.
 
 ### Components
 
@@ -64,7 +70,7 @@ If the vault hasn't been bootstrapped yet (no conversations, fresh install), the
 |---|---|
 | App launch | `register()` + `scheduleNextBackup()` if not already scheduled |
 | Manual "Back up now" | Reschedule (resets the 24h window) |
-| First conversation created | Schedule with shorter `earliestBeginDate` (e.g. 5 minutes) to capture the first backup promptly, rather than waiting up to 24h |
+| First conversation created | Schedule with shorter `earliestBeginDate` (15 minutes — see Design decisions) to capture the first backup promptly, rather than waiting up to 24h |
 | Restore completes | Post-restore backup already runs inline; call `scheduleNextBackup()` afterward to restart the daily cadence |
 
 ### No toggle for v1
@@ -121,7 +127,7 @@ Value: ISO8601 string of the skipped backup's metadata.createdAt
 
 On next check: if `findAvailableBackup()` returns a backup with `createdAt` newer than the skipped date, show the prompt again. This way, skipping today's backup doesn't hide tomorrow's.
 
-`UserDefaults` is wiped on app reinstall. On delete-all-data, the app only clears selected keys — so the `skippedRestoreBackupDate` key must be explicitly included in the delete-all-data reset flow to ensure the prompt reappears after a data wipe.
+`UserDefaults` is wiped on app reinstall. On delete-all-data, `AppSettingsViewModel.deleteAllData` resets UserDefaults keys via a hand-maintained allowlist (it calls targeted `resetUserDefaults()` helpers on each view model — it does not wipe all defaults). The new `skippedRestoreBackupDate` key must be removed in `ConversationsViewModel.resetUserDefaults()` (already called from the delete-all flow) so the prompt reappears after a data wipe.
 
 ### Implementation
 
