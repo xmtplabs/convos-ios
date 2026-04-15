@@ -153,11 +153,10 @@ struct MessagesGroupView: View {
 
         let isLastInGroup: Bool = message == group.messages.last
         let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
-        // When the last message is a voice memo with a transcript row attached, the
-        // transcript becomes the visual bottom of the group, so the tail moves from
-        // the voice memo bubble down onto the transcript row.
-        let transcriptIsTailed: Bool = isLast && group.voiceMemoTranscripts[message.messageId] != nil
-        let bubbleType: MessageBubbleType = (isLast && !transcriptIsTailed) ? .tailed : .normal
+        // Incoming voice memos should keep their tail on the audio bubble even when
+        // an attached transcript preview is rendered below.
+        let transcriptIsTailed: Bool = false
+        let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
         let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
         let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
 
