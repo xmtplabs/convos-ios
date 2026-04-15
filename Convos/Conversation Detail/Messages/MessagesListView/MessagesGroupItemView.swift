@@ -330,6 +330,7 @@ private struct VideoTapAttachmentView: View {
     @State private var pendingPlayAfterReveal: Bool = false
     @State private var reactionsPeekVisible: Bool = false
     @State private var reactionsPeekTask: Task<Void, Never>?
+    @State private var pendingPlayingDoubleTapReaction: Bool = false
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -435,6 +436,7 @@ private struct VideoTapAttachmentView: View {
     private func handleDoubleTap() {
         guard isVideo else { return }
         if isPlaying {
+            pendingPlayingDoubleTapReaction = true
             showReactionsPeek()
         } else {
             onDoubleTapReaction?()
@@ -442,8 +444,16 @@ private struct VideoTapAttachmentView: View {
     }
 
     private func showReactionsPeek() {
-        guard !reactions.isEmpty else { return }
         reactionsPeekTask?.cancel()
+
+        guard !reactions.isEmpty else {
+            if pendingPlayingDoubleTapReaction {
+                pendingPlayingDoubleTapReaction = false
+                onDoubleTapReaction?()
+            }
+            return
+        }
+
         withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
             reactionsPeekVisible = true
         }
@@ -452,6 +462,10 @@ private struct VideoTapAttachmentView: View {
             guard !Task.isCancelled else { return }
             withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
                 reactionsPeekVisible = false
+            }
+            if pendingPlayingDoubleTapReaction {
+                pendingPlayingDoubleTapReaction = false
+                onDoubleTapReaction?()
             }
         }
     }

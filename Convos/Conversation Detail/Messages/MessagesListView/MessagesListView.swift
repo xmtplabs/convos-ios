@@ -145,7 +145,6 @@ struct MessagesListView: View {
     }
 
     private func messagesGroupView(for group: MessagesGroup) -> MessagesGroupView {
-        let transcripts = Self.collectTranscripts(from: messages)
         return MessagesGroupView(
             group: group,
             shouldBlurPhotos: shouldBlurPhotos,
@@ -156,17 +155,7 @@ struct MessagesListView: View {
             onReply: onReply,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,
-            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-            allVoiceMemoTranscripts: transcripts
+            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
         )
-    }
-
-    private static func collectTranscripts(
-        from items: [MessagesListItemType]
-    ) -> [String: VoiceMemoTranscriptListItem] {
-        items.reduce(into: [:]) { result, item in
-            guard case .messages(let group) = item else { return }
-            result.merge(group.voiceMemoTranscripts) { _, new in new }
-        }
     }
 }
