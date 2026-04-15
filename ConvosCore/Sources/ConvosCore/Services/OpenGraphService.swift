@@ -64,7 +64,12 @@ public actor OpenGraphService {
             }
 
             if let provider = RichLinkMetadata.provider {
-                return await provider.fetchMetadata(for: url)
+                Log.info("OpenGraph tags missing for \(urlString), falling back to LPMetadataProvider")
+                let result = await provider.fetchMetadata(for: url)
+                if result == nil {
+                    Log.warning("RichLink fallback also returned nil for \(urlString)")
+                }
+                return result
             }
 
             return nil
@@ -114,7 +119,7 @@ public actor OpenGraphService {
             }
             return result
         } catch {
-            Log.error("OpenGraph fetch error for \(urlString): \(error.localizedDescription)")
+            Log.error("OpenGraph fetch error for \(urlString): \(error)")
             return nil
         }
     }

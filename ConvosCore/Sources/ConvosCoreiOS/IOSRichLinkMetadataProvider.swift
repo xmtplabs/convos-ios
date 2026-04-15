@@ -9,6 +9,11 @@ public final class IOSRichLinkMetadataProvider: RichLinkMetadataProviding, Senda
     public init() {}
 
     public func fetchMetadata(for url: URL) async -> OpenGraphService.OpenGraphMetadata? {
+        guard !LinkPreview.isPrivateHost(url) else {
+            Log.warning("RichLink rejected private host: \(url)")
+            return nil
+        }
+
         do {
             let extracted = try await fetchLinkMetadata(for: url)
 
@@ -27,7 +32,7 @@ public final class IOSRichLinkMetadataProvider: RichLinkMetadataProviding, Senda
                 imageHeight: nil
             )
         } catch {
-            Log.error("RichLink fetch failed for \(url): \(error.localizedDescription)")
+            Log.error("RichLink fetch failed for \(url): \(error)")
             return nil
         }
     }
@@ -87,10 +92,10 @@ public final class IOSRichLinkMetadataProvider: RichLinkMetadataProviding, Senda
               OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height)
         else { return nil }
 
-        let cacheKey = "richlink:\(originalURL.absoluteString)"
-        ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+        let imageURL = originalURL.absoluteString
+        ImageCache.shared.cacheImage(image, for: imageURL, storageTier: .cache)
 
-        return cacheKey
+        return imageURL
     }
 }
 #endif

@@ -52,7 +52,7 @@ extension LinkPreview {
         return resolved
     }
 
-    static func isPrivateHost(_ url: URL) -> Bool {
+    public static func isPrivateHost(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return true }
 
         if host == "localhost" || host.hasSuffix(".local") {
