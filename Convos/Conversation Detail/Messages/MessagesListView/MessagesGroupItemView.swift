@@ -331,6 +331,8 @@ private struct VideoTapAttachmentView: View {
     @State private var reactionsPeekVisible: Bool = false
     @State private var reactionsPeekTask: Task<Void, Never>?
     @State private var pendingPlayingDoubleTapReaction: Bool = false
+    @State private var reactionsPeekGeneration: Int = 0
+    @State private var playingDoubleTapAnimationTrigger: Int = 0
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -380,11 +382,12 @@ private struct VideoTapAttachmentView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if !reactions.isEmpty, !isPlaying || reactionsPeekVisible {
+            if (!reactions.isEmpty && !isPlaying) || reactionsPeekVisible {
                 MediaContainerReax(
                     reactions: reactions,
                     onTap: onTapReactions
                 )
+                .id(playingDoubleTapAnimationTrigger)
                 .background {
                     GeometryReader { geometry in
                         Color.clear.preference(
@@ -436,12 +439,11 @@ private struct VideoTapAttachmentView: View {
     private func handleDoubleTap() {
         guard isVideo else { return }
         if isPlaying {
-            guard currentUserHasHeartReaction == false else {
-                showReactionsPeek()
-                return
+            playingDoubleTapAnimationTrigger += 1
+            if currentUserHasHeartReaction == false {
+                pendingPlayingDoubleTapReaction = true
             }
-            pendingPlayingDoubleTapReaction = true
-            showReactionsPeek()
+            showReactionsPeek(forceShow: true)
         } else {
             onDoubleTapReaction?()
         }
@@ -453,10 +455,12 @@ private struct VideoTapAttachmentView: View {
         }
     }
 
-    private func showReactionsPeek() {
+    private func showReactionsPeek(forceShow: Bool = false) {
         reactionsPeekTask?.cancel()
+        reactionsPeekGeneration += 1
+        let generation = reactionsPeekGeneration
 
-        guard !reactions.isEmpty else {
+        guard !reactions.isEmpty || forceShow else {
             if pendingPlayingDoubleTapReaction {
                 pendingPlayingDoubleTapReaction = false
                 onDoubleTapReaction?()
@@ -468,14 +472,17 @@ private struct VideoTapAttachmentView: View {
             reactionsPeekVisible = true
         }
         reactionsPeekTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1100))
-            guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
-                reactionsPeekVisible = false
-            }
             if pendingPlayingDoubleTapReaction {
                 pendingPlayingDoubleTapReaction = false
                 onDoubleTapReaction?()
+                try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled, reactionsPeekGeneration == generation else { return }
+            }
+
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard !Task.isCancelled, reactionsPeekGeneration == generation else { return }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                reactionsPeekVisible = false
             }
         }
     }
