@@ -436,10 +436,20 @@ private struct VideoTapAttachmentView: View {
     private func handleDoubleTap() {
         guard isVideo else { return }
         if isPlaying {
+            guard currentUserHasHeartReaction == false else {
+                showReactionsPeek()
+                return
+            }
             pendingPlayingDoubleTapReaction = true
             showReactionsPeek()
         } else {
             onDoubleTapReaction?()
+        }
+    }
+
+    private var currentUserHasHeartReaction: Bool {
+        reactions.contains { reaction in
+            reaction.sender.isCurrentUser && reaction.emoji == "❤️"
         }
     }
 
