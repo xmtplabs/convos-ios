@@ -601,7 +601,12 @@ private struct AttachmentPlaceholder: View {
                 if atEnd {
                     let id = instanceID
                     player.seek(to: .zero) { [weak player] finished in
-                        guard finished else { return }
+                        guard finished else {
+                            DispatchQueue.main.async {
+                                isPlaying = false
+                            }
+                            return
+                        }
                         DispatchQueue.main.async {
                             player?.play()
                             isPlaying = true
@@ -666,9 +671,15 @@ private struct AttachmentPlaceholder: View {
             }
             let asset = AVURLAsset(url: videoURL)
             if resolvedDuration == nil {
-                if let cmDuration = try? await asset.load(.duration),
-                   cmDuration.seconds.isFinite {
-                    resolvedDuration = cmDuration.seconds
+                do {
+                    let cmDuration = try await asset.load(.duration)
+                    if cmDuration.seconds.isFinite {
+                        resolvedDuration = cmDuration.seconds
+                    } else {
+                        Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
+                    }
+                } catch {
+                    Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
                 }
             }
             if loadedImage == nil {
