@@ -118,19 +118,17 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     private func estimatedTranscriptHeight(for transcript: VoiceMemoTranscriptListItem) -> CGFloat {
         switch transcript.status {
         case .notRequested:
-            // Capsule-only row ("Tap to transcribe").
-            return 46
+            // Horizontal insets 8 + vertical insets 8 + 44pt capsule button.
+            return 60
         case .failed:
             return 0
         case .pending:
-            // Spinner + "Transcribing…" text.
+            // Horizontal insets 16 + bottom inset 12 + one callout-sized row.
             return 40
         case .completed:
-            // Caption2 header + 2-line preview text. Measured at ~56pt on a real
-            // device; see `[LayoutHeights] fitting=158.3` logs against the
-            // bare voice memo bubble at 97.7pt (delta = 60.6pt which includes the
-            // `stepX` top padding added by the parent VStack).
-            return 56
+            // Horizontal insets 16 + bottom inset 12 + caption2 header +
+            // two callout lines. The transcript preview uses `.lineLimit(2)`.
+            return 66
         case .permanentlyFailed:
             // `MessagesListRepository.synthesizeTranscriptItems` strips these
             // rows from the map so they are never attached to a `MessagesGroup`,

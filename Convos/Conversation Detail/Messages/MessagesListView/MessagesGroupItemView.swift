@@ -242,31 +242,15 @@ struct MessagesGroupItemView: View {
         let isBlurred = attachment.isHiddenByOwner || (!message.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
 
         if attachment.mediaType == .audio {
-            let playAction: () -> Void = {
-                NotificationCenter.default.post(
-                    name: .voiceMemoPlaybackRequested,
-                    object: nil,
-                    userInfo: ["messageId": message.messageId, "attachmentKey": attachment.key]
-                )
-            }
-            MessageContainer(style: bubbleType, isOutgoing: message.sender.isCurrentUser) {
-                VoiceMemoBubbleContent(
-                    message: message,
-                    attachment: attachment,
-                    isOutgoing: message.sender.isCurrentUser,
-                    player: .shared,
-                    isLoading: false,
-                    transcript: voiceMemoTranscript,
-                    onRetryTranscript: onRetryTranscript
-                )
-            }
-            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
-            .messageGesture(
+            VoiceMemoAttachmentView(
                 message: message,
-                bubbleStyle: bubbleType,
-                onSingleTap: playAction,
-                onReply: onReply
+                attachment: attachment,
+                bubbleType: bubbleType,
+                onReply: onReply,
+                transcript: voiceMemoTranscript,
+                onRetryTranscript: onRetryTranscript
             )
+            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
             .id(message.messageId)
         } else if attachment.mediaType == .file {
             let fileTapAction: () -> Void = { onOpenFile?(attachment) }

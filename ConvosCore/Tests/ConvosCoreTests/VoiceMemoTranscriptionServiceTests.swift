@@ -305,10 +305,41 @@ struct VoiceMemoTranscriptionServiceTests {
         #expect(deleted.isEmpty)
     }
 
-    @Test("attachment loader failures are written as permanently failed without invoking the transcriber")
-    func testAttachmentLoaderFailurePath() async throws {
+    @Test("retryable attachment loader failures are written as failed without invoking the transcriber")
+    func testRetryableAttachmentLoaderFailurePath() async throws {
         let transcriber = StubTranscriber(result: .success("never called"))
-        let attachmentLoader = StubAttachmentLoader(error: StubError.boom)
+        let attachmentLoader = StubAttachmentLoader(error: RemoteAttachmentLoaderError.decryptionFailed)
+        let repository = StubTranscriptRepository()
+        let writer = StubTranscriptWriter()
+
+        let service = VoiceMemoTranscriptionService(
+            transcriber: transcriber,
+            attachmentLoader: attachmentLoader,
+            transcriptRepository: repository,
+            transcriptWriter: writer
+        )
+
+        await service.enqueueIfNeeded(
+            messageId: "msg-1",
+            conversationId: "conv-1",
+            attachmentKey: "key-1",
+            mimeType: "audio/m4a"
+        )
+
+        try await waitUntil(timeout: .seconds(10)) { await writer.failedSnapshot().count == 1 }
+
+        let transcribeCalls = await transcriber.callCount()
+        let failed = await writer.failedSnapshot()
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
+        #expect(transcribeCalls == 0)
+        #expect(failed.count == 1)
+        #expect(permanentlyFailed.isEmpty)
+    }
+
+    @Test("non-retryable attachment loader failures are written as permanently failed")
+    func testNonRetryableAttachmentLoaderFailurePath() async throws {
+        let transcriber = StubTranscriber(result: .success("never called"))
+        let attachmentLoader = StubAttachmentLoader(error: RemoteAttachmentLoaderError.invalidAttachmentData)
         let repository = StubTranscriptRepository()
         let writer = StubTranscriptWriter()
 
@@ -334,6 +365,37 @@ struct VoiceMemoTranscriptionServiceTests {
         #expect(transcribeCalls == 0)
         #expect(failed.isEmpty)
         #expect(permanentlyFailed.count == 1)
+    }
+
+    @Test("unknown attachment loader failures default to failed so the user can retry")
+    func testUnknownAttachmentLoaderFailurePath() async throws {
+        let transcriber = StubTranscriber(result: .success("never called"))
+        let attachmentLoader = StubAttachmentLoader(error: RetryableLoaderError.offline)
+        let repository = StubTranscriptRepository()
+        let writer = StubTranscriptWriter()
+
+        let service = VoiceMemoTranscriptionService(
+            transcriber: transcriber,
+            attachmentLoader: attachmentLoader,
+            transcriptRepository: repository,
+            transcriptWriter: writer
+        )
+
+        await service.enqueueIfNeeded(
+            messageId: "msg-1",
+            conversationId: "conv-1",
+            attachmentKey: "key-1",
+            mimeType: "audio/m4a"
+        )
+
+        try await waitUntil(timeout: .seconds(10)) { await writer.failedSnapshot().count == 1 }
+
+        let transcribeCalls = await transcriber.callCount()
+        let failed = await writer.failedSnapshot()
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
+        #expect(transcribeCalls == 0)
+        #expect(failed.count == 1)
+        #expect(permanentlyFailed.isEmpty)
     }
 
     @Test("two concurrent enqueueIfNeeded calls deduplicate by message id")
@@ -384,6 +446,10 @@ struct VoiceMemoTranscriptionServiceTests {
 
 private enum StubError: Error {
     case boom
+}
+
+private enum RetryableLoaderError: Error {
+    case offline
 }
 
 // MARK: - Stubs

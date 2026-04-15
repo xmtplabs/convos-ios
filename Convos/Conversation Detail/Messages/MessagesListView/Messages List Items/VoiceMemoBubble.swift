@@ -19,6 +19,16 @@ struct VoiceMemoAttachmentView: View {
     @State private var player: VoiceMemoPlayer = .shared
     @State private var isLoading: Bool = false
 
+    private var playAction: () -> Void {
+        {
+            NotificationCenter.default.post(
+                name: .voiceMemoPlaybackRequested,
+                object: nil,
+                userInfo: ["messageId": message.messageId, "attachmentKey": attachment.key]
+            )
+        }
+    }
+
     var body: some View {
         MessageContainer(style: bubbleType, isOutgoing: message.sender.isCurrentUser) {
             VoiceMemoBubbleContent(
@@ -34,6 +44,7 @@ struct VoiceMemoAttachmentView: View {
         .messageGesture(
             message: message,
             bubbleStyle: bubbleType,
+            onSingleTap: playAction,
             onReply: onReply
         )
     }
@@ -162,47 +173,64 @@ struct VoiceMemoBubbleContent: View {
         switch transcriptStatus {
         case .completed:
             if let text = transcript?.text, !text.isEmpty {
-                let tapAction = { if isTruncated { isSheetPresented = true } }
-                Button(action: tapAction) {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text(text)
-                            .font(.caption)
-                            .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.6) : .colorTextSecondary)
-                            .lineLimit(3)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Group {
+                        if isTruncated {
+                            let tapAction = { isSheetPresented = true }
+                            Button(action: tapAction) {
                                 Text(text)
                                     .font(.caption)
-                                    .lineLimit(nil)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .hidden()
-                                    .overlay(GeometryReader { fullProxy in
-                                        GeometryReader { _ in
-                                            Color.clear.preference(
-                                                key: FullTextHeightKey.self,
-                                                value: fullProxy.size.height
-                                            )
-                                        }
-                                    })
-                            )
-                            .onPreferenceChange(FullTextHeightKey.self) { fullHeight in
-                                guard let fullHeight else { return }
-                                let lineHeight = UIFont.preferredFont(forTextStyle: .caption1).lineHeight
-                                isTruncated = fullHeight > lineHeight * 3.5
+                                    .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.6) : .colorTextSecondary)
+                                    .lineLimit(3)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            .buttonStyle(.plain)
+                            .background(GesturePassthroughBackground())
+                        } else {
+                            Text(text)
+                                .font(.caption)
+                                .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.6) : .colorTextSecondary)
+                                .lineLimit(3)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .background(
+                        Text(text)
+                            .font(.caption)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .hidden()
+                            .overlay(GeometryReader { fullProxy in
+                                GeometryReader { _ in
+                                    Color.clear.preference(
+                                        key: FullTextHeightKey.self,
+                                        value: fullProxy.size.height
+                                    )
+                                }
+                            })
+                    )
+                    .onPreferenceChange(FullTextHeightKey.self) { fullHeight in
+                        guard let fullHeight else { return }
+                        let lineHeight = UIFont.preferredFont(forTextStyle: .caption1).lineHeight
+                        isTruncated = fullHeight > lineHeight * 3.5
+                    }
 
-                        if isTruncated {
+                    if isTruncated {
+                        let tapAction = { isSheetPresented = true }
+                        Button(action: tapAction) {
                             Image(systemName: "chevron.right")
                                 .font(.subheadline)
                                 .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.3) : .colorTextTertiary)
+                                .frame(width: 24, height: 24)
                         }
+                        .buttonStyle(.plain)
+                        .background(GesturePassthroughBackground())
                     }
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .padding(.bottom, DesignConstants.Spacing.step3x)
                 }
-                .buttonStyle(.plain)
-                .background(GesturePassthroughBackground())
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.bottom, DesignConstants.Spacing.step3x)
             }
 
         case .notRequested:

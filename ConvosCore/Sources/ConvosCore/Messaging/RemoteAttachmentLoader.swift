@@ -6,6 +6,15 @@ public enum RemoteAttachmentLoaderError: Error {
     case reconstructionFailed
     case decryptionFailed
     case notAnImage
+
+    public var isRetryable: Bool {
+        switch self {
+        case .invalidAttachmentData, .notAnImage:
+            return false
+        case .reconstructionFailed, .decryptionFailed:
+            return true
+        }
+    }
 }
 
 public struct LoadedAttachment: Sendable {

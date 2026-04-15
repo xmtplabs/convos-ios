@@ -11,6 +11,8 @@ class MessageContextMenuState: @unchecked Sendable {
     var sourceID: UUID?
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
+    var voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
 
     var currentSourceFrame: CGRect = .zero
 

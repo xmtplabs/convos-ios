@@ -96,6 +96,11 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onConvoCode = onConvoCode
         messagesViewController.onInviteAssistant = onInviteAssistant
         messagesViewController.onRetryTranscript = onRetryTranscript
+        contextMenuState.onRetryTranscript = onRetryTranscript
+        contextMenuState.voiceMemoTranscripts = messages.reduce(into: [:]) { result, item in
+            guard case .messages(let group) = item else { return }
+            result.merge(group.voiceMemoTranscripts) { _, new in new }
+        }
         messagesViewController.hasAssistant = hasAssistant
         messagesViewController.isAssistantJoinPending = isAssistantJoinPending
         messagesViewController.isAssistantEnabled = isAssistantEnabled

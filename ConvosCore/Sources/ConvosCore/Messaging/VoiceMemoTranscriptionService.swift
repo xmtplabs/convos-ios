@@ -170,17 +170,40 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
         do {
             let loaded = try await attachmentLoader.loadAttachmentData(from: attachmentKey)
             fileURL = try Self.writeTemporaryAudioFile(data: loaded.data, mimeType: loaded.mimeType)
+        } catch let error as RemoteAttachmentLoaderError {
+            Log.error("[VoiceMemoTranscription] Failed to load audio for \(messageId): \(error)")
+            do {
+                if error.isRetryable {
+                    try await transcriptWriter.saveFailed(
+                        messageId: messageId,
+                        conversationId: conversationId,
+                        attachmentKey: attachmentKey,
+                        errorDescription: error.localizedDescription
+                    )
+                } else {
+                    try await transcriptWriter.markPermanentlyFailed(
+                        messageId: messageId,
+                        conversationId: conversationId,
+                        attachmentKey: attachmentKey,
+                        errorDescription: error.localizedDescription
+                    )
+                }
+            } catch {
+                Log.error("[VoiceMemoTranscription] Failed to persist attachment load failure for \(messageId): \(error)")
+            }
+            await state.clear(messageId: messageId)
+            return
         } catch {
             Log.error("[VoiceMemoTranscription] Failed to load audio for \(messageId): \(error)")
             do {
-                try await transcriptWriter.markPermanentlyFailed(
+                try await transcriptWriter.saveFailed(
                     messageId: messageId,
                     conversationId: conversationId,
                     attachmentKey: attachmentKey,
                     errorDescription: error.localizedDescription
                 )
             } catch {
-                Log.error("[VoiceMemoTranscription] Failed to mark permanently failed for \(messageId): \(error)")
+                Log.error("[VoiceMemoTranscription] Failed to save failed transcript for \(messageId): \(error)")
             }
             await state.clear(messageId: messageId)
             return

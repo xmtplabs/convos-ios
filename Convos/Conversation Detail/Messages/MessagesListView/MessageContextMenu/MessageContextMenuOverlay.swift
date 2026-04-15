@@ -674,7 +674,9 @@ struct MessageContextMenuOverlay: View {
                     attachment: attachment,
                     isOutgoing: state.isOutgoing,
                     player: .shared,
-                    isLoading: false
+                    isLoading: false,
+                    transcript: state.voiceMemoTranscripts[message.messageId],
+                    onRetryTranscript: state.onRetryTranscript
                 )
             }
         } else if attachment.mediaType == .file {
