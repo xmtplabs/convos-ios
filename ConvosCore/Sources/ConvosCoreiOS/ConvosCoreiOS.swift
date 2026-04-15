@@ -48,6 +48,7 @@ extension PlatformProviders {
         DeviceInfo.configure(deviceInfo)
         PushNotificationRegistrar.configure(pushNotificationRegistrar)
         ImageCompression.configure(IOSImageCompression())
+        RichLinkMetadata.configure(IOSRichLinkMetadataProvider())
 
         return PlatformProviders(
             appLifecycle: appLifecycle,

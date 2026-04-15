@@ -383,3 +383,39 @@ struct ImageValidationTests {
         #expect(!OpenGraphService.isValidImageSize(width: 10000, height: 10000))
     }
 }
+
+@Suite("Rich Link Metadata Fallback")
+struct RichLinkMetadataFallbackTests {
+    @Test("Provider is nil by default")
+    func providerNilByDefault() {
+        RichLinkMetadata.resetForTesting()
+        #expect(RichLinkMetadata.provider == nil)
+    }
+
+    @Test("Provider can be configured")
+    func providerCanBeConfigured() {
+        RichLinkMetadata.resetForTesting()
+        let mock = MockRichLinkProvider(result: nil)
+        RichLinkMetadata.configure(mock)
+        #expect(RichLinkMetadata.provider != nil)
+        RichLinkMetadata.resetForTesting()
+    }
+
+    @Test("Provider can be reset for testing")
+    func providerResetForTesting() {
+        RichLinkMetadata.resetForTesting()
+        let mock = MockRichLinkProvider(result: nil)
+        RichLinkMetadata.configure(mock)
+        #expect(RichLinkMetadata.provider != nil)
+        RichLinkMetadata.resetForTesting()
+        #expect(RichLinkMetadata.provider == nil)
+    }
+}
+
+private struct MockRichLinkProvider: RichLinkMetadataProviding {
+    let result: OpenGraphService.OpenGraphMetadata?
+
+    func fetchMetadata(for url: URL) async -> OpenGraphService.OpenGraphMetadata? {
+        result
+    }
+}
