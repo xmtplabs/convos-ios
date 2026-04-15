@@ -353,8 +353,15 @@ private struct VideoTapAttachmentView: View {
         .overlay(alignment: .topLeading) {
             if !isPlaying {
                 MediaContainerID(profile: profile, onTap: onTapAvatar)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: MessageGestureExclusionFrameKey.self,
+                                value: [geometry.frame(in: .global)]
+                            )
+                        }
+                    }
                     .offset(x: swipeOffset)
-                    .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -374,8 +381,15 @@ private struct VideoTapAttachmentView: View {
                     reactions: reactions,
                     onTap: onTapReactions
                 )
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: MessageGestureExclusionFrameKey.self,
+                            value: [geometry.frame(in: .global)]
+                        )
+                    }
+                }
                 .offset(x: swipeOffset)
-                .allowsHitTesting(false)
             }
         }
         .messageGesture(
