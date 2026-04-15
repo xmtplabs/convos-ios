@@ -17,6 +17,7 @@ struct MessagesGroupView: View {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
 
+    @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
@@ -198,6 +199,7 @@ struct MessagesGroupView: View {
                 onPhotoHidden: onPhotoHidden,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onOpenFile: onOpenFile,
+                onTapReactions: onTapReactions,
                 voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
                 voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
                 onRetryTranscript: onRetryTranscript,
@@ -232,7 +234,7 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func reactionRow(message: AnyMessage, isFullWidthAttachment: Bool) -> some View {
-        if !message.reactions.isEmpty {
+        if !message.reactions.isEmpty, !isFullWidthAttachment {
             ReactionIndicatorView(
                 reactions: message.reactions,
                 isOutgoing: message.sender.isCurrentUser,
@@ -325,7 +327,8 @@ struct MessagesGroupView: View {
                 removal: .opacity
             )
         )
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.top, group.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        .padding(.bottom, group.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: group)
         .onAppear {
             guard isAppearing, !hasAnimated else { return }

@@ -179,6 +179,9 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
+    var mediaZoomState: MediaZoomState = .init() {
+        didSet { dataSource.mediaZoomState = mediaZoomState }
+    }
     var onBottomOverscrollChanged: ((CGFloat) -> Void)?
     var onBottomOverscrollReleased: ((CGFloat) -> Void)?
     private var lastBottomOverscroll: CGFloat = 0.0

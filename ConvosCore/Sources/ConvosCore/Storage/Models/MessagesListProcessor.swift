@@ -275,6 +275,22 @@ public final class MessagesListProcessor: Sendable {
             items[idx] = .messages(group)
         }
 
+        for i in 0..<items.count {
+            guard items[i].isFullBleedAttachmentGroup else { continue }
+            if i > 0, items[i - 1].isFullBleedAttachmentGroup {
+                if case .messages(var group) = items[i] {
+                    group.adjacentToFullBleedAbove = true
+                    items[i] = .messages(group)
+                }
+            }
+            if i < items.count - 1, items[i + 1].isFullBleedAttachmentGroup {
+                if case .messages(var group) = items[i] {
+                    group.adjacentToFullBleedBelow = true
+                    items[i] = .messages(group)
+                }
+            }
+        }
+
         return items
     }
 

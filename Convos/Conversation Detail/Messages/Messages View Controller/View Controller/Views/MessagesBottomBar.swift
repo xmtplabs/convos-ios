@@ -367,6 +367,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onTapReactions: { _ in },
             onReply: { _ in },
             contextMenuState: .init(),
+            mediaZoomState: .init(),
             onPhotoRevealed: { _ in },
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },

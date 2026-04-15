@@ -9,6 +9,7 @@ struct CellConfig {
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
+    let mediaZoomState: MediaZoomState
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onAgentOutOfCredits: () -> Void
