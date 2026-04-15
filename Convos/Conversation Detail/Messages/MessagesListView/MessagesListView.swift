@@ -21,6 +21,7 @@ struct MessagesListView: View {
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
+    let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
@@ -155,7 +156,8 @@ struct MessagesListView: View {
             onReply: onReply,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,
-            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
+            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+            allVoiceMemoTranscripts: allVoiceMemoTranscripts
         )
     }
 }
