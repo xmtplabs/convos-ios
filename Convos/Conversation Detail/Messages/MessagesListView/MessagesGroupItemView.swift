@@ -16,6 +16,7 @@ struct MessagesGroupItemView: View {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onReaction: ((String, String) -> Void)?
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
@@ -297,7 +298,8 @@ struct MessagesGroupItemView: View {
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onReply: onReply,
                 onTapReactions: { onTapReactions?(message) },
-                onTapAvatar: { onTapAvatar(message) }
+                onTapAvatar: { onTapAvatar(message) },
+                onDoubleTapReaction: { onReaction?("❤️", message.messageId) }
             )
             .id(message.messageId)
         }
@@ -319,12 +321,15 @@ private struct VideoTapAttachmentView: View {
     let onReply: (AnyMessage) -> Void
     var onTapReactions: () -> Void = {}
     var onTapAvatar: () -> Void = {}
+    var onDoubleTapReaction: (() -> Void)?
 
     @State private var videoPlayTrigger: Bool = false
     @State private var isPlaying: Bool = false
     @State private var swipeOffset: CGFloat = 0
     @State private var resolvedDuration: Double?
     @State private var pendingPlayAfterReveal: Bool = false
+    @State private var reactionsPeekVisible: Bool = false
+    @State private var reactionsPeekTask: Task<Void, Never>?
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -353,8 +358,14 @@ private struct VideoTapAttachmentView: View {
         .overlay(alignment: .topLeading) {
             if !isPlaying {
                 MediaContainerID(profile: profile, onTap: onTapAvatar)
-                    .offset(x: swipeOffset)
-                    .allowsHitTesting(false)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: MessageGestureExclusionFrameKey.self,
+                                value: [geometry.frame(in: .global)]
+                            )
+                        }
+                    }
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -364,24 +375,44 @@ private struct VideoTapAttachmentView: View {
                     isVideo: isVideo,
                     duration: resolvedDuration ?? attachment.duration
                 )
-                .offset(x: swipeOffset)
                 .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if !isPlaying {
+            if !reactions.isEmpty, !isPlaying || reactionsPeekVisible {
                 MediaContainerReax(
                     reactions: reactions,
                     onTap: onTapReactions
                 )
-                .offset(x: swipeOffset)
-                .allowsHitTesting(false)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: MessageGestureExclusionFrameKey.self,
+                            value: [geometry.frame(in: .global)]
+                        )
+                    }
+                }
+                .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: reactionsPeekVisible)
+            }
+        }
+        .onDisappear {
+            reactionsPeekTask?.cancel()
+        }
+        .onChange(of: isPlaying) { _, playing in
+            if !playing {
+                reactionsPeekTask?.cancel()
+                reactionsPeekTask = nil
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                    reactionsPeekVisible = false
+                }
             }
         }
         .messageGesture(
             message: message,
             bubbleStyle: .normal,
             onSingleTap: singleTapAction,
+            onDoubleTap: handleDoubleTap,
             onReply: onReply,
             swipeOffset: $swipeOffset
         )
@@ -399,6 +430,30 @@ private struct VideoTapAttachmentView: View {
             return { videoPlayTrigger.toggle() }
         }
         return nil
+    }
+
+    private func handleDoubleTap() {
+        guard isVideo else { return }
+        if isPlaying {
+            showReactionsPeek()
+        } else {
+            onDoubleTapReaction?()
+        }
+    }
+
+    private func showReactionsPeek() {
+        guard !reactions.isEmpty else { return }
+        reactionsPeekTask?.cancel()
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
+            reactionsPeekVisible = true
+        }
+        reactionsPeekTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                reactionsPeekVisible = false
+            }
+        }
     }
 }
 
@@ -587,7 +642,12 @@ private struct AttachmentPlaceholder: View {
                 if atEnd {
                     let id = instanceID
                     player.seek(to: .zero) { [weak player] finished in
-                        guard finished else { return }
+                        guard finished else {
+                            DispatchQueue.main.async {
+                                isPlaying = false
+                            }
+                            return
+                        }
                         DispatchQueue.main.async {
                             player?.play()
                             isPlaying = true
@@ -652,9 +712,15 @@ private struct AttachmentPlaceholder: View {
             }
             let asset = AVURLAsset(url: videoURL)
             if resolvedDuration == nil {
-                if let cmDuration = try? await asset.load(.duration),
-                   cmDuration.seconds.isFinite {
-                    resolvedDuration = cmDuration.seconds
+                do {
+                    let cmDuration = try await asset.load(.duration)
+                    if cmDuration.seconds.isFinite {
+                        resolvedDuration = cmDuration.seconds
+                    } else {
+                        Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
+                    }
+                } catch {
+                    Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
                 }
             }
             if loadedImage == nil {
