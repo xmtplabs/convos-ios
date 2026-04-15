@@ -167,6 +167,29 @@ extension View {
     }
 }
 
+// MARK: - Gesture Passthrough Marker
+
+final class GesturePassthroughMarkerView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+struct GesturePassthroughBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> GesturePassthroughMarkerView {
+        GesturePassthroughMarkerView()
+    }
+
+    func updateUIView(_ uiView: GesturePassthroughMarkerView, context: Context) {}
+}
+
 // MARK: - Gesture Overlay (UIKit for reliable gesture disambiguation)
 
 private struct GestureOverlayView: UIViewRepresentable {
@@ -269,8 +292,71 @@ private struct GestureOverlayView: UIViewRepresentable {
         }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard bounds.contains(point) else { return nil }
+            if let linkView = findLinkViewInCell(at: point) {
+                return linkView
+            }
+            if hasPassthroughMarker(at: point) {
+                return nil
+            }
             guard self.point(inside: point, with: event) else { return nil }
             return self
+        }
+
+        private func findLinkViewInCell(at point: CGPoint) -> UIView? {
+            let root = findAncestorCell()?.contentView ?? superview
+            guard let root else { return nil }
+            let rootPoint = convert(point, to: root)
+            return findLinkView(in: root, at: rootPoint, excluding: self)
+        }
+
+        private func hasPassthroughMarker(at point: CGPoint) -> Bool {
+            let root = findAncestorCell()?.contentView ?? superview
+            guard let root else { return false }
+            let rootPoint = convert(point, to: root)
+            return findPassthroughMarker(in: root, at: rootPoint, excluding: self)
+        }
+
+        private func findLinkView(in view: UIView, at point: CGPoint, excluding: UIView) -> UIView? {
+            for subview in view.subviews.reversed() {
+                if subview === excluding { continue }
+                let subviewPoint = view.convert(point, to: subview)
+                if subview.bounds.contains(subviewPoint),
+                   let linkView = subview as? (any LinkHitTestable),
+                   linkView.containsLink(at: subviewPoint) {
+                    return linkView
+                }
+                if let found = findLinkView(in: subview, at: subviewPoint, excluding: excluding) {
+                    return found
+                }
+            }
+            return nil
+        }
+
+        private func findPassthroughMarker(in view: UIView, at point: CGPoint, excluding: UIView) -> Bool {
+            for subview in view.subviews.reversed() {
+                if subview === excluding { continue }
+                let subviewPoint = view.convert(point, to: subview)
+                guard subview.bounds.contains(subviewPoint) else { continue }
+                if subview is GesturePassthroughMarkerView {
+                    return true
+                }
+                if findPassthroughMarker(in: subview, at: subviewPoint, excluding: excluding) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        private func findAncestorCell() -> UICollectionViewCell? {
+            var current: UIView? = superview
+            while let view = current {
+                if let cell = view as? UICollectionViewCell {
+                    return cell
+                }
+                current = view.superview
+            }
+            return nil
         }
     }
 
