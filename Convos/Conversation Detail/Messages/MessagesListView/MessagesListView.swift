@@ -10,6 +10,7 @@ struct MessagesListView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
@@ -20,6 +21,7 @@ struct MessagesListView: View {
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
+    let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
@@ -32,7 +34,6 @@ struct MessagesListView: View {
         ScrollViewReader { _ in
             ScrollView {
                 LazyVStack(spacing: 0.0) {
-                    // Show invite or conversation info at the top
                     if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                         VStack(spacing: DesignConstants.Spacing.step4x) {
                             InviteView(invite: invite)
@@ -53,7 +54,6 @@ struct MessagesListView: View {
                         .id("conversation-info")
                     }
 
-                    // Render each message list item
                     ForEach(messages.enumerated(), id: \.element.id) { index, item in
                         Group {
                             switch item {
@@ -127,10 +127,6 @@ struct MessagesListView: View {
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in
-//                            if index == messages.count - 1 && isVisible {
-//                                loadPrevious()
-//                            }
-//
                             guard lastItemIndex == nil else { return }
 
                             if isVisible && index == messages.count - 1 {
@@ -140,7 +136,7 @@ struct MessagesListView: View {
                     }
                 }
             }
-            .scrollEdgeEffectHidden(for: [.bottom]) // fixes the flickering profile photo
+            .scrollEdgeEffectHidden(for: [.bottom])
             .animation(.spring(duration: 0.5, bounce: 0.2), value: messages)
             .contentMargins(.horizontal, DesignConstants.Spacing.step4x, for: .scrollContent)
             .defaultScrollAnchor(.bottom)
@@ -150,27 +146,18 @@ struct MessagesListView: View {
     }
 
     private func messagesGroupView(for group: MessagesGroup) -> MessagesGroupView {
-        let transcripts = Self.collectTranscripts(from: messages)
         return MessagesGroupView(
             group: group,
             shouldBlurPhotos: shouldBlurPhotos,
             onTapAvatar: onTapAvatar,
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
+            onReaction: onReaction,
             onReply: onReply,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-            allVoiceMemoTranscripts: transcripts
+            allVoiceMemoTranscripts: allVoiceMemoTranscripts
         )
-    }
-
-    private static func collectTranscripts(
-        from items: [MessagesListItemType]
-    ) -> [String: VoiceMemoTranscriptListItem] {
-        items.reduce(into: [:]) { result, item in
-            guard case .messages(let group) = item else { return }
-            result.merge(group.voiceMemoTranscripts) { _, new in new }
-        }
     }
 }

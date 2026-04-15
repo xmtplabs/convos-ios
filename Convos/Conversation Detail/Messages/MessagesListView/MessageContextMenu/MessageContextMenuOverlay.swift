@@ -677,10 +677,11 @@ struct MessageContextMenuOverlay: View {
             )
         } else {
             ContextMenuPhotoPreview(
-                attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                profile: profile, shouldBlur: shouldBlurPhoto,
+                attachmentKey: attachment.key,
+                shouldBlur: shouldBlurPhoto,
                 cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
+                isVideo: attachment.mediaType == .video,
+                isReplyParent: state.isReplyParent
             )
         }
     }
@@ -690,30 +691,24 @@ struct MessageContextMenuOverlay: View {
 
 private struct ContextMenuPhotoPreview: View {
     let attachmentKey: String
-    let isOutgoing: Bool
-    let profile: Profile
     let shouldBlur: Bool
     let cornerRadius: CGFloat
-    let showSenderLabel: Bool
+    let isVideo: Bool
     let isReplyParent: Bool
 
     @State private var loadedImage: UIImage?
 
     init(
         attachmentKey: String,
-        isOutgoing: Bool,
-        profile: Profile,
         shouldBlur: Bool,
         cornerRadius: CGFloat = DesignConstants.CornerRadius.photo,
-        showSenderLabel: Bool = true,
+        isVideo: Bool = false,
         isReplyParent: Bool = false
     ) {
         self.attachmentKey = attachmentKey
-        self.isOutgoing = isOutgoing
-        self.profile = profile
         self.shouldBlur = shouldBlur
         self.cornerRadius = cornerRadius
-        self.showSenderLabel = showSenderLabel
+        self.isVideo = isVideo
         self.isReplyParent = isReplyParent
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
@@ -721,21 +716,26 @@ private struct ContextMenuPhotoPreview: View {
     var body: some View {
         Group {
             if let image = loadedImage {
-                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: shouldBlur && !isReplyParent ? .fill : .fit)
-                        .scaleEffect(shouldBlur ? 1.65 : 1.0)
-                        .blur(radius: shouldBlur ? 96 : 0)
-                        .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
-
-                    if showSenderLabel {
-                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: shouldBlur && !isReplyParent ? .fill : .fit)
+                    .scaleEffect(shouldBlur ? 1.65 : 1.0)
+                    .blur(radius: shouldBlur ? 96 : 0)
+                    .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
+                    .overlay {
+                        if isVideo {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.primary)
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.85))
+                                .clipShape(Circle())
+                        }
                     }
-                }
-                .clipped()
-                .compositingGroup()
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                    .clipped()
+                    .compositingGroup()
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             } else {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(.quaternary)

@@ -15,6 +15,8 @@ struct MessagesGroupItemView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onTapReactions: ((AnyMessage) -> Void)?
+    var onReaction: ((String, String) -> Void)?
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
@@ -291,9 +293,13 @@ struct MessagesGroupItemView: View {
                 profile: message.sender.profile,
                 shouldBlurPhotos: shouldBlurPhotos,
                 isBlurred: isBlurred,
+                reactions: message.reactions,
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                onReply: onReply
+                onReply: onReply,
+                onTapReactions: { onTapReactions?(message) },
+                onTapAvatar: { onTapAvatar(message) },
+                onDoubleTapReaction: { onReaction?("❤️", message.messageId) }
             )
             .id(message.messageId)
         }
@@ -309,11 +315,33 @@ private struct VideoTapAttachmentView: View {
     let profile: Profile
     let shouldBlurPhotos: Bool
     let isBlurred: Bool
+    var reactions: [MessageReaction] = []
     let onPhotoRevealed: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onReply: (AnyMessage) -> Void
+    var onTapReactions: () -> Void = {}
+    var onTapAvatar: () -> Void = {}
+    var onDoubleTapReaction: (() -> Void)?
 
     @State private var videoPlayTrigger: Bool = false
+    @State private var isPlaying: Bool = false
+    @State private var swipeOffset: CGFloat = 0
+    @State private var resolvedDuration: Double?
+    @State private var pendingPlayAfterReveal: Bool = false
+    @State private var reactionsPeekVisible: Bool = false
+    @State private var reactionsPeekTask: Task<Void, Never>?
+    @State private var pendingPlayingDoubleTapReaction: Bool = false
+    @State private var reactionsPeekGeneration: Int = 0
+    @State private var playingDoubleTapAnimationTrigger: Int = 0
+
+    private var isVideo: Bool {
+        attachment.mediaType == .video
+    }
+
+    private var swipeCornerRadius: CGFloat {
+        let progress = min(abs(swipeOffset) / 60.0, 1.0)
+        return progress * 12.0
+    }
 
     var body: some View {
         AttachmentPlaceholder(
@@ -321,27 +349,142 @@ private struct VideoTapAttachmentView: View {
             isOutgoing: isOutgoing,
             profile: profile,
             shouldBlurPhotos: shouldBlurPhotos,
-            cornerRadius: 0,
+            cornerRadius: swipeCornerRadius,
             videoPlayTrigger: $videoPlayTrigger,
+            isPlaying: $isPlaying,
+            resolvedDuration: $resolvedDuration,
+            pendingPlayAfterReveal: $pendingPlayAfterReveal,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
         )
+        .overlay(alignment: .topLeading) {
+            if !isPlaying {
+                MediaContainerID(profile: profile, onTap: onTapAvatar)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: MessageGestureExclusionFrameKey.self,
+                                value: [geometry.frame(in: .global)]
+                            )
+                        }
+                    }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if !isPlaying {
+                MediaContainerInfo(
+                    isBlurred: isBlurred,
+                    isVideo: isVideo,
+                    duration: resolvedDuration ?? attachment.duration
+                )
+                .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if (!reactions.isEmpty && !isPlaying) || reactionsPeekVisible {
+                MediaContainerReax(
+                    reactions: reactions,
+                    onTap: onTapReactions
+                )
+                .id(playingDoubleTapAnimationTrigger)
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: MessageGestureExclusionFrameKey.self,
+                            value: [geometry.frame(in: .global)]
+                        )
+                    }
+                }
+                .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: reactionsPeekVisible)
+            }
+        }
+        .onDisappear {
+            reactionsPeekTask?.cancel()
+        }
+        .onChange(of: isPlaying) { _, playing in
+            if !playing {
+                reactionsPeekTask?.cancel()
+                reactionsPeekTask = nil
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                    reactionsPeekVisible = false
+                }
+            }
+        }
         .messageGesture(
             message: message,
             bubbleStyle: .normal,
             onSingleTap: singleTapAction,
-            onReply: onReply
+            onDoubleTap: handleDoubleTap,
+            onReply: onReply,
+            swipeOffset: $swipeOffset
         )
     }
 
     private var singleTapAction: (() -> Void)? {
         if isBlurred {
-            return { onPhotoRevealed(attachment.key) }
-        } else if attachment.mediaType == .video {
+            return {
+                onPhotoRevealed(attachment.key)
+                if isVideo {
+                    pendingPlayAfterReveal = true
+                }
+            }
+        } else if isVideo {
             return { videoPlayTrigger.toggle() }
         }
         return nil
+    }
+
+    private func handleDoubleTap() {
+        guard isVideo else { return }
+        if isPlaying {
+            playingDoubleTapAnimationTrigger += 1
+            if currentUserHasHeartReaction == false {
+                pendingPlayingDoubleTapReaction = true
+            }
+            showReactionsPeek(forceShow: true)
+        } else {
+            onDoubleTapReaction?()
+        }
+    }
+
+    private var currentUserHasHeartReaction: Bool {
+        reactions.contains { reaction in
+            reaction.sender.isCurrentUser && reaction.emoji == "❤️"
+        }
+    }
+
+    private func showReactionsPeek(forceShow: Bool = false) {
+        reactionsPeekTask?.cancel()
+        reactionsPeekGeneration += 1
+        let generation = reactionsPeekGeneration
+
+        guard !reactions.isEmpty || forceShow else {
+            if pendingPlayingDoubleTapReaction {
+                pendingPlayingDoubleTapReaction = false
+                onDoubleTapReaction?()
+            }
+            return
+        }
+
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
+            reactionsPeekVisible = true
+        }
+        reactionsPeekTask = Task { @MainActor in
+            if pendingPlayingDoubleTapReaction {
+                pendingPlayingDoubleTapReaction = false
+                onDoubleTapReaction?()
+                try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled, reactionsPeekGeneration == generation else { return }
+            }
+
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard !Task.isCancelled, reactionsPeekGeneration == generation else { return }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                reactionsPeekVisible = false
+            }
+        }
     }
 }
 
@@ -368,6 +511,9 @@ private struct AttachmentPlaceholder: View {
     let shouldBlurPhotos: Bool
     var cornerRadius: CGFloat = 0
     @Binding var videoPlayTrigger: Bool
+    @Binding var isPlaying: Bool
+    @Binding var resolvedDuration: Double?
+    @Binding var pendingPlayAfterReveal: Bool
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -376,7 +522,6 @@ private struct AttachmentPlaceholder: View {
     @State private var isLoading: Bool = true
     @State private var loadError: Error?
     @State private var inlinePlayer: AVPlayer?
-    @State private var isPlaying: Bool = false
     @State private var isLoadingVideo: Bool = false
     @State private var videoLoadFailed: Bool = false
     @State private var instanceID: UUID = UUID()
@@ -414,32 +559,22 @@ private struct AttachmentPlaceholder: View {
     var body: some View {
         Group {
             if let player = inlinePlayer {
-                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-                    InlineVideoPlayerView(player: player)
-                        .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-                        .blur(radius: showBlurOverlay ? blurRadius : 0)
-
-                    if showBlurOverlay, !isOutgoing {
-                        PhotoBlurOverlayContent()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .transition(.opacity)
+                InlineVideoPlayerView(player: player)
+                    .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
+                    .blur(radius: showBlurOverlay ? blurRadius : 0)
+                    .overlay(alignment: .top) {
+                        if !isPlaying {
+                            MediaTopGradient()
+                        }
                     }
-
-                    if !isPlaying, !shouldBlur, !videoLoadFailed {
-                        videoOverlay
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay {
+                        if !isPlaying, !videoLoadFailed {
+                            videoOverlay
+                        }
                     }
-
-                    if !isPlaying {
-                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
-                    }
-                }
-                .aspectRatio(placeholderAspectRatio, contentMode: .fit)
-                .clipped()
-                .overlay(alignment: isOutgoing ? .bottom : .top) {
-                    PhotoEdgeGradient(isOutgoing: isOutgoing)
-                }
-                .compositingGroup()
+                    .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+                    .clipped()
+                    .compositingGroup()
                 .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
                 .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
                 .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
@@ -449,7 +584,7 @@ private struct AttachmentPlaceholder: View {
                 ZStack {
                     photoContent(image: image)
 
-                    if isVideo, !shouldBlur, !videoLoadFailed {
+                    if isVideo, !videoLoadFailed {
                         if isLoadingVideo {
                             ProgressView()
                                 .tint(.white)
@@ -477,6 +612,9 @@ private struct AttachmentPlaceholder: View {
             if shouldBlur, isPlaying {
                 inlinePlayer?.pause()
                 isPlaying = false
+            } else if !shouldBlur, pendingPlayAfterReveal {
+                pendingPlayAfterReveal = false
+                handleVideoPlayTap()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
@@ -498,49 +636,24 @@ private struct AttachmentPlaceholder: View {
         }
     }
 
-    @ViewBuilder
     private var videoOverlay: some View {
-        ZStack {
-            Image(systemName: "play.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                .accessibilityIdentifier("video-play-button")
-        }
-
-        if let duration = attachment.duration {
-            VStack {
-                Spacer()
-                HStack {
-                    if !isOutgoing { Spacer() }
-                    Text(formatDuration(duration))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .accessibilityIdentifier("video-duration-badge")
-                    if isOutgoing { Spacer() }
-                }
-                .padding(DesignConstants.Spacing.step4x)
-            }
-        }
-    }
-
-    private func formatDuration(_ seconds: Double) -> String {
-        let totalSeconds = Int(seconds)
-        let hours = totalSeconds / 3600
-        let mins = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, mins, secs)
-        }
-        return String(format: "%d:%02d", mins, secs)
+        Image(systemName: "play.fill")
+            .font(.system(size: 15))
+            .foregroundStyle(.primary)
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial)
+            .background(Color.white.opacity(0.85))
+            .clipShape(Circle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("video-play-button")
     }
 
     private func handleVideoPlayTap() {
-        guard isVideo, !shouldBlur else { return }
+        guard isVideo else { return }
+        if shouldBlur {
+            pendingPlayAfterReveal = true
+            return
+        }
 
         if let player = inlinePlayer {
             if isPlaying {
@@ -560,13 +673,18 @@ private struct AttachmentPlaceholder: View {
                 if atEnd {
                     let id = instanceID
                     player.seek(to: .zero) { [weak player] finished in
-                        guard finished else { return }
+                        guard finished else {
+                            DispatchQueue.main.async {
+                                isPlaying = false
+                            }
+                            return
+                        }
                         DispatchQueue.main.async {
                             player?.play()
+                            isPlaying = true
+                            NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: id)
                         }
                     }
-                    isPlaying = true
-                    NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: id)
                 } else {
                     player.play()
                     isPlaying = true
@@ -579,66 +697,89 @@ private struct AttachmentPlaceholder: View {
 
     @ViewBuilder
     private func photoContent(image: UIImage) -> some View {
-        ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-                .blur(radius: showBlurOverlay ? blurRadius : 0)
-
-            if showBlurOverlay, !isOutgoing {
-                PhotoBlurOverlayContent()
-                    .transition(.opacity)
+        Image(uiImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
+            .blur(radius: showBlurOverlay ? blurRadius : 0)
+            .overlay(alignment: .top) {
+                MediaTopGradient()
             }
-
-            PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
-        }
-        .clipped()
-        .overlay(alignment: isOutgoing ? .bottom : .top) {
-            PhotoEdgeGradient(isOutgoing: isOutgoing)
-        }
-        .compositingGroup()
-        .contentShape(Rectangle())
-        .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
-        .animation(.easeOut(duration: 0.15), value: isPressed)
+            .clipped()
+            .compositingGroup()
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
+            .animation(.easeOut(duration: 0.15), value: isPressed)
     }
 
     private func loadAttachment() async {
         isLoading = true
         loadError = nil
 
-        let cacheKey = attachment.key
-
         if isVideo {
-            if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
-                loadedImage = thumb
-                isLoading = false
-                isLoadingVideo = true
-                videoLoadFailed = false
-                if attachment.width == nil {
-                    onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
-                }
-            }
-
-            do {
-                let videoURL = try await resolveVideoURL(for: attachment.key)
-                if attachment.width == nil {
-                    await loadVideoDimensionsIfPossible(from: videoURL)
-                }
-                let player = AVPlayer(url: videoURL)
-                await player.seek(to: .zero)
-                inlinePlayer = player
-                isLoading = false
-                isLoadingVideo = false
-            } catch {
-                loadError = error
-                isLoading = false
-                isLoadingVideo = false
-                videoLoadFailed = true
-                Log.error("Failed to load video: \(error)")
-            }
-            return
+            await loadVideoAttachment()
+        } else {
+            await loadPhotoAttachment()
         }
+    }
+
+    private func loadVideoAttachment() async {
+        let cacheKey = attachment.key
+        if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
+            loadedImage = thumb
+            ImageCache.shared.cacheImage(thumb, for: cacheKey)
+            isLoading = false
+            isLoadingVideo = true
+            videoLoadFailed = false
+            if attachment.width == nil {
+                onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+            }
+        }
+
+        do {
+            let videoURL = try await resolveVideoURL(for: attachment.key)
+            if attachment.width == nil {
+                await loadVideoDimensionsIfPossible(from: videoURL)
+            }
+            let asset = AVURLAsset(url: videoURL)
+            if resolvedDuration == nil {
+                do {
+                    let cmDuration = try await asset.load(.duration)
+                    if cmDuration.seconds.isFinite {
+                        resolvedDuration = cmDuration.seconds
+                    } else {
+                        Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
+                    }
+                } catch {
+                    Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
+                }
+            }
+            if loadedImage == nil {
+                let thumbnailData = try? await VideoCompressionService().generateThumbnail(for: asset)
+                if let thumbnailData, let thumb = UIImage(data: thumbnailData) {
+                    loadedImage = thumb
+                    ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
+                    if attachment.width == nil {
+                        onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+                    }
+                }
+            }
+            let player = AVPlayer(url: videoURL)
+            await player.seek(to: .zero)
+            inlinePlayer = player
+            isLoading = false
+            isLoadingVideo = false
+        } catch {
+            loadError = error
+            isLoading = false
+            isLoadingVideo = false
+            videoLoadFailed = true
+            Log.error("Failed to load video: \(error)")
+        }
+    }
+
+    private func loadPhotoAttachment() async {
+        let cacheKey = attachment.key
 
         if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
             loadedImage = cachedImage
@@ -650,23 +791,7 @@ private struct AttachmentPlaceholder: View {
         }
 
         do {
-            let imageData: Data
-
-            if attachment.key.hasPrefix("file://") {
-                let path = String(attachment.key.dropFirst("file://".count))
-                if FileManager.default.fileExists(atPath: path) {
-                    imageData = try Data(contentsOf: URL(fileURLWithPath: path))
-                } else {
-                    imageData = try await recoverInlineAttachmentData(from: path)
-                }
-            } else if attachment.key.hasPrefix("{") {
-                imageData = try await Self.loader.loadImageData(from: attachment.key)
-            } else if let url = URL(string: attachment.key) {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                imageData = data
-            } else {
-                throw NSError(domain: "AttachmentPlaceholder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid attachment data"])
-            }
+            let imageData = try await resolveImageData(for: attachment.key)
 
             if let image = UIImage(data: imageData) {
                 loadedImage = image
@@ -684,6 +809,22 @@ private struct AttachmentPlaceholder: View {
         }
 
         isLoading = false
+    }
+
+    private func resolveImageData(for key: String) async throws -> Data {
+        if key.hasPrefix("file://") {
+            let path = String(key.dropFirst("file://".count))
+            if FileManager.default.fileExists(atPath: path) {
+                return try Data(contentsOf: URL(fileURLWithPath: path))
+            }
+            return try await recoverInlineAttachmentData(from: path)
+        } else if key.hasPrefix("{") {
+            return try await Self.loader.loadImageData(from: key)
+        } else if let url = URL(string: key) {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return data
+        }
+        throw NSError(domain: "AttachmentPlaceholder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid attachment data"])
     }
 
     /// Reads the natural video dimensions from a decrypted local video file and
@@ -764,28 +905,153 @@ private struct AttachmentPlaceholder: View {
     }
 }
 
-// MARK: - Sender Label Overlay
+// MARK: - Media Overlay Containers
 
-struct PhotoSenderLabel: View {
+private struct MediaContainerID: View {
     let profile: Profile
-    let isOutgoing: Bool
+    var onTap: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            ProfileAvatarView(
-                profile: profile,
-                profileImage: nil,
-                useSystemPlaceholder: false
-            )
-            .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
+        let tapAction = { onTap?() ?? () }
+        Button(action: tapAction) {
+            HStack(spacing: 6) {
+                ProfileAvatarView(
+                    profile: profile,
+                    profileImage: nil,
+                    useSystemPlaceholder: false
+                )
+                .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
 
-            if !isOutgoing {
                 Text(profile.displayName)
                     .font(.caption)
                     .foregroundStyle(.white)
             }
+            .padding(DesignConstants.Spacing.step4x)
+            .contentShape(Rectangle())
         }
-        .padding(DesignConstants.Spacing.step4x)
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MediaContainerInfo: View {
+    let isBlurred: Bool
+    let isVideo: Bool
+    let duration: Double?
+
+    private var text: String? {
+        var parts: [String] = []
+        if isBlurred {
+            parts.append("Tap to reveal")
+        }
+        if isVideo, let duration {
+            parts.append(formatDuration(duration))
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    var body: some View {
+        if let text {
+            HStack {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+            }
+            .frame(height: 56)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let totalSeconds = Int(seconds)
+        let hours = totalSeconds / 3600
+        let mins = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+private struct MediaContainerReax: View {
+    let reactions: [MessageReaction]
+    let onTap: () -> Void
+
+    private var uniqueEmojis: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for reaction in reactions.sorted(by: { $0.date > $1.date }) where !seen.contains(reaction.emoji) {
+            seen.insert(reaction.emoji)
+            result.append(reaction.emoji)
+        }
+        return result
+    }
+
+    private var totalCount: Int {
+        reactions.count
+    }
+
+    private var currentUserHasReacted: Bool {
+        reactions.contains { $0.sender.isCurrentUser }
+    }
+
+    var body: some View {
+        if !reactions.isEmpty {
+            let tapAction = { onTap() }
+            Button(action: tapAction) {
+                reaxContent
+                    .padding(DesignConstants.Spacing.step4x)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var reaxContent: some View {
+        HStack(spacing: DesignConstants.Spacing.stepHalf) {
+            ForEach(uniqueEmojis, id: \.self) { emoji in
+                Text(emoji)
+                    .font(.callout)
+            }
+            if totalCount > 1 {
+                Text("\(totalCount)")
+                    .font(.footnote)
+                    .foregroundStyle(.black.opacity(0.6))
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .modifier(ReaxGlassModifier(reacted: currentUserHasReacted))
+    }
+}
+
+private struct ReaxGlassModifier: ViewModifier {
+    let reacted: Bool
+
+    func body(content: Content) -> some View {
+        if reacted {
+            content.glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .capsule)
+        } else {
+            content.glassEffect(.clear.interactive(), in: .capsule)
+        }
+    }
+}
+
+private struct MediaTopGradient: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Color(.colorBorderEdge).frame(height: 1)
+            LinearGradient(
+                colors: [.black, .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 56)
+            .opacity(0.15)
+            .blendMode(.multiply)
+        }
     }
 }
 

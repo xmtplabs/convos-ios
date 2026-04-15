@@ -21,11 +21,14 @@ struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
     let onSingleTap: (() -> Void)?
+    let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
+    var externalSwipeOffset: Binding<CGFloat>?
 
     @State private var swipeOffset: CGFloat = 0
     @State private var isPressed: Bool = false
     @State private var hasAppeared: Bool = false
+    @State private var interactiveExclusionFrames: [CGRect] = []
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
 
     private var isSourceBubble: Bool {
@@ -59,6 +62,9 @@ struct MessageGestureModifier: ViewModifier {
                     contextMenuState.currentSourceFrame = frame
                 }
             }
+            .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
+                interactiveExclusionFrames = frames
+            }
             .animation(.easeInOut(duration: 0.25), value: isPressed)
             .offset(x: swipeOffset)
             .background(alignment: .leading) {
@@ -77,10 +83,15 @@ struct MessageGestureModifier: ViewModifier {
                     GestureOverlayView(
                         contextMenuState: contextMenuState,
                         hasSingleTap: onSingleTap != nil,
+                        excludedFrames: interactiveExclusionFrames,
                         onSingleTap: { onSingleTap?() },
                         onDoubleTap: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
+                            if let onDoubleTap {
+                                onDoubleTap()
+                            } else {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
+                            }
                         },
                         onLongPress: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -93,10 +104,12 @@ struct MessageGestureModifier: ViewModifier {
                         },
                         onSwipeOffsetChanged: { offset in
                             swipeOffset = offset
+                            externalSwipeOffset?.wrappedValue = offset
                         },
                         onSwipeEnded: { triggered in
                             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                                 swipeOffset = 0
+                                externalSwipeOffset?.wrappedValue = 0
                             }
                             if triggered { onReply(message) }
                         },
@@ -107,7 +120,7 @@ struct MessageGestureModifier: ViewModifier {
                 }
             }
             .accessibilityAction(named: "React") {
-                contextMenuState.onToggleReaction?("❤️", message.messageId)
+                contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
             }
             .accessibilityAction(named: "Reply") {
                 onReply(message)
@@ -116,6 +129,14 @@ struct MessageGestureModifier: ViewModifier {
 
     private enum Constant {
         static let swipeThreshold: CGFloat = 60.0
+    }
+}
+
+struct MessageGestureExclusionFrameKey: PreferenceKey {
+    static let defaultValue: [CGRect] = []
+
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
     }
 }
 
@@ -131,15 +152,42 @@ extension View {
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
         onSingleTap: (() -> Void)? = nil,
-        onReply: @escaping (AnyMessage) -> Void
+        onDoubleTap: (() -> Void)? = nil,
+        onReply: @escaping (AnyMessage) -> Void,
+        swipeOffset: Binding<CGFloat>? = nil
     ) -> some View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
             onSingleTap: onSingleTap,
-            onReply: onReply
+            onDoubleTap: onDoubleTap,
+            onReply: onReply,
+            externalSwipeOffset: swipeOffset
         ))
     }
+}
+
+// MARK: - Gesture Passthrough Marker
+
+final class GesturePassthroughMarkerView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+struct GesturePassthroughBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> GesturePassthroughMarkerView {
+        GesturePassthroughMarkerView()
+    }
+
+    func updateUIView(_ uiView: GesturePassthroughMarkerView, context: Context) {}
 }
 
 // MARK: - Gesture Overlay (UIKit for reliable gesture disambiguation)
@@ -147,6 +195,7 @@ extension View {
 private struct GestureOverlayView: UIViewRepresentable {
     let contextMenuState: MessageContextMenuState
     let hasSingleTap: Bool
+    let excludedFrames: [CGRect]
     let onSingleTap: () -> Void
     let onDoubleTap: () -> Void
     let onLongPress: () -> Void
@@ -223,6 +272,7 @@ private struct GestureOverlayView: UIViewRepresentable {
 
     func updateUIView(_ uiView: GesturePassthroughView, context: Context) {
         context.coordinator.contextMenuState = contextMenuState
+        context.coordinator.excludedFrames = excludedFrames
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onLongPress = onLongPress
@@ -235,6 +285,12 @@ private struct GestureOverlayView: UIViewRepresentable {
     final class GesturePassthroughView: UIView {
         weak var coordinator: Coordinator?
 
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            guard bounds.contains(point) else { return false }
+            guard let coordinator else { return true }
+            return !coordinator.isExcluded(point: point, in: self)
+        }
+
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
             guard bounds.contains(point) else { return nil }
             if let linkView = findLinkViewInCell(at: point) {
@@ -243,6 +299,7 @@ private struct GestureOverlayView: UIViewRepresentable {
             if hasPassthroughMarker(at: point) {
                 return nil
             }
+            guard self.point(inside: point, with: event) else { return nil }
             return self
         }
 
@@ -307,6 +364,7 @@ private struct GestureOverlayView: UIViewRepresentable {
         weak var overlayView: GesturePassthroughView?
         weak var singleTapRecognizer: UITapGestureRecognizer?
         weak var contextMenuState: MessageContextMenuState?
+        var excludedFrames: [CGRect] = []
         var onSingleTap: (() -> Void)?
         var onDoubleTap: (() -> Void)?
         var onLongPress: (() -> Void)?
@@ -440,6 +498,11 @@ private struct GestureOverlayView: UIViewRepresentable {
             return nil
         }
 
+        func isExcluded(point: CGPoint, in overlay: UIView) -> Bool {
+            let pointInGlobal = overlay.convert(point, to: nil)
+            return excludedFrames.contains { $0.contains(pointInGlobal) }
+        }
+
         func gestureRecognizerShouldBegin(
             _ gestureRecognizer: UIGestureRecognizer
         ) -> Bool {
@@ -460,27 +523,4 @@ private struct GestureOverlayView: UIViewRepresentable {
             return true
         }
     }
-}
-
-// MARK: - Gesture Passthrough Marker
-
-final class GesturePassthroughMarkerView: UIView {
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isUserInteractionEnabled = false
-        backgroundColor = .clear
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-struct GesturePassthroughBackground: UIViewRepresentable {
-    func makeUIView(context: Context) -> GesturePassthroughMarkerView {
-        GesturePassthroughMarkerView()
-    }
-
-    func updateUIView(_ uiView: GesturePassthroughMarkerView, context: Context) {}
 }

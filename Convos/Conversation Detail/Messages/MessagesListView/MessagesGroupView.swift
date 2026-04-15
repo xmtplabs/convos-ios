@@ -8,6 +8,7 @@ struct MessagesGroupView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
@@ -18,6 +19,7 @@ struct MessagesGroupView: View {
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
 
+    @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
@@ -199,6 +201,8 @@ struct MessagesGroupView: View {
                 onPhotoHidden: onPhotoHidden,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onOpenFile: onOpenFile,
+                onTapReactions: onTapReactions,
+                onReaction: onReaction,
                 voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
                 voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
                 onRetryTranscript: onRetryTranscript,
@@ -241,7 +245,7 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func reactionRow(message: AnyMessage, isFullWidthAttachment: Bool) -> some View {
-        if !message.reactions.isEmpty {
+        if !message.reactions.isEmpty, !isFullWidthAttachment {
             ReactionIndicatorView(
                 reactions: message.reactions,
                 isOutgoing: message.sender.isCurrentUser,
@@ -334,7 +338,8 @@ struct MessagesGroupView: View {
                 removal: .opacity
             )
         )
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.top, group.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        .padding(.bottom, group.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: group)
         .onAppear {
             guard isAppearing, !hasAnimated else { return }
@@ -723,6 +728,7 @@ struct MessagesGroupView: View {
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
+                    onReaction: { _, _ in },
                     onReply: { _ in },
                     onPhotoRevealed: { _ in },
                     onPhotoHidden: { _ in },
