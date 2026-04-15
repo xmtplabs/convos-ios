@@ -16,6 +16,7 @@ struct MessagesGroupItemView: View {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onReaction: ((String, String) -> Void)?
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
@@ -297,7 +298,8 @@ struct MessagesGroupItemView: View {
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onReply: onReply,
                 onTapReactions: { onTapReactions?(message) },
-                onTapAvatar: { onTapAvatar(message) }
+                onTapAvatar: { onTapAvatar(message) },
+                onDoubleTapReaction: { onReaction?("❤️", message.messageId) }
             )
             .id(message.messageId)
         }
@@ -319,12 +321,15 @@ private struct VideoTapAttachmentView: View {
     let onReply: (AnyMessage) -> Void
     var onTapReactions: () -> Void = {}
     var onTapAvatar: () -> Void = {}
+    var onDoubleTapReaction: (() -> Void)?
 
     @State private var videoPlayTrigger: Bool = false
     @State private var isPlaying: Bool = false
     @State private var swipeOffset: CGFloat = 0
     @State private var resolvedDuration: Double?
     @State private var pendingPlayAfterReveal: Bool = false
+    @State private var reactionsPeekVisible: Bool = false
+    @State private var reactionsPeekTask: Task<Void, Never>?
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -376,7 +381,7 @@ private struct VideoTapAttachmentView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if !isPlaying {
+            if !reactions.isEmpty, !isPlaying || reactionsPeekVisible {
                 MediaContainerReax(
                     reactions: reactions,
                     onTap: onTapReactions
@@ -390,12 +395,27 @@ private struct VideoTapAttachmentView: View {
                     }
                 }
                 .offset(x: swipeOffset)
+                .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: reactionsPeekVisible)
+            }
+        }
+        .onDisappear {
+            reactionsPeekTask?.cancel()
+        }
+        .onChange(of: isPlaying) { _, playing in
+            if !playing {
+                reactionsPeekTask?.cancel()
+                reactionsPeekTask = nil
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                    reactionsPeekVisible = false
+                }
             }
         }
         .messageGesture(
             message: message,
             bubbleStyle: .normal,
             onSingleTap: singleTapAction,
+            onDoubleTap: handleDoubleTap,
             onReply: onReply,
             swipeOffset: $swipeOffset
         )
@@ -413,6 +433,30 @@ private struct VideoTapAttachmentView: View {
             return { videoPlayTrigger.toggle() }
         }
         return nil
+    }
+
+    private func handleDoubleTap() {
+        guard isVideo else { return }
+        if isPlaying {
+            showReactionsPeek()
+        } else {
+            onDoubleTapReaction?()
+        }
+    }
+
+    private func showReactionsPeek() {
+        guard !reactions.isEmpty else { return }
+        reactionsPeekTask?.cancel()
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
+            reactionsPeekVisible = true
+        }
+        reactionsPeekTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                reactionsPeekVisible = false
+            }
+        }
     }
 }
 

@@ -21,6 +21,7 @@ struct MessageGestureModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
     let onSingleTap: (() -> Void)?
+    let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
     var externalSwipeOffset: Binding<CGFloat>?
 
@@ -85,8 +86,12 @@ struct MessageGestureModifier: ViewModifier {
                         excludedFrames: interactiveExclusionFrames,
                         onSingleTap: { onSingleTap?() },
                         onDoubleTap: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
+                            if let onDoubleTap {
+                                onDoubleTap()
+                            } else {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
+                            }
                         },
                         onLongPress: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -147,6 +152,7 @@ extension View {
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
         onSingleTap: (() -> Void)? = nil,
+        onDoubleTap: (() -> Void)? = nil,
         onReply: @escaping (AnyMessage) -> Void,
         swipeOffset: Binding<CGFloat>? = nil
     ) -> some View {
@@ -154,6 +160,7 @@ extension View {
             message: message,
             bubbleStyle: bubbleStyle,
             onSingleTap: onSingleTap,
+            onDoubleTap: onDoubleTap,
             onReply: onReply,
             externalSwipeOffset: swipeOffset
         ))

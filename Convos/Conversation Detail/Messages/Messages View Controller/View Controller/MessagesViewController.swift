@@ -339,6 +339,10 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onTapReactions?(message)
         }
+        dataSource.onReaction = { [weak self] emoji, messageId in
+            guard let self = self else { return }
+            self.onReaction?(emoji, messageId)
+        }
         dataSource.onReply = { [weak self] message in
             guard let self = self else { return }
             self.onReply?(message)
