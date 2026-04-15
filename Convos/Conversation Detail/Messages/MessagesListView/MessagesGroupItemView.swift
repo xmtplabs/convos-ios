@@ -366,7 +366,6 @@ private struct VideoTapAttachmentView: View {
                             )
                         }
                     }
-                    .offset(x: swipeOffset)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -376,7 +375,6 @@ private struct VideoTapAttachmentView: View {
                     isVideo: isVideo,
                     duration: resolvedDuration ?? attachment.duration
                 )
-                .offset(x: swipeOffset)
                 .allowsHitTesting(false)
             }
         }
@@ -394,7 +392,6 @@ private struct VideoTapAttachmentView: View {
                         )
                     }
                 }
-                .offset(x: swipeOffset)
                 .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
                 .animation(.spring(response: 0.34, dampingFraction: 0.72), value: reactionsPeekVisible)
             }
