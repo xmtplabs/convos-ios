@@ -36,6 +36,13 @@ final class MessagesCollectionViewDataSource: NSObject {
     var isAssistantJoinPending: Bool = false
     var isAssistantEnabled: Bool = false
 
+    var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
+        sections.flatMap(\.cells).reduce(into: [:]) { result, item in
+            guard case .messages(let group) = item else { return }
+            result.merge(group.voiceMemoTranscripts) { _, new in new }
+        }
+    }
+
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
 
@@ -123,6 +130,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onRetryTranscript: { [weak self] item in
                 self?.onRetryTranscript?(item)
             },
+            allVoiceMemoTranscripts: allVoiceMemoTranscripts,
             hasAssistant: hasAssistant,
             isAssistantJoinPending: isAssistantJoinPending,
             isAssistantEnabled: isAssistantEnabled

@@ -197,10 +197,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         voiceMemoRecorder.cancelRecording()
                     }
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "trash.fill")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.colorTextSecondary)
-                        .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
+                        .foregroundStyle(.colorCaution)
+                        .frame(width: DesignConstants.Spacing.step11x, height: DesignConstants.Spacing.step11x)
                 }
                 .clipShape(.circle)
                 .glassEffect(.regular.interactive(), in: .circle)

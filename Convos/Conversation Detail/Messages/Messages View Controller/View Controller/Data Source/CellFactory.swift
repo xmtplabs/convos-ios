@@ -22,6 +22,7 @@ struct CellConfig {
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
+    let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool

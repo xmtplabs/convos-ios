@@ -82,6 +82,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 focusCoordinator.moveFocus(to: .message)
             },
             replyingToMessage: viewModel.replyingToMessage,
+            replyingToAudioTranscriptText: viewModel.replyingToAudioTranscriptText,
             onCancelReply: viewModel.cancelReply,
             onDisplayNameEndedEditing: {
                 viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)

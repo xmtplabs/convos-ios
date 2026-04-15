@@ -18,6 +18,7 @@ struct MessagesGroupItemView: View {
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
+    var parentAudioTranscriptText: String?
     var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
@@ -31,6 +32,17 @@ struct MessagesGroupItemView: View {
         omitTrailingPadding ? 0 : DesignConstants.Spacing.step4x
     }
 
+    private var isAudioAttachment: Bool {
+        switch message.content {
+        case .attachment(let attachment):
+            return attachment.mediaType == .audio
+        case .attachments(let attachments):
+            return attachments.first?.mediaType == .audio
+        default:
+            return false
+        }
+    }
+
     var body: some View {
         VStack(alignment: message.sender.isCurrentUser ? .trailing : .leading, spacing: 0.0) {
             if case .reply(let reply, _) = message {
@@ -42,7 +54,8 @@ struct MessagesGroupItemView: View {
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
                     onPhotoRevealed: onPhotoRevealed,
-                    onPhotoHidden: onPhotoHidden
+                    onPhotoHidden: onPhotoHidden,
+                    parentAudioTranscriptText: parentAudioTranscriptText
                 )
                 .padding(.leading, !message.sender.isCurrentUser && message.content.isFullBleedAttachment
                     ? DesignConstants.Spacing.step4x
@@ -50,7 +63,7 @@ struct MessagesGroupItemView: View {
                 .padding(.trailing, trailingPadding)
             }
             messageContent
-            if let voiceMemoTranscript {
+            if let voiceMemoTranscript, !isAudioAttachment {
                 VoiceMemoTranscriptRow(
                     item: voiceMemoTranscript,
                     isTailed: voiceMemoTranscriptIsTailed,
@@ -242,7 +255,9 @@ struct MessagesGroupItemView: View {
                     attachment: attachment,
                     isOutgoing: message.sender.isCurrentUser,
                     player: .shared,
-                    isLoading: false
+                    isLoading: false,
+                    transcript: voiceMemoTranscript,
+                    onRetryTranscript: onRetryTranscript
                 )
             }
             .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)

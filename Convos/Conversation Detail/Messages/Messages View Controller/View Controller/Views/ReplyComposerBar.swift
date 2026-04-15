@@ -5,6 +5,7 @@ import SwiftUI
 struct ReplyComposerBar: View {
     let message: AnyMessage
     let shouldBlurPhotos: Bool
+    var audioTranscriptText: String?
     let onDismiss: () -> Void
 
     private var senderName: String {
@@ -12,6 +13,9 @@ struct ReplyComposerBar: View {
     }
 
     private var previewText: String {
+        if isAudio, let audioTranscriptText, !audioTranscriptText.isEmpty {
+            return audioTranscriptText
+        }
         switch message.content {
         case .text(let text):
             return String(text.prefix(50))
@@ -77,7 +81,9 @@ struct ReplyComposerBar: View {
                 Image(systemName: "waveform")
                     .font(.system(size: 14))
                     .foregroundStyle(.colorTextSecondary)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 32, height: 32)
+                    .background(Color.colorFillSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             } else if let attachment {
                 ReplyPhotoThumbnail(
                     attachmentKey: attachment.key,

@@ -1207,6 +1207,19 @@ extension ConversationViewModel {
         }
     }
 
+    var replyingToAudioTranscriptText: String? {
+        guard let replyingToMessage,
+              replyingToMessage.content.primaryVoiceMemoAttachment != nil
+        else { return nil }
+        for item in messages {
+            guard case .messages(let group) = item else { continue }
+            if let transcript = group.voiceMemoTranscripts[replyingToMessage.messageId] {
+                return transcript.text
+            }
+        }
+        return nil
+    }
+
     func onReply(_ message: AnyMessage) {
         replyingToMessage = message
     }

@@ -167,8 +167,8 @@ struct VoiceMemoTranscriptionServiceTests {
         #expect(completed.first?.text == "Second attempt")
     }
 
-    @Test("recoverable transcriber failures are written via saveFailed and surfaced as errorDescription")
-    func testRecoverableFailurePathWritesFailed() async throws {
+    @Test("transcriber failures are written as permanently failed and surfaced as errorDescription")
+    func testRecoverableFailurePathWritesPermanentlyFailed() async throws {
         let transcriber = StubTranscriber(
             result: .failure(VoiceMemoTranscriberError.audioFileUnreadable)
         )
@@ -190,15 +190,15 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(10)) { await writer.failedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.permanentlyFailedSnapshot().count == 1 }
 
         let failed = await writer.failedSnapshot()
         let pending = await writer.pendingSnapshot()
         let permanentlyFailed = await writer.permanentlyFailedSnapshot()
         #expect(pending.count == 1)
-        #expect(failed.count == 1)
-        #expect(failed.first?.errorDescription?.contains("read") == true)
-        #expect(permanentlyFailed.isEmpty)
+        #expect(failed.isEmpty)
+        #expect(permanentlyFailed.count == 1)
+        #expect(permanentlyFailed.first?.errorDescription?.contains("read") == true)
     }
 
     @Test("cancellation propagates to the transcriber so the SpeechAnalyzer pipeline stops")
@@ -305,7 +305,7 @@ struct VoiceMemoTranscriptionServiceTests {
         #expect(deleted.isEmpty)
     }
 
-    @Test("attachment loader failures are written via saveFailed without invoking the transcriber")
+    @Test("attachment loader failures are written as permanently failed without invoking the transcriber")
     func testAttachmentLoaderFailurePath() async throws {
         let transcriber = StubTranscriber(result: .success("never called"))
         let attachmentLoader = StubAttachmentLoader(error: StubError.boom)
@@ -326,12 +326,14 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(10)) { await writer.failedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.permanentlyFailedSnapshot().count == 1 }
 
         let transcribeCalls = await transcriber.callCount()
         let failed = await writer.failedSnapshot()
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
         #expect(transcribeCalls == 0)
-        #expect(failed.count == 1)
+        #expect(failed.isEmpty)
+        #expect(permanentlyFailed.count == 1)
     }
 
     @Test("two concurrent enqueueIfNeeded calls deduplicate by message id")
