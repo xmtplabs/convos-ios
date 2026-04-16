@@ -51,9 +51,9 @@ Every checkpoint in the plan below lists its required **ADR touches** and **QA t
 
 ## Parallel Validation Agents
 
-Five teammate agents run alongside the implementation work in their own worktrees (via `convos-task new`), continuously validating the branch. They cover five axes: user-facing behavior (QA), code correctness (Tests), code quality & architecture (Review), privacy & crypto boundaries (Security), and documentation currency (Docs).
+Five teammate agents run alongside the implementation work using Claude Code's [Agent Teams](https://code.claude.com/docs/en/agent-teams) feature. They cover five axes: user-facing behavior (QA), code correctness (Tests), code quality & architecture (Review), privacy & crypto boundaries (Security), and documentation currency (Docs).
 
-Heavy validation paired with a small implementation footprint is deliberate — it minimizes merge conflicts while maximizing the probability that regressions, architectural drift, privacy mistakes, or doc rot are caught in the checkpoint they're introduced in.
+All teammates share the `single-inbox-refactor` branch and coordinate through the shared task list and mailbox; the lead session orchestrates. Heavy validation paired with a small implementation footprint is deliberate — it minimizes file conflicts on the shared branch while maximizing the probability that regressions, architectural drift, privacy mistakes, or doc rot are caught in the checkpoint they're introduced in.
 
 ### QA Agent (simulator E2E)
 - Runs the structured tests in `qa/tests/structured/*.yaml` against the current branch's simulator, using `qa/RULES.md` and CXDB (`qa/cxdb/qa.sqlite`) for state.
@@ -91,7 +91,9 @@ Every checkpoint below lists a **Tests** line specifying what the Test Agent sho
 
 ## Teammate Split
 
-This refactor is executed by **2 implementation teammates and 5 continuous validators**, all in parallel worktrees spun up via `convos-task`. The implementation side is deliberately thin — a single sequential "core" track plus a late-stage UI track — so that `SessionManager`, `KeychainIdentityStore`, `MyProfileWriter`, and every other hotly-contested file has exactly one owner at a time and no concurrent-edit conflicts arise.
+This refactor is executed by **2 implementation teammates and 5 continuous validators**, spawned and orchestrated via Claude Code's Agent Teams feature. The lead session (the one that creates the team) coordinates work via the shared task list and mailbox; teammates message each other directly. All teammates share the `single-inbox-refactor` branch — file-level conflict avoidance is enforced by the Overlap Resolution Rules below, not by per-teammate branches.
+
+The implementation side is deliberately thin — a single sequential "core" track plus a late-stage UI track — so that `SessionManager`, `KeychainIdentityStore`, `MyProfileWriter`, and every other hotly-contested file has exactly one owner at a time and no concurrent-edit conflicts arise.
 
 ### Implementation teammates
 
@@ -124,11 +126,9 @@ This refactor is executed by **2 implementation teammates and 5 continuous valid
 
 ### Branching strategy
 
-- **Integration branch**: `single-inbox-refactor`, off `dev`. This is the eventual PR target.
-- Each teammate creates their branch with `ct new <teammate-name> single-inbox-refactor` — Graphite stacks it on the integration branch automatically.
-- `single-inbox-core` merges each completed checkpoint into `single-inbox-refactor`; validators run `gt sync` to pick it up.
-- `single-inbox-ui` syncs when it starts and again after any notable core merge.
-- Doc-only changes from `single-inbox-docs` land as small direct PRs into `single-inbox-refactor`.
+- **Single shared branch**: `single-inbox-refactor`, off `dev`. All teammates work on this branch directly via Claude Code's Agent Teams feature — no per-teammate worktrees or sub-branches.
+- The lead session spawns teammates and they coordinate through the shared task list and mailbox. Each commits directly to `single-inbox-refactor`.
+- File-level conflict avoidance follows the Overlap Resolution Rules below — `core` owns architecture files, `ui` owns view files, validators are read-only (except `docs` which only writes documentation files).
 - **Final PR**: `single-inbox-refactor` → `dev`.
 
 ### Overlap resolution rules
@@ -556,26 +556,18 @@ git checkout -b single-inbox-refactor
 git push -u origin single-inbox-refactor
 ```
 
-### Wave 1 — spin up core + all 5 validators
+### Wave 1 — spawn core + all 5 validators via Agent Teams
 
-```bash
-ct new single-inbox-core     single-inbox-refactor
-ct new single-inbox-qa       single-inbox-refactor
-ct new single-inbox-tests    single-inbox-refactor
-ct new single-inbox-review   single-inbox-refactor
-ct new single-inbox-security single-inbox-refactor
-ct new single-inbox-docs     single-inbox-refactor
-```
+The team is created and managed from the lead session (this conversation). Steps the lead performs:
 
-Seed each session with the matching initial prompt from the appendix below.
+1. `TeamCreate` — name `single-inbox-refactor`, description matches the work.
+2. Populate the shared task list with the 14 checkpoints + ongoing validator tasks (via `TaskCreate` + `TaskUpdate` to set `blockedBy` dependencies).
+3. Spawn 6 teammates via the `Agent` tool, passing `team_name="single-inbox-refactor"` and a `name` per teammate. Use the appendix prompt as the spawn prompt for each. Suggested model split: Opus for `core`, Sonnet for the 5 validators.
+4. Assign initial tasks via `TaskUpdate` setting `owner`.
 
-### Wave 2 — UI (after C9 merges into `single-inbox-refactor`)
+### Wave 2 — UI (after C9 completes in the shared task list)
 
-```bash
-ct new single-inbox-ui single-inbox-refactor
-```
-
-Only one Wave 2 teammate — the rest of the team is already running.
+When the C9 task is marked `completed`, spawn the `single-inbox-ui` teammate the same way. Only one Wave 2 teammate — everyone else is already running.
 
 ### Closeout
 
