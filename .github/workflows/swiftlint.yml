@@ -13,7 +13,7 @@ env:
 jobs:
   SwiftLint:
     name: SwiftLint
-    runs-on: warp-macos-latest-arm64-6x
+    runs-on: warp-macos-26-arm64-6x
     steps:
       - uses: actions/checkout@v3
 
