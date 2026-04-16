@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><rect width="1024" height="1024" fill="none" stroke="none"></rect>
+  <defs><radialGradient id="halo" cx="0.5" cy="0.449" r="0.4">
+    <stop offset="0%" stop-color="#ff50aa" stop-opacity="0.9"></stop>
+    <stop offset="60%" stop-color="#ff2e9a" stop-opacity="0.35"></stop>
+    <stop offset="100%" stop-color="#ff2e9a" stop-opacity="0"></stop>
+  </radialGradient></defs>
+  <rect width="1024" height="1024" fill="url(#halo)"></rect></svg>

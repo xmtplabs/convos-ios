@@ -7,17 +7,17 @@
 
 ## Overview
 
-Add a fourth named build environment, "Testnet," that connects to the XMTP testnet network via a gateway (`payer.testnet-staging.xmtp.network`) and a separate Convos API backend. This environment is a separate dev environment. It has its own backend, bundle ID, and Apple identity, making it suitable for evaluating testnet infrastructure.
+Add a fourth named build environment, "Testnet," that connects to the XMTP testnet network via a gateway (`payer.testnet.xmtp.network`) and a separate Convos API backend. This environment is a separate dev environment. It has its own backend, bundle ID, and Apple identity, making it suitable for evaluating testnet infrastructure.
 
 ## Problem Statement
 
-There is no way to connect to the `testnet-staging` backend network in Convos today. This makes it impossible to evaluate the d14n capabilies of the XMTP SDKs.
+There is no way to connect to the `testnet` backend network in Convos today. This makes it impossible to evaluate the d14n capabilies of the XMTP SDKs.
 
 ## Goals
 
 - [ ] "Convos (Testnet)" scheme builds and runs in the simulator
 - [ ] App routes to the testnet Convos backend API (URL sourced from `.env` / `Secrets.swift`)
-- [ ] App connects to the XMTP dev network via gateway `payer.testnet-staging.xmtp.network`
+- [ ] App connects to the XMTP dev network via gateway `payer.testnet.xmtp.network`
 - [ ] Notification Service extension builds and works for Testnet
 - [ ] All existing Local, Dev, and Production environments continue to work without any behavior change
 - [ ] Documentation updated to reflect the new environment everywhere it is currently mentioned
@@ -84,7 +84,7 @@ New file at `Convos/Config/config.testnet.json`. Mirrors `config.dev.json` with 
 | `relyingPartyIdentifier` | [NEEDS DECISION] `"testnet.convos.org"` or same as Dev |
 | `associatedDomains` | [NEEDS DECISION] — see Open Questions |
 | `appUrlScheme` | `"convos-testnet"` |
-| `gatewayUrl` | `"payer.testnet-staging.xmtp.network"` |
+| `gatewayUrl` | `"payer.testnet.xmtp.network"` |
 
 Placing `gatewayUrl` in the config JSON is the cleanest approach: it follows the existing pattern, is visible in version control, and avoids hardcoding a fallback inside `ConfigManager`.
 

@@ -11,6 +11,15 @@ public struct XMTPAPIOptionsBuilder {
     /// - Parameter environment: The app environment to build options for
     /// - Returns: Configured API options for XMTP client
     public static func build(environment: AppEnvironment) -> ClientOptions.Api {
+        if let gatewayUrl = environment.gatewayUrl, !gatewayUrl.isEmpty {
+            return ClientOptions.Api(
+                env: environment.xmtpEnv,
+                isSecure: environment.isSecure,
+                appVersion: "convos/\(Bundle.appVersion)",
+                gatewayHost: gatewayUrl
+            )
+        }
+
         // Set custom local address if configured
         if let customHost = environment.customLocalAddress {
             Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
@@ -44,7 +53,7 @@ public extension AppEnvironment {
 
         switch self {
         case .local, .tests: return .local
-        case .dev: return .dev
+        case .dev, .testnet: return .dev
         case .production: return .production
         }
     }

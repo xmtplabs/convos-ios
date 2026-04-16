@@ -26,8 +26,9 @@ help: ## Print comprehensive help for all commands
 	@echo "   make protobuf        - Generate Swift code from Protocol Buffer definitions"
 	@echo ""
 	@echo "🌐 Environment Configuration:"
-	@echo "   • Local: org.convos.ios (local development, auto-detected IP in build phase)"
+	@echo "   • Local: org.convos.ios-local (local development, auto-detected IP in build phase)"
 	@echo "   • Dev: org.convos.ios-preview (TestFlight internal, CI: dev branch)"
+	@echo "   • Testnet: org.convos.ios-testnet (testnet infrastructure, XMTP dev network via gateway)"
 	@echo "   • Prod: org.convos.ios (App Store, CI: main branch)"
 	@echo ""
 	@echo "📋 Build Workflow:"
@@ -93,6 +94,7 @@ status: ## Show project status (version, secrets, git)
 	@echo "🌍 Available Schemes:"
 	@echo "   • Local: Auto-generates secrets with IP detection in build phase"
 	@echo "   • Dev: Uses minimal secrets from .env or 'make secrets'"
+	@echo "   • Testnet: Uses secrets from .env (CONVOS_API_BASE_URL required)"
 	@echo "   • Prod: Uses minimal secrets from .env or 'make secrets'"
 
 .PHONY: protobuf

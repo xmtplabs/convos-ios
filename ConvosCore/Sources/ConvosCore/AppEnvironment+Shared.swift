@@ -37,6 +37,8 @@ public struct SharedAppConfiguration: Codable {
             return .local(config: config)
         case "dev":
             return .dev(config: config)
+        case "testnet":
+            return .testnet(config: config)
         case "production":
             return .production(config: config)
         default:

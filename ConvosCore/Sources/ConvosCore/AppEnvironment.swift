@@ -23,6 +23,7 @@ public enum AppEnvironment: Sendable {
     case local(config: ConvosConfiguration)
     case tests
     case dev(config: ConvosConfiguration)
+    case testnet(config: ConvosConfiguration)
     case production(config: ConvosConfiguration)
 
     // Only used for testing
@@ -41,6 +42,8 @@ public enum AppEnvironment: Sendable {
             return "local"
         case .dev:
             return "dev"
+        case .testnet:
+            return "testnet"
         case .production:
             return "production"
         case .tests:
@@ -55,6 +58,8 @@ public enum AppEnvironment: Sendable {
             return .local(config: config)
         case .dev:
             return .dev(config: config)
+        case .testnet:
+            return .testnet(config: config)
         case .production:
             return .production(config: config)
         case .tests:
@@ -63,7 +68,7 @@ public enum AppEnvironment: Sendable {
     }
 
     public enum EnvironmentType {
-        case local, dev, production, tests
+        case local, dev, testnet, production, tests
     }
 
     public var firebaseConfigURL: URL? {
@@ -73,6 +78,8 @@ public enum AppEnvironment: Sendable {
             resource = "GoogleService-Info.Local"
         case .dev:
             resource = "GoogleService-Info.Dev"
+        case .testnet:
+            resource = "GoogleService-Info.Testnet"
         case .production:
             resource = "GoogleService-Info.Prod"
         }
@@ -94,6 +101,9 @@ public enum AppEnvironment: Sendable {
         case .dev(let config):
             Log.info("Using API URL from dev config: \(config.apiBaseURL)")
             return config.apiBaseURL
+        case .testnet(let config):
+            Log.info("Using API URL from testnet config: \(config.apiBaseURL)")
+            return config.apiBaseURL
         case .production(let config):
             Log.info("Using API URL from production config: \(config.apiBaseURL)")
             return config.apiBaseURL
@@ -102,7 +112,7 @@ public enum AppEnvironment: Sendable {
 
     public var appGroupIdentifier: String {
         switch self {
-        case .local(config: let config), .dev(config: let config), .production(config: let config):
+        case .local(config: let config), .dev(config: let config), .testnet(config: let config), .production(config: let config):
             return config.appGroupIdentifier
         case .tests:
             return "group.org.convos.ios-local"
@@ -118,7 +128,7 @@ public enum AppEnvironment: Sendable {
 
     public var relyingPartyIdentifier: String {
         switch self {
-        case .local(config: let config), .dev(config: let config), .production(config: let config):
+        case .local(config: let config), .dev(config: let config), .testnet(config: let config), .production(config: let config):
             return config.relyingPartyIdentifier
         case .tests:
             return "local.convos.org"
@@ -127,7 +137,7 @@ public enum AppEnvironment: Sendable {
 
     var xmtpEndpoint: String? {
         switch self {
-        case .local(config: let config), .dev(config: let config), .production(config: let config):
+        case .local(config: let config), .dev(config: let config), .testnet(config: let config), .production(config: let config):
             return config.xmtpEndpoint
         case .tests:
             // Support environment variable for CI
@@ -141,7 +151,7 @@ public enum AppEnvironment: Sendable {
 
     var xmtpNetwork: String? {
         switch self {
-        case .local(config: let config), .dev(config: let config), .production(config: let config):
+        case .local(config: let config), .dev(config: let config), .testnet(config: let config), .production(config: let config):
             return config.xmtpNetwork
         case .tests:
             return nil
@@ -150,7 +160,7 @@ public enum AppEnvironment: Sendable {
 
     var gatewayUrl: String? {
         switch self {
-        case .local(config: let config), .dev(config: let config), .production(config: let config):
+        case .local(config: let config), .dev(config: let config), .testnet(config: let config), .production(config: let config):
             return config.gatewayUrl
         case .tests:
             return nil
