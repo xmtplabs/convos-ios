@@ -286,7 +286,7 @@ struct MessagesGroupItemView: View {
             )
             .id(message.messageId)
         } else {
-            VideoTapAttachmentView(
+            MediaAttachmentView(
                 attachment: attachment,
                 message: message,
                 isOutgoing: message.sender.isCurrentUser,
@@ -308,7 +308,7 @@ struct MessagesGroupItemView: View {
 
 // MARK: - Attachment Views
 
-private struct VideoTapAttachmentView: View {
+private struct MediaAttachmentView: View {
     let attachment: HydratedAttachment
     let message: AnyMessage
     let isOutgoing: Bool
@@ -416,7 +416,7 @@ private struct VideoTapAttachmentView: View {
             message: message,
             bubbleStyle: .normal,
             onSingleTap: singleTapAction,
-            onDoubleTap: handleDoubleTap,
+            onDoubleTap: doubleTapAction,
             onReply: onReply,
             swipeOffset: $swipeOffset
         )
@@ -436,10 +436,17 @@ private struct VideoTapAttachmentView: View {
         return nil
     }
 
+    private var doubleTapAction: (() -> Void)? {
+        guard isVideo else { return nil }
+        return handleDoubleTap
+    }
+
     private func handleDoubleTap() {
-        guard isVideo else { return }
         if isPlaying {
             playingDoubleTapAnimationTrigger += 1
+            if reactionsPeekVisible {
+                reactionsPeekVisible = false
+            }
             if currentUserHasHeartReaction == false {
                 pendingPlayingDoubleTapReaction = true
             }
