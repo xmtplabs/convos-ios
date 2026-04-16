@@ -429,220 +429,233 @@ struct ConversationInfoView: View {
         }
     }
 
-    private var infoContent: some View {
-        NavigationStack {
-            List {
-                headerSection
+    private var infoList: some View {
+        List {
+            headerSection
 
-                membersSection
+            membersSection
 
-                assistantSection
+            assistantSection
 
-                convoCodeSection
+            convoCodeSection
 
-                if viewModel.canRemoveMembers {
-                    Section {
-                        ExplodeInfoRow(
-                            scheduledExplosionDate: viewModel.scheduledExplosionDate,
-                            onTap: { showingExplodeSheet = true },
-                            onExplodeNow: { viewModel.explodeConvo() }
-                        )
-                    }
-                }
-
-                preferencesSection
-
-                convoRulesSection
-
-                vanishSection
-
-                permissionsSection
-
-                if !ConfigManager.shared.currentEnvironment.isProduction {
-                    Section {
-                        HStack {
-                            Text("Fork status")
-                            Spacer()
-                            Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        HStack {
-                            Text("Epoch")
-                            Spacer()
-                            Text("\(viewModel.conversation.debugInfo.epoch)")
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
-                        } label: {
-                            Text("Fork details")
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
-                        } label: {
-                            Text("Local commit log")
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
-                        } label: {
-                            Text("Remote commit log")
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: metadataDebugText)
-                                .task {
-                                    metadataDebugText = await viewModel.conversationMetadataDebugText()
-                                }
-                        } label: {
-                            Text("Metadata")
-                        }
-                        Button {
-                            showingRestoreInviteTagAlert = true
-                        } label: {
-                            Text("Restore invite tag")
-                        }
-                        if let url = exportedLogsURL {
-                            ShareLink(item: url) {
-                                HStack {
-                                    Text("Share logs")
-                                    Spacer()
-                                    Image(systemName: "square.and.arrow.up")
-                                }
-                            }
-                        } else {
-                            HStack {
-                                Text("Preparing logs…")
-                                Spacer()
-                                ProgressView()
-                            }
-                            .foregroundStyle(.colorTextSecondary)
-                        }
-                    } header: {
-                        Text("Debug info")
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                    .task {
-                        do {
-                            exportedLogsURL = try await viewModel.exportDebugLogs()
-                        } catch {
-                            Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-            .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
-                TextField("Invite tag", text: $restoreInviteTagText)
-                Button("Cancel", role: .cancel) {
-                    restoreInviteTagText = ""
-                }
-                Button("Restore") {
-                    let expectedTag = restoreInviteTagText
-                    restoreInviteTagText = ""
-                    Task {
-                        do {
-                            try await viewModel.restoreInviteTagIfMissing(expectedTag)
-                            metadataDebugText = await viewModel.conversationMetadataDebugText()
-                        } catch {
-                            let refreshedDebugText = await viewModel.conversationMetadataDebugText()
-                            metadataDebugText = "Restore failed: \(error.localizedDescription)\n\n\(refreshedDebugText)"
-                        }
-                    }
-                }
-            } message: {
-                Text("Only use this if you know the expected invite tag for this convo.")
-            }
-            .scrollContentBackground(.hidden)
-            .background(.colorBackgroundRaisedSecondary)
-            .toolbarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .cancel) {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if viewModel.isLocked {
-                        Button {
-                            showingLockedInfo = true
-                        } label: {
-                            Image(systemName: "lock.fill")
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        .accessibilityLabel("Conversation locked")
-                        .accessibilityIdentifier("info-lock-button")
-                    } else {
-                        AddToConversationMenu(
-                            isFull: viewModel.isFull,
-                            hasAssistant: viewModel.conversation.hasAgent,
-                            isEnabled: true,
-                            onConvoCode: {
-                                if viewModel.isFull {
-                                    showingFullInfo = true
-                                } else {
-                                    presentingShareView = true
-                                }
-                            },
-                            onCopyLink: {
-                                viewModel.copyInviteLink()
-                            },
-                            onInviteAssistant: {
-                                viewModel.requestAssistantJoin()
-                            }
-                        )
-                        .accessibilityIdentifier("info-add-button")
-                    }
-                }
-            }
-            .selfSizingSheet(isPresented: $showingLockedInfo) {
-                LockedConvoInfoView(
-                    isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                    isLocked: viewModel.isLocked,
-                    onLock: {
-                        viewModel.toggleLock()
-                        showingLockedInfo = false
-                    },
-                    onDismiss: {
-                        showingLockedInfo = false
-                    }
-                )
-            }
-            .selfSizingSheet(isPresented: $showingFullInfo) {
-                FullConvoInfoView(onDismiss: {
-                    showingFullInfo = false
-                })
-            }
-            .overlay {
-                if presentingShareView {
-                    ConversationShareOverlay(
-                        conversation: viewModel.conversation,
-                        invite: viewModel.invite,
-                        isPresented: $presentingShareView,
-                        topSafeAreaInset: 0
+            if viewModel.canRemoveMembers {
+                Section {
+                    ExplodeInfoRow(
+                        scheduledExplosionDate: viewModel.scheduledExplosionDate,
+                        onTap: { showingExplodeSheet = true },
+                        onExplodeNow: { viewModel.explodeConvo() }
                     )
                 }
             }
-            .background {
-                Color.clear
-                    .fullScreenCover(isPresented: $showingExplodeSheet) {
-                        ExplodeConvoSheet(
-                            isScheduled: viewModel.scheduledExplosionDate != nil,
-                            onSchedule: { date in
-                                viewModel.scheduleExplosion(at: date)
-                                showingExplodeSheet = false
-                            },
-                            onExplodeNow: {
-                                viewModel.explodeConvo()
-                            },
-                            onDismiss: {
-                                showingExplodeSheet = false
-                            }
-                        )
-                        .presentationBackground(.clear)
+
+            preferencesSection
+
+            convoRulesSection
+
+            vanishSection
+
+            permissionsSection
+
+            debugInfoSection
+        }
+    }
+
+    @ViewBuilder
+    private var debugInfoSection: some View {
+        if !ConfigManager.shared.currentEnvironment.isProduction {
+            Section {
+                HStack {
+                    Text("Fork status")
+                    Spacer()
+                    Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                HStack {
+                    Text("Epoch")
+                    Spacer()
+                    Text("\(viewModel.conversation.debugInfo.epoch)")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                NavigationLink {
+                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
+                } label: {
+                    Text("Fork details")
+                }
+                NavigationLink {
+                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
+                } label: {
+                    Text("Local commit log")
+                }
+                NavigationLink {
+                    DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
+                } label: {
+                    Text("Remote commit log")
+                }
+                NavigationLink {
+                    DebugLogsTextView(logs: metadataDebugText)
+                        .task {
+                            metadataDebugText = await viewModel.conversationMetadataDebugText()
+                        }
+                } label: {
+                    Text("Metadata")
+                }
+                Button {
+                    showingRestoreInviteTagAlert = true
+                } label: {
+                    Text("Restore invite tag")
+                }
+                if let url = exportedLogsURL {
+                    ShareLink(item: url) {
+                        HStack {
+                            Text("Share logs")
+                            Spacer()
+                            Image(systemName: "square.and.arrow.up")
+                        }
                     }
-                    .transaction { transaction in
-                        transaction.disablesAnimations = true
+                } else {
+                    HStack {
+                        Text("Preparing logs…")
+                        Spacer()
+                        ProgressView()
                     }
+                    .foregroundStyle(.colorTextSecondary)
+                }
+            } header: {
+                Text("Debug info")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.colorTextSecondary)
             }
+            .task {
+                do {
+                    exportedLogsURL = try await viewModel.exportDebugLogs()
+                } catch {
+                    Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private var navigationBarContent: some ToolbarContent {
+        Group {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(role: .cancel) {
+                    dismiss()
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if viewModel.isLocked {
+                    Button {
+                        showingLockedInfo = true
+                    } label: {
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.colorTextSecondary)
+                    }
+                    .accessibilityLabel("Conversation locked")
+                    .accessibilityIdentifier("info-lock-button")
+                } else {
+                    AddToConversationMenu(
+                        isFull: viewModel.isFull,
+                        hasAssistant: viewModel.conversation.hasAgent,
+                        isEnabled: true,
+                        onConvoCode: {
+                            if viewModel.isFull {
+                                showingFullInfo = true
+                            } else {
+                                presentingShareView = true
+                            }
+                        },
+                        onCopyLink: {
+                            viewModel.copyInviteLink()
+                        },
+                        onInviteAssistant: {
+                            viewModel.requestAssistantJoin()
+                        }
+                    )
+                    .accessibilityIdentifier("info-add-button")
+                }
+            }
+        }
+    }
+
+    private var infoContent: some View {
+        NavigationStack {
+            infoList
+                .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
+                    TextField("Invite tag", text: $restoreInviteTagText)
+                    Button("Cancel", role: .cancel) {
+                        restoreInviteTagText = ""
+                    }
+                    Button("Restore") {
+                        let expectedTag = restoreInviteTagText
+                        restoreInviteTagText = ""
+                        Task {
+                            do {
+                                try await viewModel.restoreInviteTagIfMissing(expectedTag)
+                                metadataDebugText = await viewModel.conversationMetadataDebugText()
+                            } catch {
+                                let refreshedDebugText = await viewModel.conversationMetadataDebugText()
+                                metadataDebugText = "Restore failed: \(error.localizedDescription)\n\n\(refreshedDebugText)"
+                            }
+                        }
+                    }
+                } message: {
+                    Text("Only use this if you know the expected invite tag for this convo.")
+                }
+                .scrollContentBackground(.hidden)
+                .background(.colorBackgroundRaisedSecondary)
+                .toolbarTitleDisplayMode(.inline)
+                .toolbar { navigationBarContent }
+                .selfSizingSheet(isPresented: $showingLockedInfo) {
+                    LockedConvoInfoView(
+                        isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
+                        isLocked: viewModel.isLocked,
+                        onLock: {
+                            viewModel.toggleLock()
+                            showingLockedInfo = false
+                        },
+                        onDismiss: {
+                            showingLockedInfo = false
+                        }
+                    )
+                }
+                .selfSizingSheet(isPresented: $showingFullInfo) {
+                    FullConvoInfoView(onDismiss: {
+                        showingFullInfo = false
+                    })
+                }
+                .overlay {
+                    if presentingShareView {
+                        ConversationShareOverlay(
+                            conversation: viewModel.conversation,
+                            invite: viewModel.invite,
+                            isPresented: $presentingShareView,
+                            topSafeAreaInset: 0
+                        )
+                    }
+                }
+                .background {
+                    Color.clear
+                        .fullScreenCover(isPresented: $showingExplodeSheet) {
+                            ExplodeConvoSheet(
+                                isScheduled: viewModel.scheduledExplosionDate != nil,
+                                onSchedule: { date in
+                                    viewModel.scheduleExplosion(at: date)
+                                    showingExplodeSheet = false
+                                },
+                                onExplodeNow: {
+                                    viewModel.explodeConvo()
+                                },
+                                onDismiss: {
+                                    showingExplodeSheet = false
+                                }
+                            )
+                            .presentationBackground(.clear)
+                        }
+                        .transaction { transaction in
+                            transaction.disablesAnimations = true
+                        }
+                }
         }
     }
 }
