@@ -46,8 +46,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -119,8 +121,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -160,8 +164,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -209,8 +215,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -236,8 +244,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -289,8 +299,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -316,8 +328,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 

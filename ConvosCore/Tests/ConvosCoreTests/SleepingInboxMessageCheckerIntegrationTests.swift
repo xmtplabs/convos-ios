@@ -380,7 +380,12 @@ private class IntegrationTestFixtures {
                 TypingIndicatorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbDirectory: environment.defaultDatabasesDirectory,
+            deviceSyncEnabled: false,
+            dbPoolOptions: DbPoolOptions(
+                maxPoolSize: 10,
+                minPoolSize: 3
+            )
         )
 
         let client = try await Client.create(account: keys.signingKey, options: clientOptions)
