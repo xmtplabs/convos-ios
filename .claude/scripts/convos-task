@@ -160,59 +160,40 @@ launch_claude_in_terminal() {
     # Create the tmux session on convos-tasks socket (for monitoring)
     create_task_session "$task_name" "$dir"
 
+    echo "Session created"
+
     # Attach to the session via Terminal/iTerm
     local attach_cmd="tmux -L convos-tasks attach -t $session_name"
 
     # Check if iTerm is available (installed)
     if [ -d "/Applications/iTerm.app" ]; then
-        osascript <<EOF
-tell application "iTerm"
-    if application "iTerm" is running then
-        activate
-        if (count of windows) > 0 then
-            tell current window
-                create tab with default profile
-                tell current session
-                    set name to "$task_name"
-                    write text "$attach_cmd"
-                end tell
-            end tell
-        else
-            create window with default profile
-            tell current window
-                tell current session
-                    set name to "$task_name"
-                    write text "$attach_cmd"
-                end tell
-            end tell
-        end if
-    else
-        activate
-        delay 0.5
-        tell current window
-            tell current session
-                set name to "$task_name"
-                write text "$attach_cmd"
-            end tell
-        end tell
-    end if
-end tell
-EOF
+        osascript \
+            -e 'tell application "iTerm"' \
+            -e '  activate' \
+            -e '  if (count of windows) is 0 then' \
+            -e '    create window with default profile' \
+            -e '  else' \
+            -e '    tell current window to create tab with default profile' \
+            -e '  end if' \
+            -e '  tell current session of current window' \
+            -e "    set name to \"$task_name\"" \
+            -e "    write text \"$attach_cmd\"" \
+            -e '  end tell' \
+            -e 'end tell'
     else
         # For Terminal.app
-        local title_cmd="printf '\\033]0;$task_name\\007'"
-        osascript <<EOF
-tell application "Terminal"
-    if (count of windows) > 0 then
-        tell application "System Events" to keystroke "t" using command down
-        delay 0.3
-        do script "$title_cmd; $attach_cmd" in front window
-    else
-        do script "$title_cmd; $attach_cmd"
-    end if
-    activate
-end tell
-EOF
+        osascript \
+            -e 'tell application "Terminal"' \
+            -e '  activate' \
+            -e '  if (count of windows) is 0 then' \
+            -e "    do script \"$attach_cmd\"" \
+            -e '  else' \
+            -e '    tell application "System Events" to keystroke "t" using command down' \
+            -e '    delay 0.3' \
+            -e "    do script \"$attach_cmd\" in front window" \
+            -e '  end if' \
+            -e "  set custom title of front window to \"$task_name\"" \
+            -e 'end tell'
     fi
 }
 
@@ -315,10 +296,10 @@ cmd_new() {
     SIM_NAME=$(get_simulator_name "$TASK_NAME")
     echo -e "${BLUE}📱 Simulator: $SIM_NAME (creating in background)${NC}"
 
-    # Show stack info
+    # Show stack info (pipe to cat to disable pager)
     cd "$WORKTREE_DIR"
     echo -e "\n${BLUE}Graphite stack:${NC}"
-    gt log short 2>/dev/null || gt stack 2>/dev/null || echo "Run 'gt stack' to see stack"
+    gt log short 2>/dev/null | cat || gt stack 2>/dev/null | cat || echo "Run 'gt stack' to see stack"
 
     # Create simulator in background with logging
     # The /setup command will verify/create simulator if this fails
