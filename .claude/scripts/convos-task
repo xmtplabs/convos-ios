@@ -199,7 +199,7 @@ tell application "Terminal"
     else
         do script "$attach_cmd"
     end if
-    set custom title of front window to "$task_name"
+    set custom title of selected tab of front window to "$task_name"
 end tell
 EOF
     fi
@@ -304,10 +304,10 @@ cmd_new() {
     SIM_NAME=$(get_simulator_name "$TASK_NAME")
     echo -e "${BLUE}📱 Simulator: $SIM_NAME (creating in background)${NC}"
 
-    # Show stack info (pipe to cat to disable pager)
+    # Show stack info (--no-interactive disables gt's pager)
     cd "$WORKTREE_DIR"
     echo -e "\n${BLUE}Graphite stack:${NC}"
-    gt log short 2>/dev/null | cat || gt stack 2>/dev/null | cat || echo "Run 'gt stack' to see stack"
+    gt log short --no-interactive 2>/dev/null || gt stack --no-interactive 2>/dev/null || echo "Run 'gt stack' to see stack"
 
     # Create simulator in background with logging
     # The /setup command will verify/create simulator if this fails
