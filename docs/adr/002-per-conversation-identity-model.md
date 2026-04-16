@@ -1,6 +1,11 @@
 # ADR 002: Per-Conversation Identity Model with Privacy-Preserving Push Notifications
 
-> **Status**: Accepted
+> **Status**: Superseded (in progress) — see `docs/plans/single-inbox-identity-refactor.md`.
+> Single-inbox replacement is landing incrementally in the checkpoint commits that make up
+> that plan. Full supersession (and the companion "ADR 011 – Single-Inbox Identity Model")
+> lands at C14 once the refactor is behaviorally complete. The sections below remain the
+> source of truth for the old code paths still present on this branch; amended sections at
+> the bottom of the file note which checkpoint retired each piece.
 
 ## Context
 
@@ -244,3 +249,30 @@ This ensures complete data removal when a conversation is deleted.
 - iOS Keychain Services: https://developer.apple.com/documentation/security/keychain_services
 - secp256k1 Elliptic Curve: https://www.secg.org/sec2-v2.pdf
 - Swift Concurrency (Actors): https://docs.swift.org/swift-book/LanguageGuide/Concurrency.html
+
+## Single-Inbox Supersession Amendments
+
+The single-inbox identity refactor (`docs/plans/single-inbox-identity-refactor.md`)
+replaces the architecture described above. Amendments here track each checkpoint as it
+lands on the `single-inbox-refactor` branch so readers of this ADR see what is still live
+and what has been retired.
+
+### C2 — Migration reset (landing now)
+
+The GRDB migration chain was collapsed to a single baseline named `v0-single-inbox`. The
+refactor explicitly ships without a data migration path: on first launch of any install
+carrying pre-refactor artefacts, `LegacyDataWipe` deletes the shared GRDB file and every
+`xmtp-{env}-*.db3` under the app-group container so the baseline migration runs against a
+clean directory. A `convos.schemaGeneration` marker in the app-group UserDefaults records
+that the wipe has run, so it only happens once per install generation.
+
+Two new tables land with the baseline to carry the global-profile model:
+
+- `myProfile` — singleton row for the local user's global profile (fully populated by C8).
+- `profileBroadcastQueue` — pending broadcasts to per-conversation `ProfileUpdate`
+  messages (drained by the worker introduced in C8).
+
+Column removals for `inboxId`/`clientId` on `conversation`, `message`, `conversation_members`,
+etc. are deferred to C4, which deletes the multi-inbox Swift layer that still references
+them. The baseline migration keeps those columns in place so the current Swift code
+continues to compile and run while the refactor is mid-flight.

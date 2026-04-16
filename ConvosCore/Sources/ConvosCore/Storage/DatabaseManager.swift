@@ -29,6 +29,10 @@ public final class DatabaseManager: DatabaseManagerProtocol {
 
     init(environment: AppEnvironment) {
         self.environment = environment
+        // Detect and wipe pre-single-inbox artifacts before opening the database.
+        // On upgrade from any prior version the old GRDB file and XMTP db3s are
+        // removed so the migration below runs against a clean directory.
+        LegacyDataWipe.runIfNeeded(environment: environment)
         do {
             dbPool = try Self.makeDatabasePool(environment: environment)
         } catch {

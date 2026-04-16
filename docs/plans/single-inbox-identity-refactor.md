@@ -420,7 +420,7 @@ Each checkpoint below lists the **code** changes, the **ADR** edits that land wi
 - **Tests**: Full `./dev/up && swift test` must pass. Establishes the baseline flake rate for this branch — record it in the stabilization log.
 
 ### C2 — New migration-0 schema + legacy-wipe detection
-- **Code**: Drop obsolete tables, introduce `DBMyProfile` and `DBProfileBroadcastQueue`, add legacy-data detection and wipe on first launch.
+- **Code**: Add new tables `DBMyProfile` and `DBProfileBroadcastQueue`; make `DBInbox` a singleton (enforce via uniqueness constraint on a fixed key column); delete `InboxActivityRepository` and its backing table; add legacy-data detection and wipe on first launch. The `inboxId`/`clientId` columns on `DBConversation`, `DBMessage`, `DBConversationMember`, and similar row tables are **left in place** — callers still depend on them and they will be dropped alongside the caller rewrites in C4.
 - **ADR**: Draft amendment to ADR 002 marking it Superseded (full supersession lands at the end when the behavior is complete).
 - **QA**: **Rewrite `13-migration.md`** and its structured YAML — the existing test exercises per-inbox migration; the new test verifies legacy-wipe behavior on upgrade (start from a build with prior data → install new build → conversations empty, new identity created silently, no crash). Add a note that the test is expected to fail until later checkpoints land.
 - **Tests**: Migration tests updated to match the new schema. Expect broad breakage of tests that instantiate multi-inbox fixtures — mark those as `@Test(.disabled)` with a TODO referencing C13 rather than deleting them now. Full `swift test` target: schema/DB tests green; everything else at a known failure set documented in the stabilization log.
@@ -432,7 +432,7 @@ Each checkpoint below lists the **code** changes, the **ADR** edits that land wi
 - **Tests**: Keychain tests updated; new `KeychainSyncConfigTests` asserting the sync attributes are set. All keychain-touching tests must pass.
 
 ### C4 — Delete multi-inbox infrastructure
-- **Code**: Delete `InboxLifecycleManager`, `UnusedInboxCache`, `SleepingInboxMessageChecker`, `InboxActivityRepository`. Collapse `SessionManager` to a single `MessagingService`.
+- **Code**: Delete `InboxLifecycleManager`, `UnusedInboxCache`, `SleepingInboxMessageChecker`, `InboxActivityRepository`. Collapse `SessionManager` to a single `MessagingService`. **Drop the `inboxId`/`clientId` SQL columns** on `DBConversation`, `DBMessage`, `DBConversationMember`, and any other row tables still carrying them (deferred from C2 so the multi-inbox callers had a working schema during the intermediate state). Add a new schema migration on top of the C2 baseline for the column drops and update the Swift models/writers/repositories in lockstep.
 - **ADR**: Mark ADR 003 as Superseded with a pointer to this plan.
 - **QA**: Update `15-performance.md` (and YAML) — remove LRU/capacity-limit assertions; replace with single-client responsiveness assertions.
 - **Tests**: **Biggest flake-reduction checkpoint.** Delete `InboxLifecycleManagerTests`, `UnusedInboxCacheTests`, `SleepingInboxMessageCheckerTests`, `TripleInboxAuthorizationTests`. Re-run the integration suite 10× and record the new flake rate in the stabilization log; expect a dramatic drop. Any remaining integration flakes should be triaged — many will be cleanly fixable now that multi-inbox timing is out of the picture.
