@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 
 public protocol EncryptedImageServiceProtocol: Sendable {

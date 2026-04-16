@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 import Testing
 @preconcurrency import XMTPiOS

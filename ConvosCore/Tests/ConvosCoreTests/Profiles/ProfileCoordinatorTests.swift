@@ -1,4 +1,3 @@
-@testable import ConvosProfiles
 import Foundation
 import Testing
 

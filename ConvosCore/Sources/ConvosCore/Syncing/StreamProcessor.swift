@@ -1,5 +1,4 @@
 import ConvosInvites
-import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications

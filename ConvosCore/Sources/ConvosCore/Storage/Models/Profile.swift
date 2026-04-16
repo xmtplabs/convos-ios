@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 
 public struct Profile: Codable, Identifiable, Hashable, Sendable {

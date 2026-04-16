@@ -30,7 +30,7 @@ Two custom XMTP content types carry profile data:
 
 Both are silent (`shouldPush = false`), use protobuf encoding, and are not displayed in chat.
 
-**Protobuf Schema** (`ConvosProfiles/Proto/profile_messages.proto`):
+**Protobuf Schema** (`ConvosCore/Sources/ConvosCore/Profiles/Proto/profile_messages.proto`):
 
 ```protobuf
 enum MemberKind {
@@ -244,14 +244,18 @@ Profile messages received via push notifications are processed silently in the N
 
 ## Related Files
 
-### ConvosProfiles package
+### ConvosCore — Profiles module
 
-- `Proto/profile_messages.proto` — protobuf schema
-- `Proto/profile_messages.pb.swift` — generated Swift types
-- `ProfileMessages/ProfileUpdateCodec.swift` — XMTP content codec for ProfileUpdate
-- `ProfileMessages/ProfileSnapshotCodec.swift` — XMTP content codec for ProfileSnapshot
-- `ProfileMessages/ProfileSnapshotBuilder.swift` — builds snapshots from message history
-- `ProfileMessages/ProfileMessageHelpers.swift` — MemberProfile init, metadata helpers, image ref conversion
+> **Note (2026-04, single-inbox refactor C1)**: Profile code was folded from the standalone `ConvosProfiles` package into `ConvosCore` at `ConvosCore/Sources/ConvosCore/Profiles/`. The ConvosProfiles Swift package is removed. File names and contents are unchanged.
+
+- `Profiles/Proto/profile_messages.proto` — protobuf schema
+- `Profiles/Proto/profile_messages.pb.swift` — generated Swift types
+- `Profiles/ProfileMessages/ProfileUpdateCodec.swift` — XMTP content codec for ProfileUpdate
+- `Profiles/ProfileMessages/ProfileSnapshotCodec.swift` — XMTP content codec for ProfileSnapshot
+- `Profiles/ProfileMessages/ProfileSnapshotBuilder.swift` — builds snapshots from message history
+- `Profiles/ProfileMessages/ProfileMessageHelpers.swift` — MemberProfile init, metadata helpers, image ref conversion
+- `Profiles/Crypto/ImageEncryption.swift` — AES-256-GCM avatar encryption
+- `Profiles/Crypto/EncryptedImageLoader.swift` — encrypted image fetch + decrypt helper
 
 ### ConvosInvites package
 

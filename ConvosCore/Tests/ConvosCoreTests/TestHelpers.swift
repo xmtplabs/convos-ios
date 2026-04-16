@@ -1,6 +1,5 @@
 @testable import ConvosCore
 import ConvosInvites
-import ConvosProfiles
 import Foundation
 import GRDB
 import Testing
