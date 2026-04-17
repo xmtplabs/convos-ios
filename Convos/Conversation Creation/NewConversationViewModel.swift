@@ -321,16 +321,11 @@ class NewConversationViewModel: Identifiable {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
-        let clientId = conversationViewModel?.conversation.clientId ?? acquiredMessagingService?.clientId
-        let inboxId = conversationViewModel?.conversation.inboxId
-        guard let clientId, !clientId.isEmpty else { return }
-        Task { [session] in
-            do {
-                try await session.deleteInbox(clientId: clientId, inboxId: inboxId ?? "")
-            } catch {
-                Log.error("Failed deleting conversation: \(error.localizedDescription)")
-            }
-        }
+        // Old per-conversation `session.deleteInbox` path is a no-op post-hotfix
+        // (it would destroy the user's account if it weren't). Canceling the
+        // outstanding creation tasks above is the correct single-inbox cleanup;
+        // the draft conversation row is handled by the draft repository when
+        // the ViewModel tears down.
     }
 
     func setDismissAction(_ action: DismissAction) {

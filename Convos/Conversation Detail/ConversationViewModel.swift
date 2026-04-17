@@ -11,8 +11,6 @@ struct PendingInvite {
     let code: String
     var fullURL: String
     let range: Range<String.Index>
-    var linkedConversationClientId: String?
-    var linkedConversationInboxId: String?
     var linkedConversationId: String?
     var explodeDuration: ExplodeDuration?
 }
@@ -763,8 +761,11 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     func startOnboarding() {
         Task { @MainActor in
+            // Scoping the coordinator by conversation.id (not the singleton clientId)
+            // preserves per-conversation quickname-prompt tracking now that clientId
+            // is identical across every conversation.
             await onboardingCoordinator.start(
-                for: conversation.clientId,
+                for: conversation.id,
                 isConversationCreator: conversation.creator.isCurrentUser
             )
         }
@@ -772,7 +773,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     func inviteWasAccepted() {
         Task { @MainActor in
-            await onboardingCoordinator.inviteWasAccepted(for: conversation.clientId)
+            await onboardingCoordinator.inviteWasAccepted(for: conversation.id)
         }
     }
 
@@ -994,8 +995,6 @@ extension ConversationViewModel {
         let prevInviteURL = pendingInvite?.fullURL
         let sideConvoName = pendingInviteConvoName
         let sideConvoLinkedId = pendingInvite?.linkedConversationId
-        let sideConvoClientId = pendingInvite?.linkedConversationClientId
-        let sideConvoInboxId = pendingInvite?.linkedConversationInboxId
         let sideConvoExplodeDuration = pendingInvite?.explodeDuration
         let sideConvoImage = pendingInviteImage
         let prevLinkURL = pastedLinkPreview?.url
@@ -1025,8 +1024,6 @@ extension ConversationViewModel {
                 image: sideConvoImage,
                 explodeDuration: sideConvoExplodeDuration,
                 linkedId: sideConvoLinkedId,
-                clientId: sideConvoClientId,
-                inboxId: sideConvoInboxId,
                 messageWriter: messageWriter
             )
             let inviteURL = sideConvoResult.inviteURL
@@ -1058,26 +1055,23 @@ extension ConversationViewModel {
         }
     }
 
-    // swiftlint:disable:next function_parameter_count
     private func finalizeSideConvo(
         inviteURL: String?,
         name: String,
         image: UIImage?,
         explodeDuration: ExplodeDuration?,
         linkedId: String?,
-        clientId: String?,
-        inboxId: String?,
         messageWriter: any OutgoingMessageWriterProtocol
     ) async -> (inviteURL: String?, pendingMessageId: String?) {
         var inviteURL = inviteURL
         var pendingMessageId: String?
 
-        guard let linkedId, let clientId, let inboxId else {
+        guard let linkedId else {
             return (inviteURL, nil)
         }
 
         do {
-            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let messagingService = try await session.messagingService()
             let metadataWriter = messagingService.conversationMetadataWriter()
             try await metadataWriter.updateIncludeInfoInPublicPreview(true, for: linkedId)
             if !name.isEmpty {
@@ -1105,7 +1099,7 @@ extension ConversationViewModel {
         pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
 
         do {
-            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let messagingService = try await session.messagingService()
             let metadataWriter = messagingService.conversationMetadataWriter()
             let stateManager = messagingService.conversationStateManager(for: linkedId)
             if let convo = try stateManager.draftConversationRepository.fetchConversation() {
@@ -1398,14 +1392,13 @@ extension ConversationViewModel {
 
         let forceErrorCode = assistantJoinForceErrorCode
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let requestId = UUID().uuidString
         let taskId = requestId
         assistantJoinTask = Task { [weak self, session] in
+            let inboxId = (try? await session.messagingService().sessionStateManager.waitForInboxReadyResult().client.inboxId) ?? ""
             await Self.broadcastAssistantJoinRequest(
                 status: .pending, requestedBy: inboxId, requestId: requestId,
-                conversationId: conversationId, clientId: clientId, session: session
+                conversationId: conversationId, session: session
             )
 
             do {
@@ -1422,7 +1415,7 @@ extension ConversationViewModel {
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
                 await Self.broadcastAssistantJoinRequest(
                     status: status, requestedBy: inboxId, requestId: requestId,
-                    conversationId: conversationId, clientId: clientId, session: session
+                    conversationId: conversationId, session: session
                 )
                 await MainActor.run {
                     self?.clearAssistantJoinTask(id: taskId)
@@ -1432,7 +1425,7 @@ extension ConversationViewModel {
             } catch {
                 await Self.broadcastAssistantJoinRequest(
                     status: .failed, requestedBy: inboxId, requestId: requestId,
-                    conversationId: conversationId, clientId: clientId, session: session
+                    conversationId: conversationId, session: session
                 )
                 await MainActor.run {
                     self?.clearAssistantJoinTask(id: taskId)
@@ -1450,11 +1443,10 @@ extension ConversationViewModel {
         requestedBy: String,
         requestId: String,
         conversationId: String,
-        clientId: String,
         session: any SessionManagerProtocol
     ) async {
         do {
-            let messagingService = try await session.messagingService(for: clientId, inboxId: requestedBy)
+            let messagingService = try await session.messagingService()
             let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             guard let xmtpConversation = try await inboxResult.client.conversation(with: conversationId) else {
                 Log.warning("Could not find XMTP conversation to broadcast assistant join request")
@@ -1478,16 +1470,15 @@ extension ConversationViewModel {
     }
 
     func leaveConvo() {
+        // Note: the old per-conversation `session.deleteInbox` call is a no-op
+        // post-hotfix. A proper group-leave path (group.leaveGroup() + local
+        // row delete) is tracked as a follow-up to C11. Notification post
+        // keeps the list UI in sync for now.
         Task { [weak self] in
             guard let self else { return }
-            do {
-                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
-                await MainActor.run {
-                    self.presentingConversationSettings = false
-                    self.conversation.postLeftConversationNotification()
-                }
-            } catch {
-                Log.error("Error leaving convo: \(error.localizedDescription)")
+            await MainActor.run {
+                self.presentingConversationSettings = false
+                self.conversation.postLeftConversationNotification()
             }
         }
     }
@@ -1499,7 +1490,6 @@ extension ConversationViewModel {
             guard let self else { return }
             do {
                 try await consentWriter.delete(conversation: conversation)
-                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
                 await MainActor.run {
                     self.presentingConversationSettings = false
                     self.conversation.postLeftConversationNotification()
@@ -1513,10 +1503,7 @@ extension ConversationViewModel {
     @MainActor
     func conversationMetadataDebugText() async -> String {
         do {
-            let messagingService = try await session.messagingService(
-                for: conversation.clientId,
-                inboxId: conversation.inboxId
-            )
+            let messagingService = try await session.messagingService()
             let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             let client = inboxResult.client
             return try await client.conversationMetadataDebugInfo(
@@ -1537,10 +1524,7 @@ extension ConversationViewModel {
         let trimmedTag = expectedTag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTag.isEmpty else { return }
 
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
+        let messagingService = try await session.messagingService()
         let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
         let client = inboxResult.client
         guard let xmtpConversation = try await client.conversation(with: conversation.id),
@@ -1558,10 +1542,7 @@ extension ConversationViewModel {
         var conversationDebugURL: URL?
         do {
             conversationDebugURL = try await withThrowingTimeout(seconds: 10) { [self] in
-                let messagingService = try await session.messagingService(
-                    for: conversation.clientId,
-                    inboxId: conversation.inboxId
-                )
+                let messagingService = try await session.messagingService()
                 let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 let client = inboxResult.client
                 guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
@@ -1911,10 +1892,10 @@ extension ConversationViewModel {
     }
 
     func scheduleLinkedConversationExplosion(
-        duration: ExplodeDuration, clientId: String, inboxId: String, conversationId: String
+        duration: ExplodeDuration, conversationId: String
     ) async -> String? {
         do {
-            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let messagingService = try await session.messagingService()
             let explosionWriter = messagingService.conversationExplosionWriter()
             let metadataWriter = messagingService.conversationMetadataWriter()
             let expiresAt = Date().addingTimeInterval(duration.timeInterval)
@@ -1928,13 +1909,11 @@ extension ConversationViewModel {
         }
     }
     func updateLinkedConversationName(_ name: String) {
-        guard let clientId = pendingInvite?.linkedConversationClientId,
-              let inboxId = pendingInvite?.linkedConversationInboxId,
-              let conversationId = pendingInvite?.linkedConversationId else { return }
+        guard let conversationId = pendingInvite?.linkedConversationId else { return }
         Task { [weak self, session] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let messagingService = try await session.messagingService()
                 let metadataWriter = messagingService.conversationMetadataWriter()
                 try await metadataWriter.updateName(name, for: conversationId)
                 let updatedInvite = try await metadataWriter.refreshInvite(for: conversationId)
@@ -1964,20 +1943,15 @@ extension ConversationViewModel {
     }
 
     func clearPendingInvite() {
-        guard let invite = pendingInvite else { return }
+        // Old code would destroy the linked conversation's per-conversation
+        // inbox via session.deleteInbox — that's a no-op in single-inbox and
+        // would wipe the whole account if it weren't. Simply dropping the
+        // pendingInvite state is the correct single-inbox behavior; the
+        // linked draft conversation remains locally until the user explicitly
+        // discards it.
         pendingInvite = nil
         pendingInviteConvoName = ""
         pendingInviteImage = nil
-        if let clientId = invite.linkedConversationClientId {
-            let inboxId = invite.linkedConversationInboxId ?? ""
-            Task { [session] in
-                do {
-                    try await session.deleteInbox(clientId: clientId, inboxId: inboxId)
-                } catch {
-                    Log.error("Failed to delete linked conversation inbox: \(error)")
-                }
-            }
-        }
     }
 
     func onConvosButtonTapped() {
@@ -1985,12 +1959,8 @@ extension ConversationViewModel {
         convosButtonTask = Task { [session] in
             defer { convosButtonTask = nil }
             let (messagingService, existingConversationId) = await session.addInbox()
-            let clientId = messagingService.clientId
 
-            guard !Task.isCancelled else {
-                try? await session.deleteInbox(clientId: clientId, inboxId: "")
-                return
-            }
+            guard !Task.isCancelled else { return }
 
             let stateManager: any ConversationStateManagerProtocol
             if let existingConversationId {
@@ -2001,15 +1971,11 @@ extension ConversationViewModel {
                     try await stateManager.createConversation()
                 } catch {
                     Log.error("Failed to create conversation for Convos button: \(error)")
-                    try? await session.deleteInbox(clientId: clientId, inboxId: "")
                     return
                 }
             }
 
-            guard !Task.isCancelled else {
-                try? await session.deleteInbox(clientId: clientId, inboxId: "")
-                return
-            }
+            guard !Task.isCancelled else { return }
 
             convosButtonCancellable = stateManager.draftConversationRepository.conversationPublisher
                 .compactMap { $0 }
@@ -2023,8 +1989,6 @@ extension ConversationViewModel {
                         code: convoInvite.urlSlug,
                         fullURL: urlString,
                         range: emptyRange,
-                        linkedConversationClientId: clientId,
-                        linkedConversationInboxId: convo.inboxId,
                         linkedConversationId: convo.id
                     )
                     self.convosButtonCancellable = nil
