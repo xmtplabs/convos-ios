@@ -2,6 +2,8 @@
 
 Verify that a conversation created on one device can be joined from a second device by pasting the invite URL in the scan view.
 
+> **Single-inbox model (C10).** Same scope note as `03-invite-join-deep-link.md`: joining reuses the singleton inbox; there should be **no** "creating new inbox" UI indicator. The paste flow itself is unchanged.
+
 ## Requirements
 
 - **Two simulators required.** This test uses Device A (inviter) and Device B (joiner) — both running the Convos app. The CLI must not be used as a substitute for either device.

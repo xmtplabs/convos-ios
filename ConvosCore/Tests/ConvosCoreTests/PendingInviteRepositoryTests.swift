@@ -5,16 +5,19 @@ import Testing
 
 @Suite("PendingInviteRepository Tests", .serialized)
 struct PendingInviteRepositoryTests {
-    // MARK: - Pending Invite Detection Tests
+    // C10 collapsed the public surface to two no-arg methods. The previous
+    // per-clientId helpers (`hasPendingInvites(clientId:)`,
+    // `clientIdsWithPendingInvites`) were retired alongside the multi-inbox
+    // capacity tier in C4a. These tests verify the surviving methods report
+    // pending draft + tagged conversations correctly.
 
-    @Test("hasPendingInvites returns true for draft conversations with invite tag")
-    func testHasPendingInvitesTrue() async throws {
+    @Test("allPendingInvites includes draft conversations with invite tag")
+    func testAllPendingInvitesIncludesPending() async throws {
         let fixtures = try await makeTestFixtures()
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
 
-            // Draft conversation with invite tag (pending invite)
             try makeDBConversation(
                 id: "draft-123",
                 inboxId: "inbox-1",
@@ -24,21 +27,22 @@ struct PendingInviteRepositoryTests {
         }
 
         let repo = PendingInviteRepository(databaseReader: fixtures.dbReader)
-        let hasPending = try repo.hasPendingInvites(clientId: "client-1")
+        let infos = try repo.allPendingInvites()
 
-        #expect(hasPending == true)
+        #expect(infos.count == 1)
+        #expect(infos.first?.hasPendingInvites == true)
+        #expect(infos.first?.pendingConversationIds == ["draft-123"])
     }
 
-    @Test("hasPendingInvites returns false for non-draft conversations")
-    func testHasPendingInvitesFalseForNonDraft() async throws {
+    @Test("allPendingInvites excludes non-draft conversations even with invite tag")
+    func testAllPendingInvitesExcludesNonDraft() async throws {
         let fixtures = try await makeTestFixtures()
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
 
-            // Regular conversation (not draft) with invite tag
             try makeDBConversation(
-                id: "convo-123", // Not a draft
+                id: "convo-123",
                 inboxId: "inbox-1",
                 clientId: "client-1",
                 inviteTag: "invite-tag-abc",
@@ -47,79 +51,37 @@ struct PendingInviteRepositoryTests {
         }
 
         let repo = PendingInviteRepository(databaseReader: fixtures.dbReader)
-        let hasPending = try repo.hasPendingInvites(clientId: "client-1")
+        let infos = try repo.allPendingInvites()
 
-        #expect(hasPending == false)
+        #expect(infos.count == 1)
+        #expect(infos.first?.hasPendingInvites == false)
+        #expect(infos.first?.pendingConversationIds.isEmpty == true)
     }
 
-    @Test("hasPendingInvites returns false for draft without invite tag")
-    func testHasPendingInvitesFalseWithoutInviteTag() async throws {
+    @Test("allPendingInvites excludes drafts without invite tag")
+    func testAllPendingInvitesExcludesUntaggedDrafts() async throws {
         let fixtures = try await makeTestFixtures()
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
 
-            // Draft conversation WITHOUT invite tag (not a pending invite)
             try makeDBConversation(
                 id: "draft-123",
                 inboxId: "inbox-1",
                 clientId: "client-1",
-                inviteTag: "" // Empty invite tag
+                inviteTag: ""
             ).insert(db)
         }
 
         let repo = PendingInviteRepository(databaseReader: fixtures.dbReader)
-        let hasPending = try repo.hasPendingInvites(clientId: "client-1")
+        let infos = try repo.allPendingInvites()
 
-        #expect(hasPending == false)
+        #expect(infos.count == 1)
+        #expect(infos.first?.hasPendingInvites == false)
     }
 
-    @Test("clientIdsWithPendingInvites returns set of client IDs")
-    func testClientIdsWithPendingInvites() async throws {
-        let fixtures = try await makeTestFixtures()
-
-        try await fixtures.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBInbox(inboxId: "inbox-2", clientId: "client-2", createdAt: Date()).insert(db)
-            try DBInbox(inboxId: "inbox-3", clientId: "client-3", createdAt: Date()).insert(db)
-
-            // client-1 has pending invite
-            try makeDBConversation(
-                id: "draft-1",
-                inboxId: "inbox-1",
-                clientId: "client-1",
-                inviteTag: "tag-1"
-            ).insert(db)
-
-            // client-2 has NO pending invite (regular conversation)
-            try makeDBConversation(
-                id: "convo-2",
-                inboxId: "inbox-2",
-                clientId: "client-2",
-                inviteTag: "",
-                consent: .allowed
-            ).insert(db)
-
-            // client-3 has pending invite
-            try makeDBConversation(
-                id: "draft-3",
-                inboxId: "inbox-3",
-                clientId: "client-3",
-                inviteTag: "tag-3"
-            ).insert(db)
-        }
-
-        let repo = PendingInviteRepository(databaseReader: fixtures.dbReader)
-        let clientIds = try repo.clientIdsWithPendingInvites()
-
-        #expect(clientIds.count == 2)
-        #expect(clientIds.contains("client-1"))
-        #expect(clientIds.contains("client-3"))
-        #expect(!clientIds.contains("client-2"))
-    }
-
-    @Test("allPendingInvites returns info for all inboxes")
-    func testAllPendingInvites() async throws {
+    @Test("allPendingInvites returns one row per inbox with its pending conversations")
+    func testAllPendingInvitesGroupsByInbox() async throws {
         let fixtures = try await makeTestFixtures()
 
         try await fixtures.dbWriter.write { db in
@@ -153,6 +115,40 @@ struct PendingInviteRepositoryTests {
 
         #expect(client2Info != nil)
         #expect(client2Info?.hasPendingInvites == false)
+    }
+
+    @Test("allPendingInviteDetails returns a row per pending draft conversation")
+    func testAllPendingInviteDetails() async throws {
+        let fixtures = try await makeTestFixtures()
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+
+            try makeDBConversation(
+                id: "draft-123",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                inviteTag: "invite-tag-abc"
+            ).insert(db)
+
+            try makeDBConversation(
+                id: "convo-456",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                inviteTag: "",
+                consent: .allowed
+            ).insert(db)
+        }
+
+        let repo = PendingInviteRepository(databaseReader: fixtures.dbReader)
+        let details = try repo.allPendingInviteDetails()
+
+        #expect(details.count == 1)
+        #expect(details.first?.conversationId == "draft-123")
+        #expect(details.first?.inviteTag == "invite-tag-abc")
+        // The other (non-draft) conversation surfaces as an "other conversation"
+        // for the same inbox — useful in the debug surface.
+        #expect(details.first?.otherConversations.first?.conversationId == "convo-456")
     }
 
     // MARK: - Test Helpers

@@ -66,13 +66,26 @@ public struct PendingInviteDetail: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+/// Read-only view over the local user's pending (draft + tagged) invites.
+///
+/// Single-inbox refactor (C10): `clientId`-scoped query methods
+/// (`pendingInvites(for:)`, `hasPendingInvites(clientId:)`,
+/// `clientIdsWithPendingInvites`, `stalePendingInviteClientIds`) were retired
+/// because they only existed to feed the multi-inbox capacity tier in
+/// `InboxLifecycleManager` (deleted in C4a). With one inbox per user the
+/// answer to "which inboxes have pending invites" collapses to "the user has
+/// some, or doesn't" — the no-arg `allPendingInvites()` covers that. The
+/// `clientId` / `inboxId` properties on `PendingInviteInfo` and
+/// `PendingInviteDetail` survive until C11 drops the columns from
+/// `DBConversation`.
 public protocol PendingInviteRepositoryProtocol {
+    /// Returns one `PendingInviteInfo` per inbox row, with the inbox's pending
+    /// draft conversation IDs. In single-inbox mode this is at most one entry.
     func allPendingInvites() throws -> [PendingInviteInfo]
-    func pendingInvites(for clientId: String) throws -> PendingInviteInfo?
-    func clientIdsWithPendingInvites() throws -> Set<String>
-    func hasPendingInvites(clientId: String) throws -> Bool
+
+    /// Returns one `PendingInviteDetail` per pending draft conversation, ordered
+    /// by `createdAt` ascending. Used by the debug surface.
     func allPendingInviteDetails() throws -> [PendingInviteDetail]
-    func stalePendingInviteClientIds(olderThan cutoff: Date) throws -> Set<String>
 }
 
 public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
@@ -85,38 +98,6 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
     public func allPendingInvites() throws -> [PendingInviteInfo] {
         try databaseReader.read { db in
             try fetchAllPendingInvites(db: db)
-        }
-    }
-
-    public func pendingInvites(for clientId: String) throws -> PendingInviteInfo? {
-        try databaseReader.read { db in
-            try fetchPendingInvites(db: db, clientId: clientId)
-        }
-    }
-
-    public func clientIdsWithPendingInvites() throws -> Set<String> {
-        try databaseReader.read { db in
-            let sql = """
-                SELECT DISTINCT c.clientId
-                FROM conversation c
-                WHERE c.id LIKE 'draft-%'
-                AND c.inviteTag IS NOT NULL
-                AND c.inviteTag != ''
-                """
-            let clientIds = try String.fetchAll(db, sql: sql)
-            return Set(clientIds)
-        }
-    }
-
-    public func hasPendingInvites(clientId: String) throws -> Bool {
-        try databaseReader.read { db in
-            let count = try DBConversation
-                .filter(DBConversation.Columns.clientId == clientId)
-                .filter(DBConversation.Columns.id.like("draft-%"))
-                .filter(DBConversation.Columns.inviteTag != nil)
-                .filter(length(DBConversation.Columns.inviteTag) > 0)
-                .fetchCount(db)
-            return count > 0
         }
     }
 
@@ -144,6 +125,11 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
                 let clientId: String = row["clientId"]
                 let conversationId: String = row["conversationId"]
 
+                // "Other conversations" was originally a per-inbox grouping used
+                // by the multi-inbox debug surface to spot draft-only inboxes.
+                // The query is preserved for the debug view but in single-inbox
+                // mode `clientId` filtering is effectively a no-op (all rows
+                // share the singleton's clientId).
                 let otherConvosSql = """
                     SELECT id, name, clientConversationId
                     FROM conversation
@@ -174,22 +160,6 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
         }
     }
 
-    public func stalePendingInviteClientIds(olderThan cutoff: Date) throws -> Set<String> {
-        try databaseReader.read { db in
-            let sql = """
-                SELECT DISTINCT c.clientId
-                FROM conversation c
-                WHERE c.id LIKE 'draft-%'
-                    AND c.inviteTag IS NOT NULL
-                    AND c.inviteTag != ''
-                    AND c.createdAt < ?
-                    AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
-                """
-            let clientIds = try String.fetchAll(db, sql: sql, arguments: [cutoff])
-            return Set(clientIds)
-        }
-    }
-
     private func fetchAllPendingInvites(db: Database) throws -> [PendingInviteInfo] {
         let sql = """
             SELECT
@@ -216,40 +186,11 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
             )
         }
     }
-
-    private func fetchPendingInvites(db: Database, clientId: String) throws -> PendingInviteInfo? {
-        let sql = """
-            SELECT
-                i.clientId,
-                i.inboxId,
-                GROUP_CONCAT(c.id) as pendingConversationIds
-            FROM inbox i
-            LEFT JOIN conversation c ON c.clientId = i.clientId
-                AND c.id LIKE 'draft-%'
-                AND c.inviteTag IS NOT NULL
-                AND c.inviteTag != ''
-            WHERE i.clientId = ?
-            GROUP BY i.clientId, i.inboxId
-            """
-
-        return try Row.fetchOne(db, sql: sql, arguments: [clientId]).map { row in
-            let conversationIdsString: String? = row["pendingConversationIds"]
-            let conversationIds = conversationIdsString?
-                .split(separator: ",")
-                .map { String($0) } ?? []
-            return PendingInviteInfo(
-                clientId: row["clientId"],
-                inboxId: row["inboxId"],
-                pendingConversationIds: conversationIds
-            )
-        }
-    }
 }
 
 public final class MockPendingInviteRepository: PendingInviteRepositoryProtocol, @unchecked Sendable {
     public var pendingInvites: [PendingInviteInfo] = []
     public var pendingInviteDetails: [PendingInviteDetail] = []
-    public var staleCutoffResult: Set<String> = []
 
     public init() {}
 
@@ -257,23 +198,7 @@ public final class MockPendingInviteRepository: PendingInviteRepositoryProtocol,
         pendingInvites
     }
 
-    public func pendingInvites(for clientId: String) throws -> PendingInviteInfo? {
-        pendingInvites.first { $0.clientId == clientId }
-    }
-
-    public func clientIdsWithPendingInvites() throws -> Set<String> {
-        Set(pendingInvites.filter { $0.hasPendingInvites }.map { $0.clientId })
-    }
-
-    public func hasPendingInvites(clientId: String) throws -> Bool {
-        pendingInvites.first { $0.clientId == clientId }?.hasPendingInvites ?? false
-    }
-
     public func allPendingInviteDetails() throws -> [PendingInviteDetail] {
         pendingInviteDetails
-    }
-
-    public func stalePendingInviteClientIds(olderThan cutoff: Date) throws -> Set<String> {
-        staleCutoffResult
     }
 }

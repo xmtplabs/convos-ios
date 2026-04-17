@@ -2,6 +2,8 @@
 
 Verify that the Convos button in the media buttons bar creates a conversation and generates a shareable invite link that can be pasted into the message input.
 
+> **Single-inbox model (C10).** Conversation creation now uses the singleton inbox rather than provisioning a fresh per-conversation one — there should be **no** "creating new inbox" UI. The shareable link format is unchanged (still the cryptographically-signed slug from ADR 001).
+
 ## Prerequisites
 
 - The app is running and past onboarding.
