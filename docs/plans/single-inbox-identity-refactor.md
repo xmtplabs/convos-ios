@@ -438,9 +438,17 @@ Split into four sub-commits to keep each landing reviewable and compilable in is
 
 **C4b** — Retire the multi-identity keychain API. Rewrite the remaining callers (`InviteWriter`, `StreamProcessor`, `InviteJoinRequestsManager`, `InboxStateMachine`, `UnusedConversationCache`, `ConversationStateMachine`, and their tests) to use `loadSingleton` / `saveSingleton` / `deleteSingleton`. Delete the legacy per-inbox methods from `KeychainIdentityStore` + mock. Keep row-level `inboxId`/`clientId` usage alone.
 
-**C4c** — Drop `inboxId`/`clientId` columns from row tables (`DBConversation`, `DBConversationMember`, `DBMember`, `DBInvite`, and any others still carrying them). Add a schema migration on top of the C2 baseline. Update `ConversationWriter`, `ConversationMetadataWriter`, `MessagesRepository`, `OrphanedInboxRepository`, and any other writer/repository that reads these columns in lockstep. Update the domain models accordingly — `DBConversation` loses its `inboxId`/`clientId` properties; callers that referenced them are simplified.
+**C4c** — ~~Drop `inboxId`/`clientId` columns from row tables~~ → **Deferred to C11 (see note below).**
 
-**C4d** — Mark ADR 003 as Superseded with a pointer to this plan. Rewrite `qa/tests/15-performance.md` (and YAML): remove LRU/capacity-limit assertions; replace with single-client responsiveness assertions. Record the integration-suite flake rate after the C4 deletions in `docs/plans/integration-test-stabilization-log.md` (re-run the suite 10× — expect a dramatic drop now that multi-inbox timing is out of the picture).
+**C4d** — Mark ADR 003 as Superseded with a pointer to this plan. Rewrite `qa/tests/15-performance.md` (and YAML): remove LRU/capacity-limit assertions; replace with single-client responsiveness assertions. Record the integration-suite flake rate after the C4a/C4b deletions in `docs/plans/integration-test-stabilization-log.md` (re-run the suite 10× — expect a dramatic drop now that multi-inbox timing is out of the picture).
+
+#### Column-drop deferral note
+
+The `inboxId`/`clientId` columns on `DBConversation`, `DBConversationMember`, `DBMember`, and `DBInvite` are read by the public domain model (`Conversation.inboxId`, `Conversation.clientId`) that every ViewModel in the main app layer consumes. Dropping those columns forces an atomic cascade into the ViewModel layer — which is explicitly **C11's scope**. Attempting C4c before C11 would leave the ViewModels referencing Swift properties that no longer exist; splitting the column drop from the caller rewrite would leave rows persisted with stale placeholder values.
+
+**Decision**: merge the column drop into C11. The C11 checkpoint now covers: ViewModel `inboxId`/`clientId` tracking removal + `DBConversation`/`Conversation` domain-model property removal + the SQL schema migration + lockstep writer/repository updates. The `inbox` table itself (the one collapsed to singleton behavior in C2) can stay until the main-app rewrite lands — its columns are internal to `SessionManager`'s cleanup flows and don't cross into the ViewModels.
+
+Net effect on C4's PR diff: C4a+C4b+C4d land under C4. The column drop arrives with C11. The Swift identifier inventory (~368 `.inboxId` / `.clientId` references across ConvosCore + Convos + ConvosAppClip + ConvosNotificationService) is unchanged until C11 kicks off.
 
 ### C5 — `SessionStateMachine` replaces `InboxStateMachine`
 - **Code**: Simplified state graph; remove `deleting`/`stopping` (except for full reset).
