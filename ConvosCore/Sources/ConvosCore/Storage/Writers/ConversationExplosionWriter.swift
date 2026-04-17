@@ -37,6 +37,9 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
 
         let (xmtpConversation, group) = try await findGroupConversation(conversationId: conversationId)
 
+        // Step 1: broadcast the explode-now message so every other member gets the
+        // `conversationExpired` signal even if they don't process the subsequent
+        // member-removal event in time.
         Log.info("Sending ExplodeSettings message...")
         nonisolated(unsafe) let unsafeConversation = xmtpConversation
         try await withTimeout(seconds: 20) {
@@ -45,23 +48,43 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         Log.info("ExplodeSettings message sent successfully")
         QAEvent.emit(.conversation, "exploded", ["id": conversationId])
 
+        // Step 2: set the local expiresAt so the sender's own UI hides the
+        // conversation immediately. ConversationsRepository filters on
+        // `expiresAt > Date()`, so a past value is the soft-delete trigger.
         do {
             try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
         } catch {
             Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
         }
 
+        // Step 3: remove every other member from the MLS group. This emits
+        // GroupUpdated removal events that other clients pick up even if they
+        // missed the ExplodeSettings message (e.g. offline at send time).
         do {
             try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
         } catch {
-            Log.error("Failed removing local members after explosion: \(error.localizedDescription)")
+            Log.error("Failed removing members during explosion: \(error.localizedDescription)")
         }
 
+        // Step 4: creator leaves the group. In the per-conversation-identity era
+        // this step didn't exist — the whole inbox was destroyed. With a single
+        // shared inbox we can't destroy keys (they secure every other conversation),
+        // so the cleanest exit is an explicit self-remove via `leaveGroup()`. The
+        // XMTP SDK sends the MLS commit that takes us out of the group. `updateConsentState(.denied)`
+        // was used pre-C9 as a belt-and-suspenders to keep the conversation from
+        // re-syncing — it's now redundant with `leaveGroup()` (we're out of the
+        // group so there's nothing left to sync), but preserving it as a no-op
+        // guard in case the leave operation is interrupted.
         do {
-            try await group.updateConsentState(state: .denied)
-            Log.info("Denied exploded conversation to prevent re-sync")
+            try await group.leaveGroup()
+            Log.info("Creator left exploded group: \(conversationId)")
         } catch {
-            Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
+            Log.error("Failed leaving group after explosion: \(error.localizedDescription). Falling back to denied consent.")
+            do {
+                try await group.updateConsentState(state: .denied)
+            } catch {
+                Log.error("Also failed denying consent: \(error.localizedDescription)")
+            }
         }
     }
 

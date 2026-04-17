@@ -2,6 +2,8 @@
 
 Verify that a conversation with a scheduled explosion is automatically cleaned up when the timer expires while the app is in the foreground. This tests the scenario where another device schedules the explosion and the app must detect the expiration in real time.
 
+> **Single-inbox model (C9, ADR 004 amendment).** Under the single-inbox refactor, expiry no longer destroys the user's keychain or XMTP database — those are shared across all conversations. The cleanup is local: `expiresAt` is set in DB, the conversation is filtered out of the UI, and the user remains a member of the (now-empty-of-content) MLS group on the network. **Known asymmetry from the immediate-explode test (`09-explode-conversation.md`):** scheduled explosions do not currently fire `group.leaveGroup()` when the timer expires; only the immediate `explodeConversation` path does. Bringing scheduled explosions to full parity is tracked as future work in the ADR 004 C9 amendment.
+
 ## Prerequisites
 
 - The app is running and past onboarding.
@@ -62,6 +64,7 @@ No cleanup needed — the conversation is destroyed by the explosion.
 - [ ] App receives the scheduled explosion and shows countdown in the explode button
 - [ ] Conversation is automatically cleaned up when the timer expires while the app is foregrounded
 - [ ] Conversation no longer appears in the conversations list after expiration
+- [ ] User's other conversations and profile remain unaffected after expiration (proves no keychain destruction)
 
 ## Accessibility Improvements Needed
 

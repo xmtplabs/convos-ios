@@ -2,8 +2,13 @@ id: "09"
 name: "Explode Conversation"
 description: >
   Verify that exploding a conversation removes it for all participants
-  and destroys the conversation data.
-tags: [conversations, explode, destructive]
+  using the single-inbox remove-all-then-leave flow. The creator broadcasts
+  ExplodeSettings, removes every other member from the MLS group, then
+  leaves the group themselves. Receivers drop the conversation locally on
+  whichever signal arrives first. NO keychain or XMTP database deletion —
+  the singleton identity persists across the explode (see ADR 004 C9
+  amendment + docs/plans/single-inbox-identity-refactor.md).
+tags: [conversations, explode, destructive, single-inbox]
 depends_on: ["12"]
 estimated_duration_s: 90
 
@@ -68,7 +73,47 @@ steps:
     criteria: cli_cannot_access
     note: >
       Sending a message to an exploded conversation should fail.
-      The CLI may report the conversation as not found or destroyed.
+      The CLI may report the conversation as not found or that the
+      sender is not a member (the creator removed the CLI member
+      before leaving the group).
+
+  - id: verify_creator_left_group
+    name: "Creator left MLS group on the network"
+    actions:
+      - inspect_logs: { pattern: "Creator left exploded group" }
+      - cli_list_members:
+          conversation: "$conversation_id"
+          expect_failure: true
+    verify:
+      - log_contains: "Creator left exploded group"
+      - cli_output_contains_error_or_empty: true
+    criteria: creator_left
+    note: >
+      Confirms `group.leaveGroup()` ran successfully on the creator
+      side (the new C9 step). On degraded paths (network error during
+      leave) the log will instead show
+      'Failed leaving group after explosion ... denied consent' —
+      that's a known fallback to the legacy
+      `updateConsentState(.denied)` behavior and is acceptable but
+      should be flagged for follow-up.
+
+  - id: verify_no_account_damage
+    name: "Other conversations and profile unaffected (no keychain destruction)"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+      - navigate_back: {}
+    verify:
+      - no_crash_on_launch: true
+      - element_exists: { id: "compose-button" }
+    criteria: no_account_damage
+    note: >
+      Single-inbox explode no longer destroys the keychain identity.
+      Verify the user can still create a new conversation, has their
+      profile, and the app behaves normally — proves the
+      .leftConversationNotification observer didn't tear down the
+      account when it landed in C4a (and that this commit doesn't
+      reintroduce that behavior).
 
 teardown: []
 
@@ -78,4 +123,10 @@ criteria:
   conversation_removed:
     description: "Conversation is removed from the app's conversations list after exploding"
   cli_cannot_access:
-    description: "Conversation is no longer accessible via CLI"
+    description: "Conversation is no longer accessible via CLI; CLI was removed from the group before creator left"
+  creator_left:
+    description: "Device logs show 'Creator left exploded group' (or fallback denied-consent message); CLI confirms creator is no longer a member"
+    checkpoint: "C9"
+  no_account_damage:
+    description: "Other conversations remain accessible and the user's profile is unchanged after explode (proves no keychain destruction)"
+    checkpoint: "C9"

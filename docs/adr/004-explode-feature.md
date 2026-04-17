@@ -1,6 +1,22 @@
 # ADR 004: Conversation Explode Feature
 
-> **Status**: Accepted
+> **Status**: Amended by the single-inbox identity refactor
+> (`docs/plans/single-inbox-identity-refactor.md`).
+>
+> The original design (below) destroyed the conversation's XMTP inbox identity
+> as the deletion mechanism. With the single-inbox refactor (ADR 002 superseded),
+> there is exactly one inbox per user — destroying it would wipe the user's
+> entire account. C9 of the refactor rewrites the deletion mechanism to
+> **remove-all-then-leave**: the creator sends the `ExplodeSettings` message,
+> removes every other member from the MLS group, then calls `group.leaveGroup()`.
+> Receivers drop the conversation locally on the `ExplodeSettings` message or
+> on the MLS "removed" event, whichever arrives first. No keychain material is
+> touched.
+>
+> The C9 amendment at the end of this file documents the new flow. The sections
+> below describe the original per-conversation-identity mechanism and remain
+> accurate for any install on a pre-single-inbox build; the single-inbox branch
+> no longer uses them.
 
 ## Context
 
@@ -335,3 +351,102 @@ However, the per-conversation identity model provides cryptographic assurance: e
 - XMTP Content Types: https://xmtp.org/docs/build/messages
 - XMTP Custom Content Types: https://github.com/xmtp/xmtp-ios/blob/main/XMTP/Proto/message_contents/content.proto
 - iOS Keychain Services: https://developer.apple.com/documentation/security/keychain_services
+
+---
+
+## Single-Inbox Amendment (C9, 2026-04-16)
+
+### Why the original mechanism can't work under single-inbox
+
+Section 5 above ("Deletion Mechanism") relied on `SessionManager` observing
+`.leftConversationNotification` and calling `InboxStateMachine.handleDelete()`
+to destroy the conversation's keychain identity, XMTP database, and DBInbox
+row. That worked when each conversation had its own inbox — destroying the
+inbox was scoped to one conversation's worth of cryptographic material.
+
+Under the single-inbox refactor (see ADR 002 supersession + C4a, commit
+`ad42e4b6`), every conversation shares one inbox. Destroying it on explode
+would wipe the user's entire account, including every other conversation they
+are in. The `.leftConversationNotification` observer on `SessionManager` is
+already a no-op in post-C4a code — it just logs and returns.
+
+### New deletion mechanism: remove-all-then-leave
+
+The creator's explode flow (in `ConversationExplosionWriter.explodeConversation`)
+is now:
+
+1. **Send `ExplodeSettings`.** Same as before, same content type, same
+   `shouldPush = true`. Every other member receives a push notification that
+   says "conversation exploded."
+2. **Update local `expiresAt = Date()`.** `ConversationsRepository` filters on
+   `expiresAt > Date()`, so the conversation disappears from the local UI
+   immediately. (This is the long-standing soft-delete convention; C9 doesn't
+   change it.)
+3. **Remove every other member from the MLS group** via
+   `metadataWriter.removeMembers`. This emits `GroupUpdated` removal events
+   so clients that missed the `ExplodeSettings` message (offline at send
+   time) still see they were taken out.
+4. **Creator leaves the group** via `group.leaveGroup()`. The XMTP SDK sends
+   the MLS commit that removes the creator from the group. There is nothing
+   left of the group on the network after this commit — no members, no
+   admin, nothing to resync. The `updateConsentState(.denied)` call from
+   the old flow is kept as a fallback only if `leaveGroup()` throws (rare —
+   happens if the network is unreachable mid-flow).
+
+### Receiver-side behavior
+
+Unchanged in mechanism, just newly robust to the creator leaving cleanly:
+
+- **On `ExplodeSettings` message:** `IncomingMessageWriter.processExplodeSettings`
+  writes `expiresAt` to the local DB and posts `.conversationExpired`. UI
+  already hides the conversation via the `expiresAt` filter.
+- **On MLS "removed" event:** `IncomingMessageWriter` detects that the current
+  inbox is in `update.removedInboxIds` and posts `.leftConversationNotification`.
+  UI removes the conversation from the list. Same end state as the
+  `ExplodeSettings` path — just a different trigger.
+
+Either trigger is sufficient; the creator fires both precisely so that if
+the push is lost or out of order, the "removed" event still arrives through
+the normal MLS commit stream and the receiver converges.
+
+### What doesn't happen in the new flow
+
+- **No keychain deletion.** The singleton identity persists. Keys are not
+  touched. Per ADR 002 C3 amendment, keys are now iCloud-synced and span every
+  conversation — they never get deleted on a per-conversation action.
+- **No XMTP database deletion.** The single XMTP DB persists; it still holds
+  other conversations.
+- **No DBInbox row deletion.** There's only the one, and it's the user.
+- **No cryptographic finality.** Pre-single-inbox, destroying the inbox made
+  the exploded conversation's messages cryptographically unrecoverable even
+  if ciphertext leaked. With one shared inbox, the keys remain on the device
+  (and in iCloud Keychain), so recovering the conversation's messages is
+  cryptographically possible — what prevents it is that the group state is
+  gone on the network (all members removed, creator left) and locally
+  (`expiresAt` filter hides it). This is a deliberate, documented tradeoff
+  listed in the refactor plan's "Privacy properties we lose."
+
+### Scheduled explosions
+
+The scheduled path (`scheduleExplosion` at a future date) sends the
+`ExplodeSettings` message with a future `expiresAt` and otherwise leaves the
+group in place. When the timer fires in `ExpiredConversationsWorker`, the
+local app posts `.conversationExpired` and the conversation is filtered out
+of the UI. The creator does **not** leave the group on the network at that
+point — the scheduled path currently relies on other members applying
+`expiresAt` locally. Bringing scheduled explosions to full parity with the
+immediate path (creator leaves at expiry time) is tracked as future work;
+the plan's QA scope for C9 covers this mismatch in
+`qa/tests/23-scheduled-explode.md`.
+
+### Code locations
+
+- Sender: `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationExplosionWriter.swift`
+- Receiver (message): `ConvosCore/Sources/ConvosCore/Storage/Writers/IncomingMessageWriter.swift`
+  (`processExplodeSettings`)
+- Receiver ("removed" event): `ConvosCore/Sources/ConvosCore/Storage/Writers/IncomingMessageWriter.swift`
+  (the `wasRemovedFromConversation` branch)
+- Filtering: `ConvosCore/Sources/ConvosCore/Storage/Repositories/ConversationsRepository.swift`
+  (`expiresAt > Date()` clause)
+- Timer: `ConvosCore/Sources/ConvosCore/Storage/Workers/ExpiredConversationsWorker.swift`
+
