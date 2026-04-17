@@ -35,12 +35,12 @@ func waitUntil(
     throw TimeoutError()
 }
 
-/// Helper to wait for InboxStateMachine to reach a specific state with timeout
+/// Helper to wait for SessionStateMachine to reach a specific state with timeout
 func waitForState(
-    _ stateMachine: InboxStateMachine,
+    _ stateMachine: SessionStateMachine,
     timeout: TimeInterval = 30,
-    condition: @escaping @Sendable (InboxStateMachine.State) -> Bool
-) async throws -> InboxStateMachine.State {
+    condition: @escaping @Sendable (SessionStateMachine.State) -> Bool
+) async throws -> SessionStateMachine.State {
     try await withTimeout(seconds: timeout) {
         for await state in await stateMachine.stateSequence {
             if condition(state) {

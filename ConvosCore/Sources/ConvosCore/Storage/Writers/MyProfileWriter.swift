@@ -13,19 +13,19 @@ enum MyProfileWriterError: Error {
 }
 
 class MyProfileWriter: MyProfileWriterProtocol {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
     func update(displayName: String, conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
@@ -61,7 +61,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     func update(metadata: ProfileMetadata?, conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
@@ -83,7 +83,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     func update(avatar: ImageType?, conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)

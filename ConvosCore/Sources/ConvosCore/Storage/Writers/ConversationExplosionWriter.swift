@@ -21,14 +21,14 @@ enum ConversationExplosionError: LocalizedError {
 }
 
 final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @unchecked Sendable {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         metadataWriter: any ConversationMetadataWriterProtocol
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.metadataWriter = metadataWriter
     }
 
@@ -95,7 +95,7 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
     private func findGroupConversation(
         conversationId: String
     ) async throws -> (XMTPiOS.Conversation, Group) {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(
             conversationId: conversationId
         ) else {

@@ -2,9 +2,9 @@ import Combine
 import ConvosInvites
 import Foundation
 
-/// Mock implementation of InboxStateManagerProtocol for testing
-public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked Sendable {
-    public var currentState: InboxStateMachine.State
+/// Mock implementation of SessionStateManagerProtocol for testing
+public final class MockSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
+    public var currentState: SessionStateMachine.State
     public var isSyncReady: Bool = true
 
     private var observers: [WeakStateObserver] = []
@@ -12,11 +12,11 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     private let mockAPIClient: any ConvosAPIClientProtocol
 
     private struct WeakStateObserver {
-        weak var observer: InboxStateObserver?
+        weak var observer: SessionStateObserver?
     }
 
     public init(
-        initialState: InboxStateMachine.State? = nil,
+        initialState: SessionStateMachine.State? = nil,
         mockClient: (any XMTPClientProvider)? = nil,
         mockAPIClient: (any ConvosAPIClientProtocol)? = nil
     ) {
@@ -55,17 +55,17 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     public func ensureForeground() async {
     }
 
-    public func addObserver(_ observer: any InboxStateObserver) {
+    public func addObserver(_ observer: any SessionStateObserver) {
         observers.removeAll { $0.observer == nil }
         observers.append(WeakStateObserver(observer: observer))
-        observer.inboxStateDidChange(currentState)
+        observer.sessionStateDidChange(currentState)
     }
 
-    public func removeObserver(_ observer: any InboxStateObserver) {
+    public func removeObserver(_ observer: any SessionStateObserver) {
         observers.removeAll { $0.observer === observer || $0.observer == nil }
     }
 
-    public func observeState(_ handler: @escaping (InboxStateMachine.State) -> Void) -> StateObserverHandle {
+    public func observeState(_ handler: @escaping (SessionStateMachine.State) -> Void) -> StateObserverHandle {
         let observer = ClosureStateObserver(handler: handler)
         addObserver(observer)
         return StateObserverHandle(observer: observer, manager: self)
@@ -74,7 +74,7 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     // MARK: - Test Helpers
 
     /// Manually update the state and notify observers
-    public func setState(_ state: InboxStateMachine.State) {
+    public func setState(_ state: SessionStateMachine.State) {
         currentState = state
         notifyObservers()
     }
@@ -82,7 +82,7 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     private func notifyObservers() {
         observers = observers.compactMap { weakObserver in
             guard let observer = weakObserver.observer else { return nil }
-            observer.inboxStateDidChange(currentState)
+            observer.sessionStateDidChange(currentState)
             return weakObserver
         }
     }

@@ -15,17 +15,17 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
         case deleteAllFailedWithErrors([Error])
     }
 
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
-    init(inboxStateManager: any InboxStateManagerProtocol,
+    init(sessionStateManager: any SessionStateManagerProtocol,
          databaseWriter: any DatabaseWriter) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
     func join(conversation: Conversation) async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        let client = try await sessionStateManager.waitForInboxReadyResult().client
         try await client.update(consent: .allowed, for: conversation.id)
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -39,7 +39,7 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func delete(conversation: Conversation) async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        let client = try await sessionStateManager.waitForInboxReadyResult().client
         try await client.update(consent: .denied, for: conversation.id)
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -53,7 +53,7 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func deleteAll() async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        let client = try await sessionStateManager.waitForInboxReadyResult().client
         let inboxId = client.inboxId
         let conversationsToDeny = try await databaseWriter.read { db in
             try DBConversation

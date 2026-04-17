@@ -16,7 +16,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
     init(dbReader: any DatabaseReader,
          conversationId: String,
          conversationIdPublisher: AnyPublisher<String, Never>,
-         inboxStateManager: any InboxStateManagerProtocol) {
+         sessionStateManager: any SessionStateManagerProtocol) {
         self.dbReader = dbReader
         self.conversationId = conversationId
         self.conversationIdPublisher = conversationIdPublisher
@@ -27,7 +27,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
             conversationIdPublisher: conversationIdPublisher
         )
         myProfileRepository = MyProfileRepository(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseReader: dbReader,
             conversationId: conversationId,
             conversationIdPublisher: conversationIdPublisher

@@ -4,7 +4,7 @@ import GRDB
 import os
 @preconcurrency import XMTPiOS
 
-extension InboxStateMachine.State {
+extension SessionStateMachine.State {
     var isReady: Bool {
         switch self {
         case .ready:
@@ -23,14 +23,13 @@ extension InboxStateMachine.State {
              .ready(let clientId, _),
              .backgrounded(let clientId, _),
              .deleting(let clientId, _),
-             .stopping(let clientId),
              .error(let clientId, _):
             return clientId
         }
     }
 }
 
-enum InboxStateError: Error {
+enum SessionStateError: Error {
     case inboxNotReady, clientIdInboxInconsistency
 }
 
@@ -54,7 +53,7 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 
 /// State machine managing the lifecycle of an XMTP inbox
 ///
-/// InboxStateMachine coordinates the complex lifecycle of an inbox from creation/authorization
+/// SessionStateMachine coordinates the complex lifecycle of an inbox from creation/authorization
 /// through ready state and eventual deletion. It handles:
 /// - Creating new XMTP clients or building existing ones from keychain
 /// - Authenticating with the Convos backend
@@ -62,12 +61,12 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 /// - Registering for push notifications
 /// - Cleaning up all resources on deletion
 ///
-/// Also serves as the InboxStateManagerProtocol implementation, providing synchronous
+/// Also serves as the SessionStateManagerProtocol implementation, providing synchronous
 /// state access via a lock-protected cache and observer-based state notifications.
 ///
 /// The state machine ensures proper sequencing of operations through an action queue
 /// and maintains state through idle → authorizing/registering → authenticating → ready → deleting → stopping.
-public actor InboxStateMachine: InboxStateManagerProtocol {
+public actor SessionStateMachine: SessionStateManagerProtocol {
     /// @unchecked Sendable: Most cases contain only Sendable values (String). Cases with
     /// XMTPClientProvider (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
     /// contain protocol references that wrap thread-safe XMTP types designed for async/await use.
@@ -83,6 +82,17 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
              stop
     }
 
+    /// Single-inbox state graph (simplified from the multi-inbox era).
+    ///
+    /// Two transient states from the old multi-inbox world were removed in C5:
+    /// - `.stopping` — previously emitted between `.ready` and `.idle` during
+    ///   reauthorize/shutdown. In the single-inbox model there is no per-inbox
+    ///   graceful shutdown choreography, so `handleStop` transitions directly
+    ///   to `.idle`.
+    /// - Per-inbox `.deleting` — the "destroy this one inbox" case no longer
+    ///   exists; destroying the inbox is a full account reset and only happens
+    ///   through `SessionManager.deleteAllInboxes`. `.deleting` survives, but
+    ///   only for that full-reset path.
     public enum State: Sendable {
         case idle(clientId: String)
         case authorizing(clientId: String, inboxId: String)
@@ -91,7 +101,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         case ready(clientId: String, result: InboxReadyResult)
         case backgrounded(clientId: String, result: InboxReadyResult)
         case deleting(clientId: String, inboxId: String?)
-        case stopping(clientId: String)
         case error(clientId: String, error: any Error)
     }
 
@@ -115,7 +124,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private var foregroundRetryCount: Int = 0
     private static let maxForegroundRetries: Int = 2
 
-    // MARK: - Nonisolated State Cache (InboxStateManagerProtocol)
+    // MARK: - Nonisolated State Cache (SessionStateManagerProtocol)
 
     private nonisolated let _stateCache: OSAllocatedUnfairLock<State>
 
@@ -127,23 +136,23 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         _stateCache.withLock { $0 = newState }
     }
 
-    // MARK: - Observer Pattern (InboxStateManagerProtocol)
+    // MARK: - Observer Pattern (SessionStateManagerProtocol)
 
     private struct WeakObserver: Sendable {
-        weak var observer: InboxStateObserver?
+        weak var observer: SessionStateObserver?
     }
 
     private nonisolated let _observers: OSAllocatedUnfairLock<[WeakObserver]> = .init(initialState: [])
 
-    public nonisolated func addObserver(_ observer: InboxStateObserver) {
+    public nonisolated func addObserver(_ observer: SessionStateObserver) {
         _observers.withLock { observers in
             observers.removeAll { $0.observer == nil }
             observers.append(WeakObserver(observer: observer))
         }
-        observer.inboxStateDidChange(currentState)
+        observer.sessionStateDidChange(currentState)
     }
 
-    public nonisolated func removeObserver(_ observer: InboxStateObserver) {
+    public nonisolated func removeObserver(_ observer: SessionStateObserver) {
         _observers.withLock { observers in
             observers.removeAll { $0.observer === observer || $0.observer == nil }
         }
@@ -154,7 +163,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             observers.compactMap { $0.observer }
         }
         for observer in snapshot {
-            observer.inboxStateDidChange(state)
+            observer.sessionStateDidChange(state)
         }
         _observers.withLock { observers in
             observers.removeAll { $0.observer == nil }
@@ -162,7 +171,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     public nonisolated func observeState(
-        _ handler: @escaping (InboxStateMachine.State) -> Void
+        _ handler: @escaping (SessionStateMachine.State) -> Void
     ) -> StateObserverHandle {
         let observer = ClosureStateObserver(handler: handler)
         addObserver(observer)
@@ -351,19 +360,17 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         enqueueAction(.delete)
     }
 
-    /// Wait for the deletion process to complete
-    /// Returns when the state machine reaches .idle or .stopping state after deletion
+    /// Wait for the deletion process to complete.
+    /// Returns when the state machine reaches `.idle` (success) or `.error`
+    /// (deletion failed but the session machine will not make further progress).
     public func waitForDeletionComplete() async {
         for await state in stateSequence {
             switch state {
-            case .idle, .stopping:
-                // Deletion complete
+            case .idle:
                 return
             case .error:
-                // Deletion failed, but still complete
                 return
             default:
-                // Still processing, continue waiting
                 continue
             }
         }
@@ -384,7 +391,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         await syncingManager.requestDiscovery()
     }
 
-    // MARK: - InboxStateManagerProtocol
+    // MARK: - SessionStateManagerProtocol
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
         for await state in stateSequence {
@@ -398,7 +405,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 continue
             }
         }
-        throw InboxStateError.inboxNotReady
+        throw SessionStateError.inboxNotReady
     }
 
     public func ensureForeground() {
@@ -444,7 +451,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             }
         }
 
-        throw InboxStateError.inboxNotReady
+        throw SessionStateError.inboxNotReady
     }
 
     public func deleteInbox() async throws {
@@ -510,8 +517,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             case (let .idle(clientId), .delete),
                  (let .authorizing(clientId, _), .delete),
                  (let .registering(clientId), .delete),
-                 (let .authenticatingBackend(clientId, _), .delete),
-                 (let .stopping(clientId), .delete):
+                 (let .authenticatingBackend(clientId, _), .delete):
                 try await handleDeleteFromIdle(clientId: clientId)
             case (.deleting, .delete):
                 // Already deleting - ignore duplicate delete request (idempotent)
@@ -534,7 +540,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 let (.backgrounded(clientId, _), .stop):
                 try await handleStop(clientId: clientId)
 
-            case (.idle, .stop), (.stopping, .stop):
+            case (.idle, .stop):
                 break
 
             // Ignore lifecycle events when not in appropriate state
@@ -604,7 +610,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             )
             guard client.inboxId == identity.inboxId else {
                 Log.error("Created client with mis-matched inboxId")
-                throw InboxStateError.clientIdInboxInconsistency
+                throw SessionStateError.clientIdInboxInconsistency
             }
         }
 
@@ -769,7 +775,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     /// Handles deletion when we don't have an initialized client/apiClient
-    /// Used for .idle, .authorizing, .registering, .authenticatingBackend, and .stopping states
+    /// Used for .idle, .authorizing, .registering, and .authenticatingBackend states
     private func handleDeleteFromIdle(clientId: String) async throws {
         Log.info("Deleting inbox with clientId \(clientId) without initialized client...")
         defer { enqueueAction(.stop) }
@@ -829,8 +835,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         stopAppLifecycleObservation()
         await stopNetworkMonitoring()
 
-        emitStateChange(.stopping(clientId: clientId))
-
         // Stop sync BEFORE dropping database connection to prevent in-flight operations from failing
         await syncingManager?.stop()
 
@@ -845,6 +849,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             }
         }
 
+        // Transition directly to .idle. The old .stopping intermediate state
+        // was part of the multi-inbox choreography and no longer serves a purpose.
         emitStateChange(.idle(clientId: clientId))
 
         // Clean up all state continuations to prevent memory leaks

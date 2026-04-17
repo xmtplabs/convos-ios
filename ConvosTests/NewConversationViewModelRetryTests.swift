@@ -16,11 +16,11 @@ final class NewConversationViewModelRetryTests: XCTestCase {
             conversationId: "draft-test",
             draftConversationRepository: draftRepo
         )
-        let inboxStateManager = MockInboxStateManager(
+        let sessionStateManager = MockSessionStateManager(
             initialState: .idle(clientId: "test-client-1")
         )
         let messagingService = MockMessagingService(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             conversationStateManager: stateManager
         )
 

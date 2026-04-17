@@ -85,7 +85,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -147,7 +147,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -226,7 +226,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -295,7 +295,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -380,7 +380,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -465,7 +465,7 @@ struct ConversationStateMachineTests {
         // Wait for inbox to be ready before creating conversations
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                try await messagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for inbox to be ready: \(error)")
@@ -475,7 +475,7 @@ struct ConversationStateMachineTests {
         }
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -566,7 +566,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -654,7 +654,7 @@ struct ConversationStateMachineTests {
         // Wait for inviter inbox to be ready before creating conversation
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+                try await inviterMessagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
@@ -664,7 +664,7 @@ struct ConversationStateMachineTests {
         }
 
         let inviterStateMachine = ConversationStateMachine(
-            inboxStateManager: inviterMessagingService.inboxStateManager,
+            sessionStateManager: inviterMessagingService.sessionStateManager,
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
@@ -721,7 +721,7 @@ struct ConversationStateMachineTests {
         // This prevents a race condition where the joiner sends a DM before the inviter's
         // message stream is connected to receive it
         try await waitUntil(timeout: .seconds(10)) {
-            await inviterMessagingService.inboxStateManager.isSyncReady
+            await inviterMessagingService.sessionStateManager.isSyncReady
         }
 
         // Setup joiner messaging service and state machine
@@ -739,7 +739,7 @@ struct ConversationStateMachineTests {
         // Wait for joiner inbox to be ready before joining
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+                try await joinerMessagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
@@ -754,11 +754,11 @@ struct ConversationStateMachineTests {
         // The XMTP SDK connection pool must be fully initialized to avoid
         // "Pool needs to reconnect before use" errors.
         try await waitUntil(timeout: .seconds(10)) {
-            await joinerMessagingService.inboxStateManager.isSyncReady
+            await joinerMessagingService.sessionStateManager.isSyncReady
         }
 
         let joinerStateMachine = ConversationStateMachine(
-            inboxStateManager: joinerMessagingService.inboxStateManager,
+            sessionStateManager: joinerMessagingService.sessionStateManager,
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
@@ -827,7 +827,7 @@ struct ConversationStateMachineTests {
         // so we use a generous timeout (60s) for this step.
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+                try await inviterMessagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
@@ -837,7 +837,7 @@ struct ConversationStateMachineTests {
         }
 
         let inviterStateMachine = ConversationStateMachine(
-            inboxStateManager: inviterMessagingService.inboxStateManager,
+            sessionStateManager: inviterMessagingService.sessionStateManager,
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
@@ -913,7 +913,7 @@ struct ConversationStateMachineTests {
         )
 
         let joinerStateMachine = ConversationStateMachine(
-            inboxStateManager: joinerMessagingService.inboxStateManager,
+            sessionStateManager: joinerMessagingService.sessionStateManager,
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
@@ -1014,7 +1014,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1088,7 +1088,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1156,7 +1156,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1216,7 +1216,7 @@ struct ConversationStateMachineTests {
 
         // First create a conversation so we have a valid conversationId
         let createStateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1249,7 +1249,7 @@ struct ConversationStateMachineTests {
 
         // Now test useExisting with a fresh state machine
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1314,7 +1314,7 @@ struct ConversationStateMachineTests {
 
         // First create a conversation so we have a valid conversationId
         let createStateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1347,7 +1347,7 @@ struct ConversationStateMachineTests {
 
         // Now test useExisting and sending messages with a fresh state machine
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1417,7 +1417,7 @@ struct ConversationStateMachineTests {
 
         // First create a conversation
         let createStateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1450,7 +1450,7 @@ struct ConversationStateMachineTests {
 
         // Test useExisting state sequence
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1528,7 +1528,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1640,7 +1640,7 @@ struct ConversationStateMachineTests {
         )
 
         let inviterStateMachine = ConversationStateMachine(
-            inboxStateManager: inviterMessagingService.inboxStateManager,
+            sessionStateManager: inviterMessagingService.sessionStateManager,
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
@@ -1698,7 +1698,7 @@ struct ConversationStateMachineTests {
         // This prevents a race condition where the joiner sends a DM before the inviter's
         // message stream is connected to receive it
         try await waitUntil(timeout: .seconds(10)) {
-            await inviterMessagingService.inboxStateManager.isSyncReady
+            await inviterMessagingService.sessionStateManager.isSyncReady
         }
 
         // Setup joiner messaging service with different network monitor
@@ -1723,7 +1723,7 @@ struct ConversationStateMachineTests {
         // Wait for joiner inbox to be ready before joining
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+                try await joinerMessagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
@@ -1736,11 +1736,11 @@ struct ConversationStateMachineTests {
 
         // Wait for joiner's sync streams to be ready before joining
         try await waitUntil(timeout: .seconds(10)) {
-            await joinerMessagingService.inboxStateManager.isSyncReady
+            await joinerMessagingService.sessionStateManager.isSyncReady
         }
 
         let joinerStateMachine = ConversationStateMachine(
-            inboxStateManager: joinerMessagingService.inboxStateManager,
+            sessionStateManager: joinerMessagingService.sessionStateManager,
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
@@ -1899,7 +1899,7 @@ struct ConversationStateMachineTests {
         )
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,

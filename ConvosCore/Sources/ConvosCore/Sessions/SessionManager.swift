@@ -404,7 +404,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return ConversationRepository(
             conversationId: conversationId,
             dbReader: databaseReader,
-            inboxStateManager: messagingService.inboxStateManager
+            sessionStateManager: messagingService.sessionStateManager
         )
     }
 

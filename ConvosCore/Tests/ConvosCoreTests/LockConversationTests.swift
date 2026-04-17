@@ -202,7 +202,7 @@ struct LockConversationTests {
         // Create mock inbox state manager that returns the real client
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
+        let mockInboxStateManager = MockSessionStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
@@ -211,7 +211,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -298,7 +298,7 @@ struct LockConversationTests {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
+        let mockInboxStateManager = MockSessionStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
@@ -307,7 +307,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -339,7 +339,7 @@ struct LockConversationTests {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
+        let mockInboxStateManager = MockSessionStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
@@ -348,7 +348,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -473,7 +473,7 @@ struct LockConversationTests {
         // Create mock dependencies
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
+        let mockInboxStateManager = MockSessionStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
@@ -482,7 +482,7 @@ struct LockConversationTests {
 
         // Create the metadata writer (the actual component we're testing)
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
@@ -621,7 +621,7 @@ struct LockConversationTests {
         // Create mock dependencies
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
+        let mockInboxStateManager = MockSessionStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
@@ -629,7 +629,7 @@ struct LockConversationTests {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )

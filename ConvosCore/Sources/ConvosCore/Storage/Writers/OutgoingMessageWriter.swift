@@ -118,7 +118,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         case eagerPhoto(QueuedEagerPhoto)
     }
 
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let conversationId: String
     private let photoService: any PhotoAttachmentServiceProtocol
@@ -139,7 +139,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter,
         conversationId: String,
         photoService: any PhotoAttachmentServiceProtocol,
@@ -147,7 +147,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         backgroundUploadManager: any BackgroundUploadManagerProtocol,
         attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
         self.conversationId = conversationId
         self.photoService = photoService
@@ -263,7 +263,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let prepared: PreparedBackgroundUpload
         do {
@@ -428,7 +428,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.publishing, for: trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let queued = QueuedPhotoMessage(
             clientMessageId: state.clientMessageId,
             image: state.image,
@@ -526,7 +526,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         tracker.setStage(.preparing, for: trackingKey)
 
         do {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
             let fileData = try Data(contentsOf: params.dataURL)
             let attachment = Attachment(
@@ -817,12 +817,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func saveTextToDatabase(clientMessageId: String, text: String, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
-        if case .ready(_, let result) = inboxStateManager.currentState {
+        if case .ready(_, let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
-        } else if case .backgrounded(_, let result) = inboxStateManager.currentState {
+        } else if case .backgrounded(_, let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
         } else {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             senderId = inboxReady.client.inboxId
         }
 
@@ -877,12 +877,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func savePhotoToDatabase(clientMessageId: String, localCacheURL: URL, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
-        if case .ready(_, let result) = inboxStateManager.currentState {
+        if case .ready(_, let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
-        } else if case .backgrounded(_, let result) = inboxStateManager.currentState {
+        } else if case .backgrounded(_, let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
         } else {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             senderId = inboxReady.client.inboxId
         }
 
@@ -924,7 +924,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func publishText(_ queued: QueuedTextMessage) async throws {
         let perfStart = CFAbsoluteTimeGetCurrent()
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
 
         guard let sender = try await client.messageSender(for: conversationId) else {
@@ -1002,7 +1002,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         tracker.setStage(.preparing, for: trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let prepared: PreparedBackgroundUpload
         do {
@@ -1076,7 +1076,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: queued.trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let videoData = try Data(contentsOf: queued.localCacheURL)
         let attachment = Attachment(
@@ -1157,7 +1157,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: queued.trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let audioData = try Data(contentsOf: queued.localCacheURL)
         let attachment = Attachment(
@@ -1401,7 +1401,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     private func publishPreparedMessage(messageId: String, sentContent: String? = nil) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
 
         guard let sender = try await client.messageSender(for: conversationId) else {

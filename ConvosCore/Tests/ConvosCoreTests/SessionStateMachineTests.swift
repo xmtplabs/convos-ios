@@ -8,7 +8,7 @@ import XMTPiOS
 
 private let testAppLifecycle = MockAppLifecycleProvider()
 
-/// Comprehensive tests for InboxStateMachine
+/// Comprehensive tests for SessionStateMachine
 ///
 /// Tests cover:
 /// - Registration flow (idle → registering → authenticating → ready)
@@ -18,8 +18,8 @@ private let testAppLifecycle = MockAppLifecycleProvider()
 /// - Stop flow (ready → stopping → idle)
 /// - Database cleanup on deletion
 /// - Keychain management
-@Suite("InboxStateMachine Tests", .serialized, .timeLimit(.minutes(2)))
-struct InboxStateMachineTests {
+@Suite("SessionStateMachine Tests", .serialized, .timeLimit(.minutes(2)))
+struct SessionStateMachineTests {
     // MARK: - Registration Tests
 
     @Test("Register creates new client and reaches ready state")
@@ -31,7 +31,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -89,7 +89,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -155,7 +155,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -207,7 +207,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: wrongClientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -256,7 +256,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -324,7 +324,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -394,7 +394,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -449,7 +449,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -493,8 +493,6 @@ struct InboxStateMachineTests {
                     stateName = "authorizing"
                 case .deleting:
                     stateName = "deleting"
-                case .stopping:
-                    stateName = "stopping"
                 }
                 await collector.add(stateName)
 
@@ -535,7 +533,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -590,7 +588,7 @@ struct InboxStateMachineTests {
         let mockSync = MockSyncingManager()
         let mockInvites = MockInvitesRepository()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -668,7 +666,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -764,7 +762,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -809,8 +807,6 @@ struct InboxStateMachineTests {
                     stateName = "authorizing"
                 case .deleting:
                     stateName = "deleting"
-                case .stopping:
-                    stateName = "stopping"
                 }
                 await collector.add(stateName)
 

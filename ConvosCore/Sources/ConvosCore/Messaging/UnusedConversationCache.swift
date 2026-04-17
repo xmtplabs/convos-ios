@@ -191,7 +191,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             databaseReader: databaseReader,
             environment: environment
         )
-        await result.service.inboxStateManager.ensureForeground()
+        await result.service.sessionStateManager.ensureForeground()
         return result
     }
 
@@ -300,7 +300,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             databaseReader: databaseReader,
             environment: environment
         )
-        await service.inboxStateManager.ensureForeground()
+        await service.sessionStateManager.ensureForeground()
         return service
     }
 
@@ -330,7 +330,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             clearUnusedFromKeychain()
 
             do {
-                let result = try await unusedService.inboxStateManager.waitForInboxReadyResult()
+                let result = try await unusedService.sessionStateManager.waitForInboxReadyResult()
                 let inboxId = result.client.inboxId
                 guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
                     throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching inbox \(inboxId)")
@@ -389,7 +389,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                     backgroundUploadManager: UnavailableBackgroundUploadManager()
                 )
 
-                _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                _ = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 let inboxWriter = InboxWriter(dbWriter: databaseWriter)
                 try await inboxWriter.save(inboxId: unusedInboxId, clientId: identity.clientId)
                 Log.debug("Saved consumed keychain inbox-only: \(unusedInboxId)")
@@ -466,7 +466,7 @@ extension UnusedConversationCache {
         unusedMessagingService = nil
 
         do {
-            let result = try await service.inboxStateManager.waitForInboxReadyResult()
+            let result = try await service.sessionStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
 
             // Verify the conversation was actually created by this inbox (defense against
@@ -526,7 +526,7 @@ extension UnusedConversationCache {
         clearUnusedFromKeychain()
 
         do {
-            let result = try await service.inboxStateManager.waitForInboxReadyResult()
+            let result = try await service.sessionStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
             guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching unused inbox \(inboxId)")
@@ -602,7 +602,7 @@ extension UnusedConversationCache {
                 backgroundUploadManager: UnavailableBackgroundUploadManager()
             )
 
-            _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            _ = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
             Log.debug("Saved consumed keychain inbox: \(inboxId)")
@@ -750,7 +750,7 @@ extension UnusedConversationCache {
         backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader, weak service] in
             guard let service else { return }
             do {
-                _ = try await service.inboxStateManager.waitForInboxReadyResult()
+                _ = try await service.sessionStateManager.waitForInboxReadyResult()
             } catch {
                 return
             }
@@ -823,7 +823,7 @@ extension UnusedConversationCache {
         )
 
         do {
-            _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            _ = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             unusedMessagingService = messagingService
             Log.debug("Successfully authorized unused inbox: \(inboxId)")
         } catch {
@@ -879,7 +879,7 @@ extension UnusedConversationCache {
         )
 
         do {
-            let result = try await tempMessagingService.inboxStateManager.waitForInboxReadyResult()
+            let result = try await tempMessagingService.sessionStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
 
             saveUnusedInboxToKeychain(inboxId)
@@ -911,7 +911,7 @@ extension UnusedConversationCache {
         }
 
         do {
-            let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             let client = inboxReady.client
             let inboxId = client.inboxId
 

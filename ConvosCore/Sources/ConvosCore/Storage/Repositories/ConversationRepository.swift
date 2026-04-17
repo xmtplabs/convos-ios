@@ -26,7 +26,7 @@ class ConversationRepository: ConversationRepositoryProtocol {
 
     init(conversationId: String,
          dbReader: any DatabaseReader,
-         inboxStateManager: any InboxStateManagerProtocol) {
+         sessionStateManager: any SessionStateManagerProtocol) {
         self.dbReader = dbReader
         self.conversationId = conversationId
         self.messagesRepository = MessagesRepository(
@@ -34,7 +34,7 @@ class ConversationRepository: ConversationRepositoryProtocol {
             conversationId: conversationId
         )
         self.myProfileRepository = MyProfileRepository(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseReader: dbReader,
             conversationId: conversationId
         )

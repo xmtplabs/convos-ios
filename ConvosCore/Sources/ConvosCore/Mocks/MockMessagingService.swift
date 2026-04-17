@@ -12,7 +12,7 @@ import Foundation
 public final class MockMessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: - Dependencies
 
-    private let _inboxStateManager: any InboxStateManagerProtocol
+    private let _sessionStateManager: any SessionStateManagerProtocol
     private let _myProfileWriter: any MyProfileWriterProtocol
     private let _conversationStateManager: any ConversationStateManagerProtocol
     private let _conversationConsentWriter: any ConversationConsentWriterProtocol
@@ -28,7 +28,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     // MARK: - Initialization
 
     public init(
-        inboxStateManager: (any InboxStateManagerProtocol)? = nil,
+        sessionStateManager: (any SessionStateManagerProtocol)? = nil,
         myProfileWriter: (any MyProfileWriterProtocol)? = nil,
         conversationStateManager: (any ConversationStateManagerProtocol)? = nil,
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
@@ -41,7 +41,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         readReceiptWriter: (any ReadReceiptWriterProtocol)? = nil,
         replyWriter: (any ReplyMessageWriterProtocol)? = nil
     ) {
-        self._inboxStateManager = inboxStateManager ?? MockInboxStateManager()
+        self._sessionStateManager = sessionStateManager ?? MockSessionStateManager()
         self._myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
         self._conversationStateManager = conversationStateManager ?? MockConversationStateManager()
         self._conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
@@ -65,8 +65,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func waitForDeletionComplete() async {}
 
-    public var inboxStateManager: any InboxStateManagerProtocol {
-        _inboxStateManager
+    public var sessionStateManager: any SessionStateManagerProtocol {
+        _sessionStateManager
     }
 
     public func myProfileWriter() -> any MyProfileWriterProtocol {

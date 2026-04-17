@@ -70,7 +70,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     // MARK: - Private Properties
 
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let stateMachine: ConversationStateMachine
 
     private var stateObservationTask: Task<Void, Never>?
@@ -79,7 +79,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     // MARK: - Initialization
 
     public init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
@@ -87,25 +87,25 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         conversationId: String? = nil,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
 
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
 
         let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
         self.conversationMetadataWriter = ConversationMetadataWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             inviteWriter: inviteWriter,
             databaseWriter: databaseWriter
         )
 
         self.myProfileWriter = MyProfileWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter
         )
 
         self.conversationConsentWriter = ConversationConsentWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter
         )
 
@@ -117,11 +117,11 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             dbReader: databaseReader,
             conversationId: conversationIdSubject.value,
             conversationIdPublisher: conversationIdSubject.eraseToAnyPublisher(),
-            inboxStateManager: inboxStateManager
+            sessionStateManager: sessionStateManager
         )
 
         self.stateMachine = ConversationStateMachine(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
@@ -246,7 +246,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     }
 
     public func delete() async throws {
-        try await inboxStateManager.deleteInbox()
+        try await sessionStateManager.deleteInbox()
         await stateMachine.delete()
     }
 

@@ -73,7 +73,7 @@ public actor ConversationStateMachine {
     // MARK: - Properties
 
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseReader: any DatabaseReader
     private let databaseWriter: any DatabaseWriter
     private let environment: AppEnvironment
@@ -146,7 +146,7 @@ public actor ConversationStateMachine {
     // MARK: - Init
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
@@ -154,7 +154,7 @@ public actor ConversationStateMachine {
         clientConversationId: String,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
@@ -214,7 +214,7 @@ public actor ConversationStateMachine {
 
         let result = try await waitForConversationReadyResult()
         let writer = OutgoingMessageWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             conversationId: result.conversationId,
             photoService: PhotoAttachmentService(),
@@ -444,7 +444,7 @@ public actor ConversationStateMachine {
     private func handleCreate() async throws {
         emitStateChange(.creating)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         Log.info("Inbox ready, creating conversation...")
 
         let client = inboxReady.client
@@ -489,7 +489,7 @@ public actor ConversationStateMachine {
         Log.info("Using existing conversation: \(conversationId)")
 
         do {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             if let conversation = try await inboxReady.client.conversationsProvider.findConversation(
                 conversationId: conversationId
             ), case let .group(group) = conversation {
@@ -619,9 +619,9 @@ public actor ConversationStateMachine {
 
         if let existingConversation, existingIdentity != nil {
             Log.debug("Found existing convo by invite tag...")
-            let prevInboxReady = try await inboxStateManager.waitForInboxReadyResult()
-            try await inboxStateManager.deleteInbox()
-            let inboxReady = try await inboxStateManager.reauthorize(
+            let prevInboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            try await sessionStateManager.deleteInbox()
+            let inboxReady = try await sessionStateManager.reauthorize(
                 inboxId: existingConversation.inboxId,
                 clientId: existingConversation.clientId
             )
@@ -661,7 +661,7 @@ public actor ConversationStateMachine {
         } else {
             Log.debug("Existing conversation not found. Creating placeholder...")
             Log.debug("Waiting for inbox ready result...")
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
             let conversationWriter = ConversationWriter(
                 identityStore: identityStore,
@@ -693,7 +693,7 @@ public actor ConversationStateMachine {
         emitStateChange(.joining(invite: invite, placeholder: placeholder))
 
         // Register ourselves as the error handler for invite join errors when app is active
-        await inboxStateManager.setInviteJoinErrorHandler(self)
+        await sessionStateManager.setInviteJoinErrorHandler(self)
 
         Log.info("Requesting to join conversation...")
 
@@ -741,14 +741,14 @@ public actor ConversationStateMachine {
             // Trigger an immediate discovery before starting the polling loop,
             // in case the welcome arrived before we started observing.
             Log.info("Join flow: triggering initial discovery sync...")
-            await self?.inboxStateManager.requestDiscovery()
+            await self?.sessionStateManager.requestDiscovery()
 
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: interval)
                     try Task.checkCancellation()
                     Log.info("Join flow: triggering discovery sync...")
-                    await self?.inboxStateManager.requestDiscovery()
+                    await self?.sessionStateManager.requestDiscovery()
                 } catch {
                     break
                 }
@@ -854,7 +854,7 @@ extension ConversationStateMachine {
         discoveryTask = nil
 
         if let conversationId {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
             try await cleanUp(
                 conversationId: conversationId,
@@ -862,7 +862,7 @@ extension ConversationStateMachine {
                 apiClient: inboxReady.apiClient,
             )
 
-            try await inboxStateManager.deleteInbox()
+            try await sessionStateManager.deleteInbox()
         }
 
         emitStateChange(.uninitialized)
@@ -965,7 +965,7 @@ extension ConversationStateMachine {
     }
 
     private func clearInviteJoinErrorHandler() async {
-        await inboxStateManager.setInviteJoinErrorHandler(nil)
+        await sessionStateManager.setInviteJoinErrorHandler(nil)
     }
 }
 

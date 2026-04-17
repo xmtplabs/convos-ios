@@ -14,7 +14,7 @@ protocol AuthorizeInboxOperationProtocol {
 /// Set is only modified during initialization. All task operations use `cancelAndReplaceTask`
 /// which acquires the lock before any mutation.
 final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked Sendable {
-    let stateMachine: InboxStateMachine
+    let stateMachine: SessionStateMachine
     private var cancellables: Set<AnyCancellable> = []
     private let taskLock: NSLock = NSLock()
     private var _task: Task<Void, Never>?
@@ -113,7 +113,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             notificationCenter: platformProviders.notificationCenter
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
-        stateMachine = InboxStateMachine(
+        stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: identityStore,
             invitesRepository: invitesRepository,

@@ -16,7 +16,7 @@ import GRDB
 /// Methods create new instances rather than sharing mutable state.
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
-    let inboxStateManager: any InboxStateManagerProtocol
+    let sessionStateManager: any SessionStateManagerProtocol
     internal let identityStore: any KeychainIdentityStoreProtocol
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
@@ -69,7 +69,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                   backgroundUploadManager: any BackgroundUploadManagerProtocol) {
         self.identityStore = identityStore
         self.authorizationOperation = authorizationOperation
-        self.inboxStateManager = authorizationOperation.stateMachine
+        self.sessionStateManager = authorizationOperation.stateMachine
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
@@ -99,20 +99,20 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func waitForDeletionComplete() async {
-        await inboxStateManager.waitForDeletionComplete()
+        await sessionStateManager.waitForDeletionComplete()
     }
 
     // MARK: My Profile
 
     func myProfileWriter() -> any MyProfileWriterProtocol {
-        MyProfileWriter(inboxStateManager: inboxStateManager, databaseWriter: databaseWriter)
+        MyProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
     }
 
     // MARK: New Conversation
 
     func conversationStateManager() -> any ConversationStateManagerProtocol {
         return ConversationStateManager(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
@@ -125,7 +125,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
         return ConversationStateManager(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
@@ -139,7 +139,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol {
         ConversationConsentWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter
         )
     }
@@ -155,7 +155,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         backgroundUploadManager: any BackgroundUploadManagerProtocol
     ) -> any OutgoingMessageWriterProtocol {
         OutgoingMessageWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             conversationId: conversationId,
             photoService: PhotoAttachmentService(),
@@ -166,17 +166,17 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func reactionWriter() -> any ReactionWriterProtocol {
-        ReactionWriter(inboxStateManager: inboxStateManager,
+        ReactionWriter(sessionStateManager: sessionStateManager,
                        databaseWriter: databaseWriter)
     }
 
     func readReceiptWriter() -> any ReadReceiptWriterProtocol {
-        ReadReceiptWriter(inboxStateManager: inboxStateManager,
+        ReadReceiptWriter(sessionStateManager: sessionStateManager,
                           databaseWriter: databaseWriter)
     }
 
     func replyWriter() -> any ReplyMessageWriterProtocol {
-        ReplyMessageWriter(inboxStateManager: inboxStateManager,
+        ReplyMessageWriter(sessionStateManager: sessionStateManager,
                            databaseWriter: databaseWriter)
     }
 
@@ -184,7 +184,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol {
         ConversationMetadataWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             inviteWriter: InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter),
             databaseWriter: databaseWriter
         )
@@ -192,18 +192,18 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
         ConversationExplosionWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             metadataWriter: conversationMetadataWriter()
         )
     }
 
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {
-        ConversationPermissionsRepository(inboxStateManager: inboxStateManager,
+        ConversationPermissionsRepository(sessionStateManager: sessionStateManager,
                                           databaseReader: databaseReader)
     }
 
     func uploadImage(data: Data, filename: String) async throws -> String {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachment(
             data: data,
             filename: filename,
@@ -217,7 +217,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachmentAndExecute(
             data: data,
             filename: filename,
@@ -226,7 +226,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         let topic = conversationId.xmtpGroupTopicFormat
         let localStateWriter = conversationLocalStateWriter()
 
@@ -248,7 +248,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
-        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let result = try await sessionStateManager.waitForInboxReadyResult()
         guard let sender = try await result.client.messageSender(for: conversationId) else {
             return
         }
