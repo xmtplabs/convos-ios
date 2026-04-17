@@ -162,6 +162,31 @@ class TestFixtures {
         try await identityStore.delete()
         try databaseManager.erase()
     }
+
+    /// Builds a fresh MessagingService for tests that previously used
+    /// `UnusedConversationCache.consumeOrCreateMessagingService` as a
+    /// bootstrap. Registers a new XMTP identity for the fixture.
+    func makeFreshMessagingService(
+        platformProviders: PlatformProviders = .mock
+    ) -> MessagingService {
+        let authorizationOperation = AuthorizeInboxOperation.register(
+            identityStore: identityStore,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            environment: environment,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: nil,
+            apiClient: nil
+        )
+        return MessagingService(
+            authorizationOperation: authorizationOperation,
+            databaseWriter: databaseManager.dbWriter,
+            databaseReader: databaseManager.dbReader,
+            identityStore: identityStore,
+            environment: environment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
+        )
+    }
 }
 
 /// Mock implementation of InvitesRepositoryProtocol for testing

@@ -14,10 +14,6 @@ public final class MockInboxesService: SessionManagerProtocol {
         (service: mockMessagingService, conversationId: nil)
     }
 
-    public func addInboxOnly() async -> AnyMessagingService {
-        mockMessagingService
-    }
-
     public func deleteAllInboxes() async throws {
     }
 

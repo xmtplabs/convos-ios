@@ -69,10 +69,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
         self.apiClient = ConvosAPIClientFactory.client(environment: environment)
         self.unusedConversationCache = unusedConversationCache ?? UnusedConversationCache(
-            identityStore: identityStore,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: self.deviceRegistrationManager,
-            apiClient: self.apiClient
+            identityStore: identityStore
         )
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
 
@@ -139,7 +136,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func prewarmUnusedConversation() async {
-        await unusedConversationCache.prepareUnusedConversationIfNeeded(
+        let service = await loadOrCreateService()
+        await unusedConversationCache.prepareUnusedConversation(
+            service: service,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment
@@ -206,27 +205,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func makeService() async -> MessagingService {
-        let (service, _) = await unusedConversationCache.consumeOrCreateMessagingService(
+        let authorizationOperation = AuthorizeInboxOperation.register(
+            identityStore: identityStore,
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            environment: environment,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
+        )
+        return MessagingService(
+            authorizationOperation: authorizationOperation,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            environment: environment
+            identityStore: identityStore,
+            environment: environment,
+            backgroundUploadManager: platformProviders.backgroundUploadManager
         )
-        guard let concrete = service as? MessagingService else {
-            fatalError("UnusedConversationCache returned unexpected MessagingService type")
-        }
-        return concrete
-    }
-
-    private func makeServiceOnly() async -> MessagingService {
-        let service = await unusedConversationCache.consumeInboxOnly(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-        guard let concrete = service as? MessagingService else {
-            fatalError("UnusedConversationCache returned unexpected MessagingService type")
-        }
-        return concrete
     }
 
     private func clearCachedService() async {
@@ -245,34 +240,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: - Inbox Management
 
     public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
-        if let cached = cachedService() {
-            return (cached, nil)
-        }
-
-        let (service, conversationId) = await unusedConversationCache.consumeOrCreateMessagingService(
+        let service = await loadOrCreateService()
+        let conversationId = await unusedConversationCache.consumeUnusedConversationId(
+            databaseWriter: databaseWriter
+        )
+        await unusedConversationCache.prepareUnusedConversation(
+            service: service,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment
         )
-        if let concrete = service as? MessagingService {
-            serviceState.withLock { state in
-                state.messagingService = concrete
-                state.creationTask = nil
-            }
-        }
         return (service, conversationId)
-    }
-
-    public func addInboxOnly() async -> AnyMessagingService {
-        if let cached = cachedService() {
-            return cached
-        }
-        let service = await makeServiceOnly()
-        serviceState.withLock { state in
-            state.messagingService = service
-            state.creationTask = nil
-        }
-        return service
     }
 
     public func deleteAllInboxes() async throws {

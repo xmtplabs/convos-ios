@@ -194,7 +194,13 @@ class NewConversationViewModel: Identifiable {
                 )
 
             case .scanner, .joinInvite:
-                let messagingService = await session.addInboxOnly()
+                let messagingService: AnyMessagingService
+                do {
+                    messagingService = try await session.messagingService()
+                } catch {
+                    Log.error("Failed to acquire messaging service: \(error)")
+                    return
+                }
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")

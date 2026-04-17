@@ -13,7 +13,6 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
     func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
-    func addInboxOnly() async -> AnyMessagingService
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 

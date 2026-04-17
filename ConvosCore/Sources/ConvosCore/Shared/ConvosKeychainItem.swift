@@ -7,9 +7,6 @@ enum KeychainAccount {
         return deviceId
     }
 
-    /// Account for storing the unused inbox ID
-    static let unusedInbox: String = "unused-inbox"
-
-    /// Account for storing the unused conversation ID
+    /// Account for storing the pre-created unused conversation ID
     static let unusedConversation: String = "unused-conversation"
 }
