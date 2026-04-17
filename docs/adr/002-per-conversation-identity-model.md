@@ -325,3 +325,52 @@ The multi-identity public API (`save(inboxId:clientId:keys:)`, `identity(for inb
 `loadAll`, `delete(inboxId:)`, `delete(clientId:)`, `deleteAll`) remains available in C3
 so the multi-inbox Swift stack still compiles during the intermediate state. Those
 methods are retired in C4 when their callers are deleted.
+
+### C6 — XMTP device sync enabled
+
+`SessionStateMachine.clientOptions(keys:)` now constructs `ClientOptions` with
+`deviceSyncEnabled: true` (was `false` under the per-conversation model). All other
+knobs — codec registration, db encryption key, db directory, pool sizes — are unchanged.
+
+The XMTPiOS SDK's `useDefaultHistorySyncUrl: true` (its default) resolves
+`historySyncUrl` from the API environment:
+
+- `.production` → `https://message-history.production.ephemera.network`
+- `.dev`        → `https://message-history.dev.ephemera.network`
+- `.local`      → `http://localhost:5558` (overridable via
+  `XMTPEnvironment.customHistorySyncUrl` or the `XMTP_HISTORY_SERVER_ADDRESS`
+  environment variable — used by the local Docker node in `./dev/up`)
+
+**What device sync does here.** With one XMTP inbox per user and identity keys
+now synced via iCloud Keychain (C3), enabling device sync closes the loop: when
+the user adds a second device under the same Apple ID, that device's XMTP
+installation — keyed off the iCloud-synced identity — can replay group
+memberships and message history from the XMTP history server. The user lands on
+their second device already in the same conversations without a fresh invite
+exchange.
+
+**What device sync does not give us.** History replay is scoped to group
+membership, conversation metadata, and the MLS commit history that the protocol
+records; application-level state that lives only in our GRDB database
+(Quickname, per-conversation display preferences, unread flags) does not sync
+through the XMTP history server and is deliberately out of scope for this
+refactor. Multi-device UX improvements beyond "conversations show up" are
+deferred; the single-inbox plan's "Non-Goals" explicitly lists pairing screens,
+recovery phrases, and installation management as later work.
+
+**Per-conversation model's rationale is inverted.** Section 4 above stated
+"Device Sync Disabled: Each conversation is independent, no cross-device sync
+needed." With one inbox per user that reasoning no longer applies — disabling
+device sync would now leave the user's second device with an empty
+conversation list despite the keychain having brought their identity over.
+
+The codec list registered on the client in C6 matches the one present before
+the refactor started: `TextCodec`, `ReplyCodec`, `ReactionV2Codec`,
+`ReactionCodec`, `AttachmentCodec`, `RemoteAttachmentCodec`,
+`GroupUpdatedCodec`, `ExplodeSettingsCodec`, `InviteJoinErrorCodec`,
+`ProfileUpdateCodec`, `ProfileSnapshotCodec`, `JoinRequestCodec`,
+`AssistantJoinRequestCodec`, `TypingIndicatorCodec`, `ReadReceiptCodec`. The
+plan called for "register custom codecs on the single client" as a safety check
+because the multi-inbox era had several XMTP-client construction sites; after
+C4a all paths funnel through `SessionStateMachine.clientOptions`, so the full
+codec list is now registered on every client the app creates.

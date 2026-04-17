@@ -1097,6 +1097,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             appVersion: "convos/\(Bundle.appVersion)"
         )
 
+        // Device sync (XMTP history server) is enabled so the singleton identity
+        // carries its group memberships and message history across devices signed
+        // in to the same Apple ID. `useDefaultHistorySyncUrl: true` (the default
+        // on `ClientOptions.init`) resolves the per-environment URL via
+        // `XMTPEnvironment.getHistorySyncUrl()`:
+        //   .production → message-history.production.ephemera.network
+        //   .dev        → message-history.dev.ephemera.network
+        //   .local      → localhost:5558 (overridable via
+        //                 `XMTPEnvironment.customHistorySyncUrl` or the
+        //                 `XMTP_HISTORY_SERVER_ADDRESS` env var)
         return ClientOptions(
             api: apiOptions,
             codecs: [
@@ -1118,7 +1128,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
-            deviceSyncEnabled: false,
+            deviceSyncEnabled: true,
             maxDbPoolSize: 10,
             minDbPoolSize: 3
         )
