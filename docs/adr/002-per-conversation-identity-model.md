@@ -374,3 +374,52 @@ plan called for "register custom codecs on the single client" as a safety check
 because the multi-inbox era had several XMTP-client construction sites; after
 C4a all paths funnel through `SessionStateMachine.clientOptions`, so the full
 codec list is now registered on every client the app creates.
+
+### C7 — Single-inbox push notification routing
+
+The **wire protocol for push notifications is unchanged**. The backend still
+routes to a `clientId` (the random per-user UUID from Section 3 above),
+ciphertext still never leaves XMTP, and the Notification Service Extension
+still receives the same v2 payload shape. What changed is the NSE-side
+routing: it no longer looks the destination up in a local `InboxesRepository`
+keyed by `clientId` because the local model has collapsed to a singleton.
+
+`CachedPushNotificationHandler` (`ConvosCore/Sources/ConvosCore/Inboxes/CachedPushNotificationHandler.swift`)
+is rewritten for single-inbox:
+
+- The cache is now a single `MessagingService?` with an access timestamp,
+  replacing the old `[inboxId: MessagingService]` LRU-style map. The old
+  `cleanupStaleServices` loop and `maxServiceAge: 15min` TTL collapsed to a
+  single `cleanupIfStale()` check at the top of each delivery.
+- On every delivery the handler reads the singleton identity from the shared
+  app-group keychain via `identityStore.loadSingleton()`. If the singleton
+  is absent the handler returns `nil` (suppress the notification) and best-
+  effort calls `apiClient.unregisterInstallation(clientId:)` with the
+  payload's JWT so the backend stops routing to a clientId whose local
+  identity has been wiped.
+- The payload's `clientId` is compared against the singleton's `clientId`.
+  A mismatch means the payload predates the current install (e.g. user
+  deleted their identity between send and deliver, or keychain state rolled
+  over during a reset). Same disposition as above: suppress + unregister.
+- When the payload matches, the handler lazily constructs the singleton
+  `MessagingService` via `MessagingService.authorizedMessagingService(...)`
+  with `startsStreamingServices: false` (NSE can't hold streams), caches it
+  for reuse within the 15-minute stale window, and delegates to
+  `service.processPushNotification(payload:)` exactly as before.
+
+**Privacy properties preserved.** The backend still only ever sees the
+random `clientId`. The `inboxId` still never leaves the device. The `apiJWT`
+on the payload still scopes backend authority to the current installation.
+The NSE still cannot read messages it was not routed to — the MLS key
+material lives on one identity in the keychain.
+
+**Privacy properties confirmed lost (already documented in C3 amendment).**
+The `clientId` is now 1:1 with the user across all conversations rather than
+1:1 with a single conversation, which is the per-conversation-isolation
+property we traded away for the simpler architecture. Nothing in C7 changes
+this tradeoff — it just simplifies the routing code that already assumed it.
+
+Ancillary cleanup: the handler's cross-module dependency on
+`InboxesRepository` is removed (no longer needed for lookup), which frees
+`InboxesRepository`, `InboxWriter`, and the `inbox` table to be considered
+for removal alongside the `inboxId`/`clientId` column drops in C11.

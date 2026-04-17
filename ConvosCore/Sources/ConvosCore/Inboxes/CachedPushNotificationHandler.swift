@@ -3,12 +3,23 @@ import Foundation
 import GRDB
 
 // MARK: - Errors
+
 public enum NotificationProcessingError: Error {
     case timeout
     case invalidPayload
 }
 
 // MARK: - Global Actor
+
+/// NSE-side push notification handler backed by the single-inbox identity.
+///
+/// Single-inbox refactor (C7): the handler used to maintain a `[inboxId: MessagingService]`
+/// cache and look up the destination inbox by the push payload's `clientId`. Under the
+/// single-inbox model there is exactly one identity — held in the shared app-group
+/// keychain under `KeychainIdentityStore.singletonAccount` — so the handler now caches
+/// a single `MessagingService` and asserts the payload's `clientId` matches the stored
+/// singleton before processing. A mismatch means the payload predates the current
+/// identity (e.g. user deleted their account between send and deliver); we drop it.
 @globalActor
 public actor CachedPushNotificationHandler {
     public static var shared: CachedPushNotificationHandler {
@@ -21,12 +32,6 @@ public actor CachedPushNotificationHandler {
     nonisolated(unsafe) private static var _shared: CachedPushNotificationHandler?
 
     /// Initialize the shared instance with required dependencies
-    /// - Parameters:
-    ///   - databaseReader: Database reader instance
-    ///   - databaseWriter: Database writer instance
-    ///   - environment: App environment
-    ///   - identityStore: Identity store instance
-    ///   - platformProviders: Platform-specific providers
     public static func initialize(
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
@@ -49,12 +54,13 @@ public actor CachedPushNotificationHandler {
     private let identityStore: any KeychainIdentityStoreProtocol
     private let platformProviders: PlatformProviders
 
-    private var messagingServices: [String: MessagingService] = [:] // Keyed by inboxId
+    /// The single `MessagingService` for the process's lifetime (or until it ages out).
+    private var messagingService: MessagingService?
+    private var lastAccessTime: Date?
 
-    // Track last access time for cleanup (keyed by inboxId)
-    private var lastAccessTime: [String: Date] = [:]
-
-    // Maximum age for cached services (15 minutes)
+    /// Maximum age before a cached service is torn down and re-created on the next
+    /// notification. Protects against stale MLS state accumulating in a long-lived NSE
+    /// process the system occasionally reuses for many back-to-back deliveries.
     private let maxServiceAge: TimeInterval = 900
 
     private init(
@@ -71,99 +77,83 @@ public actor CachedPushNotificationHandler {
         self.platformProviders = platformProviders
     }
 
-    /// Handles a push notification using the structured payload with timeout protection
-    /// - Parameters:
-    ///   - payload: The push notification payload to process
-    ///   - timeout: Maximum time to process (default: 25 seconds for NSE's 30 second limit)
-    /// - Returns: Decoded notification content if successful
+    /// Handles a push notification using the structured payload with timeout protection.
     public func handlePushNotification(
         payload: PushNotificationPayload,
         timeout: TimeInterval = 25
     ) async throws -> DecodedNotificationContent? {
         Log.debug("Processing push notification")
 
-        // Clean up old services before processing
-        cleanupStaleServices()
+        cleanupIfStale()
 
-        guard payload.isValid else {
+        guard payload.isValid, let payloadClientId = payload.clientId else {
             Log.debug("Dropping notification without clientId (v1/legacy)")
             return nil
         }
 
-        guard let clientId = payload.clientId else {
-            Log.debug("Dropping notification without clientId")
+        guard let identity = try? await identityStore.loadSingleton() else {
+            Log.warning("Dropping notification: no singleton identity in keychain")
+            await unregisterOrphanedClient(clientId: payloadClientId, apiJWT: payload.apiJWT)
             return nil
         }
 
-        Log.debug("Processing v2 notification for clientId: \(clientId)")
-        let inboxesRepository = InboxesRepository(databaseReader: databaseReader)
-        let inbox: Inbox?
-        do {
-            inbox = try inboxesRepository.inbox(byClientId: clientId)
-        } catch {
-            Log.error("Database error looking up clientId \(clientId): \(error) - dropping notification")
+        guard identity.clientId == payloadClientId else {
+            Log.warning("Dropping notification: payload clientId \(payloadClientId) does not match singleton \(identity.clientId)")
+            await unregisterOrphanedClient(clientId: payloadClientId, apiJWT: payload.apiJWT)
             return nil
         }
-        guard let inbox else {
-            Log.warning("No inbox found in database for clientId: \(clientId) - unregistering and dropping notification")
-            await unregisterOrphanedClient(clientId: clientId, apiJWT: payload.apiJWT)
-            return nil
-        }
-        let inboxId = inbox.inboxId
-        Log.debug("Matched clientId \(clientId) to inboxId: \(inboxId)")
 
-        Log.debug("Processing for inbox: \(inboxId)")
+        Log.debug("Matched payload clientId \(payloadClientId) to singleton inbox \(identity.inboxId)")
 
-        // Process with timeout
         return try await withTimeout(seconds: timeout, timeoutError: NotificationProcessingError.timeout) {
-            let messagingService = await self.getOrCreateMessagingService(for: inboxId, clientId: clientId, overrideJWTToken: payload.apiJWT)
-            return try await messagingService.processPushNotification(payload: payload)
+            let service = await self.getOrCreateMessagingService(
+                inboxId: identity.inboxId,
+                clientId: identity.clientId,
+                overrideJWTToken: payload.apiJWT
+            )
+            return try await service.processPushNotification(payload: payload)
         }
     }
 
-    /// Cleans up all resources
+    /// Tears down the cached messaging service, if any. Useful for explicit cleanup
+    /// between processes or in tests; the system normally tears the NSE process down
+    /// before this matters.
     public func cleanup() {
-        Log.debug("Cleaning up \(messagingServices.count) messaging services")
-        messagingServices.values.forEach { $0.stop() }
-        messagingServices.removeAll()
-        lastAccessTime.removeAll()
+        if let service = messagingService {
+            service.stop()
+        }
+        messagingService = nil
+        lastAccessTime = nil
     }
 
-    /// Cleans up stale services that haven't been used recently
-    private func cleanupStaleServices() {
-        let now = Date()
-        var staleInboxIds: [String] = []
+    // MARK: - Private
 
-        for (inboxId, accessTime) in lastAccessTime where now.timeIntervalSince(accessTime) > maxServiceAge {
-            staleInboxIds.append(inboxId)
+    private func cleanupIfStale() {
+        guard let lastAccess = lastAccessTime,
+              let service = messagingService,
+              Date().timeIntervalSince(lastAccess) > maxServiceAge else {
+            return
         }
-
-        if !staleInboxIds.isEmpty {
-            Log.debug("Cleaning up \(staleInboxIds.count) stale messaging services")
-            for inboxId in staleInboxIds {
-                let removedService = messagingServices.removeValue(forKey: inboxId)
-                removedService?.stop()
-                lastAccessTime.removeValue(forKey: inboxId)
-            }
-        }
+        Log.debug("Cleaning up stale messaging service (age > \(Int(maxServiceAge))s)")
+        service.stop()
+        messagingService = nil
+        lastAccessTime = nil
     }
 
-    // MARK: - Private Methods
+    private func getOrCreateMessagingService(
+        inboxId: String,
+        clientId: String,
+        overrideJWTToken: String?
+    ) -> MessagingService {
+        lastAccessTime = Date()
 
-    private func getOrCreateMessagingService(for inboxId: String, clientId: String, overrideJWTToken: String?) -> MessagingService {
-        // Update access time
-        lastAccessTime[inboxId] = Date()
-
-        if let existing = messagingServices[inboxId] {
-            Log.debug("Reusing existing messaging service for inbox: \(inboxId)")
+        if let existing = messagingService {
+            Log.debug("Reusing existing messaging service for singleton inbox: \(inboxId)")
             return existing
         }
 
-        Log
-            .info(
-                "Creating new messaging service for inbox: \(inboxId), clientId: \(clientId), with JWT: \(overrideJWTToken != nil)"
-            )
-        let messagingService = MessagingService.authorizedMessagingService(
+        Log.info("Creating new messaging service for singleton inbox: \(inboxId), with JWT: \(overrideJWTToken != nil)")
+        let service = MessagingService.authorizedMessagingService(
             for: inboxId,
             clientId: clientId,
             databaseWriter: databaseWriter,
@@ -174,8 +164,8 @@ public actor CachedPushNotificationHandler {
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders
         )
-        messagingServices[inboxId] = messagingService
-        return messagingService
+        messagingService = service
+        return service
     }
 
     private func unregisterOrphanedClient(clientId: String, apiJWT: String?) async {
