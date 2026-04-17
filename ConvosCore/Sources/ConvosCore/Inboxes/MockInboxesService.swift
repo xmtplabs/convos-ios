@@ -5,36 +5,6 @@ import GRDB
 public final class MockInboxesService: SessionManagerProtocol {
     private let mockMessagingService: MockMessagingService = MockMessagingService()
 
-    public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, any Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                // Simulate deletion progress
-                continuation.yield(.clearingDeviceRegistration)
-                try? await Task.sleep(for: .milliseconds(200))
-                // Simulate stopping 1 service
-                continuation.yield(.stoppingServices(completed: 0, total: 1))
-                try? await Task.sleep(for: .milliseconds(300))
-                continuation.yield(.stoppingServices(completed: 1, total: 1))
-                try? await Task.sleep(for: .milliseconds(200))
-                continuation.yield(.deletingFromDatabase)
-                try? await Task.sleep(for: .milliseconds(200))
-                continuation.yield(.completed)
-                continuation.finish()
-            }
-        }
-    }
-
-    public func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        true
-    }
-
-    public func notifyChangesInDatabase() {
-    }
-
-    public func inboxId(for conversationId: String) async -> String? {
-        "mock-inbox-id"
-    }
-
     public init() {
     }
 
@@ -48,19 +18,33 @@ public final class MockInboxesService: SessionManagerProtocol {
         mockMessagingService
     }
 
-    public func deleteInbox(clientId: String, inboxId: String) async throws {
+    public func deleteAllInboxes() async throws {
     }
 
-    public func deleteAllInboxes() async throws {
+    public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, any Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                continuation.yield(.clearingDeviceRegistration)
+                try? await Task.sleep(for: .milliseconds(200))
+                continuation.yield(.stoppingServices(completed: 0, total: 1))
+                try? await Task.sleep(for: .milliseconds(300))
+                continuation.yield(.stoppingServices(completed: 1, total: 1))
+                try? await Task.sleep(for: .milliseconds(200))
+                continuation.yield(.deletingFromDatabase)
+                try? await Task.sleep(for: .milliseconds(200))
+                continuation.yield(.completed)
+                continuation.finish()
+            }
+        }
     }
 
     // MARK: - Messaging Services
 
-    public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
+    public func messagingService() async throws -> AnyMessagingService {
         mockMessagingService
     }
 
-    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+    public func messagingServiceSync() -> AnyMessagingService {
         mockMessagingService
     }
 
@@ -102,7 +86,7 @@ public final class MockInboxesService: SessionManagerProtocol {
         .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
     }
 
-    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
+    public func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
 
@@ -140,20 +124,21 @@ public final class MockInboxesService: SessionManagerProtocol {
         AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
     }
 
-    // MARK: - Lifecycle Management
+    // MARK: - Notifications
 
-    public func setActiveClientId(_ clientId: String?) async {}
+    public func notifyChangesInDatabase() {
+    }
 
-    public func wakeInboxForNotification(clientId: String, inboxId: String) async {}
-
-    public func wakeInboxForNotification(conversationId: String) async {}
-
-    public func isInboxAwake(clientId: String) async -> Bool {
+    public func shouldDisplayNotification(for conversationId: String) async -> Bool {
         true
     }
 
-    public func isInboxSleeping(clientId: String) async -> Bool {
-        false
+    public func wakeInboxForNotification(conversationId: String) async {}
+
+    // MARK: - Helpers
+
+    public func inboxId(for conversationId: String) async -> String? {
+        "mock-inbox-id"
     }
 
     // MARK: - Debug
@@ -166,11 +151,9 @@ public final class MockInboxesService: SessionManagerProtocol {
         0
     }
 
-    public func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
-        []
+    public func isAccountOrphaned() throws -> Bool {
+        false
     }
-
-    public func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {}
 
     // MARK: - Asset Renewal
 

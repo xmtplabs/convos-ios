@@ -275,24 +275,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return service
     }
 
-    public func deleteInbox(clientId: String, inboxId: String) async throws {
-        // Single-inbox model: this method is a deliberate no-op. It used to mean
-        // "destroy the per-conversation inbox associated with these IDs"; under
-        // single-inbox there is exactly one inbox per user and destroying it
-        // would wipe the entire account. Several ViewModel call sites
-        // (`Convos/Conversations List/ConversationsViewModel.leave(conversation:)`,
-        // `Convos/Conversation Detail/ConversationViewModel.leaveConvo()` /
-        // `blockAndLeaveConvo()` / explode fallbacks,
-        // `Convos/Conversation Creation/NewConversationViewModel.deleteConversation()`)
-        // still reach this method as their per-conversation cleanup hook —
-        // ignoring them prevents account-wipe regressions while the C11 ViewModel
-        // rewire moves them onto a proper conversation-scoped leave path
-        // (group.leaveGroup() + local DB row delete). Full account reset is
-        // available exclusively through `deleteAllInboxes(WithProgress)`.
-        Log.warning("Ignoring SessionManager.deleteInbox(clientId:\(clientId), inboxId:\(inboxId)) call. " +
-                    "Single-inbox no-op; full reset is via deleteAllInboxes. C11 will rewire this call site.")
-    }
-
     public func deleteAllInboxes() async throws {
         for try await _ in deleteAllInboxesWithProgress() {}
     }
@@ -365,42 +347,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func messagingServiceSync() -> AnyMessagingService {
-        buildSingletonServiceSync()
-    }
-
-    public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
-        await loadOrCreateService()
-    }
-
-    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
-        // Legacy (clientId:inboxId:) signature from the multi-inbox era. In
-        // single-inbox mode the args are ignored — we always resolve the
-        // singleton identity from the keychain. Kept for API compatibility
-        // with callers that haven't migrated to `messagingServiceSync()`.
-        buildSingletonServiceSync()
-    }
-
-    private func buildSingletonServiceSync() -> AnyMessagingService {
         if let cached = cachedService() {
             return cached
         }
 
-        // Cache miss on a sync path — callers like
-        // `ConversationViewModel.createSync` only run after onboarding has
-        // warmed the cache, so in practice this branch should be unreachable.
-        // Fall back to a best-effort lookup: read the singleton inbox row
-        // directly from GRDB (synchronous, no actor hop) and use its
-        // inboxId/clientId as the authorization hints. If even the DB has no
-        // inbox row, fall through with empty identifiers — the resulting
-        // service will fail to reach `.ready`, which the caller observes via
+        // Cache miss on a sync path. Read the authorized inbox from GRDB
+        // (synchronous, no actor hop) and use its identifiers as
+        // authorization hints. If no inbox is authorized yet, fall through
+        // with empty identifiers — the resulting service won't reach
+        // `.ready`, which the caller observes via
         // `sessionStateManager.currentState`.
-        let singleton = (try? databaseReader.read { db in
+        let storedInbox = (try? databaseReader.read { db in
             try DBInbox.fetchAll(db).first
         })
-        let inboxId = singleton?.inboxId ?? ""
-        let clientId = singleton?.clientId ?? ""
-        if singleton == nil {
-            Log.error("messagingServiceSync called before any inbox was authorized; returning a service bound to empty identifiers. This path should not be reachable in normal usage.")
+        let inboxId = storedInbox?.inboxId ?? ""
+        let clientId = storedInbox?.clientId ?? ""
+        if storedInbox == nil {
+            Log.error("messagingServiceSync called before any inbox was authorized; returning a service bound to empty identifiers.")
         }
 
         let service = MessagingService.authorizedMessagingService(
@@ -415,19 +378,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient
         )
-        // Race protection: a concurrent `loadOrCreateService` may have already
-        // installed (or be in the process of installing) a service. Cancel any
-        // such in-flight task before adopting our own — otherwise the async
-        // task's result lands later and overwrites our slot, orphaning our
-        // service. If a concurrent service is already cached, drop ours.
+        // A concurrent `loadOrCreateService` may have already installed (or
+        // be in the process of installing) a service. If one is cached,
+        // drop ours. Otherwise cancel any pending creation task before
+        // adopting our own so the pending task's result doesn't later
+        // overwrite our slot.
         let resolved: MessagingService = serviceState.withLock { state in
             if let concurrent = state.messagingService {
                 return concurrent
             }
-            // Cancel any pending creation task so it doesn't later overwrite
-            // our slot. Its result, if it resolves before cancellation takes
-            // effect, will be discarded by `loadOrCreateService`'s `.startCreating`
-            // arm because we replace `creationTask = nil` here too.
             state.creationTask?.cancel()
             state.creationTask = nil
             state.messagingService = service
@@ -461,8 +420,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.fetchInviteCodeStatus(code)
     }
 
-    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
-        let messagingService = try await messagingService(for: clientId, inboxId: inboxId)
+    public func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol {
+        let messagingService = try await messagingService()
         return ConversationRepository(
             conversationId: conversationId,
             dbReader: databaseReader,
@@ -539,26 +498,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         notificationChangeReporter.notifyChangesInDatabase()
     }
 
-    // MARK: - Lifecycle Management
-
-    public func setActiveClientId(_ clientId: String?) async {
-        // No-op in single-inbox mode.
-    }
-
-    public func wakeInboxForNotification(clientId: String, inboxId: String) async {
-        _ = await loadOrCreateService()
-    }
-
     public func wakeInboxForNotification(conversationId: String) async {
         _ = await loadOrCreateService()
-    }
-
-    public func isInboxAwake(clientId: String) async -> Bool {
-        cachedService() != nil
-    }
-
-    public func isInboxSleeping(clientId: String) async -> Bool {
-        false
     }
 
     // MARK: Debug
@@ -597,27 +538,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return deletedCount
     }
 
-    public func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
-        let repository = OrphanedInboxRepository(databaseReader: databaseReader)
-        return try repository.allOrphanedInboxes()
-    }
-
-    public func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {
-        // In single-inbox mode the user only ever has one identity — deleting
-        // the "orphan" is equivalent to full account reset, which users drive
-        // through the dedicated delete-all path. The debug surface is kept so
-        // we can audit stale inbox rows left behind by an aborted registration,
-        // but the action is now a targeted row delete rather than a keychain
-        // destroy. Conversation rows no longer carry a clientId column in
-        // single-inbox mode (C11c); a full inbox delete deletes every
-        // conversation by construction.
-        try await databaseWriter.write { db in
-            try DBInbox
-                .filter(DBInbox.Columns.clientId == clientId)
-                .deleteAll(db)
-            try DBConversation.deleteAll(db)
+    /// Returns `true` when an inbox is authorized locally but has no joined
+    /// conversations and no tagged drafts — a sign of an aborted
+    /// registration that can be reset via `deleteAllInboxes`.
+    public func isAccountOrphaned() throws -> Bool {
+        try databaseReader.read { db in
+            guard (try DBInbox.fetchAll(db).first) != nil else { return false }
+            let nonDraftCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
+            ) ?? 0
+            if nonDraftCount > 0 { return false }
+            let taggedDraftCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM conversation WHERE id LIKE 'draft-%' AND inviteTag IS NOT NULL AND length(inviteTag) > 0"
+            ) ?? 0
+            return taggedDraftCount == 0
         }
-        Log.info("Deleted orphaned inbox row: clientId=\(clientId), inboxId=\(inboxId)")
     }
 
     // MARK: Helpers

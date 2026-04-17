@@ -80,15 +80,6 @@ final class ConversationsViewModel {
                 object: nil,
                 userInfo: userInfo
             )
-
-            // Set the active client ID to protect this inbox from being put to sleep
-            Task { [weak self] in
-                guard let self else { return }
-                // Single-inbox: the active-client-ID hint is a no-op since
-                // there's only one inbox. Pass nil; call kept so SessionManager
-                // still gets the change notification.
-                await session.setActiveClientId(nil)
-            }
         }
     }
 
@@ -96,16 +87,11 @@ final class ConversationsViewModel {
         didSet {
             oldValue?.cleanUpIfNeeded()
             if newConversationViewModel == nil {
-                // New conversation dismissed - notify observers and reset active client ID
                 NotificationCenter.default.post(
                     name: .activeConversationChanged,
                     object: nil,
-                    userInfo: [:] // no active conversation
+                    userInfo: [:]
                 )
-                Task { [weak self] in
-                    guard let self else { return }
-                    await session.setActiveClientId(nil)
-                }
             }
         }
     }

@@ -156,10 +156,6 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.addInboxOnly()
     }
 
-    func deleteInbox(clientId: String, inboxId: String) async throws {
-        try await base.deleteInbox(clientId: clientId, inboxId: inboxId)
-    }
-
     func deleteAllInboxes() async throws {
         try await base.deleteAllInboxes()
     }
@@ -168,20 +164,20 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.deleteAllInboxesWithProgress()
     }
 
-    func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
-        try await base.messagingService(for: clientId, inboxId: inboxId)
+    func messagingService() async throws -> AnyMessagingService {
+        try await base.messagingService()
     }
 
-    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
-        base.messagingServiceSync(for: clientId, inboxId: inboxId)
+    func messagingServiceSync() -> AnyMessagingService {
+        base.messagingServiceSync()
     }
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {
         base.inviteRepository(for: conversationId)
     }
 
-    func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
-        try await base.conversationRepository(for: conversationId, inboxId: inboxId, clientId: clientId)
+    func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol {
+        try await base.conversationRepository(for: conversationId)
     }
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
@@ -220,24 +216,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.shouldDisplayNotification(for: conversationId)
     }
 
-    func setActiveClientId(_ clientId: String?) async {
-        await base.setActiveClientId(clientId)
-    }
-
-    func wakeInboxForNotification(clientId: String, inboxId: String) async {
-        await base.wakeInboxForNotification(clientId: clientId, inboxId: inboxId)
-    }
-
     func wakeInboxForNotification(conversationId: String) async {
         await base.wakeInboxForNotification(conversationId: conversationId)
-    }
-
-    func isInboxAwake(clientId: String) async -> Bool {
-        await base.isInboxAwake(clientId: clientId)
-    }
-
-    func isInboxSleeping(clientId: String) async -> Bool {
-        await base.isInboxSleeping(clientId: clientId)
     }
 
     func inboxId(for conversationId: String) async -> String? {
@@ -260,12 +240,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         try await base.deleteExpiredPendingInvites()
     }
 
-    func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
-        try base.orphanedInboxDetails()
-    }
-
-    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {
-        try await base.deleteOrphanedInbox(clientId: clientId, inboxId: inboxId)
+    func isAccountOrphaned() throws -> Bool {
+        try base.isAccountOrphaned()
     }
 
     func makeAssetRenewalManager() async -> AssetRenewalManager {

@@ -14,7 +14,6 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
     func addInboxOnly() async -> AnyMessagingService
-    func deleteInbox(clientId: String, inboxId: String) async throws
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
@@ -23,9 +22,6 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func messagingService() async throws -> AnyMessagingService
     func messagingServiceSync() -> AnyMessagingService
 
-    func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
-    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService
-
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
@@ -33,11 +29,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
 
-    func conversationRepository(
-        for conversationId: String,
-        inboxId: String,
-        clientId: String
-    ) async throws -> any ConversationRepositoryProtocol
+    func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
@@ -62,16 +54,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func notifyChangesInDatabase()
     func shouldDisplayNotification(for conversationId: String) async -> Bool
 
-    // MARK: - Lifecycle Management
-
-    /// Sets the currently active client ID. This protects the inbox from being put to sleep during rebalancing.
-    /// Pass nil when no conversation is active (e.g., user is on conversation list).
-    func setActiveClientId(_ clientId: String?) async
-
-    func wakeInboxForNotification(clientId: String, inboxId: String) async
+    /// Ensures the messaging service is ready before processing a notification
+    /// for the given conversation. Safe to call from the NSE.
     func wakeInboxForNotification(conversationId: String) async
-    func isInboxAwake(clientId: String) async -> Bool
-    func isInboxSleeping(clientId: String) async -> Bool
 
     // MARK: Helpers
 
@@ -81,8 +66,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func pendingInviteDetails() throws -> [PendingInviteDetail]
     func deleteExpiredPendingInvites() async throws -> Int
-    func orphanedInboxDetails() throws -> [OrphanedInboxDetail]
-    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws
+    func isAccountOrphaned() throws -> Bool
 
     // MARK: Asset Renewal
 
@@ -92,16 +76,5 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 extension SessionManagerProtocol {
     public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: nil)
-    }
-
-    /// Default implementation routes to the legacy `(clientId:inboxId:)` variant with empty
-    /// placeholders. In single-inbox mode the concrete `SessionManager` ignores those
-    /// arguments and returns the singleton service.
-    public func messagingService() async throws -> AnyMessagingService {
-        try await messagingService(for: "", inboxId: "")
-    }
-
-    public func messagingServiceSync() -> AnyMessagingService {
-        messagingServiceSync(for: "", inboxId: "")
     }
 }
