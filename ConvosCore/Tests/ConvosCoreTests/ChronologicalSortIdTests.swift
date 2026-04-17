@@ -417,8 +417,10 @@ struct ChronologicalSortIdTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
-            isUnused: false
+            isUnused: false,
+            hasHadVerifiedAssistant: false
         ).insert(db)
 
         try ConversationLocalState(
