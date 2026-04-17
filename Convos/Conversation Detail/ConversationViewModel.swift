@@ -450,10 +450,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         session: any SessionManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
     ) async throws -> ConversationViewModel {
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
+        let messagingService = try await session.messagingService()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
@@ -466,10 +463,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         conversation: Conversation,
         session: any SessionManagerProtocol
     ) -> ConversationViewModel {
-        let messagingService = session.messagingServiceSync(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
+        let messagingService = session.messagingServiceSync()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
@@ -1259,7 +1253,7 @@ extension ConversationViewModel {
     private func registerInlineAttachmentRecovery() {
         Task { [weak self] in
             guard let messagingService = self?.messagingService else { return }
-            guard let result = try? await messagingService.inboxStateManager.waitForInboxReadyResult() else { return }
+            guard let result = try? await messagingService.sessionStateManager.waitForInboxReadyResult() else { return }
             await InlineAttachmentRecovery.shared.setProvider(result.client.conversationsProvider)
         }
     }
@@ -1461,7 +1455,7 @@ extension ConversationViewModel {
     ) async {
         do {
             let messagingService = try await session.messagingService(for: clientId, inboxId: requestedBy)
-            let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             guard let xmtpConversation = try await inboxResult.client.conversation(with: conversationId) else {
                 Log.warning("Could not find XMTP conversation to broadcast assistant join request")
                 return
@@ -1523,7 +1517,7 @@ extension ConversationViewModel {
                 for: conversation.clientId,
                 inboxId: conversation.inboxId
             )
-            let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             let client = inboxResult.client
             return try await client.conversationMetadataDebugInfo(
                 conversationId: conversation.id,
@@ -1547,7 +1541,7 @@ extension ConversationViewModel {
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
-        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+        let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
         let client = inboxResult.client
         guard let xmtpConversation = try await client.conversation(with: conversation.id),
               case .group(let group) = xmtpConversation else {
@@ -1568,7 +1562,7 @@ extension ConversationViewModel {
                     for: conversation.clientId,
                     inboxId: conversation.inboxId
                 )
-                let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 let client = inboxResult.client
                 guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
                     return nil

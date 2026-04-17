@@ -291,14 +291,11 @@ final class ConversationsViewModel {
             selectedConversation = nil
         }
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
-            } catch {
-                Log.error("Error leaving convo: \(error.localizedDescription)")
-            }
-        }
+        // Note: the old per-conversation `session.deleteInbox` call was a no-op
+        // after the single-inbox hotfix. A proper group-leave path (calling
+        // `group.leaveGroup()` + local row delete) is tracked as a follow-up to
+        // C11 — for now the conversation is removed from the local list above
+        // but the user remains a member on the protocol side.
     }
 
     private func observe() {
@@ -404,17 +401,12 @@ final class ConversationsViewModel {
 
     func toggleMute(conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let currentlyMuted = conversation.isMuted
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = try await session.messagingService()
                 let shouldEnableNotifications = currentlyMuted
                 try await messagingService.setConversationNotificationsEnabled(shouldEnableNotifications, for: conversationId)
             } catch {
@@ -425,17 +417,12 @@ final class ConversationsViewModel {
 
     func toggleReadState(conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let currentlyUnread = conversation.isUnread
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = try await session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setUnread(!currentlyUnread, for: conversationId)
             } catch {
@@ -446,17 +433,12 @@ final class ConversationsViewModel {
 
     func togglePin(conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let currentlyPinned = conversation.isPinned
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = try await session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
             } catch ConversationLocalStateWriterError.pinLimitReached {
@@ -471,16 +453,11 @@ final class ConversationsViewModel {
 
     private func markConversationAsRead(_ conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = try await session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setUnread(false, for: conversationId)
             } catch {
@@ -491,8 +468,6 @@ final class ConversationsViewModel {
 
     func explodeConversation(_ conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let memberInboxIds = conversation.members.map { $0.profile.inboxId }
 
         hiddenConversationIds.insert(conversationId)
@@ -504,7 +479,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let messagingService = try await session.messagingService()
                 let explosionWriter = messagingService.conversationExplosionWriter()
                 try await explosionWriter.explodeConversation(
                     conversationId: conversationId,
@@ -543,13 +518,11 @@ final class ConversationsViewModel {
         }
 
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let messagingService = try await session.messagingService()
                 let explosionWriter = messagingService.conversationExplosionWriter()
                 try await explosionWriter.scheduleExplosion(
                     conversationId: conversationId,

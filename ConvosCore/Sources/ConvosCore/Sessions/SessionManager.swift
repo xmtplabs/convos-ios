@@ -360,6 +360,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Messaging Services
 
+    public func messagingService() async throws -> AnyMessagingService {
+        await loadOrCreateService()
+    }
+
+    public func messagingServiceSync() -> AnyMessagingService {
+        messagingServiceSync(for: "", inboxId: "")
+    }
+
     public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
         await loadOrCreateService()
     }

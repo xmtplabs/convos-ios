@@ -20,6 +20,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     // MARK: Messaging Services
 
+    func messagingService() async throws -> AnyMessagingService
+    func messagingServiceSync() -> AnyMessagingService
+
     func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
     func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService
 
@@ -89,5 +92,16 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 extension SessionManagerProtocol {
     public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: nil)
+    }
+
+    /// Default implementation routes to the legacy `(clientId:inboxId:)` variant with empty
+    /// placeholders. In single-inbox mode the concrete `SessionManager` ignores those
+    /// arguments and returns the singleton service.
+    public func messagingService() async throws -> AnyMessagingService {
+        try await messagingService(for: "", inboxId: "")
+    }
+
+    public func messagingServiceSync() -> AnyMessagingService {
+        messagingServiceSync(for: "", inboxId: "")
     }
 }
