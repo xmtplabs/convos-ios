@@ -138,22 +138,22 @@ private struct KeychainQuery {
     let service: String
     let accessGroup: String
     let accessible: CFString
-    let accessControl: SecAccessControl?
+    let synchronizable: Bool
     let clientId: String?
 
     init(
         account: String,
         service: String,
         accessGroup: String,
-        accessible: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        accessControl: SecAccessControl? = nil,
+        accessible: CFString = kSecAttrAccessibleAfterFirstUnlock,
+        synchronizable: Bool = true,
         clientId: String? = nil
     ) {
         self.account = account
         self.service = service
         self.accessGroup = accessGroup
         self.accessible = accessible
-        self.accessControl = accessControl
+        self.synchronizable = synchronizable
         self.clientId = clientId
     }
 
@@ -162,18 +162,14 @@ private struct KeychainQuery {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: account,
             kSecAttrService as String: service,
-            kSecAttrAccessGroup as String: accessGroup
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrAccessible as String: accessible,
+            kSecAttrSynchronizable as String: synchronizable
         ]
 
         // Add clientId as generic attribute for direct lookup
         if let clientId = clientId, let clientIdData = clientId.data(using: .utf8) {
             query[kSecAttrGeneric as String] = clientIdData
-        }
-
-        if let accessControl = accessControl {
-            query[kSecAttrAccessControl as String] = accessControl
-        } else {
-            query[kSecAttrAccessible as String] = accessible
         }
 
         return query
@@ -191,6 +187,22 @@ private struct KeychainQuery {
 
 public protocol KeychainIdentityStoreProtocol: Actor {
     func generateKeys() throws -> KeychainIdentityKeys
+
+    // Singleton API (single-inbox identity model, C3+)
+    //
+    // The user has exactly one identity. `saveSingleton` writes (or overwrites)
+    // it; `loadSingleton` reads it or returns nil on fresh installs; `deleteSingleton`
+    // removes it. All three operate on a fixed account key — callers never need
+    // to track inboxId/clientId for keychain lookups anymore.
+    func saveSingleton(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity
+    func loadSingleton() throws -> KeychainIdentity?
+    func deleteSingleton() throws
+
+    // Multi-identity API (legacy, retired in C4 along with the multi-inbox stack)
+    //
+    // Still functional during the intermediate state between C3 and C4 so the
+    // multi-inbox callers (InboxLifecycleManager, SessionManager, etc.) keep
+    // compiling. Do not add new call sites.
     func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity
     func identity(for inboxId: String) throws -> KeychainIdentity
     func loadAll() throws -> [KeychainIdentity]
@@ -199,25 +211,33 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     func deleteAll() throws
 }
 
-/// Secure storage for XMTP identity keys in device keychain
+/// Secure storage for XMTP identity keys in device keychain.
 ///
-/// KeychainIdentityStore manages XMTP signing keys and database encryption keys
-/// in the device's secure keychain. Each identity is stored with:
-/// - inboxId: XMTP inbox identifier (account key in keychain)
-/// - clientId: Privacy-preserving client identifier (generic attribute)
-/// - Private key for XMTP message signing
-/// - Database encryption key for local XMTP database
+/// Single-inbox model (C3+): the user has exactly one identity, stored under a fixed
+/// account key (`singletonAccount`). iCloud Keychain sync is enabled via
+/// `kSecAttrSynchronizable = true` + `kSecAttrAccessibleAfterFirstUnlock` so the
+/// identity follows the user across devices on the same Apple ID. The item is still
+/// stored in the app-group keychain (`accessGroup`) so the Notification Service
+/// Extension can read it.
 ///
-/// Keys are stored in the app group keychain with AfterFirstUnlock protection,
-/// allowing access to the notification extension. Enforces clientId uniqueness
-/// to prevent duplicate identities.
+/// The multi-identity API (`save(inboxId:clientId:keys:)`, `identity(for:)`,
+/// `loadAll`, `delete(inboxId:)`, `delete(clientId:)`, `deleteAll`) is retained as-is
+/// for legacy callers compiling during the C3→C4 intermediate state. It is retired
+/// in C4 when the multi-inbox Swift stack is deleted.
+///
+/// Service name bumps from `.v2` to `.v3` so legacy entries (with
+/// `AfterFirstUnlockThisDeviceOnly` + no sync) do not collide with the new schema.
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
     private let keychainService: String
     private let keychainAccessGroup: String
 
-    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
+    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
+
+    /// Fixed account key used for the singleton identity. All singleton reads,
+    /// writes, and deletes target this account.
+    static let singletonAccount: String = "single-inbox-identity"
 
     // MARK: - Initialization
 
@@ -231,6 +251,46 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     public func generateKeys() throws -> KeychainIdentityKeys {
         try KeychainIdentityKeys.generate()
     }
+
+    // MARK: - Singleton API (C3+)
+
+    public func saveSingleton(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
+        let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
+        let data = try JSONEncoder().encode(identity)
+        let query = KeychainQuery(
+            account: Self.singletonAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup,
+            clientId: clientId
+        )
+        try saveData(data, with: query)
+        return identity
+    }
+
+    public func loadSingleton() throws -> KeychainIdentity? {
+        let query = KeychainQuery(
+            account: Self.singletonAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup
+        )
+        do {
+            let data = try loadData(with: query)
+            return try JSONDecoder().decode(KeychainIdentity.self, from: data)
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
+    }
+
+    public func deleteSingleton() throws {
+        let query = KeychainQuery(
+            account: Self.singletonAccount,
+            service: keychainService,
+            accessGroup: keychainAccessGroup
+        )
+        try deleteData(with: query)
+    }
+
+    // MARK: - Multi-identity API (legacy, retired in C4)
 
     public func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(
@@ -252,58 +312,12 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         return try JSONDecoder().decode(KeychainIdentity.self, from: data)
     }
 
-    // MARK: - Private lookup by clientId
-
-    private func identity(forClientId clientId: String) throws -> KeychainIdentity {
-        // Query keychain directly using clientId as generic attribute
-        guard let clientIdData = clientId.data(using: .utf8) else {
-            throw KeychainIdentityStoreError.identityNotFound("Invalid clientId encoding: \(clientId)")
-        }
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccessGroup as String: keychainAccessGroup,
-            kSecAttrGeneric as String: clientIdData,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll
-        ]
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status != errSecItemNotFound else {
-            throw KeychainIdentityStoreError.identityNotFound("No identity found with clientId: \(clientId)")
-        }
-
-        guard status == errSecSuccess else {
-            throw KeychainIdentityStoreError.keychainOperationFailed(status, "identity(forClientId:)")
-        }
-
-        // Verify exactly one match exists
-        let items: [Data]
-        if let singleItem = result as? Data {
-            // Single item returned
-            items = [singleItem]
-        } else if let multipleItems = result as? [Data] {
-            // Multiple items returned
-            items = multipleItems
-        } else {
-            throw KeychainIdentityStoreError.keychainOperationFailed(errSecUnknownFormat, "identity(forClientId:)")
-        }
-
-        guard items.count == 1 else {
-            throw KeychainIdentityStoreError.duplicateClientId(clientId, items.count)
-        }
-
-        return try JSONDecoder().decode(KeychainIdentity.self, from: items[0])
-    }
-
     public func loadAll() throws -> [KeychainIdentity] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
             kSecMatchLimit as String: kSecMatchLimitAll,
             kSecReturnData as String: true
         ]
@@ -342,10 +356,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func delete(clientId: String) throws -> KeychainIdentity {
-        // Direct lookup using clientId as a keychain attribute
-        let identity = try identity(forClientId: clientId)
-
-        // Delete using the inboxId (which is the account key in keychain)
+        // Scan all stored identities to find the match. The old
+        // `identity(forClientId:)` polymorphism was dropped in C3; with the
+        // single-inbox model the only remaining callers are legacy multi-inbox
+        // paths scheduled for deletion in C4, so an O(N) scan is acceptable.
+        let all = try loadAll()
+        guard let identity = all.first(where: { $0.clientId == clientId }) else {
+            throw KeychainIdentityStoreError.identityNotFound("No identity found with clientId: \(clientId)")
+        }
         try delete(inboxId: identity.inboxId)
         return identity
     }
@@ -354,7 +372,8 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccessGroup as String: keychainAccessGroup
+            kSecAttrAccessGroup as String: keychainAccessGroup,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
         ]
 
         let status = SecItemDelete(query as CFDictionary)
@@ -366,42 +385,15 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Private Methods
 
     private func save(identity: KeychainIdentity) throws {
-        // First, check if a different identity with the same clientId already exists
-        // This enforces clientId uniqueness before saving
-        do {
-            let existingIdentity = try self.identity(forClientId: identity.clientId)
-
-            // If we found an identity with this clientId, make sure it's the same inboxId
-            // (updating the same identity is OK, but a different identity with same clientId is not)
-            if existingIdentity.inboxId != identity.inboxId {
-                throw KeychainIdentityStoreError.duplicateClientId(
-                    identity.clientId,
-                    2 // At least 2: the existing one and the one we're trying to save
-                )
-            }
-            // If inboxId matches, we're updating the same identity, which is allowed
-        } catch KeychainIdentityStoreError.identityNotFound {
-            // No existing identity with this clientId - good, we can proceed
-        }
-
+        // Uniqueness enforcement (formerly done by looking up `identity(forClientId:)`)
+        // is removed — the singleton write path is the canonical path in the single-inbox
+        // model, and the legacy multi-identity callers are retired in C4.
         let data = try JSONEncoder().encode(identity)
-
-        // Create access control for enhanced security
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            nil,
-            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            [],
-            nil
-        ) else {
-            throw KeychainIdentityStoreError.keychainOperationFailed(errSecNotAvailable, "create access control")
-        }
 
         let query = KeychainQuery(
             account: identity.inboxId,
             service: keychainService,
             accessGroup: keychainAccessGroup,
-            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            accessControl: accessControl,
             clientId: identity.clientId
         )
 

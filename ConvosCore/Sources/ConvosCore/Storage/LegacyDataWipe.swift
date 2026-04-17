@@ -1,4 +1,5 @@
 import Foundation
+import Security
 @preconcurrency import XMTPiOS
 
 /// One-shot detection and removal of pre-single-inbox data at app launch.
@@ -41,7 +42,33 @@ enum LegacyDataWipe {
 
         Log.info("LegacyDataWipe: detected legacy data (storedGeneration=\(stored ?? "nil")), wiping before migration")
         wipeDatabases(at: databasesDirectory, environment: environment)
+        wipeLegacyKeychainItems(accessGroup: environment.appGroupIdentifier)
         defaults.set(currentGeneration, forKey: schemaGenerationKey)
+    }
+
+    /// Removes `KeychainIdentityStore.v2` entries left over from the
+    /// per-conversation identity era. The v3 store used from C3 onward does not
+    /// read these, but they linger in the keychain forever otherwise. Runs as
+    /// part of the one-shot upgrade wipe.
+    private static func wipeLegacyKeychainItems(accessGroup: String) {
+        let legacyServices = [
+            "org.convos.ios.KeychainIdentityStore.v2",
+            "org.convos.ios.KeychainIdentityStore.v1"
+        ]
+        for service in legacyServices {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
+            ]
+            let status = SecItemDelete(query as CFDictionary)
+            if status == errSecSuccess {
+                Log.debug("LegacyDataWipe: removed legacy keychain items for service \(service)")
+            } else if status != errSecItemNotFound {
+                Log.error("LegacyDataWipe: failed to remove legacy keychain items for service \(service), status=\(status)")
+            }
+        }
     }
 
     /// Returns `true` if the install appears to carry pre-single-inbox state.

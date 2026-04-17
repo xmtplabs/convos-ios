@@ -1,0 +1,117 @@
+id: "35"
+name: "Identity Persistence Across App Reinstall"
+description: >
+  Verify that the single-inbox user identity persists across an app reinstall
+  on the same simulator, approximating (within the bounds of a unit/UI test
+  harness) the iCloud Keychain sync behavior that ships in C3. True iCloud
+  Keychain sync requires two Apple-ID-paired devices and cannot be exercised
+  from a simulator-only QA run; this test uses reinstall as the best available
+  proxy. End-to-end iCloud Keychain verification is a manual device test,
+  tracked separately in qa/tests/35-identity-persistence.md.
+tags: [identity, keychain, reinstall, expected-partial]
+depends_on: ["01"]
+estimated_duration_s: 300
+expected_partial_until: "C11"
+
+prerequisites:
+  app_running: false
+  cli_initialized: true
+  simulator_clean: true
+
+state:
+  first_launch_inbox_id: null
+  app_path: null
+
+setup:
+  - action: erase_simulator
+    note: >
+      Start from a clean simulator state so there is no stale keychain
+      identity from prior runs. The reinstall comparison is only meaningful
+      if Phase 1 actually creates a new identity.
+
+steps:
+  - id: first_launch
+    name: "First launch creates identity silently"
+    blocked_until_checkpoint: "C11"
+    actions:
+      - install_app: { udid: "$udid" }
+      - launch_app: { udid: "$udid" }
+      - wait_for_launch_stabilized: { udid: "$udid", timeout: 30 }
+      - screenshot: { udid: "$udid" }
+      - cli_create_conversation:
+          name: "Persistence Test Alpha"
+          simulator: "$udid"
+      - capture_inbox_id:
+          source: debug_surface_or_cli
+          into: first_launch_inbox_id
+    verify:
+      - no_onboarding_prompt: true
+      - element_exists: { label_contains: "Persistence Test Alpha" }
+      - no_crash_on_launch: true
+    criteria: first_launch_identity_created
+
+  - id: uninstall
+    name: "Uninstall the app but preserve the keychain"
+    actions:
+      - terminate_app: { udid: "$udid", bundle: "org.convos.ios-preview" }
+      - uninstall_app: { udid: "$udid", bundle: "org.convos.ios-preview" }
+    note: >
+      Do not erase the simulator here. Erasing clears the keychain and
+      defeats the test. We want the app data gone but the keychain intact.
+    criteria: app_uninstalled
+
+  - id: reinstall
+    name: "Reinstall and relaunch"
+    actions:
+      - install_app: { udid: "$udid", path: "$app_path" }
+      - launch_app: { udid: "$udid", bundle: "org.convos.ios-preview" }
+      - wait_for_launch_stabilized: { udid: "$udid", timeout: 30 }
+    criteria: app_reinstalled
+
+  - id: verify_carryover
+    name: "Identity carries over; no re-onboarding"
+    blocked_until_checkpoint: "C11"
+    actions:
+      - screenshot: { udid: "$udid" }
+      - cli_create_conversation:
+          name: "Persistence Test Beta"
+          simulator: "$udid"
+      - capture_inbox_id:
+          source: debug_surface_or_cli
+          into: reinstall_inbox_id
+    verify:
+      - no_onboarding_prompt: true
+      - no_elements_matching: { pattern: "create-inbox-prompt" }
+      - inbox_id_matches: { expected: "$first_launch_inbox_id", actual: "$reinstall_inbox_id" }
+      - no_crash_on_launch: true
+    criteria: identity_persisted
+
+teardown:
+  - action: terminate_app
+    args: { udid: "$udid", bundle: "org.convos.ios-preview" }
+  - action: uninstall_app
+    args: { udid: "$udid", bundle: "org.convos.ios-preview" }
+  - action: erase_simulator
+    args: { udid: "$udid" }
+    note: "Clean keychain for the next test run"
+
+criteria:
+  first_launch_identity_created:
+    description: "First launch silently creates a keychain identity; no onboarding UI appears"
+    checkpoint: "C3+C11"
+  app_uninstalled:
+    description: "App is removed from the simulator without erasing the simulator-wide keychain"
+  app_reinstalled:
+    description: "App reinstalls and relaunches cleanly on top of the persisted keychain"
+  identity_persisted:
+    description: "Reinstall launches into the same inbox ID as the first launch; no onboarding prompt"
+    checkpoint: "C3+C11"
+
+manual_follow_up:
+  description: >
+    True iCloud Keychain sync across devices is out of scope for this automated
+    run. A human tester with two physical iOS devices signed in to the same
+    Apple ID should install the single-inbox build on Device A, create an
+    identity, then install on Device B and verify (via debug panel or CLI
+    join comparison) that Device B inherits the same inbox ID. Schedule this
+    as a one-shot manual verification before release.

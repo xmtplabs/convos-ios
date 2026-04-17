@@ -276,3 +276,52 @@ Column removals for `inboxId`/`clientId` on `conversation`, `message`, `conversa
 etc. are deferred to C4, which deletes the multi-inbox Swift layer that still references
 them. The baseline migration keeps those columns in place so the current Swift code
 continues to compile and run while the refactor is mid-flight.
+
+### C3 — Keychain singleton + iCloud Keychain sync (landing now)
+
+`KeychainIdentityStore` gains a singleton API (`saveSingleton` / `loadSingleton` /
+`deleteSingleton`) that reads and writes a single identity under a fixed account key
+(`single-inbox-identity`). The service name bumps from
+`org.convos.ios.KeychainIdentityStore.v2` to `v3` so the new schema does not collide with
+legacy entries.
+
+**Access attributes** change to support iCloud Keychain sync:
+
+- `kSecAttrAccessible` is relaxed from `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+  to `kSecAttrAccessibleAfterFirstUnlock`. The `ThisDeviceOnly` variant is incompatible
+  with Synchronizable items.
+- `kSecAttrSynchronizable` is set to `true`. The user's identity now follows them across
+  their Apple ID devices via iCloud Keychain.
+- The former `SecAccessControlCreateWithFlags(...)` wrapper is removed. With
+  Synchronizable items, access control flags are set via `kSecAttrAccessible` alone.
+
+The app-group access group (shared with the Notification Service Extension) is
+preserved. The NSE continues to read identity material from the shared keychain; nothing
+else gains access.
+
+**Known tradeoffs**, consciously accepted and reflected in the plan's "Privacy properties
+we lose":
+
+- Keys can now leave the device via iCloud Keychain sync. This is a weakening of the
+  device-binding guarantee stated above ("Keys never migrate to other devices via iCloud
+  Keychain"). The user's threat model has shifted toward typical consumer-app expectations
+  where a lost device can be recovered via iCloud restore.
+- Any attacker who compromises the user's iCloud account can obtain the identity. This
+  is no worse than what Keychain Access Groups already expose to the user's trust
+  boundary when signed in on multiple devices.
+
+**Private polymorphism dropped.** The old `identity(forClientId:)` lookup (used internally
+for uniqueness enforcement on save and for `delete(clientId:)`) is removed. The write path
+no longer verifies clientId uniqueness — with the singleton model the question is moot —
+and `delete(clientId:)` falls back to scanning `loadAll()` until the legacy multi-identity
+callers are retired in C4.
+
+**Legacy keychain cleanup.** `LegacyDataWipe` (introduced in C2) now also deletes
+`KeychainIdentityStore.v1` and `v2` entries in the shared access group during the
+one-shot upgrade wipe, alongside the GRDB and XMTP database files. The new `v3` store
+never reads these, but without explicit cleanup they would linger indefinitely.
+
+The multi-identity public API (`save(inboxId:clientId:keys:)`, `identity(for inboxId:)`,
+`loadAll`, `delete(inboxId:)`, `delete(clientId:)`, `deleteAll`) remains available in C3
+so the multi-inbox Swift stack still compiles during the intermediate state. Those
+methods are retired in C4 when their callers are deleted.
