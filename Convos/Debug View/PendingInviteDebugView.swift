@@ -8,7 +8,7 @@ struct PendingInviteDebugView: View {
     @State private var isDeleting: Bool = false
 
     private var expiredDetails: [PendingInviteDetail] {
-        let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
+        let cutoff = Date().addingTimeInterval(-SessionManager.stalePendingInviteInterval)
         return details.filter { $0.createdAt < cutoff }
     }
 
@@ -21,7 +21,7 @@ struct PendingInviteDebugView: View {
     }
 
     private var activeDetails: [PendingInviteDetail] {
-        let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
+        let cutoff = Date().addingTimeInterval(-SessionManager.stalePendingInviteInterval)
         return details.filter { $0.createdAt >= cutoff }
     }
 
