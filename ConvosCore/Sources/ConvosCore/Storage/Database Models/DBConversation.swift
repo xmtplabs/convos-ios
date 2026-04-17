@@ -82,12 +82,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     static let localStateForeignKey: ForeignKey = ForeignKey([ConversationLocalState.Columns.conversationId], to: [Columns.id])
     static let inviteForeignKey: ForeignKey = ForeignKey([DBInvite.Columns.conversationId], to: [Columns.id])
 
-    // All invites associated with this conversation. The pre-C11 model had a
-    // singular `invite` association resolved via a foreign key keyed on
-    // `(inboxId, id)` — that key required `conversation.inboxId`, which is
-    // gone in single-inbox mode. Callers that want "the current user's
-    // invite" filter by `creatorInboxId == singletonInboxId` at hydration
-    // time (see `DBConversationDetails+Conversation.hydrateConversation`).
+    /// All invites associated with this conversation. Callers that want the
+    /// current user's invite filter by `creatorInboxId` at hydration time
+    /// (see `DBConversationDetails+Conversation.hydrateConversation`).
     static let invites: HasManyAssociation<DBConversation, DBInvite> = hasMany(
         DBInvite.self,
         key: "conversationInvites",

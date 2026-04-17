@@ -103,8 +103,6 @@ fileprivate extension Database {
                 return nil
             }
 
-            // Single-inbox: look up the current user's inboxId from the
-            // singleton DBInbox row.
             let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
             let conversation = dbConversation.hydrateConversation(currentInboxId: currentInboxId)
             Log.debug("Successfully hydrated conversation: \(conversationId)")

@@ -69,7 +69,7 @@ struct SessionStateMachineTests {
         #expect(await mockSync.startCallCount == 1)
 
         // Verify identity was saved
-        guard let savedIdentity = try await fixtures.identityStore.loadSingleton() else {
+        guard let savedIdentity = try await fixtures.identityStore.load() else {
             Issue.record("No singleton identity saved")
             return
         }
@@ -123,7 +123,7 @@ struct SessionStateMachineTests {
         #expect(result != nil, "Should reach ready state")
 
         // Verify identity was saved to keychain
-        guard let savedIdentity = try await fixtures.identityStore.loadSingleton() else {
+        guard let savedIdentity = try await fixtures.identityStore.load() else {
             Issue.record("No singleton identity saved")
             return
         }
@@ -305,7 +305,7 @@ struct SessionStateMachineTests {
         #expect(stopCount == 1)
 
         // Verify identity still exists (stop doesn't delete)
-        let identity = try await fixtures.identityStore.loadSingleton()
+        let identity = try await fixtures.identityStore.load()
         #expect(identity != nil)
 
         // Clean up
@@ -350,7 +350,7 @@ struct SessionStateMachineTests {
         #expect(inboxId != nil)
 
         // Verify identity exists before delete
-        let identityBeforeDelete = try? await fixtures.identityStore.loadSingleton()
+        let identityBeforeDelete = try? await fixtures.identityStore.load()
         #expect(identityBeforeDelete != nil)
         #expect(identityBeforeDelete?.inboxId == inboxId)
 
@@ -372,7 +372,7 @@ struct SessionStateMachineTests {
         #expect(!syncIsStarted, "Syncing should be stopped")
 
         // Verify identity was deleted
-        let identityAfterDelete = try await fixtures.identityStore.loadSingleton()
+        let identityAfterDelete = try await fixtures.identityStore.load()
         #expect(identityAfterDelete == nil, "Identity should have been deleted")
 
         // Verify database record was deleted

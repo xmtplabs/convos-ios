@@ -1,23 +1,23 @@
 import Foundation
 
 actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
-    private var singleton: KeychainIdentity?
+    private var identity: KeychainIdentity?
 
     func generateKeys() throws -> KeychainIdentityKeys {
         try KeychainIdentityKeys.generate()
     }
 
-    func saveSingleton(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
+    func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
-        singleton = identity
+        self.identity = identity
         return identity
     }
 
-    func loadSingleton() throws -> KeychainIdentity? {
-        singleton
+    func load() throws -> KeychainIdentity? {
+        identity
     }
 
-    func deleteSingleton() throws {
-        singleton = nil
+    func delete() throws {
+        identity = nil
     }
 }

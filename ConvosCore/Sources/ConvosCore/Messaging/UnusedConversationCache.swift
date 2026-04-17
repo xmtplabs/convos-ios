@@ -332,7 +332,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             do {
                 let result = try await unusedService.sessionStateManager.waitForInboxReadyResult()
                 let inboxId = result.client.inboxId
-                guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
+                guard let identity = try await identityStore.load(), identity.inboxId == inboxId else {
                     throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching inbox \(inboxId)")
                 }
                 let inboxWriter = InboxWriter(dbWriter: databaseWriter)
@@ -364,7 +364,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             clearUnusedFromKeychain()
 
             do {
-                guard let identity = try await identityStore.loadSingleton(), identity.inboxId == unusedInboxId else {
+                guard let identity = try await identityStore.load(), identity.inboxId == unusedInboxId else {
                     throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching unused inbox \(unusedInboxId)")
                 }
                 let authorizationOperation = AuthorizeInboxOperation.authorize(
@@ -477,7 +477,7 @@ extension UnusedConversationCache {
             // inbox identity is LegacyDataWipe or full account reset, both of
             // which clear the database first).
 
-            guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
+            guard let identity = try await identityStore.load(), identity.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching cached inbox \(inboxId)")
             }
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
@@ -493,7 +493,7 @@ extension UnusedConversationCache {
         } catch {
             // Finalization failed — either the keychain identity doesn't
             // match the cached inbox (can only happen on a torn-down install
-            // where `saveSingleton` never landed) or the DB write raised.
+            // where `save` never landed) or the DB write raised.
             // Either way the `service` parameter is bound to an inbox whose
             // keychain identity is missing or stale. Mirror the
             // `consumeInboxOnlyService` recovery path: stop-and-delete the
@@ -535,7 +535,7 @@ extension UnusedConversationCache {
         do {
             let result = try await service.sessionStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
-            guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
+            guard let identity = try await identityStore.load(), identity.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching unused inbox \(inboxId)")
             }
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
@@ -584,7 +584,7 @@ extension UnusedConversationCache {
         clearUnusedFromKeychain()
 
         do {
-            guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
+            guard let identity = try await identityStore.load(), identity.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching unused inbox \(inboxId)")
             }
             let authorizationOperation = AuthorizeInboxOperation.authorize(
@@ -766,11 +766,11 @@ extension UnusedConversationCache {
                   let databaseReader else { return }
             // Single-inbox: reuse the ready main service instead of registering a
             // second identity. `createNewUnusedConversation` calls
-            // `AuthorizeInboxOperation.register` which writes `saveSingleton(...)`
+            // `AuthorizeInboxOperation.register` which writes `save(...)`
             // for the new inbox and overwrites the caller's main singleton.
             // With only one keychain slot, that breaks every subsequent
             // `InviteWriter.generate` / `ConversationStateMachine` path that
-            // validates `loadSingleton().inboxId == conversation.inboxId`.
+            // validates `load().inboxId == conversation.inboxId`.
             await createUnusedConversationReusingService(
                 service,
                 databaseWriter: databaseWriter,
@@ -848,7 +848,7 @@ extension UnusedConversationCache {
     ) async throws {
         let identity: KeychainIdentity
         do {
-            guard let loaded = try await identityStore.loadSingleton(), loaded.inboxId == inboxId else {
+            guard let loaded = try await identityStore.load(), loaded.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching unused inbox \(inboxId)")
             }
             identity = loaded
@@ -978,7 +978,7 @@ extension UnusedConversationCache {
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
 
             let conversationId = optimisticConversation.id
-            guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
+            guard let identity = try await identityStore.load(), identity.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching unused inbox \(inboxId)")
             }
 

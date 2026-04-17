@@ -62,10 +62,6 @@ public struct AssetRenewalURLCollector {
             // 2. Group images (with conversationId for re-upload)
             let conversations = try DBConversation
                 .filter(DBConversation.Columns.kind == ConversationKind.group.rawValue)
-                // Single-inbox: every conversation row belongs to the sole
-                // inbox, so the previous `allInboxIds.contains(...)` filter is
-                // redundant and the column is gone. Keep the kind/imageURL
-                // filters.
                 .filter(DBConversation.Columns.imageURLString != nil)
                 .fetchAll(db)
 
@@ -115,10 +111,6 @@ public struct AssetRenewalURLCollector {
             // 2. Group images that are stale (never renewed or renewed before threshold)
             let conversations = try DBConversation
                 .filter(DBConversation.Columns.kind == ConversationKind.group.rawValue)
-                // Single-inbox: every conversation row belongs to the sole
-                // inbox, so the previous `allInboxIds.contains(...)` filter is
-                // redundant and the column is gone. Keep the kind/imageURL
-                // filters.
                 .filter(DBConversation.Columns.imageURLString != nil)
                 .filter(
                     DBConversation.Columns.imageLastRenewed == nil ||

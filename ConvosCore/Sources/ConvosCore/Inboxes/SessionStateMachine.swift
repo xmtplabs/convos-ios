@@ -585,7 +585,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private func handleAuthorize(inboxId: String, clientId: String) async throws {
         try Task.checkCancellation()
 
-        guard let identity = try await identityStore.loadSingleton() else {
+        guard let identity = try await identityStore.load() else {
             throw KeychainIdentityStoreError.identityNotFound("No singleton identity in keychain")
         }
         guard identity.inboxId == inboxId else {
@@ -608,7 +608,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         // Only updates if different, avoiding unnecessary mutations
         setCustomLocalAddress()
 
-        let keys = identity.clientKeys
+        let keys = identity.keys
         let clientOptions = clientOptions(keys: keys)
         let client: any XMTPClientProvider
         do {
@@ -668,7 +668,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("Generated clientId: \(clientId) for inboxId: \(client.inboxId)")
 
         // Save to keychain as the singleton identity
-        _ = try await identityStore.saveSingleton(inboxId: client.inboxId, clientId: clientId, keys: keys)
+        _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         try Task.checkCancellation()
 
@@ -680,7 +680,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         } catch {
             // Rollback keychain entry on database failure to maintain consistency
             Log.error("Failed to save inbox to database, rolling back keychain: \(error)")
-            try? await identityStore.deleteSingleton()
+            try? await identityStore.delete()
             throw error
         }
 
@@ -778,8 +778,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         // Delete identity - idempotent operation, may already be deleted from previous attempt
-        let priorIdentity = try? await identityStore.loadSingleton()
-        try? await identityStore.deleteSingleton()
+        let priorIdentity = try? await identityStore.load()
+        try? await identityStore.delete()
         if let priorIdentity, priorIdentity.clientId == clientId {
             Log.debug("Deleted identity from keychain for clientId: \(clientId)")
             deleteDatabaseFiles(for: priorIdentity.inboxId)
@@ -823,8 +823,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         // Delete identity - idempotent operation, may already be deleted
-        let priorIdentity = try? await identityStore.loadSingleton()
-        try? await identityStore.deleteSingleton()
+        let priorIdentity = try? await identityStore.load()
+        try? await identityStore.delete()
         if let priorIdentity, priorIdentity.clientId == clientId {
             Log.debug("Deleted identity from keychain for clientId: \(clientId)")
             deleteDatabaseFiles(for: priorIdentity.inboxId)
@@ -912,7 +912,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             return
         }
 
-        guard let identity = try await identityStore.loadSingleton(), identity.clientId == clientId else {
+        guard let identity = try await identityStore.load(), identity.clientId == clientId else {
             Log.warning("Cannot retry from error: no singleton identity matching clientId \(clientId)")
             return
         }
@@ -986,8 +986,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         // Delete identity and local database
-        // Idempotent: deleteSingleton swallows the not-found case, so retries are safe.
-        try? await identityStore.deleteSingleton()
+        // Idempotent: delete swallows the not-found case, so retries are safe.
+        try? await identityStore.delete()
         Log.debug("Deleted singleton identity from keychain (clientId: \(clientId))")
 
         try Task.checkCancellation()

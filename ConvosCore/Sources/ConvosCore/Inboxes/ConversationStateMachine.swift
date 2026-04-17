@@ -591,7 +591,7 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.failedVerifyingSignature
         }
         Log.debug("Recovered signer's public key: \(signerPublicKey.toHexString())")
-        let currentInboxId = (try? await identityStore.loadSingleton()?.inboxId) ?? ""
+        let currentInboxId = (try? await identityStore.load()?.inboxId) ?? ""
         let existingConversation: Conversation? = try await databaseReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.inviteTag == signedInvite.invitePayload.tag)
@@ -605,7 +605,7 @@ public actor ConversationStateMachine {
         // is no "conversation belongs to a different identity" case anymore.
         let existingIdentity: KeychainIdentity?
         if existingConversation != nil {
-            existingIdentity = try? await identityStore.loadSingleton()
+            existingIdentity = try? await identityStore.load()
         } else {
             existingIdentity = nil
         }
@@ -626,7 +626,7 @@ public actor ConversationStateMachine {
             // `deleteInbox()` + `reauthorize(...)` here to switch the active
             // per-conversation identity — under single-inbox that pair would
             // wipe the keychain singleton (deleteInbox now goes through
-            // `deleteSingleton`) and then fail to reauthorize because the
+            // `delete`) and then fail to reauthorize because the
             // identity is gone. Just keep the singleton authorized.
             let prevInboxReady = try await sessionStateManager.waitForInboxReadyResult()
             let inboxReady = prevInboxReady
@@ -905,7 +905,7 @@ extension ConversationStateMachine {
         let externalConversation = try await conversationsProvider.findConversation(conversationId: conversationId)
         try await externalConversation?.updateConsentState(state: .denied)
 
-        if let identity = try? await identityStore.loadSingleton(), identity.inboxId == client.inboxId {
+        if let identity = try? await identityStore.load(), identity.inboxId == client.inboxId {
             let topic = conversationId.xmtpGroupTopicFormat
             do {
                 try await apiClient.unsubscribeFromTopics(clientId: identity.clientId, topics: [topic])

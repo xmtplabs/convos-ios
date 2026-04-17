@@ -15,20 +15,14 @@ enum SessionManagerError: Error {
     case inboxNotFound
 }
 
-/// Coordinates the single XMTP inbox that backs the app.
+/// Coordinates the XMTP inbox that backs the app.
 ///
-/// Single-inbox refactor (C4): the prior multi-inbox coordinator has been
-/// replaced with a lazy singleton. On first access (`addInbox` / `messagingService`)
-/// the manager either loads the existing identity from the keychain and
-/// authorizes its `MessagingService`, or registers a fresh identity. Subsequent
-/// calls return the same service.
+/// On first access (`addInbox` / `messagingService`) the manager either loads
+/// the existing identity from the keychain and authorizes its
+/// `MessagingService`, or registers a fresh identity. Subsequent calls return
+/// the same service.
 ///
-/// Several protocol methods that took `clientId` / `inboxId` parameters are
-/// retained as pass-throughs to keep the UI layer compiling during the
-/// intermediate state; the arguments are ignored. The view-model surface is
-/// cleaned up in C11.
-///
-/// @unchecked Sendable: mutable state is protected by `serviceLock`. Long-lived
+/// @unchecked Sendable: mutable state is protected by `serviceState`. Long-lived
 /// tasks (initialization, foreground observation, asset renewal) are created
 /// during init and cancelled in deinit.
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
@@ -135,10 +129,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             }
         }
 
-        // In the single-inbox model the user keeps their inbox when they leave or
-        // explode a conversation — destroying it would destroy the entire account.
-        // The observer remains for logging and so downstream cleanup (C9 explode
-        // rewrite) can hook in without reintroducing the notification contract.
+        // Leaving a conversation doesn't touch the inbox identity; the
+        // observer just logs the event so downstream cleanup can hook in.
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { notification in
                 let conversationId = notification.userInfo?["conversationId"] as? String
@@ -197,14 +189,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             return await task.value
         case .startCreating(let task):
             let service = await task.value
-            // If the task was cancelled while `makeService` was running —
-            // e.g. by `clearCachedService`, `deleteSingletonInbox`, or
-            // `messagingServiceSync(for:inboxId:)` adopting its own service
-            // — the resolved MessagingService is an orphan. Don't install
-            // it; stop so streams/observers tear down cleanly. The canceller
-            // already nil'd `state.creationTask` (or replaced it) under the
-            // same lock before calling `cancel()`, so we don't need to
-            // touch it here.
+            // Cancelled while creating: the service is an orphan — stop it
+            // so streams tear down cleanly and don't install it as the
+            // authoritative service. The canceller cleared `state.creationTask`
+            // under the same lock before calling `cancel()`.
             if task.isCancelled {
                 await service.stop()
                 return service
@@ -359,7 +347,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await existing.waitForDeletionComplete()
         }
 
-        try await identityStore.deleteSingleton()
+        try await identityStore.delete()
 
         try await wipeResidualInboxRows()
     }
@@ -636,11 +624,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: Helpers
 
     public func inboxId(for conversationId: String) async -> String? {
-        // Single-inbox: every conversation belongs to the one authorized
-        // inbox. Look up the singleton once rather than joining through the
-        // (now-removed) conversation.inboxId column. Returning nil when no
-        // singleton is loaded yet matches the prior behavior for missing
-        // conversations.
         do {
             return try await databaseReader.read { db in
                 guard (try DBConversation.fetchOne(db, key: conversationId)) != nil else {

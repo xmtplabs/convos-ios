@@ -42,11 +42,7 @@ public final class DatabaseManager: DatabaseManagerProtocol {
 
     private static func makeDatabasePool(environment: AppEnvironment) throws -> DatabasePool {
         let fileManager = FileManager.default
-        // Use the shared App Group container so the main app and NSE share the same DB.
-        // Single-inbox refactor writes to a new filename so the process can't
-        // accidentally open a pre-refactor database (which had a different
-        // schema). `LegacyDataWipe` sweeps the old `convos.sqlite*` files on
-        // upgrade; a fresh install goes straight to this file.
+        // Shared App Group container so the main app and NSE share the same DB.
         let groupDirURL = environment.defaultDatabasesDirectoryURL
         let dbURL = groupDirURL.appendingPathComponent("convos-single-inbox.sqlite")
 

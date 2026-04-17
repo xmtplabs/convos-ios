@@ -40,9 +40,8 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
 
 extension Array where Element == DBConversationDetails {
     func composeConversations(from database: Database) throws -> [Conversation] {
-        // Single-inbox: pick the current user's inboxId from the singleton
-        // DBInbox row. Empty string if no inbox is authorized yet — hydration
-        // downstream treats that as "no member is current user".
+        // Empty string when no inbox is authorized yet — hydration treats
+        // that as "no member is current user".
         let currentInboxId = try DBInbox.fetchAll(database).first?.inboxId ?? ""
         let dbConversations: [DBConversationDetails] = self
 

@@ -2,23 +2,14 @@ import Foundation
 import Security
 @preconcurrency import XMTPiOS
 
-/// One-shot detection and removal of pre-single-inbox data at app launch.
+/// One-shot removal of incompatible on-disk state at app launch.
 ///
-/// The single-inbox identity refactor intentionally ships without a migration path:
-/// any install carrying per-conversation identities, the old GRDB schema, or XMTP
-/// databases from a prior version needs to be wiped clean before the app can boot
-/// into the new model. A persistent schema-generation marker in the app-group
-/// UserDefaults records whether the current install has already been wiped, so the
-/// routine runs at most once per install generation.
+/// A persistent schema-generation marker in the app-group UserDefaults records
+/// whether the current install has already been wiped, so the routine runs at
+/// most once per install generation. Bump `currentGeneration` to force a
+/// re-wipe on next launch when the on-disk format changes incompatibly.
 enum LegacyDataWipe {
-    /// Current schema generation. Bump when a future refactor needs another wipe.
-    /// `single-inbox-v2` re-runs the wipe on installs that previously ran an
-    /// earlier schema on this branch: C11c dropped `DBConversation.inboxId`/
-    /// `.clientId`, renamed the GRDB file to `convos-single-inbox.sqlite`, and
-    /// collapsed the migrator to a single baseline. Any `convos.sqlite` file
-    /// from before that change is orphaned and needs removal. Production has
-    /// never shipped `single-inbox-v1`, so this bump only affects branch-local
-    /// installs.
+    /// Current schema generation. Bump when a schema change requires a wipe.
     static let currentGeneration: String = "single-inbox-v2"
 
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
@@ -52,11 +43,9 @@ enum LegacyDataWipe {
         let keychainWipeOK = wipeLegacyKeychainItems(accessGroup: environment.appGroupIdentifier)
 
         // Only mark the install as upgraded when both wipe phases succeeded.
-        // Setting the marker after a partial wipe would prevent retry on the
-        // next launch and leave the migrator opening a database that still
-        // carries pre-refactor row shape — which causes either an
-        // `eraseDatabaseOnSchemaChange` reset (DEBUG only) or a hard crash
-        // when GRDB sees columns it doesn't know about.
+        // A partial wipe that claimed success would prevent retry on the next
+        // launch and leave the migrator opening a database in an
+        // incompatible shape.
         if dbWipeOK && keychainWipeOK {
             defaults.set(currentGeneration, forKey: schemaGenerationKey)
         } else {
@@ -65,10 +54,9 @@ enum LegacyDataWipe {
         }
     }
 
-    /// Removes `KeychainIdentityStore.v2` entries left over from the
-    /// per-conversation identity era. The v3 store used from C3 onward does not
-    /// read these, but they linger in the keychain forever otherwise. Runs as
-    /// part of the one-shot upgrade wipe. Returns `false` if any service's
+    /// Removes keychain items registered under earlier service names. The
+    /// current store (`KeychainIdentityStore.defaultService`) ignores these,
+    /// but they linger in the keychain otherwise. Returns `false` if any
     /// delete failed for a reason other than "not found" so the caller can
     /// withhold the generation marker.
     private static func wipeLegacyKeychainItems(accessGroup: String) -> Bool {
@@ -95,10 +83,9 @@ enum LegacyDataWipe {
         return allOK
     }
 
-    /// Returns `true` if the install appears to carry pre-single-inbox state.
-    /// Used on first launch when the schema-generation marker is absent to
-    /// distinguish a fresh install (no legacy, just mark) from an upgrade
-    /// (legacy present, wipe).
+    /// Returns `true` if the install has on-disk state from an earlier
+    /// schema. Used on first launch when the generation marker is absent to
+    /// distinguish a fresh install (nothing to wipe) from an upgrade.
     private static func detectLegacyArtifacts(
         databasesDirectory: URL,
         environment: AppEnvironment

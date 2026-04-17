@@ -84,8 +84,6 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
             let messageExistsInDB = try DBMessage.exists(db, key: message.id)
             // @jarodl temporary, this should happen somewhere else more explicitly.
-            // Single-inbox: the local user's inboxId lives on `DBInbox`, not
-            // `DBConversation`. Look it up once inside the write transaction.
             let localInboxId = try DBInbox.fetchAll(db).first?.inboxId
             let wasRemovedFromConversation: Bool = {
                 guard let localInboxId, let removed = message.update?.removedInboxIds else { return false }

@@ -381,9 +381,6 @@ extension Array where Element == DBMessage {
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
         var updatedSeenIds = seenMessageIds
-        // In single-inbox mode the current user's inboxId is derived from the
-        // members list at hydration time (see `DBConversationDetails.hydrateConversation`),
-        // not stored on the conversation row. Cache it once.
         let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId
 
         let messages = compactMap { dbMessage -> AnyMessage? in
@@ -786,9 +783,6 @@ fileprivate extension Database {
         isInitialLoad: Bool = false,
         isPaginating: Bool = false
     ) throws -> ([AnyMessage], Set<String>) {
-        // Single-inbox: look up the current user's inboxId from the singleton
-        // DBInbox row inside the read transaction. Replaces the pre-C11
-        // `conversation.inboxId` column read.
         let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
         guard let conversation = try fetchLightweightConversation(
             for: conversationId,

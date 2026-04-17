@@ -29,13 +29,8 @@ class InviteWriter: InviteWriterProtocol {
         expiresAt: Date? = nil,
         expiresAfterUse: Bool = false
     ) async throws -> Invite {
-        // Single-inbox: the creator of any conversation the local user signs
-        // an invite for is necessarily the singleton identity. Load it once
-        // up front — it both authorizes the signature and identifies the
-        // invite's `creatorInboxId` (previously read from
-        // `conversation.inboxId`, which no longer exists).
-        guard let identity = try await identityStore.loadSingleton() else {
-            throw KeychainIdentityStoreError.identityNotFound("No singleton identity available to sign invite for conversation \(conversation.id)")
+        guard let identity = try await identityStore.load() else {
+            throw KeychainIdentityStoreError.identityNotFound("No identity available to sign invite for conversation \(conversation.id)")
         }
         let currentInboxId = identity.inboxId
 
@@ -108,8 +103,8 @@ class InviteWriter: InviteWriterProtocol {
         }) else {
             throw InviteWriterError.conversationNotFound
         }
-        guard let identity = try await identityStore.loadSingleton() else {
-            throw KeychainIdentityStoreError.identityNotFound("No singleton identity available to update invite for conversation \(conversation.id)")
+        guard let identity = try await identityStore.load() else {
+            throw KeychainIdentityStoreError.identityNotFound("No identity available to update invite for conversation \(conversation.id)")
         }
         let currentInboxId = identity.inboxId
         let invite = try await databaseWriter.read { db in

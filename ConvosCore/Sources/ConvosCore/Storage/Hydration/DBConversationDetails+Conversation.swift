@@ -38,9 +38,6 @@ extension DBConversationDetails {
             assistantJoinStatus = nil
         }
 
-        // Pick the current user's invite for this conversation from the
-        // fetched set. Replaces the pre-C11 `DBConversation.invite` association
-        // that selected via the now-removed `(inboxId, id)` foreign key.
         let invite = conversationInvites
             .first { $0.creatorInboxId == currentInboxId }?
             .hydrateInvite()

@@ -21,10 +21,6 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
         self.createdAt = createdAt
     }
 
-    // `DBInbox.conversations` association removed in C11c: the foreign key
-    // keyed on `DBConversation.Columns.inboxId`, which no longer exists.
-    // No callers; restore with a different key if needed in the future.
-
     static let member: HasOneAssociation<DBInbox, DBMember> = hasOne(
         DBMember.self,
         key: "inboxMember",

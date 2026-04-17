@@ -9,15 +9,10 @@ struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hasha
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLastMessageWithSource: DBLastMessageWithSource?
     let conversationLocalState: ConversationLocalState
-    // Invites on this conversation. Pre-C11 this was a single-valued
-    // `conversationInvite: DBInvite?` resolved via the now-removed
-    // `(inboxId, id) → conversation_members(inboxId, conversationId)`
-    // foreign key. That key depended on `conversation.inboxId`, which is
-    // gone in single-inbox mode. We now fetch all invites for the row and
-    // pick the current user's in hydration via the passed-in singleton
-    // inboxId. Kept optional (empty default) so decoders that don't include
-    // the `DBConversation.invites` association — e.g. the lightweight
-    // benchmark path — don't trip `keyNotFound`.
+    /// Invites associated with this conversation. Hydration picks the
+    /// current user's invite by filtering on `creatorInboxId`. Decoded as
+    /// empty when the caller's query doesn't include
+    /// `DBConversation.invites` — see the custom `init(from:)` below.
     let conversationInvites: [DBInvite]
     let conversationAssistantJoinRequest: DBAssistantJoinRequest?
 

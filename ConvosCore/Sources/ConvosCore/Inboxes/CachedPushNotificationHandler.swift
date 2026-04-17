@@ -11,15 +11,11 @@ public enum NotificationProcessingError: Error {
 
 // MARK: - Global Actor
 
-/// NSE-side push notification handler backed by the single-inbox identity.
-///
-/// Single-inbox refactor (C7): the handler used to maintain a `[inboxId: MessagingService]`
-/// cache and look up the destination inbox by the push payload's `clientId`. Under the
-/// single-inbox model there is exactly one identity — held in the shared app-group
-/// keychain under `KeychainIdentityStore.singletonAccount` — so the handler now caches
-/// a single `MessagingService` and asserts the payload's `clientId` matches the stored
-/// singleton before processing. A mismatch means the payload predates the current
-/// identity (e.g. user deleted their account between send and deliver); we drop it.
+/// NSE-side push notification handler. Caches one `MessagingService` for the
+/// authorized identity and verifies incoming push payloads against it. A
+/// `clientId` mismatch indicates the payload was issued to a now-stale
+/// identity (e.g. the user deleted their account between send and deliver),
+/// so the handler drops it.
 @globalActor
 public actor CachedPushNotificationHandler {
     public static var shared: CachedPushNotificationHandler {
@@ -97,10 +93,10 @@ public actor CachedPushNotificationHandler {
         // into "unregister this clientId from the backend" — which permanently
         // breaks push delivery for the user until the main app re-registers
         // the installation. We only unregister when we are *certain* the
-        // identity is gone (loadSingleton returned `nil`, not threw).
+        // identity is gone (load returned `nil`, not threw).
         let identity: KeychainIdentity?
         do {
-            identity = try await identityStore.loadSingleton()
+            identity = try await identityStore.load()
         } catch {
             Log.warning("Dropping notification: keychain error reading singleton: \(error). Not unregistering — assume transient.")
             return nil
