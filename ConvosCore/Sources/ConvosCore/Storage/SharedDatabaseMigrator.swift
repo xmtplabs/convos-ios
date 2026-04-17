@@ -20,31 +20,16 @@ extension SharedDatabaseMigrator {
         migrator.eraseDatabaseOnSchemaChange = true
 #endif
 
-        // Single-inbox migration-0.
-        //
-        // The prior per-conversation identity model shipped a long chain of
-        // additive migrations (see git history). When the schema changed in a
-        // backwards-incompatible way we normally would have added another entry
-        // to the chain — but the single-inbox refactor ships without any data
-        // migration path (see docs/plans/single-inbox-identity-refactor.md).
-        // LegacyDataWipe erases the database file on upgrade, so any install
-        // that reaches this migrator either already ran `v0-single-inbox` or
-        // is a fresh install. Future schema evolution registers a new migration
-        // on top of this baseline.
-        migrator.registerMigration("v0-single-inbox") { db in
+        // Single-inbox baseline. The refactor ships without a data-migration
+        // path (see docs/plans/single-inbox-identity-refactor.md) and writes
+        // to a new database filename (`convos-single-inbox.sqlite`), so any
+        // install that reaches this migrator is either brand new or a
+        // post-`LegacyDataWipe` upgrade — either way, starting at a single
+        // baseline is correct. Historical v1/v2 migrations from earlier
+        // commits on this branch were collapsed into this baseline; no
+        // on-disk v0 database in the single-inbox file path exists.
+        migrator.registerMigration("v1-single-inbox") { db in
             try SharedDatabaseMigrator.createSingleInboxSchema(db)
-        }
-
-        // C8 scope reduction: the global-profile architecture was dropped in
-        // favor of keeping per-conversation profiles. `myProfile` and
-        // `profileBroadcastQueue` tables were introduced in C2 in anticipation
-        // of that design and never populated. Drop them so the schema doesn't
-        // carry unused tables forward. The baseline `v0-single-inbox` is kept
-        // verbatim for branch-lineage reasons — any install that ran v0 needs
-        // this additive migration to reach the current schema.
-        migrator.registerMigration("v1-drop-global-profile-tables") { db in
-            try db.drop(table: "profileBroadcastQueue")
-            try db.drop(table: "myProfile")
         }
 
         return migrator
@@ -53,9 +38,7 @@ extension SharedDatabaseMigrator {
     // swiftlint:disable:next function_body_length
     private static func createSingleInboxSchema(_ db: Database) throws {
         // Singleton inbox table. The refactor allows only one inbox per user;
-        // the current implementation keeps the table shape from the prior
-        // schema. Singleton enforcement at the Swift writer layer is introduced
-        // in C4 once the multi-inbox infrastructure is deleted.
+        // writer-layer enforcement lives in `SessionManager`/`InboxWriter`.
         try db.create(table: "inbox") { t in
             t.column("inboxId", .text)
                 .notNull()
@@ -78,10 +61,6 @@ extension SharedDatabaseMigrator {
             t.column("id", .text)
                 .notNull()
                 .primaryKey()
-            t.column("inboxId", .text)
-                .notNull()
-            t.column("clientId", .text)
-                .notNull()
             t.column("clientConversationId", .text)
                 .notNull()
                 .unique(onConflict: .replace)
@@ -108,7 +87,6 @@ extension SharedDatabaseMigrator {
             t.column("isUnused", .boolean).notNull().defaults(to: false)
             t.column("hasHadVerifiedAssistant", .boolean).notNull().defaults(to: false)
             t.column("conversationEmoji", .text)
-            t.uniqueKey(["id", "inboxId", "clientId"])
         }
 
         try db.create(table: "memberProfile") { t in
@@ -275,34 +253,6 @@ extension SharedDatabaseMigrator {
                 .references("member", onDelete: .cascade)
             t.column("readAtNs", .integer).notNull()
             t.primaryKey(["conversationId", "inboxId"])
-        }
-
-        // Singleton row for the local user's global profile. Introduced in C2;
-        // writers and UI wired up in C8.
-        try db.create(table: "myProfile") { t in
-            t.column("id", .text)
-                .notNull()
-                .primaryKey()
-            t.column("name", .text)
-            t.column("avatar", .text)
-            t.column("avatarSalt", .blob)
-            t.column("avatarNonce", .blob)
-            t.column("avatarKey", .blob)
-            t.column("metadata", .jsonText)
-            t.column("updatedAt", .datetime).notNull()
-        }
-
-        // Pending broadcasts of the global profile to each conversation. Drained
-        // by `ProfileBroadcastWorker` (introduced in C8); table lands now so the
-        // schema is stable before the writer code arrives.
-        try db.create(table: "profileBroadcastQueue") { t in
-            t.column("conversationId", .text)
-                .notNull()
-                .primaryKey()
-                .references("conversation", onDelete: .cascade)
-            t.column("enqueuedAt", .datetime).notNull()
-            t.column("lastAttemptAt", .datetime)
-            t.column("failureCount", .integer).notNull().defaults(to: 0)
         }
 
         // Indexes

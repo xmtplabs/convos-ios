@@ -5,8 +5,6 @@ import Foundation
 public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let clientConversationId: String
-    public let inboxId: String
-    public let clientId: String
     public let creator: ConversationMember
     public let createdAt: Date
     public let consent: Consent
@@ -169,11 +167,7 @@ public extension Conversation {
         NotificationCenter.default.post(
             name: .leftConversationNotification,
             object: nil,
-            userInfo: [
-                "clientId": clientId,
-                "inboxId": inboxId,
-                "conversationId": id
-            ]
+            userInfo: ["conversationId": id]
         )
     }
 

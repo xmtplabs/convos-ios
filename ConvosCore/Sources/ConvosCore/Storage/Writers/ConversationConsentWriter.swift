@@ -54,10 +54,11 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
 
     func deleteAll() async throws {
         let client = try await sessionStateManager.waitForInboxReadyResult().client
-        let inboxId = client.inboxId
+        // Single-inbox: every conversation row already belongs to the only
+        // authorized inbox, so the previous `.inboxId == client.inboxId`
+        // filter was a no-op. Dropped with the column.
         let conversationsToDeny = try await databaseWriter.read { db in
             try DBConversation
-                .filter(DBConversation.Columns.inboxId == inboxId)
                 .filter(DBConversation.Columns.consent == Consent.unknown)
                 .fetchAll(db)
         }

@@ -80,13 +80,17 @@ struct PendingInviteRepositoryTests {
         #expect(infos.first?.hasPendingInvites == false)
     }
 
-    @Test("allPendingInvites returns one row per inbox with its pending conversations")
-    func testAllPendingInvitesGroupsByInbox() async throws {
+    @Test("allPendingInvites returns the singleton inbox with all pending drafts")
+    func testAllPendingInvitesReturnsSingleton() async throws {
         let fixtures = try await makeTestFixtures()
 
+        // Single-inbox: only one `DBInbox` row exists on disk in the shipping
+        // product. Pre-C11 this test installed two inbox rows and asserted
+        // per-inbox grouping; C11c collapsed the conversation ↔ inbox join
+        // (the `conversation.clientId` column is gone), so all drafts belong
+        // to the singleton by construction.
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
-            try DBInbox(inboxId: "inbox-2", clientId: "client-2", createdAt: Date()).insert(db)
 
             try makeDBConversation(
                 id: "draft-1a",
@@ -106,15 +110,11 @@ struct PendingInviteRepositoryTests {
         let repo = PendingInviteRepository(databaseReader: fixtures.dbReader)
         let infos = try repo.allPendingInvites()
 
-        let client1Info = infos.first { $0.clientId == "client-1" }
-        let client2Info = infos.first { $0.clientId == "client-2" }
-
-        #expect(client1Info != nil)
-        #expect(client1Info?.hasPendingInvites == true)
-        #expect(client1Info?.pendingConversationIds.count == 2)
-
-        #expect(client2Info != nil)
-        #expect(client2Info?.hasPendingInvites == false)
+        #expect(infos.count == 1)
+        let singletonInfo = infos.first
+        #expect(singletonInfo?.clientId == "client-1")
+        #expect(singletonInfo?.hasPendingInvites == true)
+        #expect(singletonInfo?.pendingConversationIds.count == 2)
     }
 
     @Test("allPendingInviteDetails returns a row per pending draft conversation")
@@ -170,10 +170,11 @@ struct PendingInviteRepositoryTests {
         inviteTag: String,
         consent: Consent = .unknown
     ) -> DBConversation {
+        // `inboxId` and `clientId` are still taken as parameters to preserve
+        // the existing call-site shape; they're used only as `creatorId`
+        // after C11c dropped the columns.
         DBConversation(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: id,
             inviteTag: inviteTag,
             creatorId: inboxId,

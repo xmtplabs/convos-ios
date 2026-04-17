@@ -262,8 +262,6 @@ struct DefaultConversationDisplayTests {
         let conversation = Conversation(
             id: "test",
             clientConversationId: "client-test",
-            inboxId: "inbox",
-            clientId: "client",
             creator: .mock(isCurrentUser: true),
             createdAt: Date(),
             consent: .allowed,
@@ -305,8 +303,6 @@ struct DefaultConversationDisplayTests {
         let conversation = Conversation(
             id: "test",
             clientConversationId: "client-test",
-            inboxId: "inbox",
-            clientId: "client",
             creator: .mock(isCurrentUser: true),
             createdAt: Date(),
             consent: .allowed,

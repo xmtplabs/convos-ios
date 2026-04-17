@@ -469,24 +469,13 @@ extension UnusedConversationCache {
             let result = try await service.sessionStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
 
-            // Verify the conversation was actually created by this inbox (defense against
-            // actor reentrancy race where keychain inbox and conversation get mismatched)
-            let conversationInboxId = try await databaseWriter.read { db in
-                try DBConversation.fetchOne(db, key: conversationId)?.inboxId
-            }
-            if let conversationInboxId, conversationInboxId != inboxId {
-                Log.warning("Unused conversation \(conversationId) belongs to inbox \(conversationInboxId), not \(inboxId) — discarding and creating fresh")
-                await cleanupOrphanedConversation(conversationId: conversationId, databaseWriter: databaseWriter)
-                clearUnusedFromKeychain()
-
-                scheduleBackgroundCreation(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-
-                return (service: service, conversationId: nil)
-            }
+            // Previously this cross-checked `DBConversation.inboxId ==
+            // service.inboxId` to defend against actor-reentrancy races where
+            // the keychain inbox and conversation got mismatched. In single-
+            // inbox mode there is at most one authorized inbox on disk, so a
+            // mismatch can't happen by construction (the only way to change
+            // inbox identity is LegacyDataWipe or full account reset, both of
+            // which clear the database first).
 
             guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
                 throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching cached inbox \(inboxId)")
@@ -1073,8 +1062,6 @@ extension UnusedConversationCache {
 
             let dbConversation = DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: "pending-\(conversationId)",
                 creatorId: inboxId,
@@ -1134,8 +1121,6 @@ extension UnusedConversationCache {
             } else {
                 let dbConversation = DBConversation(
                     id: conversationId,
-                    inboxId: inboxId,
-                    clientId: clientId,
                     clientConversationId: conversationId,
                     inviteTag: inviteTag,
                     creatorId: creatorInboxId,

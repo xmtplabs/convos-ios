@@ -67,7 +67,10 @@ fileprivate extension Database {
             .fetchOne(self) else {
             return nil
         }
-
-        return dbConversation.hydrateConversation()
+        // Single-inbox: read the sole authorized inbox's inboxId from the
+        // DBInbox table. Replaces the pre-C11 `conversation.inboxId` column
+        // read.
+        let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+        return dbConversation.hydrateConversation(currentInboxId: currentInboxId)
     }
 }

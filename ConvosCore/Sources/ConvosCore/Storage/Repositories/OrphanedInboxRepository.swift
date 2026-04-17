@@ -37,37 +37,35 @@ public struct OrphanedInboxRepository: OrphanedInboxRepositoryProtocol, @uncheck
 
     public func allOrphanedInboxes() throws -> [OrphanedInboxDetail] {
         try databaseReader.read { db in
-            let sql = """
-                SELECT
-                    i.clientId,
-                    i.inboxId,
-                    i.createdAt,
-                    GROUP_CONCAT(CASE WHEN c.id LIKE 'draft-%' THEN c.id END) as draftIds,
-                    COUNT(CASE WHEN c.id NOT LIKE 'draft-%' THEN 1 END) as nonDraftCount
-                FROM inbox i
-                LEFT JOIN conversation c ON c.clientId = i.clientId
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM conversation c2
-                    WHERE c2.clientId = i.clientId
-                        AND c2.id NOT LIKE 'draft-%'
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM conversation c3
-                    WHERE c3.clientId = i.clientId
-                        AND c3.id LIKE 'draft-%'
-                        AND c3.inviteTag IS NOT NULL
-                        AND length(c3.inviteTag) > 0
-                )
-                GROUP BY i.clientId, i.inboxId, i.createdAt
-                ORDER BY i.createdAt ASC
+            // C11c: the conversation table no longer carries a clientId, so
+            // the old JOIN inbox↔conversation on clientId is gone. In
+            // single-inbox mode there's at most one inbox row, so "orphan"
+            // collapses to "the sole inbox exists but there are no joined
+            // (non-draft) conversations and no drafts with invite tags". If
+            // that condition holds, return the inbox with any draft ids
+            // attached.
+            let inboxSql = """
+                SELECT clientId, inboxId, createdAt FROM inbox ORDER BY createdAt ASC
                 """
-
-            return try Row.fetchAll(db, sql: sql).map { row in
-                let draftIdsString: String? = row["draftIds"]
-                let draftIds = draftIdsString?
-                    .split(separator: ",")
-                    .map { String($0) } ?? []
-
+            let inboxRows = try Row.fetchAll(db, sql: inboxSql)
+            return try inboxRows.compactMap { row -> OrphanedInboxDetail? in
+                let nonDraftCount = try Int.fetchOne(
+                    db,
+                    sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
+                ) ?? 0
+                if nonDraftCount > 0 { return nil }
+                let taggedDraftCount = try Int.fetchOne(
+                    db,
+                    sql: """
+                    SELECT COUNT(*) FROM conversation
+                    WHERE id LIKE 'draft-%' AND inviteTag IS NOT NULL AND length(inviteTag) > 0
+                    """
+                ) ?? 0
+                if taggedDraftCount > 0 { return nil }
+                let draftIds = try String.fetchAll(
+                    db,
+                    sql: "SELECT id FROM conversation WHERE id LIKE 'draft-%'"
+                )
                 return OrphanedInboxDetail(
                     clientId: row["clientId"],
                     inboxId: row["inboxId"],

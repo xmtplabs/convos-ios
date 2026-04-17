@@ -877,12 +877,14 @@ struct ConversationStateMachineTests {
 
         // Get the inbox ID and fetch the automatically created invite
         let (invite, inboxId) = try await inviterFixtures.databaseManager.dbReader.read { db in
-            let conversation = try DBConversation.fetchOne(db, key: convId)
             let invite = try DBInvite
                 .filter(DBInvite.Columns.conversationId == convId)
                 .fetchOne(db)?
                 .hydrateInvite()
-            return (invite, conversation?.inboxId)
+            // Post-C11c: `conversation.inboxId` is gone. Read the singleton
+            // inbox from `DBInbox` instead.
+            let singletonInboxId = try DBInbox.fetchAll(db).first?.inboxId
+            return (invite, singletonInboxId)
         }
 
         guard let invite, let inboxId else {

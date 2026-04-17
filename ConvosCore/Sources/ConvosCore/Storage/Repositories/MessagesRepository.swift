@@ -381,13 +381,17 @@ extension Array where Element == DBMessage {
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
         var updatedSeenIds = seenMessageIds
+        // In single-inbox mode the current user's inboxId is derived from the
+        // members list at hydration time (see `DBConversationDetails.hydrateConversation`),
+        // not stored on the conversation row. Cache it once.
+        let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId
 
         let messages = compactMap { dbMessage -> AnyMessage? in
             let sender = memberProfileCache.member(for: dbMessage.senderId)
                 ?? ConversationMember(
                     profile: .empty(inboxId: dbMessage.senderId),
                     role: .member,
-                    isCurrentUser: dbMessage.senderId == conversation.inboxId
+                    isCurrentUser: dbMessage.senderId == currentUserInboxId
                 )
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
             let reactions = (reactionsBySourceId[dbMessage.id] ?? []).hydrateReactions(
@@ -438,7 +442,7 @@ extension Array where Element == DBMessage {
                             ?? ConversationMember(
                                 profile: .empty(inboxId: inboxId),
                                 role: .member,
-                                isCurrentUser: inboxId == conversation.inboxId
+                                isCurrentUser: inboxId == currentUserInboxId
                             )
                     }
                     var metadataChanges: [ConversationUpdate.MetadataChange] = update.metadataChanges
@@ -665,7 +669,7 @@ private extension Array where Element == DBMessage {
 // MARK: - Lightweight Conversation Query for Message Composition
 
 fileprivate extension Database {
-    func fetchLightweightConversation(for conversationId: String) throws -> Conversation? {
+    func fetchLightweightConversation(for conversationId: String, currentInboxId: String) throws -> Conversation? {
         try DBConversation
             .filter(DBConversation.Columns.id == conversationId)
             .including(
@@ -687,7 +691,7 @@ fileprivate extension Database {
             )
             .asRequest(of: LightweightConversationDetails.self)
             .fetchOne(self)?
-            .hydrateConversation()
+            .hydrateConversation(currentInboxId: currentInboxId)
     }
 }
 
@@ -704,9 +708,9 @@ private struct LightweightConversationDetails: Codable, FetchableRecord, Hashabl
 }
 
 private extension LightweightConversationDetails {
-    func hydrateConversation() -> Conversation {
+    func hydrateConversation(currentInboxId: String) -> Conversation {
         let members = conversationMembers.map {
-            $0.hydrateConversationMember(currentInboxId: conversation.inboxId)
+            $0.hydrateConversationMember(currentInboxId: currentInboxId)
         }
         let creator: ConversationMember
         if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
@@ -715,7 +719,7 @@ private extension LightweightConversationDetails {
             creator = ConversationMember(
                 profile: hydratedProfile,
                 role: creatorDetails.role,
-                isCurrentUser: profile.inboxId == conversation.inboxId,
+                isCurrentUser: profile.inboxId == currentInboxId,
                 isAgent: isAgent,
                 agentVerification: profile.agentVerification
             )
@@ -723,7 +727,7 @@ private extension LightweightConversationDetails {
             creator = ConversationMember(
                 profile: .empty(inboxId: conversation.creatorId),
                 role: .superAdmin,
-                isCurrentUser: conversation.creatorId == conversation.inboxId
+                isCurrentUser: conversation.creatorId == currentInboxId
             )
         }
         let otherMember: ConversationMember?
@@ -742,8 +746,6 @@ private extension LightweightConversationDetails {
         return Conversation(
             id: conversation.id,
             clientConversationId: conversation.clientConversationId,
-            inboxId: conversation.inboxId,
-            clientId: conversation.clientId,
             creator: creator,
             createdAt: conversation.createdAt,
             consent: conversation.consent,
@@ -784,7 +786,14 @@ fileprivate extension Database {
         isInitialLoad: Bool = false,
         isPaginating: Bool = false
     ) throws -> ([AnyMessage], Set<String>) {
-        guard let conversation = try fetchLightweightConversation(for: conversationId) else {
+        // Single-inbox: look up the current user's inboxId from the singleton
+        // DBInbox row inside the read transaction. Replaces the pre-C11
+        // `conversation.inboxId` column read.
+        let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+        guard let conversation = try fetchLightweightConversation(
+            for: conversationId,
+            currentInboxId: currentInboxId
+        ) else {
             return ([], .init())
         }
 
@@ -806,7 +815,7 @@ fileprivate extension Database {
         let memberProfileCache = MemberProfileCache(
             activeProfiles: activeMemberProfiles,
             allProfiles: historicalMemberProfiles,
-            currentInboxId: conversation.inboxId
+            currentInboxId: currentInboxId
         )
 
         var query = DBMessage

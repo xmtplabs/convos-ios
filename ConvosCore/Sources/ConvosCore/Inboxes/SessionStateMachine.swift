@@ -27,6 +27,23 @@ extension SessionStateMachine.State {
             return clientId
         }
     }
+
+    /// The current user's XMTP inbox ID if known from the state, else nil.
+    /// Available synchronously from `SessionStateManagerProtocol.currentState`.
+    public var inboxId: String? {
+        switch self {
+        case .authorizing(_, let inboxId),
+             .authenticatingBackend(_, let inboxId):
+            return inboxId
+        case .ready(_, let result),
+             .backgrounded(_, let result):
+            return result.client.inboxId
+        case .deleting(_, let inboxId):
+            return inboxId
+        case .idle, .registering, .error:
+            return nil
+        }
+    }
 }
 
 enum SessionStateError: Error {
@@ -1033,12 +1050,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         Log.info("Cleaning up all data for inbox clientId: \(clientId)")
 
+        // Single-inbox: there is at most one inbox, and this path is only
+        // reached via `SessionManager.deleteAllInboxes` (full account reset).
+        // The per-clientId filtering is therefore a no-op — every conversation
+        // row belongs to the sole inbox being deleted.
         let attachmentKeys: [String] = try await databaseWriter.write { db in
-            let conversationIds = try DBConversation
-                .filter(DBConversation.Columns.clientId == clientId)
-                .fetchAll(db)
-                .map { $0.id }
-
+            let conversationIds = try DBConversation.fetchAll(db).map { $0.id }
             Log.info("Found \(conversationIds.count) conversations to clean up for inbox clientId: \(clientId)")
 
             var allAttachmentKeys: [String] = []
@@ -1061,7 +1078,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 try DBMember.filter(DBMember.Columns.inboxId == inboxId).deleteAll(db)
             }
 
-            try DBConversation.filter(DBConversation.Columns.clientId == clientId).deleteAll(db)
+            try DBConversation.deleteAll(db)
             try DBInbox.filter(DBInbox.Columns.clientId == clientId).deleteAll(db)
 
             Log.info("Successfully cleaned up all data for inbox clientId: \(clientId)")

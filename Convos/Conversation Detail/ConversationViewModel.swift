@@ -505,8 +505,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
+        // MyProfileViewModel fills its "empty" profile with the current user's
+        // inboxId. In single-inbox mode that's always the singleton; read it
+        // off the first conversation member flagged isCurrentUser.
+        let currentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
-            inboxId: conversation.inboxId,
+            inboxId: currentUserInboxId,
             myProfileWriter: myProfileWriter,
             myProfileRepository: myProfileRepository
         )
@@ -588,8 +592,9 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
+        let draftCurrentUserInboxId = conversation.members.first(where: { $0.isCurrentUser })?.profile.inboxId ?? ""
         myProfileViewModel = .init(
-            inboxId: conversation.inboxId,
+            inboxId: draftCurrentUserInboxId,
             myProfileWriter: myProfileWriter,
             myProfileRepository: myProfileRepository
         )

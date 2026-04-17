@@ -29,10 +29,20 @@ class InviteWriter: InviteWriterProtocol {
         expiresAt: Date? = nil,
         expiresAfterUse: Bool = false
     ) async throws -> Invite {
+        // Single-inbox: the creator of any conversation the local user signs
+        // an invite for is necessarily the singleton identity. Load it once
+        // up front — it both authorizes the signature and identifies the
+        // invite's `creatorInboxId` (previously read from
+        // `conversation.inboxId`, which no longer exists).
+        guard let identity = try await identityStore.loadSingleton() else {
+            throw KeychainIdentityStoreError.identityNotFound("No singleton identity available to sign invite for conversation \(conversation.id)")
+        }
+        let currentInboxId = identity.inboxId
+
         if let existingInvite = try? await self.databaseWriter.read({ db in
             try? DBInvite
                 .filter(DBInvite.Columns.conversationId == conversation.id)
-                .filter(DBInvite.Columns.creatorInboxId == conversation.inboxId)
+                .filter(DBInvite.Columns.creatorInboxId == currentInboxId)
                 .fetchOne(db)
         }) {
             if inviteTagMatches(slug: existingInvite.urlSlug, tag: conversation.inviteTag) {
@@ -43,29 +53,27 @@ class InviteWriter: InviteWriterProtocol {
         }
 
         do {
-            guard let identity = try await identityStore.loadSingleton(), identity.inboxId == conversation.inboxId else {
-                throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching conversation creator inbox \(conversation.inboxId)")
-            }
             let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
             let urlSlug = try SignedInvite.slug(
                 for: conversation,
+                creatorInboxId: currentInboxId,
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse,
                 privateKey: privateKey
             )
 
             let dbInvite = DBInvite(
-                creatorInboxId: conversation.inboxId,
+                creatorInboxId: currentInboxId,
                 conversationId: conversation.id,
                 urlSlug: urlSlug,
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse
             )
             try await databaseWriter.write { db in
-                try DBMember(inboxId: conversation.inboxId).save(db, onConflict: .ignore)
+                try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
                 try DBConversationMember(
                     conversationId: conversation.id,
-                    inboxId: conversation.inboxId,
+                    inboxId: currentInboxId,
                     role: .member,
                     consent: .allowed,
                     createdAt: Date(),
@@ -74,7 +82,7 @@ class InviteWriter: InviteWriterProtocol {
                 .insert(db, onConflict: .ignore)
                 let memberProfile = DBMemberProfile(
                     conversationId: conversation.id,
-                    inboxId: conversation.inboxId,
+                    inboxId: currentInboxId,
                     name: nil,
                     avatar: nil
                 )
@@ -100,19 +108,21 @@ class InviteWriter: InviteWriterProtocol {
         }) else {
             throw InviteWriterError.conversationNotFound
         }
+        guard let identity = try await identityStore.loadSingleton() else {
+            throw KeychainIdentityStoreError.identityNotFound("No singleton identity available to update invite for conversation \(conversation.id)")
+        }
+        let currentInboxId = identity.inboxId
         let invite = try await databaseWriter.read { db in
             try DBInvite
                 .filter(DBInvite.Columns.conversationId == conversation.id)
-                .filter(DBInvite.Columns.creatorInboxId == conversation.inboxId)
+                .filter(DBInvite.Columns.creatorInboxId == currentInboxId)
                 .fetchOne(db)
         }
         guard let invite else { throw InviteWriterError.inviteNotFound }
-        guard let identity = try await identityStore.loadSingleton(), identity.inboxId == conversation.inboxId else {
-            throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching conversation creator inbox \(conversation.inboxId)")
-        }
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
         let urlSlug = try SignedInvite.slug(
             for: conversation,
+            creatorInboxId: currentInboxId,
             expiresAt: invite.expiresAt,
             expiresAfterUse: invite.expiresAfterUse,
             privateKey: privateKey

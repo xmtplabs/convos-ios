@@ -45,7 +45,6 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
                     .tracking { db in
                         do {
                             Log.debug("Tracking conversation \(conversationId)")
-
                             let conversation = try db.composeConversation(for: conversationId)
                             if conversation != nil {
                                 Log.debug(
@@ -104,7 +103,10 @@ fileprivate extension Database {
                 return nil
             }
 
-            let conversation = dbConversation.hydrateConversation()
+            // Single-inbox: look up the current user's inboxId from the
+            // singleton DBInbox row.
+            let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+            let conversation = dbConversation.hydrateConversation(currentInboxId: currentInboxId)
             Log.debug("Successfully hydrated conversation: \(conversationId)")
             return conversation
         } catch {

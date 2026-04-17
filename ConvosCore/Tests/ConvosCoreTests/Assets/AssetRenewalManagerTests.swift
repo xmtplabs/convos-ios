@@ -425,8 +425,6 @@ private extension AssetRenewalManagerTests {
     ) -> DBConversation {
         DBConversation(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: id,
             inviteTag: "invite-\(id)",
             creatorId: inboxId,

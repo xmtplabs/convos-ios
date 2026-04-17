@@ -84,7 +84,10 @@ final class ConversationsViewModel {
             // Set the active client ID to protect this inbox from being put to sleep
             Task { [weak self] in
                 guard let self else { return }
-                await session.setActiveClientId(self.selectedConversation?.clientId)
+                // Single-inbox: the active-client-ID hint is a no-op since
+                // there's only one inbox. Pass nil; call kept so SessionManager
+                // still gets the change notification.
+                await session.setActiveClientId(nil)
             }
         }
     }
@@ -101,7 +104,7 @@ final class ConversationsViewModel {
                 )
                 Task { [weak self] in
                     guard let self else { return }
-                    await session.setActiveClientId(selectedConversation?.clientId)
+                    await session.setActiveClientId(nil)
                 }
             }
         }

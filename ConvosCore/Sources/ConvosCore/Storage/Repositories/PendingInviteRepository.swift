@@ -103,11 +103,21 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
 
     public func allPendingInviteDetails() throws -> [PendingInviteDetail] {
         try databaseReader.read { db in
+            // C11c: `conversation.inboxId`/`.clientId` are gone. Read the
+            // singleton `clientId`/`inboxId` from `DBInbox` once and attach
+            // them to every detail row — the debug surface still surfaces
+            // them (the `PendingInviteDetail.clientId`/`.inboxId` fields
+            // survive), they just come from a different source.
+            let singleton = try Row.fetchOne(
+                db,
+                sql: "SELECT clientId, inboxId FROM inbox LIMIT 1"
+            )
+            let singletonClientId: String = singleton?["clientId"] ?? ""
+            let singletonInboxId: String = singleton?["inboxId"] ?? ""
+
             let sql = """
                 SELECT
                     c.id as conversationId,
-                    c.clientId,
-                    c.inboxId,
                     c.inviteTag,
                     c.name,
                     c.createdAt,
@@ -122,22 +132,19 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
             let pendingInvites = try Row.fetchAll(db, sql: sql)
 
             return try pendingInvites.map { row in
-                let clientId: String = row["clientId"]
                 let conversationId: String = row["conversationId"]
 
-                // "Other conversations" was originally a per-inbox grouping used
-                // by the multi-inbox debug surface to spot draft-only inboxes.
-                // The query is preserved for the debug view but in single-inbox
-                // mode `clientId` filtering is effectively a no-op (all rows
-                // share the singleton's clientId).
+                // "Other conversations" was a per-inbox grouping used by the
+                // multi-inbox debug surface. In single-inbox mode it's just
+                // "every other non-draft conversation this account knows
+                // about" — the query simplifies to drop the clientId filter.
                 let otherConvosSql = """
                     SELECT id, name, clientConversationId
                     FROM conversation
-                    WHERE clientId = ?
-                        AND id != ?
+                    WHERE id != ?
                         AND id NOT LIKE 'draft-%'
                     """
-                let otherConvos = try Row.fetchAll(db, sql: otherConvosSql, arguments: [clientId, conversationId])
+                let otherConvos = try Row.fetchAll(db, sql: otherConvosSql, arguments: [conversationId])
                     .map { otherRow in
                         OtherConversationInfo(
                             conversationId: otherRow["id"],
@@ -148,8 +155,8 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
 
                 return PendingInviteDetail(
                     conversationId: conversationId,
-                    clientId: clientId,
-                    inboxId: row["inboxId"],
+                    clientId: singletonClientId,
+                    inboxId: singletonInboxId,
                     inviteTag: row["inviteTag"],
                     conversationName: row["name"],
                     createdAt: row["createdAt"],
@@ -161,17 +168,21 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
     }
 
     private func fetchAllPendingInvites(db: Database) throws -> [PendingInviteInfo] {
+        // C11c: conversation rows no longer carry `clientId`. Every draft
+        // conversation belongs to the sole inbox, so the old JOIN just
+        // concatenates all drafts onto the singleton inbox row.
         let sql = """
             SELECT
                 i.clientId,
                 i.inboxId,
-                GROUP_CONCAT(c.id) as pendingConversationIds
+                (
+                    SELECT GROUP_CONCAT(c.id)
+                    FROM conversation c
+                    WHERE c.id LIKE 'draft-%'
+                        AND c.inviteTag IS NOT NULL
+                        AND c.inviteTag != ''
+                ) as pendingConversationIds
             FROM inbox i
-            LEFT JOIN conversation c ON c.clientId = i.clientId
-                AND c.id LIKE 'draft-%'
-                AND c.inviteTag IS NOT NULL
-                AND c.inviteTag != ''
-            GROUP BY i.clientId, i.inboxId
             """
 
         return try Row.fetchAll(db, sql: sql).map { row in

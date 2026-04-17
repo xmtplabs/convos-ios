@@ -43,9 +43,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         try DBConversation(
             id: conversationId,
-            inboxId: currentInboxId,
-            clientId: clientId,
-            clientConversationId: "client-conv-\(conversationId)",
+                        clientConversationId: "client-conv-\(conversationId)",
             inviteTag: "tag-\(conversationId)",
             creatorId: creatorInboxId,
             kind: .group,

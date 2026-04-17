@@ -149,11 +149,7 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
                       expiresAt <= Date() else {
                     return nil
                 }
-                return ExpiredConversation(
-                    conversationId: row.id,
-                    clientId: row.clientId,
-                    inboxId: row.inboxId
-                )
+                return ExpiredConversation(conversationId: row.id)
             }
             if let conversation {
                 await cleanupExpiredConversation(conversation)
@@ -188,11 +184,7 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             NotificationCenter.default.post(
                 name: .leftConversationNotification,
                 object: nil,
-                userInfo: [
-                    "conversationId": conversation.conversationId,
-                    "clientId": conversation.clientId,
-                    "inboxId": conversation.inboxId
-                ]
+                userInfo: ["conversationId": conversation.conversationId]
             )
         }
     }
@@ -200,8 +192,6 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
 
 struct ExpiredConversation {
     let conversationId: String
-    let clientId: String
-    let inboxId: String
 }
 
 private extension Database {
@@ -212,11 +202,7 @@ private extension Database {
             .fetchAll(self)
 
         return rows.map { row in
-            ExpiredConversation(
-                conversationId: row.id,
-                clientId: row.clientId,
-                inboxId: row.inboxId
-            )
+            ExpiredConversation(conversationId: row.id)
         }
     }
 

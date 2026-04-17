@@ -241,8 +241,7 @@ class NewConversationViewModel: Identifiable {
         self.conversationStateManager = stateManager
         self.acquiredMessagingService = messagingService
         let draftConversation: Conversation = .empty(
-            id: stateManager.draftConversationRepository.conversationId,
-            clientId: messagingService.clientId
+            id: stateManager.draftConversationRepository.conversationId
         )
         let convoVM = ConversationViewModel(
             conversation: draftConversation,

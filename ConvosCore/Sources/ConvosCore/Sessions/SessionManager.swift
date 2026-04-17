@@ -583,14 +583,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         // through the dedicated delete-all path. The debug surface is kept so
         // we can audit stale inbox rows left behind by an aborted registration,
         // but the action is now a targeted row delete rather than a keychain
-        // destroy.
+        // destroy. Conversation rows no longer carry a clientId column in
+        // single-inbox mode (C11c); a full inbox delete deletes every
+        // conversation by construction.
         try await databaseWriter.write { db in
             try DBInbox
                 .filter(DBInbox.Columns.clientId == clientId)
                 .deleteAll(db)
-            try DBConversation
-                .filter(DBConversation.Columns.clientId == clientId)
-                .deleteAll(db)
+            try DBConversation.deleteAll(db)
         }
         Log.info("Deleted orphaned inbox row: clientId=\(clientId), inboxId=\(inboxId)")
     }
@@ -598,12 +598,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: Helpers
 
     public func inboxId(for conversationId: String) async -> String? {
+        // Single-inbox: every conversation belongs to the one authorized
+        // inbox. Look up the singleton once rather than joining through the
+        // (now-removed) conversation.inboxId column. Returning nil when no
+        // singleton is loaded yet matches the prior behavior for missing
+        // conversations.
         do {
             return try await databaseReader.read { db in
-                try DBConversation
-                    .filter(DBConversation.Columns.id == conversationId)
-                    .fetchOne(db)?
-                    .inboxId
+                guard (try DBConversation.fetchOne(db, key: conversationId)) != nil else {
+                    return nil
+                }
+                return try DBInbox.fetchAll(db).first?.inboxId
             }
         } catch {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")

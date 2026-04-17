@@ -12,7 +12,14 @@ import Security
 /// routine runs at most once per install generation.
 enum LegacyDataWipe {
     /// Current schema generation. Bump when a future refactor needs another wipe.
-    static let currentGeneration: String = "single-inbox-v1"
+    /// `single-inbox-v2` re-runs the wipe on installs that previously ran an
+    /// earlier schema on this branch: C11c dropped `DBConversation.inboxId`/
+    /// `.clientId`, renamed the GRDB file to `convos-single-inbox.sqlite`, and
+    /// collapsed the migrator to a single baseline. Any `convos.sqlite` file
+    /// from before that change is orphaned and needs removal. Production has
+    /// never shipped `single-inbox-v1`, so this bump only affects branch-local
+    /// installs.
+    static let currentGeneration: String = "single-inbox-v2"
 
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 

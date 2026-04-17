@@ -2,8 +2,14 @@ import ConvosInvites
 import Foundation
 
 extension SignedInvite {
+    /// Signs an invite slug for a DB conversation. `creatorInboxId` is passed
+    /// explicitly rather than read from the conversation row — the column was
+    /// removed in C11c because in single-inbox mode every row belongs to the
+    /// singleton identity and the caller already has that inboxId from the
+    /// keychain identity it's signing with.
     static func slug(
         for conversation: DBConversation,
+        creatorInboxId: String,
         expiresAt: Date?,
         expiresAfterUse: Bool,
         privateKey: Data
@@ -12,7 +18,7 @@ extension SignedInvite {
             ?? EmojiSelector.emoji(for: conversation.clientConversationId)
         return try createSlug(
             conversationId: conversation.id,
-            creatorInboxId: conversation.inboxId,
+            creatorInboxId: creatorInboxId,
             privateKey: privateKey,
             tag: conversation.inviteTag,
             options: InviteSlugOptions(

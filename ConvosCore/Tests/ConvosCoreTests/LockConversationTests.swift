@@ -165,17 +165,11 @@ struct LockConversationTests {
         let conversationId = group.id
 
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
-                clientConversationId: conversationId,
+                                clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -262,17 +256,11 @@ struct LockConversationTests {
 
         // Create DB records with isLocked = true
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
-                clientConversationId: conversationId,
+                                clientConversationId: conversationId,
                 inviteTag: inviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -436,17 +424,11 @@ struct LockConversationTests {
 
         // Create DB records
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
-                clientConversationId: conversationId,
+                                clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -564,17 +546,11 @@ struct LockConversationTests {
 
         // Create DB records including the member with superAdmin role
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
-                clientConversationId: conversationId,
+                                clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
                 kind: .group,
@@ -702,11 +678,7 @@ struct LockConversationTests {
 
         // Create DB inbox record (required for ConversationWriter)
         try await fixtures.databaseManager.dbWriter.write { db in
-            try DBInbox(
-                inboxId: inboxId,
-                clientId: clientId,
-                createdAt: Date()
-            ).insert(db)
+            try DBInbox(inboxId: inboxId, clientId: clientId, createdAt: Date()).insert(db)
         }
 
         // Create the ConversationWriter (same component used in the app)

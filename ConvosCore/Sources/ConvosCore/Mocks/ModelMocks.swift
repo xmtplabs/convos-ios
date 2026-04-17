@@ -6,8 +6,6 @@ import GRDB
 public extension Conversation {
     static func mock(
         id: String = "mock-conversation-id",
-        clientId: String = "mock-client-id",
-        inboxId: String = "mock-inbox-id",
         name: String? = "Mock Conversation",
         members: [ConversationMember]? = nil,
         isUnread: Bool = false,
@@ -25,8 +23,6 @@ public extension Conversation {
         return Conversation(
             id: id,
             clientConversationId: "client-\(id)",
-            inboxId: inboxId,
-            clientId: clientId,
             creator: creator,
             createdAt: Date(),
             consent: .allowed,
@@ -71,12 +67,10 @@ public extension Conversation {
         )
     }
 
-    static func empty(id: String = "", clientId: String = "") -> Conversation {
+    static func empty(id: String = "") -> Conversation {
         Conversation(
             id: id,
             clientConversationId: id,
-            inboxId: "",
-            clientId: clientId,
             creator: .empty(isCurrentUser: true),
             createdAt: .distantFuture,
             consent: .allowed,

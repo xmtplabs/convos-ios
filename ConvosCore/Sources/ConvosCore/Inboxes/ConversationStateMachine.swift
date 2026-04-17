@@ -591,19 +591,21 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.failedVerifyingSignature
         }
         Log.debug("Recovered signer's public key: \(signerPublicKey.toHexString())")
+        let currentInboxId = (try? await identityStore.loadSingleton()?.inboxId) ?? ""
         let existingConversation: Conversation? = try await databaseReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.inviteTag == signedInvite.invitePayload.tag)
                 .detailedConversationQuery()
                 .fetchOne(db)?
-                .hydrateConversation()
+                .hydrateConversation(currentInboxId: currentInboxId)
         }
 
+        // Single-inbox: if there's a conversation for this invite tag, the
+        // singleton identity is by construction the one that owns it — there
+        // is no "conversation belongs to a different identity" case anymore.
         let existingIdentity: KeychainIdentity?
-        if let existingConversation,
-           let identity = try? await identityStore.loadSingleton(),
-           identity.inboxId == existingConversation.inboxId {
-            existingIdentity = identity
+        if existingConversation != nil {
+            existingIdentity = try? await identityStore.loadSingleton()
         } else {
             existingIdentity = nil
         }

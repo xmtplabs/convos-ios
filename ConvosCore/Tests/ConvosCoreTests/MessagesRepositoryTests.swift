@@ -401,9 +401,7 @@ struct MessagesRepositoryTests {
 
         try DBConversation(
             id: conversationId,
-            inboxId: currentInboxId,
-            clientId: "client-1",
-            clientConversationId: "client-conversation-1",
+                        clientConversationId: "client-conversation-1",
             inviteTag: "invite-tag-1",
             creatorId: currentInboxId,
             kind: .group,
