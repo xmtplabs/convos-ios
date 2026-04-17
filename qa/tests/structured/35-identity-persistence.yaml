@@ -20,6 +20,11 @@ prerequisites:
 
 state:
   first_launch_inbox_id: null
+  reinstall_inbox_id: null
+  # `app_path` is the absolute path to the .app bundle for `simctl install`.
+  # The setup step captures it from the build output (e.g. xcodebuild's
+  # `BUILT_PRODUCTS_DIR`); without this the `reinstall` step would have a
+  # null `path` argument.
   app_path: null
 
 setup:
@@ -28,13 +33,19 @@ setup:
       Start from a clean simulator state so there is no stale keychain
       identity from prior runs. The reinstall comparison is only meaningful
       if Phase 1 actually creates a new identity.
+  - action: capture_app_path
+    note: >
+      Record the path to the built .app bundle into `app_path`. The
+      `reinstall` step uses it to install the same binary again.
+    save:
+      app_path: "BUILT_PRODUCTS_DIR / Convos.app"
 
 steps:
   - id: first_launch
     name: "First launch creates identity silently"
     blocked_until_checkpoint: "C11"
     actions:
-      - install_app: { udid: "$udid" }
+      - install_app: { udid: "$udid", path: "$app_path" }
       - launch_app: { udid: "$udid" }
       - wait_for_launch_stabilized: { udid: "$udid", timeout: 30 }
       - screenshot: { udid: "$udid" }

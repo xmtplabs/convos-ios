@@ -91,8 +91,23 @@ public actor CachedPushNotificationHandler {
             return nil
         }
 
-        guard let identity = try? await identityStore.loadSingleton() else {
-            Log.warning("Dropping notification: no singleton identity in keychain")
+        // Distinguish "no identity" (legitimate orphan — user deleted account)
+        // from "transient keychain error" (e.g. iCloud Keychain not yet
+        // available after a fresh restore). The previous `try?` collapsed both
+        // into "unregister this clientId from the backend" — which permanently
+        // breaks push delivery for the user until the main app re-registers
+        // the installation. We only unregister when we are *certain* the
+        // identity is gone (loadSingleton returned `nil`, not threw).
+        let identity: KeychainIdentity?
+        do {
+            identity = try await identityStore.loadSingleton()
+        } catch {
+            Log.warning("Dropping notification: keychain error reading singleton: \(error). Not unregistering — assume transient.")
+            return nil
+        }
+
+        guard let identity else {
+            Log.warning("Dropping notification: no singleton identity in keychain (orphan clientId \(payloadClientId))")
             await unregisterOrphanedClient(clientId: payloadClientId, apiJWT: payload.apiJWT)
             return nil
         }

@@ -162,17 +162,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         enum LoadAction {
             case existing(MessagingService)
             case awaiting(Task<MessagingService, Never>)
-            case create
+            case startCreating(Task<MessagingService, Never>)
         }
 
-        let action: LoadAction = serviceState.withLock { state in
+        // Decide-and-register atomically. Splitting the decision and the
+        // task-write into two locked regions allowed two concurrent callers
+        // to both observe `state.creationTask == nil` and both spawn a Task,
+        // orphaning whichever one's `withLock { state.creationTask = task }`
+        // ran second (and dropping that Task's MessagingService on the
+        // floor once it resolved). Holding the lock across the Task spawn
+        // is safe because `Task { ... }` only schedules; the closure runs
+        // after the lock is released.
+        let action: LoadAction = serviceState.withLock { state -> LoadAction in
             if let existing = state.messagingService {
                 return .existing(existing)
             }
             if let task = state.creationTask {
                 return .awaiting(task)
             }
-            return .create
+            let newTask = Task<MessagingService, Never> { [weak self] in
+                guard let self else {
+                    fatalError("SessionManager deallocated during service creation")
+                }
+                return await self.makeService()
+            }
+            state.creationTask = newTask
+            return .startCreating(newTask)
         }
 
         switch action {
@@ -180,26 +195,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             return service
         case .awaiting(let task):
             return await task.value
-        case .create:
-            break
-        }
-
-        let creationTask = Task<MessagingService, Never> { [weak self] in
-            guard let self else {
-                fatalError("SessionManager deallocated during service creation")
+        case .startCreating(let task):
+            let service = await task.value
+            serviceState.withLock { state in
+                state.messagingService = service
+                state.creationTask = nil
             }
-            return await self.makeService()
+            return service
         }
-        serviceState.withLock { $0.creationTask = creationTask }
-
-        let service = await creationTask.value
-
-        serviceState.withLock { state in
-            state.messagingService = service
-            state.creationTask = nil
-        }
-
-        return service
     }
 
     private func makeService() async -> MessagingService {
@@ -273,7 +276,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func deleteInbox(clientId: String, inboxId: String) async throws {
-        try await deleteSingletonInbox()
+        // Single-inbox model: this method is a deliberate no-op. It used to mean
+        // "destroy the per-conversation inbox associated with these IDs"; under
+        // single-inbox there is exactly one inbox per user and destroying it
+        // would wipe the entire account. Several ViewModel call sites
+        // (`Convos/Conversations List/ConversationsViewModel.leave(conversation:)`,
+        // `Convos/Conversation Detail/ConversationViewModel.leaveConvo()` /
+        // `blockAndLeaveConvo()` / explode fallbacks,
+        // `Convos/Conversation Creation/NewConversationViewModel.deleteConversation()`)
+        // still reach this method as their per-conversation cleanup hook —
+        // ignoring them prevents account-wipe regressions while the C11 ViewModel
+        // rewire moves them onto a proper conversation-scoped leave path
+        // (group.leaveGroup() + local DB row delete). Full account reset is
+        // available exclusively through `deleteAllInboxes(WithProgress)`.
+        Log.warning("Ignoring SessionManager.deleteInbox(clientId:\(clientId), inboxId:\(inboxId)) call. " +
+                    "Single-inbox no-op; full reset is via deleteAllInboxes. C11 will rewire this call site.")
     }
 
     public func deleteAllInboxes() async throws {
@@ -364,10 +381,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient
         )
+        // Race protection: a concurrent `loadOrCreateService` may have already
+        // installed (or be in the process of installing) a service. Cancel any
+        // such in-flight task before adopting our own — otherwise the async
+        // task's result lands later and overwrites our slot, orphaning our
+        // service. If a concurrent service is already cached, drop ours.
         let resolved: MessagingService = serviceState.withLock { state in
             if let concurrent = state.messagingService {
                 return concurrent
             }
+            // Cancel any pending creation task so it doesn't later overwrite
+            // our slot. Its result, if it resolves before cancellation takes
+            // effect, will be discarded by `loadOrCreateService`'s `.startCreating`
+            // arm because we replace `creationTask = nil` here too.
+            state.creationTask?.cancel()
+            state.creationTask = nil
             state.messagingService = service
             return service
         }

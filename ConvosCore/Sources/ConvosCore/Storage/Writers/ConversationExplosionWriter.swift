@@ -37,6 +37,16 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
 
         let (xmtpConversation, group) = try await findGroupConversation(conversationId: conversationId)
 
+        // Step 0: filter the creator's own inboxId out of the member list. The
+        // ViewModel passes `conversation.members.map { $0.profile.inboxId }`
+        // which includes the current user. MLS rejects self-removal via
+        // `removeMembers` — the creator must leave via `leaveGroup()` (Step 4).
+        // Without this filter Step 3 throws and the explode degrades to
+        // "the codec message went out but nothing else happened."
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let currentInboxId = inboxReady.client.inboxId
+        let otherMemberInboxIds = memberInboxIds.filter { $0 != currentInboxId }
+
         // Step 1: broadcast the explode-now message so every other member gets the
         // `conversationExpired` signal even if they don't process the subsequent
         // member-removal event in time.
@@ -57,11 +67,12 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
         }
 
-        // Step 3: remove every other member from the MLS group. This emits
-        // GroupUpdated removal events that other clients pick up even if they
-        // missed the ExplodeSettings message (e.g. offline at send time).
+        // Step 3: remove every other member from the MLS group (filtered list,
+        // creator excluded). Emits GroupUpdated removal events that other
+        // clients pick up even if they missed the ExplodeSettings message
+        // (e.g. offline at send time).
         do {
-            try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
+            try await metadataWriter.removeMembers(otherMemberInboxIds, from: conversationId)
         } catch {
             Log.error("Failed removing members during explosion: \(error.localizedDescription)")
         }

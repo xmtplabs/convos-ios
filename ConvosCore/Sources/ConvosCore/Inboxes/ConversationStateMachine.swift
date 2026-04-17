@@ -619,12 +619,15 @@ public actor ConversationStateMachine {
 
         if let existingConversation, existingIdentity != nil {
             Log.debug("Found existing convo by invite tag...")
+            // Single-inbox model: the matching identity *is* the singleton, so
+            // there's nothing to swap. The pre-refactor code did
+            // `deleteInbox()` + `reauthorize(...)` here to switch the active
+            // per-conversation identity — under single-inbox that pair would
+            // wipe the keychain singleton (deleteInbox now goes through
+            // `deleteSingleton`) and then fail to reauthorize because the
+            // identity is gone. Just keep the singleton authorized.
             let prevInboxReady = try await sessionStateManager.waitForInboxReadyResult()
-            try await sessionStateManager.deleteInbox()
-            let inboxReady = try await sessionStateManager.reauthorize(
-                inboxId: existingConversation.inboxId,
-                clientId: existingConversation.clientId
-            )
+            let inboxReady = prevInboxReady
             if existingConversation.hasJoined {
                 Log.info("Already joined conversation... moving to ready state.")
                 emitStateChange(.ready(.init(conversationId: existingConversation.id, origin: .existing)))

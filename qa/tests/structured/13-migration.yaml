@@ -77,6 +77,7 @@ steps:
       - no_elements_matching: { pattern: "conversation-list-item" }
       - no_crash_on_launch: true
       - log_contains: "LegacyDataWipe: detected legacy data"
+      - log_contains: "LegacyDataWipe: removed"
     criteria: legacy_wipe_executed
 
   - id: verify_single_identity

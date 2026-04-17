@@ -502,7 +502,20 @@ extension UnusedConversationCache {
             clearUnusedFromKeychain()
             Log.debug("Consumed unused conversation: \(conversationId)")
         } catch {
-            Log.error("Failed to finalize consumed conversation, keeping keychain state for retry: \(error)")
+            // Critical: surface `nil` as the conversationId when finalization
+            // fails. Returning `conversationId` here would tell the caller
+            // "consumption succeeded, here's your conversation" while the DB
+            // still has `isUnused = true` and the keychain pointer is still
+            // present — so the next call to `consumeOrCreateMessagingService`
+            // would re-consume the same conversation, potentially binding it
+            // to a different (also pre-created) inbox.
+            Log.error("Failed to finalize consumed conversation \(conversationId), keeping keychain state for retry but dropping conversationId from response: \(error)")
+            scheduleBackgroundCreation(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader,
+                environment: environment
+            )
+            return (service: service, conversationId: nil)
         }
 
         scheduleBackgroundCreation(

@@ -244,11 +244,19 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     public func saveSingleton(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
         let data = try JSONEncoder().encode(identity)
+        // Singleton lookups must NOT include `clientId` in the query: the
+        // multi-identity store used `kSecAttrGeneric` as a per-row lookup key,
+        // but the singleton is keyed solely by account + service + access
+        // group. If `clientId` is included, an update on a singleton whose
+        // clientId rotates (e.g. account reset → re-register) finds no match
+        // and `SecItemUpdate` returns `errSecItemNotFound`, which then throws
+        // from `saveData` even though the singleton row exists. The clientId
+        // value is already inside the JSON-encoded payload so nothing else
+        // needs it as a keychain attribute.
         let query = KeychainQuery(
             account: Self.singletonAccount,
             service: keychainService,
-            accessGroup: keychainAccessGroup,
-            clientId: clientId
+            accessGroup: keychainAccessGroup
         )
         try saveData(data, with: query)
         return identity
