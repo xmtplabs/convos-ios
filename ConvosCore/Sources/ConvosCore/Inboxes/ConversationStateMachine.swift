@@ -600,7 +600,9 @@ public actor ConversationStateMachine {
         }
 
         let existingIdentity: KeychainIdentity?
-        if let existingConversation, let identity = try? await identityStore.identity(for: existingConversation.inboxId) {
+        if let existingConversation,
+           let identity = try? await identityStore.loadSingleton(),
+           identity.inboxId == existingConversation.inboxId {
             existingIdentity = identity
         } else {
             existingIdentity = nil
@@ -898,7 +900,7 @@ extension ConversationStateMachine {
         let externalConversation = try await conversationsProvider.findConversation(conversationId: conversationId)
         try await externalConversation?.updateConsentState(state: .denied)
 
-        if let identity = try? await identityStore.identity(for: client.inboxId) {
+        if let identity = try? await identityStore.loadSingleton(), identity.inboxId == client.inboxId {
             let topic = conversationId.xmtpGroupTopicFormat
             do {
                 try await apiClient.unsubscribeFromTopics(clientId: identity.clientId, topics: [topic])

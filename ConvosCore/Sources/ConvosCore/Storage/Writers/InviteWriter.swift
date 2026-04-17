@@ -43,7 +43,9 @@ class InviteWriter: InviteWriterProtocol {
         }
 
         do {
-            let identity = try await identityStore.identity(for: conversation.inboxId)
+            guard let identity = try await identityStore.loadSingleton(), identity.inboxId == conversation.inboxId else {
+                throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching conversation creator inbox \(conversation.inboxId)")
+            }
             let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
             let urlSlug = try SignedInvite.slug(
                 for: conversation,
@@ -105,7 +107,9 @@ class InviteWriter: InviteWriterProtocol {
                 .fetchOne(db)
         }
         guard let invite else { throw InviteWriterError.inviteNotFound }
-        let identity = try await identityStore.identity(for: conversation.inboxId)
+        guard let identity = try await identityStore.loadSingleton(), identity.inboxId == conversation.inboxId else {
+            throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching conversation creator inbox \(conversation.inboxId)")
+        }
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
         let urlSlug = try SignedInvite.slug(
             for: conversation,

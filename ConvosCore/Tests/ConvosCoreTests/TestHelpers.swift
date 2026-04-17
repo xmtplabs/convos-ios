@@ -125,8 +125,10 @@ class TestFixtures {
 
         let client = try await Client.create(account: keys.signingKey, options: clientOptions)
 
-        // Save to mock identity store
-        _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
+        // Save to mock identity store. In the single-inbox model there is only one
+        // slot; multi-client fixtures overwrite each other and the tests that rely
+        // on that coupling will be rewritten in C13.
+        _ = try await identityStore.saveSingleton(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         return (client, clientId, keys)
     }
@@ -157,7 +159,7 @@ class TestFixtures {
             try? client.deleteLocalDatabase()
         }
 
-        try await identityStore.deleteAll()
+        try await identityStore.deleteSingleton()
         try databaseManager.erase()
     }
 }

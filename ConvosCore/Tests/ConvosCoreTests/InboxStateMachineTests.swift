@@ -69,7 +69,11 @@ struct InboxStateMachineTests {
         #expect(await mockSync.startCallCount == 1)
 
         // Verify identity was saved
-        let savedIdentity = try await fixtures.identityStore.identity(for: result.client.inboxId)
+        guard let savedIdentity = try await fixtures.identityStore.loadSingleton() else {
+            Issue.record("No singleton identity saved")
+            return
+        }
+        #expect(savedIdentity.inboxId == result.client.inboxId)
         #expect(savedIdentity.clientId == clientId)
 
         // Clean up
@@ -119,7 +123,11 @@ struct InboxStateMachineTests {
         #expect(result != nil, "Should reach ready state")
 
         // Verify identity was saved to keychain
-        let savedIdentity = try await fixtures.identityStore.identity(for: result!.client.inboxId)
+        guard let savedIdentity = try await fixtures.identityStore.loadSingleton() else {
+            Issue.record("No singleton identity saved")
+            return
+        }
+        #expect(savedIdentity.inboxId == result!.client.inboxId)
         #expect(savedIdentity.clientId == clientId)
 
         // Verify saved to database
@@ -297,8 +305,8 @@ struct InboxStateMachineTests {
         #expect(stopCount == 1)
 
         // Verify identity still exists (stop doesn't delete)
-        let identities = try await fixtures.identityStore.loadAll()
-        #expect(identities.count == 1)
+        let identity = try await fixtures.identityStore.loadSingleton()
+        #expect(identity != nil)
 
         // Clean up
         try? client?.deleteLocalDatabase()
@@ -342,8 +350,9 @@ struct InboxStateMachineTests {
         #expect(inboxId != nil)
 
         // Verify identity exists before delete
-        let identityBeforeDelete = try? await fixtures.identityStore.identity(for: inboxId!)
+        let identityBeforeDelete = try? await fixtures.identityStore.loadSingleton()
         #expect(identityBeforeDelete != nil)
+        #expect(identityBeforeDelete?.inboxId == inboxId)
 
         // Delete
         await stateMachine.stopAndDelete()
@@ -363,12 +372,8 @@ struct InboxStateMachineTests {
         #expect(!syncIsStarted, "Syncing should be stopped")
 
         // Verify identity was deleted
-        do {
-            _ = try await fixtures.identityStore.identity(for: inboxId!)
-            Issue.record("Identity should have been deleted")
-        } catch {
-            // Expected - identity should not exist
-        }
+        let identityAfterDelete = try await fixtures.identityStore.loadSingleton()
+        #expect(identityAfterDelete == nil, "Identity should have been deleted")
 
         // Verify database record was deleted
         let dbInboxes = try await fixtures.databaseManager.dbReader.read { db in

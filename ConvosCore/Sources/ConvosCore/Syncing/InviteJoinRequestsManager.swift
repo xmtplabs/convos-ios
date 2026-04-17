@@ -37,7 +37,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         self.databaseWriter = databaseWriter
         self.coordinator = InviteCoordinator(
             privateKeyProvider: { inboxId in
-                let identity = try await identityStore.identity(for: inboxId)
+                guard let identity = try await identityStore.loadSingleton(), identity.inboxId == inboxId else {
+                    throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching inbox \(inboxId)")
+                }
                 return identity.keys.privateKey.secp256K1.bytes
             },
             tagStorage: tagStorage

@@ -936,7 +936,13 @@ struct ConversationStateMachineTests {
             return
         }
 
-        let identity = try await inviterFixtures.identityStore.identity(for: inviterInbox)
+        guard let identity = try await inviterFixtures.identityStore.loadSingleton(), identity.inboxId == inviterInbox else {
+            Issue.record("No singleton identity matching inviter inbox \(inviterInbox)")
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
+        }
         let restartedInviterService = MessagingService.authorizedMessagingService(
             for: inviterInbox,
             clientId: identity.clientId,
