@@ -770,11 +770,61 @@ extension UnusedConversationCache {
             guard let self,
                   let databaseWriter,
                   let databaseReader else { return }
-            await createNewUnusedConversation(
+            // Single-inbox: reuse the ready main service instead of registering a
+            // second identity. `createNewUnusedConversation` calls
+            // `AuthorizeInboxOperation.register` which writes `saveSingleton(...)`
+            // for the new inbox and overwrites the caller's main singleton.
+            // With only one keychain slot, that breaks every subsequent
+            // `InviteWriter.generate` / `ConversationStateMachine` path that
+            // validates `loadSingleton().inboxId == conversation.inboxId`.
+            await createUnusedConversationReusingService(
+                service,
                 databaseWriter: databaseWriter,
                 databaseReader: databaseReader,
                 environment: environment
             )
+        }
+    }
+
+    /// Single-inbox pre-cache path: uses the already-authorized main service to
+    /// pre-create a conversation, without registering a new identity.
+    private func createUnusedConversationReusingService(
+        _ service: MessagingService,
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        environment: AppEnvironment
+    ) async {
+        guard !isCreatingUnused else {
+            Log.debug("Already creating an unused conversation, skipping...")
+            return
+        }
+        guard unusedMessagingService == nil else {
+            Log.debug("Unused messaging service exists, skipping...")
+            return
+        }
+        guard getUnusedInboxFromKeychain() == nil else {
+            Log.debug("Unused inbox exists in keychain, skipping...")
+            return
+        }
+
+        isCreatingUnused = true
+        defer { isCreatingUnused = false }
+
+        do {
+            let result = try await service.sessionStateManager.waitForInboxReadyResult()
+            let inboxId = result.client.inboxId
+            saveUnusedInboxToKeychain(inboxId)
+            unusedMessagingService = service
+            lastPreparationFailure = nil
+
+            await createConversationForExistingInbox(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader,
+                environment: environment
+            )
+        } catch {
+            Log.error("Failed to set up unused conversation on main service: \(error)")
+            lastPreparationFailure = Date()
         }
     }
 
