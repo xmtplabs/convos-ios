@@ -197,6 +197,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             return await task.value
         case .startCreating(let task):
             let service = await task.value
+            // If the task was cancelled while `makeService` was running —
+            // e.g. by `clearCachedService`, `deleteSingletonInbox`, or
+            // `messagingServiceSync(for:inboxId:)` adopting its own service
+            // — the resolved MessagingService is an orphan. Don't install
+            // it; stop so streams/observers tear down cleanly. The canceller
+            // already nil'd `state.creationTask` (or replaced it) under the
+            // same lock before calling `cancel()`, so we don't need to
+            // touch it here.
+            if task.isCancelled {
+                await service.stop()
+                return service
+            }
             serviceState.withLock { state in
                 state.messagingService = service
                 state.creationTask = nil
@@ -365,7 +377,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func messagingServiceSync() -> AnyMessagingService {
-        messagingServiceSync(for: "", inboxId: "")
+        buildSingletonServiceSync()
     }
 
     public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
@@ -373,8 +385,34 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+        // Legacy (clientId:inboxId:) signature from the multi-inbox era. In
+        // single-inbox mode the args are ignored — we always resolve the
+        // singleton identity from the keychain. Kept for API compatibility
+        // with callers that haven't migrated to `messagingServiceSync()`.
+        buildSingletonServiceSync()
+    }
+
+    private func buildSingletonServiceSync() -> AnyMessagingService {
         if let cached = cachedService() {
             return cached
+        }
+
+        // Cache miss on a sync path — callers like
+        // `ConversationViewModel.createSync` only run after onboarding has
+        // warmed the cache, so in practice this branch should be unreachable.
+        // Fall back to a best-effort lookup: read the singleton inbox row
+        // directly from GRDB (synchronous, no actor hop) and use its
+        // inboxId/clientId as the authorization hints. If even the DB has no
+        // inbox row, fall through with empty identifiers — the resulting
+        // service will fail to reach `.ready`, which the caller observes via
+        // `sessionStateManager.currentState`.
+        let singleton = (try? databaseReader.read { db in
+            try DBInbox.fetchAll(db).first
+        })
+        let inboxId = singleton?.inboxId ?? ""
+        let clientId = singleton?.clientId ?? ""
+        if singleton == nil {
+            Log.error("messagingServiceSync called before any inbox was authorized; returning a service bound to empty identifiers. This path should not be reachable in normal usage.")
         }
 
         let service = MessagingService.authorizedMessagingService(

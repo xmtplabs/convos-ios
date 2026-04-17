@@ -491,20 +491,25 @@ extension UnusedConversationCache {
             clearUnusedFromKeychain()
             Log.debug("Consumed unused conversation: \(conversationId)")
         } catch {
-            // Critical: surface `nil` as the conversationId when finalization
-            // fails. Returning `conversationId` here would tell the caller
-            // "consumption succeeded, here's your conversation" while the DB
-            // still has `isUnused = true` and the keychain pointer is still
-            // present — so the next call to `consumeOrCreateMessagingService`
-            // would re-consume the same conversation, potentially binding it
-            // to a different (also pre-created) inbox.
-            Log.error("Failed to finalize consumed conversation \(conversationId), keeping keychain state for retry but dropping conversationId from response: \(error)")
-            scheduleBackgroundCreation(
+            // Finalization failed — either the keychain identity doesn't
+            // match the cached inbox (can only happen on a torn-down install
+            // where `saveSingleton` never landed) or the DB write raised.
+            // Either way the `service` parameter is bound to an inbox whose
+            // keychain identity is missing or stale. Mirror the
+            // `consumeInboxOnlyService` recovery path: stop-and-delete the
+            // mismatched service and return a freshly-authorized one.
+            // The previous behavior returned the stale service with
+            // `conversationId: nil`, which left the caller with a service
+            // that could not reach `.ready` and kept the unused keychain
+            // pointer alive for indefinite retries.
+            Log.error("Failed to finalize consumed conversation \(conversationId); discarding stale service and creating fresh: \(error)")
+            await service.stopAndDelete()
+            let fresh = await createFreshMessagingService(
                 databaseWriter: databaseWriter,
                 databaseReader: databaseReader,
                 environment: environment
             )
-            return (service: service, conversationId: nil)
+            return (service: fresh, conversationId: nil)
         }
 
         scheduleBackgroundCreation(
