@@ -1395,9 +1395,8 @@ extension ConversationViewModel {
         let requestId = UUID().uuidString
         let taskId = requestId
         assistantJoinTask = Task { [weak self, session] in
-            let inboxId = (try? await session.messagingService().sessionStateManager.waitForInboxReadyResult().client.inboxId) ?? ""
             await Self.broadcastAssistantJoinRequest(
-                status: .pending, requestedBy: inboxId, requestId: requestId,
+                status: .pending, requestId: requestId,
                 conversationId: conversationId, session: session
             )
 
@@ -1414,7 +1413,7 @@ extension ConversationViewModel {
                 let status: AssistantJoinStatus
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
                 await Self.broadcastAssistantJoinRequest(
-                    status: status, requestedBy: inboxId, requestId: requestId,
+                    status: status, requestId: requestId,
                     conversationId: conversationId, session: session
                 )
                 await MainActor.run {
@@ -1424,7 +1423,7 @@ extension ConversationViewModel {
                 return
             } catch {
                 await Self.broadcastAssistantJoinRequest(
-                    status: .failed, requestedBy: inboxId, requestId: requestId,
+                    status: .failed, requestId: requestId,
                     conversationId: conversationId, session: session
                 )
                 await MainActor.run {
@@ -1440,7 +1439,6 @@ extension ConversationViewModel {
 
     private static func broadcastAssistantJoinRequest(
         status: AssistantJoinStatus,
-        requestedBy: String,
         requestId: String,
         conversationId: String,
         session: any SessionManagerProtocol
@@ -1452,7 +1450,15 @@ extension ConversationViewModel {
                 Log.warning("Could not find XMTP conversation to broadcast assistant join request")
                 return
             }
-            let request = AssistantJoinRequest(status: status, requestedByInboxId: requestedBy, requestId: requestId)
+            // Derive requestedBy from the ready inbox rather than accepting it
+            // as a parameter. An earlier draft fell back to "" when the session
+            // wasn't ready yet; that empty string would land in the XMTP
+            // message payload as `requestedByInboxId`.
+            let request = AssistantJoinRequest(
+                status: status,
+                requestedByInboxId: inboxResult.client.inboxId,
+                requestId: requestId
+            )
             try await xmtpConversation.sendAssistantJoinRequest(request)
         } catch {
             Log.warning("Failed to broadcast assistant join request: \(error.localizedDescription)")

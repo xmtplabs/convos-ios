@@ -283,19 +283,19 @@ final class ConversationsViewModel {
     }
 
     func leave(conversation: Conversation) {
+        // Hide the row so the next conversationsPublisher emit doesn't re-add
+        // it (see sink at `conversationsRepository.conversationsPublisher`,
+        // which filters on hiddenConversationIds). A proper group-leave path
+        // via group.leaveGroup() is tracked as a follow-up to C11 — until
+        // then the user remains a group member on the protocol side, but the
+        // row stays hidden locally.
+        hiddenConversationIds.insert(conversation.id)
         if let index = conversations.firstIndex(of: conversation) {
             conversations.remove(at: index)
         }
-
         if selectedConversation == conversation {
             selectedConversation = nil
         }
-
-        // Note: the old per-conversation `session.deleteInbox` call was a no-op
-        // after the single-inbox hotfix. A proper group-leave path (calling
-        // `group.leaveGroup()` + local row delete) is tracked as a follow-up to
-        // C11 — for now the conversation is removed from the local list above
-        // but the user remains a member on the protocol side.
     }
 
     private func observe() {
@@ -307,6 +307,9 @@ final class ConversationsViewModel {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
+                    // Keep hiding on re-emits — see `leave(conversation:)` and
+                    // ConversationViewModel.leaveConvo for the same pattern.
+                    hiddenConversationIds.insert(conversationId)
                     conversations.removeAll { $0.id == conversationId }
                     if _selectedConversationId == conversationId {
                         _selectedConversationId = nil
