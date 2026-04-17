@@ -35,7 +35,6 @@ public actor ConversationStateMachine {
         case useExisting(conversationId: String)
         case validate(inviteCode: String)
         case join
-        case delete
         case stop
         case reset
     }
@@ -57,7 +56,6 @@ public actor ConversationStateMachine {
         case joining(invite: SignedInvite, placeholder: ConversationReadyResult)
         case joinFailed(inviteTag: String, error: InviteJoinError)
         case ready(ConversationReadyResult)
-        case deleting
         case error(Error)
 
         public var isReadyOrJoining: Bool {
@@ -319,12 +317,6 @@ public actor ConversationStateMachine {
         try await writer.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
     }
 
-    func delete() {
-        // Cancel current task immediately to unblock the action queue
-        currentTask?.cancel()
-        enqueueAction(.delete)
-    }
-
     func reset() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()
@@ -416,9 +408,6 @@ public actor ConversationStateMachine {
                     inboxReady: inboxReady,
                     previousReadyResult: previousResult
                 )
-
-            case (.ready, .delete), (.error, .delete), (.joinFailed, .delete):
-                try await handleDelete()
 
             case (.error, .reset), (.joinFailed, .reset):
                 await handleReset()
@@ -839,40 +828,6 @@ public actor ConversationStateMachine {
 // MARK: - Cleanup
 
 extension ConversationStateMachine {
-    private func handleDelete() async throws {
-        let conversationId: String? = switch _state {
-        case .ready(let result):
-            result.conversationId
-        default:
-            nil
-        }
-
-        emitStateChange(.deleting)
-
-        await clearInviteJoinErrorHandler()
-
-        messageStreamContinuation?.finish()
-        messageProcessingTask?.cancel()
-        observationTask?.cancel()
-        observationTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
-
-        if let conversationId {
-            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-            try await cleanUp(
-                conversationId: conversationId,
-                client: inboxReady.client,
-                apiClient: inboxReady.apiClient,
-            )
-
-            try await sessionStateManager.deleteInbox()
-        }
-
-        emitStateChange(.uninitialized)
-    }
-
     private func cleanUpPreviousConversationIfNeeded(
         previousResult: ConversationReadyResult?,
         newConversationId: String?,
@@ -980,8 +935,7 @@ extension ConversationStateMachine.State: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
         case (.uninitialized, .uninitialized),
-             (.creating, .creating),
-             (.deleting, .deleting):
+             (.creating, .creating):
             return true
         case let (.joining(lhsInvite, _), .joining(rhsInvite, _)):
             return lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken

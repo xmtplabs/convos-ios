@@ -278,89 +278,6 @@ struct ConversationStateMachineTests {
 
     // MARK: - Delete Flow Tests
 
-    @Test("Delete flow cleans up conversation")
-    func testDeleteFlow() async throws {
-        let fixtures = TestFixtures()
-
-        // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
-
-        let stateMachine = ConversationStateMachine(
-            sessionStateManager: messagingService.sessionStateManager,
-            identityStore: fixtures.identityStore,
-            databaseReader: fixtures.databaseManager.dbReader,
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Create conversation first
-        await stateMachine.create()
-
-        var conversationId: String?
-        do {
-            conversationId = try await withTimeout(seconds: 120) {
-                for await state in await stateMachine.stateSequence {
-                    if case .ready(let result) = state {
-                        return result.conversationId
-                    }
-                }
-                return nil
-            }
-        } catch {
-            Issue.record("Timed out waiting for conversation creation: \(error)")
-        }
-
-        guard let convId = conversationId else {
-            Issue.record("No conversation ID")
-            await messagingService.stopAndDelete()
-            try? await fixtures.cleanup()
-            return
-        }
-
-        // Verify conversation exists in database
-        let conversationBefore = try await fixtures.databaseManager.dbReader.read { db in
-            try DBConversation
-                .filter(DBConversation.Columns.id == convId)
-                .fetchOne(db)
-        }
-        #expect(conversationBefore != nil, "Conversation should exist before delete")
-
-        // Delete conversation
-        await stateMachine.delete()
-
-        // Wait for uninitialized state
-        var deletedSuccessfully = false
-        for await state in await stateMachine.stateSequence {
-            if case .uninitialized = state {
-                deletedSuccessfully = true
-                break
-            }
-        }
-
-        #expect(deletedSuccessfully, "Should return to uninitialized state")
-
-        // Verify conversation was removed from database
-        let conversationAfter = try await fixtures.databaseManager.dbReader.read { db in
-            try DBConversation
-                .filter(DBConversation.Columns.id == convId)
-                .fetchOne(db)
-        }
-        #expect(conversationAfter == nil, "Conversation should be deleted from database")
-
-        // Clean up (messaging service already deleted by state machine)
-        try? await fixtures.cleanup()
-    }
-
     // MARK: - Stop Flow Tests
 
     @Test("Stop transitions to uninitialized without deleting")
@@ -597,8 +514,6 @@ struct ConversationStateMachineTests {
                     stateName = "creating"
                 case .ready:
                     stateName = "ready"
-                case .deleting:
-                    stateName = "deleting"
                 case .error:
                     stateName = "error"
                 default:
@@ -1070,74 +985,6 @@ struct ConversationStateMachineTests {
 
         // Clean up
         await messagingService.stopAndDelete()
-        try? await fixtures.cleanup()
-    }
-
-    @Test("Delete during message processing cancels gracefully")
-    func testDeleteDuringMessageProcessing() async throws {
-        let fixtures = TestFixtures()
-
-        // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
-
-        let stateMachine = ConversationStateMachine(
-            sessionStateManager: messagingService.sessionStateManager,
-            identityStore: fixtures.identityStore,
-            databaseReader: fixtures.databaseManager.dbReader,
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Create conversation
-        await stateMachine.create()
-
-        // Queue multiple messages
-        await stateMachine.sendMessage(text: "Message 1")
-        await stateMachine.sendMessage(text: "Message 2")
-        await stateMachine.sendMessage(text: "Message 3")
-
-        // Wait for ready state
-        var conversationId: String?
-        for await state in await stateMachine.stateSequence {
-            if case .ready(let result) = state {
-                conversationId = result.conversationId
-                break
-            }
-        }
-
-        #expect(conversationId != nil, "Should have conversation ID")
-
-        // Immediately delete (while messages might still be processing)
-        await stateMachine.delete()
-
-        // Verify it transitions to uninitialized (not stuck)
-        var deletedSuccessfully = false
-        do {
-            deletedSuccessfully = try await withTimeout(seconds: 5) {
-                for await state in await stateMachine.stateSequence {
-                    if case .uninitialized = state {
-                        return true
-                    }
-                }
-                return false
-            }
-        } catch {
-            Issue.record("Timed out waiting for delete to complete: \(error)")
-        }
-
-        #expect(deletedSuccessfully, "Should successfully delete even during message processing")
-
-        // Clean up (messaging service already deleted by state machine)
         try? await fixtures.cleanup()
     }
 

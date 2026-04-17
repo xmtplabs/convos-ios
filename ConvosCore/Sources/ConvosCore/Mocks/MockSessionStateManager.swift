@@ -33,11 +33,6 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
         InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
     }
 
-    public func deleteInbox() async throws {
-        currentState = .idle(clientId: currentState.clientId)
-        notifyObservers()
-    }
-
     public func waitForDeletionComplete() async {
         currentState = .idle(clientId: currentState.clientId)
         notifyObservers()

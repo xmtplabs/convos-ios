@@ -245,11 +245,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
     }
 
-    public func delete() async throws {
-        try await sessionStateManager.deleteInbox()
-        await stateMachine.delete()
-    }
-
     public func resetFromError() async {
         await stateMachine.reset()
     }

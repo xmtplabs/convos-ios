@@ -512,11 +512,6 @@ class NewConversationViewModel: Identifiable {
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
 
-        case .deleting:
-            conversationViewModel?.isWaitingForInviteAcceptance = false
-            isCreatingConversation = false
-            currentError = nil
-
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
             handleJoinFailedState(error)

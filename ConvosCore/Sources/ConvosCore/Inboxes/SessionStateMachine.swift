@@ -471,11 +471,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         throw SessionStateError.inboxNotReady
     }
 
-    public func deleteInbox() async throws {
-        stopAndDelete()
-        await waitForDeletionComplete()
-    }
-
     // MARK: - Private
 
     private func enqueueAction(_ action: Action) {
