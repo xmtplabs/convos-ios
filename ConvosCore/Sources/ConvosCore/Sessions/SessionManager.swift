@@ -530,9 +530,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: Notifications
 
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        // Single-inbox model: conversation-level suppression lands with the view-model
-        // rework in C11. For now always show notifications — safer to over-notify than to
-        // accidentally swallow one during the intermediate state.
+        // TODO: suppress notifications when the target conversation is
+        // already visible to the user. Safer to over-notify than to swallow.
         true
     }
 

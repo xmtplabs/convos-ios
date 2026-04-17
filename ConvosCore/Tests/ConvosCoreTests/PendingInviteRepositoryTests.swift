@@ -5,12 +5,6 @@ import Testing
 
 @Suite("PendingInviteRepository Tests", .serialized)
 struct PendingInviteRepositoryTests {
-    // C10 collapsed the public surface to two no-arg methods. The previous
-    // per-clientId helpers (`hasPendingInvites(clientId:)`,
-    // `clientIdsWithPendingInvites`) were retired alongside the multi-inbox
-    // capacity tier in C4a. These tests verify the surviving methods report
-    // pending draft + tagged conversations correctly.
-
     @Test("allPendingInvites includes draft conversations with invite tag")
     func testAllPendingInvitesIncludesPending() async throws {
         let fixtures = try await makeTestFixtures()
@@ -20,8 +14,7 @@ struct PendingInviteRepositoryTests {
 
             try makeDBConversation(
                 id: "draft-123",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: "invite-tag-abc"
             ).insert(db)
         }
@@ -43,8 +36,7 @@ struct PendingInviteRepositoryTests {
 
             try makeDBConversation(
                 id: "convo-123",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: "invite-tag-abc",
                 consent: .allowed
             ).insert(db)
@@ -67,8 +59,7 @@ struct PendingInviteRepositoryTests {
 
             try makeDBConversation(
                 id: "draft-123",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: ""
             ).insert(db)
         }
@@ -80,29 +71,22 @@ struct PendingInviteRepositoryTests {
         #expect(infos.first?.hasPendingInvites == false)
     }
 
-    @Test("allPendingInvites returns the singleton inbox with all pending drafts")
-    func testAllPendingInvitesReturnsSingleton() async throws {
+    @Test("allPendingInvites returns the inbox row with all pending drafts")
+    func testAllPendingInvitesReturnsInbox() async throws {
         let fixtures = try await makeTestFixtures()
 
-        // Single-inbox: only one `DBInbox` row exists on disk in the shipping
-        // product. Pre-C11 this test installed two inbox rows and asserted
-        // per-inbox grouping; C11c collapsed the conversation ↔ inbox join
-        // (the `conversation.clientId` column is gone), so all drafts belong
-        // to the singleton by construction.
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
 
             try makeDBConversation(
                 id: "draft-1a",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: "tag-1a"
             ).insert(db)
 
             try makeDBConversation(
                 id: "draft-1b",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: "tag-1b"
             ).insert(db)
         }
@@ -111,10 +95,10 @@ struct PendingInviteRepositoryTests {
         let infos = try repo.allPendingInvites()
 
         #expect(infos.count == 1)
-        let singletonInfo = infos.first
-        #expect(singletonInfo?.clientId == "client-1")
-        #expect(singletonInfo?.hasPendingInvites == true)
-        #expect(singletonInfo?.pendingConversationIds.count == 2)
+        let info = infos.first
+        #expect(info?.clientId == "client-1")
+        #expect(info?.hasPendingInvites == true)
+        #expect(info?.pendingConversationIds.count == 2)
     }
 
     @Test("allPendingInviteDetails returns a row per pending draft conversation")
@@ -126,15 +110,13 @@ struct PendingInviteRepositoryTests {
 
             try makeDBConversation(
                 id: "draft-123",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: "invite-tag-abc"
             ).insert(db)
 
             try makeDBConversation(
                 id: "convo-456",
-                inboxId: "inbox-1",
-                clientId: "client-1",
+                creatorInboxId: "inbox-1",
                 inviteTag: "",
                 consent: .allowed
             ).insert(db)
@@ -165,19 +147,15 @@ struct PendingInviteRepositoryTests {
 
     func makeDBConversation(
         id: String,
-        inboxId: String,
-        clientId: String,
+        creatorInboxId: String,
         inviteTag: String,
         consent: Consent = .unknown
     ) -> DBConversation {
-        // `inboxId` and `clientId` are still taken as parameters to preserve
-        // the existing call-site shape; they're used only as `creatorId`
-        // after C11c dropped the columns.
         DBConversation(
             id: id,
             clientConversationId: id,
             inviteTag: inviteTag,
-            creatorId: inboxId,
+            creatorId: creatorInboxId,
             kind: .group,
             consent: consent,
             createdAt: Date(),

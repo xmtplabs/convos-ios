@@ -1902,23 +1902,6 @@ extension ConversationViewModel {
         pendingInvite?.explodeDuration = duration
     }
 
-    func scheduleLinkedConversationExplosion(
-        duration: ExplodeDuration, conversationId: String
-    ) async -> String? {
-        do {
-            let messagingService = try await session.messagingService()
-            let explosionWriter = messagingService.conversationExplosionWriter()
-            let metadataWriter = messagingService.conversationMetadataWriter()
-            let expiresAt = Date().addingTimeInterval(duration.timeInterval)
-            try await explosionWriter.scheduleExplosion(conversationId: conversationId, expiresAt: expiresAt)
-            Log.info("Scheduled explosion for linked conversation \(conversationId) in \(duration.label)")
-            let updatedInvite = try await metadataWriter.refreshInvite(for: conversationId)
-            return updatedInvite?.inviteURLString
-        } catch {
-            Log.error("Failed to schedule explosion for linked conversation: \(error)")
-            return nil
-        }
-    }
     func updateLinkedConversationName(_ name: String) {
         guard let conversationId = pendingInvite?.linkedConversationId else { return }
         Task { [weak self, session] in
