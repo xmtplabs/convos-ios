@@ -362,7 +362,12 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws {
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        throw URLError(.badServerResponse)
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        throw URLError(.badServerResponse)
     }
 }
 

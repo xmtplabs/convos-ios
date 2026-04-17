@@ -1,3 +1,5 @@
+@testable import ConvosCore
+import ConvosAppData
 import Foundation
 import Testing
 @preconcurrency import XMTPiOS

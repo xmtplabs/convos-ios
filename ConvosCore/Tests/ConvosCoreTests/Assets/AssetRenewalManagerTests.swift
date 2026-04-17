@@ -444,8 +444,10 @@ private extension AssetRenewalManagerTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
+            hasHadVerifiedAssistant: false,
         )
     }
 }
@@ -481,6 +483,11 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws {
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        throw URLError(.badServerResponse)
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        throw URLError(.badServerResponse)
     }
 }

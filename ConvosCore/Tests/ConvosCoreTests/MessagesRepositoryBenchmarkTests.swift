@@ -62,8 +62,10 @@ struct MessagesRepositoryBenchmarkTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAssistant: false,
         ).insert(db)
 
         try ConversationLocalState(
