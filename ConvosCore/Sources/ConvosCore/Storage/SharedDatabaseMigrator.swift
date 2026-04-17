@@ -35,6 +35,18 @@ extension SharedDatabaseMigrator {
             try SharedDatabaseMigrator.createSingleInboxSchema(db)
         }
 
+        // C8 scope reduction: the global-profile architecture was dropped in
+        // favor of keeping per-conversation profiles. `myProfile` and
+        // `profileBroadcastQueue` tables were introduced in C2 in anticipation
+        // of that design and never populated. Drop them so the schema doesn't
+        // carry unused tables forward. The baseline `v0-single-inbox` is kept
+        // verbatim for branch-lineage reasons — any install that ran v0 needs
+        // this additive migration to reach the current schema.
+        migrator.registerMigration("v1-drop-global-profile-tables") { db in
+            try db.drop(table: "profileBroadcastQueue")
+            try db.drop(table: "myProfile")
+        }
+
         return migrator
     }
 

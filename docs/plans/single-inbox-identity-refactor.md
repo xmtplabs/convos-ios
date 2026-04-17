@@ -4,10 +4,12 @@
 > **Date**: 2026-04-16
 > **Related ADRs**: Supersedes ADR 002, substantially modifies ADR 003, 004, and 005
 > **Delivery**: Single long-running PR with logical checkpoint commits
+>
+> **Scope change (2026-04-16, after C7):** the "truly global profile" strand of this plan was dropped. We are keeping **per-conversation profiles** (the existing `DBMemberProfile` model) for the local user, same as today. C8 is reduced to a schema cleanup that removes the unused `DBMyProfile` and `DBProfileBroadcastQueue` tables that were added speculatively in C2. Quickname storage stays in UserDefaults. References below to "truly global profile", "`DBMyProfile`", "`DBProfileBroadcastQueue`", the "broadcast worker", and the global-profile sections of the Summary / What Changes / Architecture Overview blocks are historical context only — see the updated C8 entry for the final design. The rest of the plan (single inbox, keychain singleton, device sync, push routing collapse, invite flow, UI rewire, App Clip bootstrap, test cleanup) is unchanged.
 
 ## Summary
 
-Remove the per-conversation identity model and replace it with a standard single-inbox-per-user XMTP architecture. Each user will have one XMTP inbox, one pair of cryptographic keys, one local XMTP database, and one truly global profile — aligning Convos with how most XMTP clients are built. This is a full rewrite of the identity layer with **no data-migration path**: existing installs lose all conversations and identities on upgrade.
+Remove the per-conversation identity model and replace it with a standard single-inbox-per-user XMTP architecture. Each user will have one XMTP inbox, one pair of cryptographic keys, and one local XMTP database. Per-conversation display profiles are retained (both for other members, as before, and now also for the local user — the scope-change note above explains why). This is a full rewrite of the identity layer with **no data-migration path**: existing installs lose all conversations and identities on upgrade.
 
 ## Motivation
 
@@ -468,14 +470,13 @@ Net effect on C4's PR diff: C4a+C4b+C4d land under C4. The column drop arrives w
 - **QA**: Spot-check existing push-dependent tests (`28-app-icon-badge-count.md`). Likely unaffected at the surface level; confirm during QA run.
 - **Tests**: Push handler and NSE tests pass. `CachedPushNotificationHandler` tests simplified to single-inbox routing.
 
-### C8 — Global profile model + broadcast worker
-- **Code**: `DBMyProfile`, `MyProfileWriter` rewritten to target the singleton, `ProfileBroadcastWorker` added, `DBProfileBroadcastQueue`, Quickname UI kept but its storage backend migrated from filesystem/UserDefaults to `DBMyProfile`.
-- **ADR**: Amend ADR 005 — the local user's profile is global; other members still per-conversation; rewrite the Quickname section to reflect the new semantics (Quickname **is** the global profile; UI preserved; propagation automatic).
-- **QA**:
-  - **Rewrite `07-profile-update.md`** — verify a single edit propagates to multiple conversations (two or three conversations created before edit; CLI participants observe the update arriving in each).
-  - **Rewrite `14-quickname.md`** — Quickname test shifts from "local preset applied per-conversation" to "edit Quickname in conversation A, verify it updates in conversation B automatically." Keep the onboarding-flow portion of the test.
-  - **Add `qa/tests/36-global-profile-broadcast.md`** — drain-queue behavior, ordering (newest conversation first), resilience across app relaunch mid-broadcast.
-- **Tests**: New `ProfileBroadcastWorkerTests` cover queue ordering, retry with backoff, persistence across restart. Integration tests verify ProfileUpdate messages actually propagate to CLI participants in multiple conversations. Any profile-related tests that previously assumed per-conversation divergence are rewritten for global semantics.
+### C8 — Drop unused global-profile tables (scope reduced)
+**Decision (2026-04-16):** the global-profile design — Quickname as a truly global identity that fans out edits across all conversations via a `ProfileBroadcastQueue` — was **dropped** in favor of keeping per-conversation profiles. The existing `DBMemberProfile` table (keyed on `(conversationId, inboxId)`) already supports per-conversation profiles without schema change. `MyProfileWriter` continues to publish per-conversation `ProfileUpdate` codec messages as it does today.
+
+- **Code**: Delete `DBMyProfile.swift` and `DBProfileBroadcastQueue.swift` (introduced in C2 in anticipation of the global design, never populated). Add a new migration `v1-drop-global-profile-tables` on top of the v0 baseline to drop the now-unused `myProfile` and `profileBroadcastQueue` tables. No changes to `MyProfileWriter`, `ProfileCoordinator`, Quickname storage, or any QA tests.
+- **ADR**: None. The per-conversation profile architecture documented in ADR 005 remains correct as-is.
+- **QA**: None. `07-profile-update.md` and `14-quickname.md` keep their current semantics.
+- **Tests**: None — there are no tests for the dropped types since they were never wired up.
 
 ### C9 — Explode rewrite: remove-all-then-leave
 - **Code**: Creator sends `ExplodeSettings`, removes members, leaves. Receivers delete conversation locally on message or `removed` event. No keychain deletion.
