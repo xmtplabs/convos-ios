@@ -294,7 +294,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     let hasService = self.cachedService() != nil
                     continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
 
-                    try await self.deleteSingletonInbox()
+                    try await self.tearDownInbox()
 
                     if hasService {
                         continuation.yield(.stoppingServices(completed: 1, total: 1))
@@ -313,7 +313,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
-    private func deleteSingletonInbox() async throws {
+    private func tearDownInbox() async throws {
         let existing = serviceState.withLock { state -> MessagingService? in
             let current = state.messagingService
             state.messagingService = nil
@@ -323,7 +323,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
 
         if let existing {
-            Log.info("Deleting singleton inbox")
+            Log.info("Tearing down authorized inbox")
             await existing.stopAndDelete()
             await existing.waitForDeletionComplete()
         }

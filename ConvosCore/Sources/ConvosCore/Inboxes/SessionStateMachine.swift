@@ -68,25 +68,14 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 
 // swiftlint:disable type_body_length
 
-/// State machine managing the lifecycle of an XMTP inbox
-///
-/// SessionStateMachine coordinates the complex lifecycle of an inbox from creation/authorization
-/// through ready state and eventual deletion. It handles:
-/// - Creating new XMTP clients or building existing ones from keychain
-/// - Authenticating with the Convos backend
-/// - Starting sync services for conversations and messages
-/// - Registering for push notifications
-/// - Cleaning up all resources on deletion
-///
-/// Also serves as the SessionStateManagerProtocol implementation, providing synchronous
-/// state access via a lock-protected cache and observer-based state notifications.
-///
-/// The state machine ensures proper sequencing of operations through an action queue
-/// and maintains state through idle → authorizing/registering → authenticating → ready → deleting → stopping.
+/// Drives the XMTP inbox lifecycle: creating or loading a client,
+/// authenticating with the Convos backend, starting sync, registering for
+/// push, and handing back `ready` to observers. Also implements
+/// `SessionStateManagerProtocol` so callers can read state synchronously.
 public actor SessionStateMachine: SessionStateManagerProtocol {
-    /// @unchecked Sendable: Most cases contain only Sendable values (String). Cases with
-    /// XMTPClientProvider (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
-    /// contain protocol references that wrap thread-safe XMTP types designed for async/await use.
+    /// @unchecked Sendable: Most cases contain only Sendable values. Cases
+    /// with `XMTPClientProvider` / `InboxReadyResult` wrap thread-safe XMTP
+    /// types designed for async/await use.
     enum Action: @unchecked Sendable {
         case authorize(inboxId: String, clientId: String),
              register(clientId: String),
@@ -99,17 +88,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
              stop
     }
 
-    /// Single-inbox state graph (simplified from the multi-inbox era).
-    ///
-    /// Two transient states from the old multi-inbox world were removed in C5:
-    /// - `.stopping` — previously emitted between `.ready` and `.idle` during
-    ///   reauthorize/shutdown. In the single-inbox model there is no per-inbox
-    ///   graceful shutdown choreography, so `handleStop` transitions directly
-    ///   to `.idle`.
-    /// - Per-inbox `.deleting` — the "destroy this one inbox" case no longer
-    ///   exists; destroying the inbox is a full account reset and only happens
-    ///   through `SessionManager.deleteAllInboxes`. `.deleting` survives, but
-    ///   only for that full-reset path.
     public enum State: Sendable {
         case idle(clientId: String)
         case authorizing(clientId: String, inboxId: String)
@@ -581,7 +559,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         guard let identity = try await identityStore.load() else {
-            throw KeychainIdentityStoreError.identityNotFound("No singleton identity in keychain")
+            throw KeychainIdentityStoreError.identityNotFound("No identity in keychain")
         }
         guard identity.inboxId == inboxId else {
             throw KeychainIdentityStoreError.identityNotFound("Singleton inboxId mismatch: expected \(inboxId), got \(identity.inboxId)")
@@ -662,7 +640,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         Log.info("Generated clientId: \(clientId) for inboxId: \(client.inboxId)")
 
-        // Save to keychain as the singleton identity
+        // Save to keychain as the identity
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         try Task.checkCancellation()
@@ -861,8 +839,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             }
         }
 
-        // Transition directly to .idle. The old .stopping intermediate state
-        // was part of the multi-inbox choreography and no longer serves a purpose.
         emitStateChange(.idle(clientId: clientId))
 
         // Clean up all state continuations to prevent memory leaks
@@ -908,7 +884,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         }
 
         guard let identity = try await identityStore.load(), identity.clientId == clientId else {
-            Log.warning("Cannot retry from error: no singleton identity matching clientId \(clientId)")
+            Log.warning("Cannot retry from error: no identity matching clientId \(clientId)")
             return
         }
 
@@ -983,7 +959,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         // Delete identity and local database
         // Idempotent: delete swallows the not-found case, so retries are safe.
         try? await identityStore.delete()
-        Log.debug("Deleted singleton identity from keychain (clientId: \(clientId))")
+        Log.debug("Deleted identity from keychain (clientId: \(clientId))")
 
         try Task.checkCancellation()
 
@@ -1045,10 +1021,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         Log.info("Cleaning up all data for inbox clientId: \(clientId)")
 
-        // Single-inbox: there is at most one inbox, and this path is only
-        // reached via `SessionManager.deleteAllInboxes` (full account reset).
-        // The per-clientId filtering is therefore a no-op — every conversation
-        // row belongs to the sole inbox being deleted.
+        // Reached only via `SessionManager.deleteAllInboxes` — a full
+        // account reset, so every conversation row goes with the inbox.
         let attachmentKeys: [String] = try await databaseWriter.write { db in
             let conversationIds = try DBConversation.fetchAll(db).map { $0.id }
             Log.info("Found \(conversationIds.count) conversations to clean up for inbox clientId: \(clientId)")
@@ -1109,7 +1083,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             appVersion: "convos/\(Bundle.appVersion)"
         )
 
-        // Device sync (XMTP history server) is enabled so the singleton identity
+        // Device sync (XMTP history server) is enabled so the identity
         // carries its group memberships and message history across devices signed
         // in to the same Apple ID. `useDefaultHistorySyncUrl: true` (the default
         // on `ClientOptions.init`) resolves the per-environment URL via

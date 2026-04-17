@@ -87,34 +87,33 @@ public actor CachedPushNotificationHandler {
             return nil
         }
 
-        // Distinguish "no identity" (legitimate orphan — user deleted account)
-        // from "transient keychain error" (e.g. iCloud Keychain not yet
-        // available after a fresh restore). The previous `try?` collapsed both
-        // into "unregister this clientId from the backend" — which permanently
-        // breaks push delivery for the user until the main app re-registers
-        // the installation. We only unregister when we are *certain* the
-        // identity is gone (load returned `nil`, not threw).
+        // Distinguish "no identity" (legitimate orphan — user deleted
+        // account) from "transient keychain error" (e.g. iCloud Keychain
+        // not yet available after a fresh restore). Only unregister the
+        // clientId from the backend when we are *certain* the identity is
+        // gone (load returned `nil`, not threw) — a transient error
+        // silently permanently breaks push delivery otherwise.
         let identity: KeychainIdentity?
         do {
             identity = try await identityStore.load()
         } catch {
-            Log.warning("Dropping notification: keychain error reading singleton: \(error). Not unregistering — assume transient.")
+            Log.warning("Dropping notification: keychain load error: \(error). Not unregistering — assume transient.")
             return nil
         }
 
         guard let identity else {
-            Log.warning("Dropping notification: no singleton identity in keychain (orphan clientId \(payloadClientId))")
+            Log.warning("Dropping notification: no identity in keychain (orphan clientId \(payloadClientId))")
             await unregisterOrphanedClient(clientId: payloadClientId, apiJWT: payload.apiJWT)
             return nil
         }
 
         guard identity.clientId == payloadClientId else {
-            Log.warning("Dropping notification: payload clientId \(payloadClientId) does not match singleton \(identity.clientId)")
+            Log.warning("Dropping notification: payload clientId \(payloadClientId) does not match stored clientId \(identity.clientId)")
             await unregisterOrphanedClient(clientId: payloadClientId, apiJWT: payload.apiJWT)
             return nil
         }
 
-        Log.debug("Matched payload clientId \(payloadClientId) to singleton inbox \(identity.inboxId)")
+        Log.debug("Matched payload clientId \(payloadClientId) to inbox \(identity.inboxId)")
 
         return try await withTimeout(seconds: timeout, timeoutError: NotificationProcessingError.timeout) {
             let service = await self.getOrCreateMessagingService(
@@ -159,11 +158,11 @@ public actor CachedPushNotificationHandler {
         lastAccessTime = Date()
 
         if let existing = messagingService {
-            Log.debug("Reusing existing messaging service for singleton inbox: \(inboxId)")
+            Log.debug("Reusing existing messaging service for inbox: \(inboxId)")
             return existing
         }
 
-        Log.info("Creating new messaging service for singleton inbox: \(inboxId), with JWT: \(overrideJWTToken != nil)")
+        Log.info("Creating new messaging service for inbox: \(inboxId), with JWT: \(overrideJWTToken != nil)")
         let service = MessagingService.authorizedMessagingService(
             for: inboxId,
             clientId: clientId,

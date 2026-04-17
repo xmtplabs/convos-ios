@@ -126,10 +126,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         let conversation = try await databaseWriter.write { db in
-            // Single-inbox mode still requires the inbox row to exist so
-            // downstream foreign-key-keyed lookups (push topic subscriptions,
-            // etc.) resolve correctly. The `clientId`/`inboxId` are not copied
-            // onto the conversation row anymore — they live on `DBInbox` only.
+            // Downstream foreign-key lookups (push topic subscriptions,
+            // etc.) expect the inbox row to exist.
             guard (try DBInbox.fetchOne(db, id: inboxId)) != nil else {
                 throw ConversationWriterError.inboxNotFound(inboxId)
             }
@@ -339,7 +337,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     ) async throws -> DBConversation {
         // Assert the inbox exists locally even though the column no longer
         // lives on the conversation row — readers expect an inbox row for the
-        // singleton identity and downstream foreign keys still reference it.
+        // identity and downstream foreign keys still reference it.
         _ = try await databaseWriter.read { db in
             guard let inbox = try DBInbox.fetchOne(db, id: inboxId) else {
                 throw ConversationWriterError.inboxNotFound(inboxId)
