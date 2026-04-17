@@ -205,15 +205,36 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func makeService() async -> MessagingService {
-        let authorizationOperation = AuthorizeInboxOperation.register(
-            identityStore: identityStore,
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            environment: environment,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
-        )
+        // Authorize the existing identity if one is already stored; otherwise
+        // register a fresh one. Overwriting an existing identity with
+        // `.register` would wipe the account.
+        let existingIdentity = try? await identityStore.load()
+
+        let authorizationOperation: AuthorizeInboxOperation
+        if let existingIdentity {
+            authorizationOperation = AuthorizeInboxOperation.authorize(
+                inboxId: existingIdentity.inboxId,
+                clientId: existingIdentity.clientId,
+                identityStore: identityStore,
+                databaseReader: databaseReader,
+                databaseWriter: databaseWriter,
+                environment: environment,
+                startsStreamingServices: true,
+                platformProviders: platformProviders,
+                deviceRegistrationManager: deviceRegistrationManager,
+                apiClient: apiClient
+            )
+        } else {
+            authorizationOperation = AuthorizeInboxOperation.register(
+                identityStore: identityStore,
+                databaseReader: databaseReader,
+                databaseWriter: databaseWriter,
+                environment: environment,
+                platformProviders: platformProviders,
+                deviceRegistrationManager: deviceRegistrationManager,
+                apiClient: apiClient
+            )
+        }
         return MessagingService(
             authorizationOperation: authorizationOperation,
             databaseWriter: databaseWriter,
