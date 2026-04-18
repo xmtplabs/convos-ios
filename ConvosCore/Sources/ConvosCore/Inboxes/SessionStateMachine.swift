@@ -640,20 +640,30 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         Log.info("Generated clientId: \(clientId) for inboxId: \(client.inboxId)")
 
-        // Save to keychain as the identity
+        // Snapshot the prior identity so a failure partway through the save
+        // can restore it instead of wiping the account. `save` overwrites
+        // the singleton slot; without the snapshot, the rollback deletes
+        // whatever identity was present before this registration began.
+        let priorIdentity = try? await identityStore.load()
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         try Task.checkCancellation()
 
-        // Save to database
         do {
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: client.inboxId, clientId: clientId)
             Log.info("Saved inbox to database with clientId: \(clientId)")
         } catch {
-            // Rollback keychain entry on database failure to maintain consistency
             Log.error("Failed to save inbox to database, rolling back keychain: \(error)")
-            try? await identityStore.delete()
+            if let priorIdentity {
+                _ = try? await identityStore.save(
+                    inboxId: priorIdentity.inboxId,
+                    clientId: priorIdentity.clientId,
+                    keys: priorIdentity.keys
+                )
+            } else {
+                try? await identityStore.delete()
+            }
             throw error
         }
 
