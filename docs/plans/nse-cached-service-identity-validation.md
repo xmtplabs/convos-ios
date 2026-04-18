@@ -1,0 +1,61 @@
+# NSE cached `MessagingService` identity validation
+
+## Problem
+
+`CachedPushNotificationHandler` caches a single `MessagingService?` for the lifetime of the NSE process (or until `maxServiceAge = 15min` elapses). The cache has no identity key — it's a one-slot cache keyed on "is anything present?".
+
+Concrete failure case the review flagged (review comment on `CachedPushNotificationHandler.swift:54`, PR #713):
+
+1. User A is signed in; NSE process wakes, delivery for A's inbox arrives.
+2. `handlePushNotification` loads identity A, matches payload's `clientId` to `identity.clientId`, builds `MessagingService` for A, caches it.
+3. User A signs out; user B signs in within seconds. The keychain slot is overwritten with B's identity (ADR 002 / C3 — single keychain slot, `KeychainIdentityStore.save` overwrites).
+4. A delivery for B lands **in the same NSE process** before `maxServiceAge` (15 min) elapses.
+5. `cleanupIfStale()` is a no-op (still fresh).
+6. `identityStore.load()` returns B; `identity.clientId == payload.clientId` (both B) — validates fine.
+7. `getOrCreateMessagingService(inboxId: B, clientId: B)` — `messagingService` is non-nil and gets returned unchanged. **The cached service is bound to A's client; B's message is decoded against A's MLS state.**
+
+Depending on how MLS handles the decode attempt, this either decrypts to nothing visible, decodes the wrong ciphertext, or trips an internal `FfiError`. In no case does B see the right notification. The hotfix at commit `c8a600e3` added the `identity.clientId == payload.clientId` check earlier in the flow but did not touch the cache-lookup path — that's the piece that rebutts the "fixed" claim.
+
+## Proposed fix
+
+Tag the cached service with the `(inboxId, clientId)` it was built for. Invalidate on mismatch.
+
+### Changes
+
+- **`CachedPushNotificationHandler`**
+    - Replace the separate `messagingService: MessagingService?` / `lastAccessTime: Date?` pair with a single private struct:
+      ```swift
+      private struct CachedService {
+          let inboxId: String
+          let clientId: String
+          let service: MessagingService
+          var lastAccessTime: Date
+      }
+      private var cached: CachedService?
+      ```
+    - `cleanupIfStale()` works off `cached?.lastAccessTime`.
+    - `getOrCreateMessagingService(inboxId:clientId:overrideJWTToken:)` becomes an identity-aware lookup: if `cached` exists with matching `(inboxId, clientId)`, return its service; otherwise tear down the current cached service (if any) and build a fresh one tagged with the new identity.
+
+- **Invalidation callsite**
+    - Before building a new service on a mismatch, call `cached?.service.stop()` synchronously so XMTP stream teardown, `SyncingManager` shutdown, and any pending work from the prior identity are flushed before the new service touches its own state. The existing `cleanup()` method already does this — route the mismatch path through it.
+
+- **Logging**
+    - Add a single info-level log on the mismatch path: `"Identity rotated mid-process: tearing down cached service for <old-inboxId>, building for <new-inboxId>"`. This is rare enough that it's worth one log line if it ever fires in production.
+
+### Test coverage to add
+
+1. **Unit: cache invalidates on identity swap.** Drive the handler through two deliveries with different `(inboxId, clientId)` pairs and assert the second returns a *different* `MessagingService` instance than the first, and that `stop()` was called on the first.
+2. **Unit: cache reused across matching deliveries.** Same `(inboxId, clientId)` twice, both deliveries return the same service instance; `stop()` never called.
+3. **Unit: stale-by-age still invalidates even on match.** Pin `Date()` via an injected clock, advance past `maxServiceAge`, assert second call creates a fresh service.
+
+Tests live in `ConvosCoreTests` and exercise the handler against `MockKeychainIdentityStore` + `MockDatabaseManager` so no live XMTP / Firebase surface is needed.
+
+### What we deliberately don't do
+
+- No cache expansion beyond one slot. The NSE still processes one identity at a time, just not always the *same* identity — the multi-slot cache from the pre-refactor world reintroduces the very LRU coordination problem C4 removed.
+- No process-wide lock or actor promotion. The NSE is single-threaded enough that `CachedPushNotificationHandler` can stay a plain class; the invalidation is a simple compare-and-swap at the top of `getOrCreateMessagingService`.
+- No change to the identity-mismatch unregister path in `handlePushNotification` — that already fires when the *payload* targets a clientId the keychain never held. The bug is specifically about the *cached-service's* identity drifting out from under a payload that passed the earlier identity check.
+
+### Rollout
+
+Ship as a follow-up commit to the C9/C10 work; does not require an ADR amendment because the routing contract (backend → clientId → NSE) is unchanged. Add the fix + the three unit tests in a single commit tagged `Fix NSE cached-service invalidation on identity rotation`.
