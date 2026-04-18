@@ -148,12 +148,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         customPhotoPreferencesWriter = photoPreferencesWriter
     }
 
-    func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
-        await base.addInbox()
-    }
-
-    func addInboxOnly() async -> AnyMessagingService {
-        await base.addInboxOnly()
+    func addInbox() async throws -> (service: AnyMessagingService, conversationId: String?) {
+        try await base.addInbox()
     }
 
     func deleteAllInboxes() async throws {

@@ -184,7 +184,7 @@ class NewConversationViewModel: Identifiable {
 
             switch mode {
             case .newConversation:
-                let (messagingService, existingConversationId) = await session.addInbox()
+                guard let (messagingService, existingConversationId) = try? await session.addInbox() else { return }
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")

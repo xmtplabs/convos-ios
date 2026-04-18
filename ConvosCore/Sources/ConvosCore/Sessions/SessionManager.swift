@@ -48,7 +48,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private struct ServiceState {
         var messagingService: MessagingService?
-        var creationTask: Task<MessagingService, Never>?
+        var creationTask: Task<MessagingService, Error>?
     }
     private let serviceState: OSAllocatedUnfairLock<ServiceState> = .init(initialState: ServiceState())
 
@@ -107,6 +107,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        serviceState.withLock { state in
+            state.creationTask?.cancel()
+            state.creationTask = nil
+        }
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -136,7 +140,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func prewarmUnusedConversation() async {
-        let service = await loadOrCreateService()
+        guard let service = try? await loadOrCreateService() else { return }
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
             databaseWriter: databaseWriter,
@@ -149,11 +153,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         serviceState.withLock { $0.messagingService }
     }
 
-    private func loadOrCreateService() async -> MessagingService {
+    private func loadOrCreateService() async throws -> MessagingService {
         enum LoadAction {
             case existing(MessagingService)
-            case awaiting(Task<MessagingService, Never>)
-            case startCreating(Task<MessagingService, Never>)
+            case awaiting(Task<MessagingService, Error>)
+            case startCreating(Task<MessagingService, Error>)
         }
 
         // Decide-and-register atomically. Splitting the decision and the
@@ -171,10 +175,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             if let task = state.creationTask {
                 return .awaiting(task)
             }
-            let newTask = Task<MessagingService, Never> { [weak self] in
-                guard let self else {
-                    fatalError("SessionManager deallocated during service creation")
-                }
+            let newTask = Task<MessagingService, Error> { [weak self] in
+                guard let self else { throw CancellationError() }
                 return await self.makeService()
             }
             state.creationTask = newTask
@@ -185,16 +187,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         case .existing(let service):
             return service
         case .awaiting(let task):
-            return await task.value
+            return try await task.value
         case .startCreating(let task):
-            let service = await task.value
-            // Cancelled while creating: the service is an orphan — stop it
-            // so streams tear down cleanly and don't install it as the
-            // authoritative service. The canceller cleared `state.creationTask`
-            // under the same lock before calling `cancel()`.
+            // The task cannot throw anything other than CancellationError
+            // (makeService never throws; only the weak-self guard does),
+            // so any error here is a cancellation — propagate it to the
+            // caller so they don't proceed against a stopped service.
+            let service: MessagingService
+            do {
+                service = try await task.value
+            } catch {
+                throw CancellationError()
+            }
             if task.isCancelled {
                 await service.stop()
-                return service
+                throw CancellationError()
             }
             serviceState.withLock { state in
                 state.messagingService = service
@@ -260,8 +267,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
-        let service = await loadOrCreateService()
+    public func addInbox() async throws -> (service: AnyMessagingService, conversationId: String?) {
+        let service = try await loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
@@ -342,7 +349,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: - Messaging Services
 
     public func messagingService() async throws -> AnyMessagingService {
-        await loadOrCreateService()
+        try await loadOrCreateService()
     }
 
     public func messagingServiceSync() -> AnyMessagingService {
@@ -498,7 +505,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func wakeInboxForNotification(conversationId: String) async {
-        _ = await loadOrCreateService()
+        _ = try? await loadOrCreateService()
     }
 
     // MARK: Debug
