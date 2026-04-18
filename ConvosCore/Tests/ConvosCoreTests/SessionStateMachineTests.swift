@@ -109,15 +109,12 @@ struct SessionStateMachineTests {
             switch state {
             case .ready(_, let readyResult):
                 result = readyResult
-                case .error(_, let error):
+            case .error(_, let error):
                 Issue.record("Registration failed: \(error)")
             default:
                 continue
             }
-
-            if result != nil {
-                break
-            }
+            break
         }
 
         #expect(result != nil, "Should reach ready state")
@@ -176,15 +173,12 @@ struct SessionStateMachineTests {
             switch state {
             case .ready(_, let readyResult):
                 result = readyResult
-                case .error(_, let error):
+            case .error(_, let error):
                 Issue.record("Authorization failed: \(error)")
             default:
                 continue
             }
-
-            if result != nil {
-                break
-            }
+            break
         }
 
         #expect(result != nil, "Should reach ready state")
@@ -227,15 +221,12 @@ struct SessionStateMachineTests {
             switch state {
             case .error:
                 errorOccurred = true
-                case .ready:
+            case .ready:
                 Issue.record("Should not reach ready state with mismatched clientId")
             default:
                 continue
             }
-
-            if errorOccurred {
-                break
-            }
+            break
         }
 
         #expect(errorOccurred, "Should error with mismatched clientId")

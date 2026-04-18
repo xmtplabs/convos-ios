@@ -46,7 +46,7 @@ steps:
     blocked_until_checkpoint: "C11"
     actions:
       - install_app: { udid: "$udid", path: "$app_path" }
-      - launch_app: { udid: "$udid" }
+      - launch_app: { udid: "$udid", bundle: "org.convos.ios-preview" }
       - wait_for_launch_stabilized: { udid: "$udid", timeout: 30 }
       - screenshot: { udid: "$udid" }
       - cli_create_conversation:

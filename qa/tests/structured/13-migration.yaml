@@ -110,6 +110,7 @@ steps:
     actions:
       - terminate_app: { udid: "$migration_udid" }
       - launch_app: { udid: "$migration_udid" }
+      - wait_for_launch_stabilized: { udid: "$migration_udid", timeout: 30 }
       - inspect_logs: { since_launch: true, pattern: "LegacyDataWipe: detected legacy data" }
     verify:
       - log_not_contains: "LegacyDataWipe: detected legacy data"
