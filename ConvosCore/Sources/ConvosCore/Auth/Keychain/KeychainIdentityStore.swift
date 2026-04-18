@@ -154,6 +154,14 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// Returns the identity if one exists, `nil` otherwise.
     func load() throws -> KeychainIdentity?
 
+    /// Synchronous read of the identity slot. Safe because the keychain
+    /// daemon owns all concurrency; `SecItemCopyMatching` + JSON decode
+    /// touch no actor-isolated state on this type. Callers that need
+    /// the identity from a synchronous context (e.g. SessionManager's
+    /// service-construction path, which runs under a lock) use this
+    /// directly instead of paying an actor hop.
+    nonisolated func loadSync() throws -> KeychainIdentity?
+
     /// Removes the identity. Idempotent.
     func delete() throws
 }
@@ -202,13 +210,17 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func load() throws -> KeychainIdentity? {
+        try loadSync()
+    }
+
+    public nonisolated func loadSync() throws -> KeychainIdentity? {
         let query = KeychainQuery(
             account: Self.identityAccount,
             service: keychainService,
             accessGroup: keychainAccessGroup
         )
         do {
-            let data = try loadData(with: query)
+            let data = try Self.loadKeychainData(with: query.toReadDictionary())
             return try JSONDecoder().decode(KeychainIdentity.self, from: data)
         } catch KeychainIdentityStoreError.identityNotFound {
             return nil
@@ -246,10 +258,11 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     private func loadData(with query: KeychainQuery) throws -> Data {
-        return try loadData(with: query.toReadDictionary())
+        try Self.loadKeychainData(with: query.toReadDictionary())
     }
 
-    private func loadData(with query: [String: Any]) throws -> Data {
+    /// Static so `nonisolated` entry points can call it without an actor hop.
+    private static func loadKeychainData(with query: [String: Any]) throws -> Data {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
 

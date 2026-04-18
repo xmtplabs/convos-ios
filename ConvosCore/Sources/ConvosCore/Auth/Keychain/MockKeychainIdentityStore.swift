@@ -1,7 +1,11 @@
 import Foundation
+import os
 
 actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
-    private var identity: KeychainIdentity?
+    /// Backed by an unfair lock so `loadSync` can read without hopping
+    /// actor isolation — mirrors the real store's keychain-daemon-owned
+    /// concurrency model.
+    private let state: OSAllocatedUnfairLock<KeychainIdentity?> = .init(initialState: nil)
 
     func generateKeys() throws -> KeychainIdentityKeys {
         try KeychainIdentityKeys.generate()
@@ -9,15 +13,19 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
-        self.identity = identity
+        state.withLock { $0 = identity }
         return identity
     }
 
     func load() throws -> KeychainIdentity? {
-        identity
+        try loadSync()
+    }
+
+    nonisolated func loadSync() throws -> KeychainIdentity? {
+        state.withLock { $0 }
     }
 
     func delete() throws {
-        identity = nil
+        state.withLock { $0 = nil }
     }
 }

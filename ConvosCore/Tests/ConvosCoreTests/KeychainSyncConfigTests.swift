@@ -26,6 +26,30 @@ struct KeychainSyncConfigTests {
         #expect(!KeychainIdentityStore.identityAccount.isEmpty)
     }
 
+    @Test("loadSync returns the same identity as load")
+    func loadSyncMatchesLoad() async throws {
+        let store = MockKeychainIdentityStore()
+        let keys = try await store.generateKeys()
+
+        _ = try await store.save(
+            inboxId: "sync-inbox",
+            clientId: "sync-client",
+            keys: keys
+        )
+
+        let loaded = try await store.load()
+        let loadedSync = try store.loadSync()
+        #expect(loaded?.inboxId == loadedSync?.inboxId)
+        #expect(loaded?.clientId == loadedSync?.clientId)
+    }
+
+    @Test("loadSync returns nil on a fresh store")
+    func loadSyncReturnsNilWhenEmpty() throws {
+        let store = MockKeychainIdentityStore()
+        let loaded = try store.loadSync()
+        #expect(loaded == nil)
+    }
+
     @Test("Round-trip: save then load returns the same identity")
     func roundTrip() async throws {
         let store = MockKeychainIdentityStore()
