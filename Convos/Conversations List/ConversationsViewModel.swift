@@ -398,7 +398,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let shouldEnableNotifications = currentlyMuted
                 try await messagingService.setConversationNotificationsEnabled(shouldEnableNotifications, for: conversationId)
             } catch {
@@ -414,7 +414,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setUnread(!currentlyUnread, for: conversationId)
             } catch {
@@ -430,7 +430,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
             } catch ConversationLocalStateWriterError.pinLimitReached {
@@ -449,7 +449,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setUnread(false, for: conversationId)
             } catch {
@@ -471,7 +471,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let explosionWriter = messagingService.conversationExplosionWriter()
                 try await explosionWriter.explodeConversation(
                     conversationId: conversationId,
@@ -514,7 +514,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let explosionWriter = messagingService.conversationExplosionWriter()
                 try await explosionWriter.scheduleExplosion(
                     conversationId: conversationId,

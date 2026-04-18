@@ -12,13 +12,13 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
-    func addInbox() async throws -> (service: AnyMessagingService, conversationId: String?)
+    func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
     // MARK: Messaging Services
 
-    func messagingService() async throws -> AnyMessagingService
+    func messagingService() -> AnyMessagingService
     func messagingServiceSync() -> AnyMessagingService
 
     // MARK: Factory methods for repositories
@@ -28,7 +28,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
 
-    func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol
+    func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
@@ -55,7 +55,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     /// Ensures the messaging service is ready before processing a notification
     /// for the given conversation. Safe to call from the NSE.
-    func wakeInboxForNotification(conversationId: String) async
+    func wakeInboxForNotification(conversationId: String)
 
     // MARK: Helpers
 

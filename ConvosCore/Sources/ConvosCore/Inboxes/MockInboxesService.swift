@@ -10,7 +10,7 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async throws -> (service: AnyMessagingService, conversationId: String?) {
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
         (service: mockMessagingService, conversationId: nil)
     }
 
@@ -36,7 +36,7 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Messaging Services
 
-    public func messagingService() async throws -> AnyMessagingService {
+    public func messagingService() -> AnyMessagingService {
         mockMessagingService
     }
 
@@ -82,7 +82,7 @@ public final class MockInboxesService: SessionManagerProtocol {
         .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
     }
 
-    public func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol {
+    public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
 
@@ -129,7 +129,7 @@ public final class MockInboxesService: SessionManagerProtocol {
         true
     }
 
-    public func wakeInboxForNotification(conversationId: String) async {}
+    public func wakeInboxForNotification(conversationId: String) {}
 
     // MARK: - Helpers
 

@@ -148,8 +148,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         customPhotoPreferencesWriter = photoPreferencesWriter
     }
 
-    func addInbox() async throws -> (service: AnyMessagingService, conversationId: String?) {
-        try await base.addInbox()
+    func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
+        await base.addInbox()
     }
 
     func deleteAllInboxes() async throws {
@@ -160,8 +160,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.deleteAllInboxesWithProgress()
     }
 
-    func messagingService() async throws -> AnyMessagingService {
-        try await base.messagingService()
+    func messagingService() -> AnyMessagingService {
+        base.messagingService()
     }
 
     func messagingServiceSync() -> AnyMessagingService {
@@ -172,8 +172,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.inviteRepository(for: conversationId)
     }
 
-    func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol {
-        try await base.conversationRepository(for: conversationId)
+    func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
+        base.conversationRepository(for: conversationId)
     }
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
@@ -212,8 +212,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.shouldDisplayNotification(for: conversationId)
     }
 
-    func wakeInboxForNotification(conversationId: String) async {
-        await base.wakeInboxForNotification(conversationId: conversationId)
+    func wakeInboxForNotification(conversationId: String) {
+        base.wakeInboxForNotification(conversationId: conversationId)
     }
 
     func inboxId(for conversationId: String) async -> String? {

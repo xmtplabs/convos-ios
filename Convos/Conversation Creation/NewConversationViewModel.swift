@@ -184,7 +184,7 @@ class NewConversationViewModel: Identifiable {
 
             switch mode {
             case .newConversation:
-                guard let (messagingService, existingConversationId) = try? await session.addInbox() else { return }
+                let (messagingService, existingConversationId) = await session.addInbox()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
@@ -194,13 +194,7 @@ class NewConversationViewModel: Identifiable {
                 )
 
             case .scanner, .joinInvite:
-                let messagingService: AnyMessagingService
-                do {
-                    messagingService = try await session.messagingService()
-                } catch {
-                    Log.error("Failed to acquire messaging service: \(error)")
-                    return
-                }
+                let messagingService = session.messagingService()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")

@@ -22,7 +22,7 @@ enum SessionManagerError: Error {
 /// `MessagingService`, or registers a fresh identity. Subsequent calls return
 /// the same service.
 ///
-/// @unchecked Sendable: mutable state is protected by `serviceState`. Long-lived
+/// @unchecked Sendable: mutable state is protected by `cachedMessagingService`. Long-lived
 /// tasks (initialization, foreground observation, asset renewal) are created
 /// during init and cancelled in deinit.
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
@@ -46,11 +46,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let apiClient: any ConvosAPIClientProtocol
     private let unusedConversationCache: any UnusedConversationCacheProtocol
 
-    private struct ServiceState {
-        var messagingService: MessagingService?
-        var creationTask: Task<MessagingService, Error>?
-    }
-    private let serviceState: OSAllocatedUnfairLock<ServiceState> = .init(initialState: ServiceState())
+    /// Single-inbox means a single cached `MessagingService`. The lock
+    /// serializes every construction path — any sync or async caller that
+    /// hits a cache miss builds the service under this lock, so two
+    /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
+    private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
@@ -107,10 +107,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
-        serviceState.withLock { state in
-            state.creationTask?.cancel()
-            state.creationTask = nil
-        }
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -140,7 +136,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func prewarmUnusedConversation() async {
-        guard let service = try? await loadOrCreateService() else { return }
+        let service = loadOrCreateService()
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
             databaseWriter: databaseWriter,
@@ -149,79 +145,34 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    private func cachedService() -> MessagingService? {
-        serviceState.withLock { $0.messagingService }
-    }
-
-    private func loadOrCreateService() async throws -> MessagingService {
-        enum LoadAction {
-            case existing(MessagingService)
-            case awaiting(Task<MessagingService, Error>)
-            case startCreating(Task<MessagingService, Error>)
-        }
-
-        // Decide-and-register atomically. Splitting the decision and the
-        // task-write into two locked regions allowed two concurrent callers
-        // to both observe `state.creationTask == nil` and both spawn a Task,
-        // orphaning whichever one's `withLock { state.creationTask = task }`
-        // ran second (and dropping that Task's MessagingService on the
-        // floor once it resolved). Holding the lock across the Task spawn
-        // is safe because `Task { ... }` only schedules; the closure runs
-        // after the lock is released.
-        let action: LoadAction = serviceState.withLock { state -> LoadAction in
-            if let existing = state.messagingService {
-                return .existing(existing)
+    /// Single entry point for the process-wide `MessagingService`. Every
+    /// public messaging-service accessor — sync or async, from the main app
+    /// or the unused-conversation prewarm — funnels through here. The lock
+    /// guarantees exactly one `AuthorizeInboxOperation` for the process:
+    /// whichever caller takes it first builds + installs, everyone else
+    /// sees the cache hit.
+    private func loadOrCreateService() -> MessagingService {
+        cachedMessagingService.withLock { cached in
+            if let existing = cached {
+                return existing
             }
-            if let task = state.creationTask {
-                return .awaiting(task)
-            }
-            let newTask = Task<MessagingService, Error> { [weak self] in
-                guard let self else { throw CancellationError() }
-                return await self.makeService()
-            }
-            state.creationTask = newTask
-            return .startCreating(newTask)
-        }
-
-        switch action {
-        case .existing(let service):
-            return service
-        case .awaiting(let task):
-            return try await task.value
-        case .startCreating(let task):
-            // The task cannot throw anything other than CancellationError
-            // (makeService never throws; only the weak-self guard does),
-            // so any error here is a cancellation — propagate it to the
-            // caller so they don't proceed against a stopped service.
-            let service: MessagingService
-            do {
-                service = try await task.value
-            } catch {
-                throw CancellationError()
-            }
-            if task.isCancelled {
-                await service.stop()
-                throw CancellationError()
-            }
-            serviceState.withLock { state in
-                state.messagingService = service
-                state.creationTask = nil
-            }
+            let identity = try? identityStore.loadSync()
+            let service = buildMessagingService(for: identity)
+            cached = service
             return service
         }
     }
 
-    private func makeService() async -> MessagingService {
-        // Authorize the existing identity if one is already stored; otherwise
-        // register a fresh one. Overwriting an existing identity with
-        // `.register` would wipe the account.
-        let existingIdentity = try? await identityStore.load()
-
-        let authorizationOperation: AuthorizeInboxOperation
-        if let existingIdentity {
-            authorizationOperation = AuthorizeInboxOperation.authorize(
-                inboxId: existingIdentity.inboxId,
-                clientId: existingIdentity.clientId,
+    /// Build a `MessagingService` for the keychain's current identity, or
+    /// register a new one if the keychain is empty. Pure function — no
+    /// caching, no mutation outside of what `AuthorizeInboxOperation`'s
+    /// state machine does on its own.
+    private func buildMessagingService(for identity: KeychainIdentity?) -> MessagingService {
+        let op: AuthorizeInboxOperation
+        if let identity {
+            op = AuthorizeInboxOperation.authorize(
+                inboxId: identity.inboxId,
+                clientId: identity.clientId,
                 identityStore: identityStore,
                 databaseReader: databaseReader,
                 databaseWriter: databaseWriter,
@@ -232,7 +183,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 apiClient: apiClient
             )
         } else {
-            authorizationOperation = AuthorizeInboxOperation.register(
+            op = AuthorizeInboxOperation.register(
                 identityStore: identityStore,
                 databaseReader: databaseReader,
                 databaseWriter: databaseWriter,
@@ -243,7 +194,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             )
         }
         return MessagingService(
-            authorizationOperation: authorizationOperation,
+            authorizationOperation: op,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             identityStore: identityStore,
@@ -252,23 +203,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    private func clearCachedService() async {
-        let existing = serviceState.withLock { state -> MessagingService? in
-            let current = state.messagingService
-            state.messagingService = nil
-            state.creationTask?.cancel()
-            state.creationTask = nil
-            return current
-        }
-        if let existing {
-            await existing.stop()
-        }
-    }
-
     // MARK: - Inbox Management
 
-    public func addInbox() async throws -> (service: AnyMessagingService, conversationId: String?) {
-        let service = try await loadOrCreateService()
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
+        let service = loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
@@ -298,7 +236,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
                     continuation.yield(.clearingDeviceRegistration)
 
-                    let hasService = self.cachedService() != nil
+                    let hasService = self.cachedMessagingService.withLock { $0 != nil }
                     continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
 
                     try await self.tearDownInbox()
@@ -321,11 +259,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
-        let existing = serviceState.withLock { state -> MessagingService? in
-            let current = state.messagingService
-            state.messagingService = nil
-            state.creationTask?.cancel()
-            state.creationTask = nil
+        let existing = cachedMessagingService.withLock { cached -> MessagingService? in
+            let current = cached
+            cached = nil
             return current
         }
 
@@ -348,60 +284,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Messaging Services
 
-    public func messagingService() async throws -> AnyMessagingService {
-        try await loadOrCreateService()
+    public func messagingService() -> AnyMessagingService {
+        loadOrCreateService()
     }
 
     public func messagingServiceSync() -> AnyMessagingService {
-        if let cached = cachedService() {
-            return cached
-        }
-
-        // Cache miss on a sync path. Read the authorized inbox from GRDB
-        // (synchronous, no actor hop) and use its identifiers as
-        // authorization hints. If no inbox is authorized yet, fall through
-        // with empty identifiers — the resulting service won't reach
-        // `.ready`, which the caller observes via
-        // `sessionStateManager.currentState`.
-        let storedInbox = (try? databaseReader.read { db in
-            try DBInbox.fetchAll(db).first
-        })
-        let inboxId = storedInbox?.inboxId ?? ""
-        let clientId = storedInbox?.clientId ?? ""
-        if storedInbox == nil {
-            Log.error("messagingServiceSync called before any inbox was authorized; returning a service bound to empty identifiers.")
-        }
-
-        let service = MessagingService.authorizedMessagingService(
-            for: inboxId,
-            clientId: clientId,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment,
-            identityStore: identityStore,
-            startsStreamingServices: true,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
-        )
-        // A concurrent `loadOrCreateService` may have already installed (or
-        // be in the process of installing) a service. If one is cached,
-        // drop ours. Otherwise cancel any pending creation task before
-        // adopting our own so the pending task's result doesn't later
-        // overwrite our slot.
-        let resolved: MessagingService = serviceState.withLock { state in
-            if let concurrent = state.messagingService {
-                return concurrent
-            }
-            state.creationTask?.cancel()
-            state.creationTask = nil
-            state.messagingService = service
-            return service
-        }
-        if resolved !== service {
-            Task { await service.stop() }
-        }
-        return resolved
+        loadOrCreateService()
     }
 
     // MARK: - Factory methods for repositories
@@ -426,12 +314,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.fetchInviteCodeStatus(code)
     }
 
-    public func conversationRepository(for conversationId: String) async throws -> any ConversationRepositoryProtocol {
-        let messagingService = try await messagingService()
-        return ConversationRepository(
+    public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
+        ConversationRepository(
             conversationId: conversationId,
             dbReader: databaseReader,
-            sessionStateManager: messagingService.sessionStateManager
+            sessionStateManager: messagingService().sessionStateManager
         )
     }
 
@@ -505,8 +392,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         notificationChangeReporter.notifyChangesInDatabase()
     }
 
-    public func wakeInboxForNotification(conversationId: String) async {
-        _ = try? await loadOrCreateService()
+    public func wakeInboxForNotification(conversationId: String) {
+        _ = loadOrCreateService()
     }
 
     // MARK: Debug

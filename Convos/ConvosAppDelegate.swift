@@ -72,7 +72,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
 
         // Wake the inbox for this conversation so it's ready when the user opens it
         if !conversationId.isEmpty, let session = session {
-            await session.wakeInboxForNotification(conversationId: conversationId)
+            session.wakeInboxForNotification(conversationId: conversationId)
         }
 
         // Handle explosion notifications - trigger cleanup and show banner
@@ -137,7 +137,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
 
         // Wake the inbox for this conversation when notification is tapped
         // This ensures the inbox is ready when the user opens the conversation
-        await session.wakeInboxForNotification(conversationId: conversationId)
+        session.wakeInboxForNotification(conversationId: conversationId)
 
         // Clear all delivered notifications for this conversation
         await clearDeliveredNotifications(for: conversationId)

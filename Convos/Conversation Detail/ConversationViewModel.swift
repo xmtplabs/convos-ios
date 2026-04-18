@@ -448,7 +448,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         session: any SessionManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
     ) async throws -> ConversationViewModel {
-        let messagingService = try await session.messagingService()
+        let messagingService = session.messagingService()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
@@ -1076,7 +1076,7 @@ extension ConversationViewModel {
         }
 
         do {
-            let messagingService = try await session.messagingService()
+            let messagingService = session.messagingService()
             let metadataWriter = messagingService.conversationMetadataWriter()
             try await metadataWriter.updateIncludeInfoInPublicPreview(true, for: linkedId)
             if !name.isEmpty {
@@ -1104,7 +1104,7 @@ extension ConversationViewModel {
         pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
 
         do {
-            let messagingService = try await session.messagingService()
+            let messagingService = session.messagingService()
             let metadataWriter = messagingService.conversationMetadataWriter()
             let stateManager = messagingService.conversationStateManager(for: linkedId)
             if let convo = try stateManager.draftConversationRepository.fetchConversation() {
@@ -1449,7 +1449,7 @@ extension ConversationViewModel {
         session: any SessionManagerProtocol
     ) async {
         do {
-            let messagingService = try await session.messagingService()
+            let messagingService = session.messagingService()
             let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             guard let xmtpConversation = try await inboxResult.client.conversation(with: conversationId) else {
                 Log.warning("Could not find XMTP conversation to broadcast assistant join request")
@@ -1514,7 +1514,7 @@ extension ConversationViewModel {
     @MainActor
     func conversationMetadataDebugText() async -> String {
         do {
-            let messagingService = try await session.messagingService()
+            let messagingService = session.messagingService()
             let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             let client = inboxResult.client
             return try await client.conversationMetadataDebugInfo(
@@ -1535,7 +1535,7 @@ extension ConversationViewModel {
         let trimmedTag = expectedTag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTag.isEmpty else { return }
 
-        let messagingService = try await session.messagingService()
+        let messagingService = session.messagingService()
         let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
         let client = inboxResult.client
         guard let xmtpConversation = try await client.conversation(with: conversation.id),
@@ -1553,7 +1553,7 @@ extension ConversationViewModel {
         var conversationDebugURL: URL?
         do {
             conversationDebugURL = try await withThrowingTimeout(seconds: 10) { [self] in
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 let client = inboxResult.client
                 guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
@@ -1907,7 +1907,7 @@ extension ConversationViewModel {
         Task { [weak self, session] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService()
+                let messagingService = session.messagingService()
                 let metadataWriter = messagingService.conversationMetadataWriter()
                 try await metadataWriter.updateName(name, for: conversationId)
                 let updatedInvite = try await metadataWriter.refreshInvite(for: conversationId)
@@ -1952,7 +1952,7 @@ extension ConversationViewModel {
         guard pendingInvite == nil, convosButtonTask == nil else { return }
         convosButtonTask = Task { [session] in
             defer { convosButtonTask = nil }
-            guard let (messagingService, existingConversationId) = try? await session.addInbox() else { return }
+            let (messagingService, existingConversationId) = await session.addInbox()
 
             guard !Task.isCancelled else { return }
 
