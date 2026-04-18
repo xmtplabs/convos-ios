@@ -161,12 +161,6 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
             let conversationId = optimisticConversation.id
 
-            try await reserveUnusedConversation(
-                conversationId: conversationId,
-                creatorInboxId: inboxId,
-                databaseWriter: databaseWriter
-            )
-
             try await optimisticConversation.publish()
 
             guard let group = optimisticConversation as? XMTPiOS.Group else {
@@ -180,7 +174,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
             }
 
-            try await finalizeUnusedConversation(
+            let dbConversation = try await writeUnusedConversation(
                 conversation: group,
                 inboxId: inboxId,
                 databaseWriter: databaseWriter
@@ -190,12 +184,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 identityStore: identityStore,
                 databaseWriter: databaseWriter
             )
-            let dbConversation = try await databaseWriter.read { db in
-                try DBConversation.fetchOne(db, key: conversationId)
-            }
-            if let dbConversation {
-                _ = try await inviteWriter.generate(for: dbConversation)
-            }
+            _ = try await inviteWriter.generate(for: dbConversation)
 
             saveUnusedConversationIdToKeychain(conversationId)
             lastPreparationFailure = nil
@@ -222,68 +211,32 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
     }
 
-    private func reserveUnusedConversation(
-        conversationId: String,
-        creatorInboxId: String,
-        databaseWriter: any DatabaseWriter
-    ) async throws {
-        try await databaseWriter.write { db in
-            try DBMember(inboxId: creatorInboxId).save(db, onConflict: .ignore)
-
-            let dbConversation = DBConversation(
-                id: conversationId,
-                clientConversationId: conversationId,
-                inviteTag: "pending-\(conversationId)",
-                creatorId: creatorInboxId,
-                kind: .group,
-                consent: .allowed,
-                createdAt: Date(),
-                name: nil,
-                description: nil,
-                imageURLString: nil,
-                publicImageURLString: nil,
-                includeInfoInPublicPreview: true,
-                expiresAt: nil,
-                debugInfo: .empty,
-                isLocked: false,
-                imageSalt: nil,
-                imageNonce: nil,
-                imageEncryptionKey: nil,
-                conversationEmoji: nil,
-                imageLastRenewed: nil,
-                isUnused: true,
-                hasHadVerifiedAssistant: false
-            )
-            try dbConversation.save(db)
-
-            let localState = ConversationLocalState(
-                conversationId: conversationId,
-                isPinned: false,
-                isUnread: false,
-                isUnreadUpdatedAt: Date.distantPast,
-                isMuted: false,
-                pinnedOrder: nil
-            )
-            try localState.save(db)
-        }
-    }
-
-    private func finalizeUnusedConversation(
+    /// Writes the freshly-published group to GRDB in one pass, using the real
+    /// invite tag from the MLS group. Called once per preparation after
+    /// `publish()` and `ensureInviteTag()` have resolved. Treats a pre-existing
+    /// row with the same id as a benign collision (carry its local state, flip
+    /// `isUnused` back to true) rather than a surprise — callers of the cache
+    /// may have touched the row in flight.
+    private func writeUnusedConversation(
         conversation: XMTPiOS.Group,
         inboxId: String,
         databaseWriter: any DatabaseWriter
-    ) async throws {
+    ) async throws -> DBConversation {
         let conversationId = conversation.id
         let creatorInboxId = try await conversation.creatorInboxId()
         let inviteTag = try conversation.inviteTag
 
-        try await databaseWriter.write { db in
+        return try await databaseWriter.write { db in
             try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
 
+            let dbConversation: DBConversation
             if let existing = try DBConversation.fetchOne(db, key: conversationId) {
-                try existing.with(isUnused: true).update(db)
+                dbConversation = existing
+                    .with(isUnused: true)
+                    .with(inviteTag: inviteTag)
+                try dbConversation.update(db)
             } else {
-                let dbConversation = DBConversation(
+                dbConversation = DBConversation(
                     id: conversationId,
                     clientConversationId: conversationId,
                     inviteTag: inviteTag,
@@ -333,7 +286,9 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 isUnreadUpdatedAt: Date.distantPast,
                 isMuted: false,
                 pinnedOrder: nil
-            ).save(db)
+            ).save(db, onConflict: .ignore)
+
+            return dbConversation
         }
     }
 
