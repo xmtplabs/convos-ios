@@ -233,7 +233,7 @@ All dependencies managed through SPM. See `ConvosCore/Package.swift` for current
 
 ### Environment Configuration
 - Use `ConfigManager` for environment-specific settings
-- Environments: Production, Development, Local
+- Environments: Production, Development, Testnet, Local
 - Firebase configuration per environment
 
 ## Deep Linking
@@ -303,6 +303,9 @@ xcodebuild test -scheme "Convos (Local)" -destination "platform=iOS Simulator,na
 
 # Build for device (Local environment)
 xcodebuild build -scheme "Convos (Local)" -configuration Local
+
+# Build for simulator (Testnet environment)
+xcodebuild build -scheme "Convos (Testnet)" -destination "platform=iOS Simulator,name=iPhone 17"
 
 # Clean build folder
 xcodebuild clean -scheme "Convos (Local)" -configuration Local

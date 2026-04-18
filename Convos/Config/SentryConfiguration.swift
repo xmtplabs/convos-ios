@@ -44,7 +44,7 @@ enum SentryConfiguration {
         case .local:
             // Local builds never use Sentry
             return false
-        case .dev:
+        case .dev, .testnet:
             // Dev builds (TestFlight) use Sentry even with DEBUG flag
             // This is intentional: Dev.xcconfig defines DEBUG for debugging Swift packages
             return true

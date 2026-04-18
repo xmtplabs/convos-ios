@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><rect width="1024" height="1024" fill="none" stroke="none"></rect>
+  <defs>
+    <linearGradient id="neonSun" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ffd86e"></stop>
+      <stop offset="50%" stop-color="#ff4f9a"></stop>
+      <stop offset="100%" stop-color="#7a1aff"></stop>
+    </linearGradient>
+    <clipPath id="sunClip"><circle cx="512" cy="460" r="240"></circle></clipPath>
+  </defs>
+  <circle cx="512" cy="460" r="240" fill="url(#neonSun)"></circle>
+  <g clip-path="url(#sunClip)">
+    <rect x="272" y="548" width="480" height="8" fill="#070320" opacity="0.6"></rect>
+    <rect x="272" y="574" width="480" height="8" fill="#070320" opacity="0.6"></rect>
+    <rect x="272" y="600" width="480" height="8" fill="#070320" opacity="0.6"></rect>
+    <rect x="272" y="626" width="480" height="8" fill="#070320" opacity="0.6"></rect>
+    <rect x="272" y="652" width="480" height="8" fill="#070320" opacity="0.6"></rect>
+  </g></svg>

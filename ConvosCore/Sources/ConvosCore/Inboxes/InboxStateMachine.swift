@@ -18,14 +18,14 @@ extension InboxStateMachine.State {
     var clientId: String {
         switch self {
         case .idle(let clientId),
-             .authorizing(let clientId, _),
-             .registering(let clientId),
-             .authenticatingBackend(let clientId, _),
-             .ready(let clientId, _),
-             .backgrounded(let clientId, _),
-             .deleting(let clientId, _),
-             .stopping(let clientId),
-             .error(let clientId, _):
+            .authorizing(let clientId, _),
+            .registering(let clientId),
+            .authenticatingBackend(let clientId, _),
+            .ready(let clientId, _),
+            .backgrounded(let clientId, _),
+            .deleting(let clientId, _),
+            .stopping(let clientId),
+            .error(let clientId, _):
             return clientId
         }
     }
@@ -73,15 +73,20 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     /// XMTPClientProvider (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
     /// contain protocol references that wrap thread-safe XMTP types designed for async/await use.
     enum Action: @unchecked Sendable {
-        case authorize(inboxId: String, clientId: String),
-             register(clientId: String),
-             clientAuthorized(clientId: String, client: any XMTPClientProvider),
-             clientRegistered(clientId: String, client: any XMTPClientProvider),
-             authorized(clientId: String, result: InboxReadyResult),
-             enterBackground,
-             enterForeground,
-             delete,
-             stop
+        case authorize(inboxId: String, clientId: String)
+        case
+            register(clientId: String)
+        case
+            clientAuthorized(clientId: String, client: any XMTPClientProvider)
+        case
+            clientRegistered(clientId: String, client: any XMTPClientProvider)
+        case
+            authorized(clientId: String, result: InboxReadyResult)
+        case
+            enterBackground,
+            enterForeground,
+            delete,
+            stop
     }
 
     public enum State: Sendable {
@@ -134,7 +139,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         weak var observer: InboxStateObserver?
     }
 
-    private nonisolated let _observers: OSAllocatedUnfairLock<[WeakObserver]> = .init(initialState: [])
+    private nonisolated let _observers: OSAllocatedUnfairLock<[WeakObserver]> = .init(
+        initialState: [])
 
     public nonisolated func addObserver(_ observer: InboxStateObserver) {
         _observers.withLock { observers in
@@ -197,12 +203,12 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     var inboxId: String? {
         switch _state {
         case .authorizing(_, let inboxId),
-                .authenticatingBackend(_, let inboxId):
+            .authenticatingBackend(_, let inboxId):
             return inboxId
         case .deleting(_, let inboxId):
             return inboxId
         case .ready(_, let result),
-                .backgrounded(_, let result):
+            .backgrounded(_, let result):
             return result.client.inboxId
         default:
             return nil
@@ -305,32 +311,29 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Set custom XMTP host if provided
         Log.info("XMTP Configuration:")
 
-        // @lourou: Enable XMTP v4 d14n when ready
-        // if let gatewayUrl = environment.gatewayUrl {
-        //     // XMTP d14n - using gateway
-        //     Log.info("   Mode = XMTP d14n")
-        //     Log.info("   GATEWAY_URL = \(gatewayUrl)")
-        //     // Clear any previous custom address when using gateway
-        //     if XMTPEnvironment.customLocalAddress != nil {
-        //         Log.info("   Clearing previous customLocalAddress for gateway mode")
-        //         XMTPEnvironment.customLocalAddress = nil
-        //     }
-        // }
-
-        // XMTP v3
-        Log.debug("   Mode = XMTP v3")
-        Log.debug("   XMTP_CUSTOM_HOST = \(environment.xmtpEndpoint ?? "nil")")
-        Log.debug("   customLocalAddress = \(environment.customLocalAddress ?? "nil")")
-        Log.debug("   xmtpEnv = \(environment.xmtpEnv)")
-        Log.debug("   isSecure = \(environment.isSecure)")
-
-        // Log the actual XMTPEnvironment.customLocalAddress after setting
-        if let customHost = environment.customLocalAddress {
-            Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
-            XMTPEnvironment.customLocalAddress = customHost
-            Log.debug("Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")")
+        if let gatewayUrl = environment.gatewayUrl {
+            Log.info("   Mode = XMTP d14n")
+            Log.info("   GATEWAY_URL = \(gatewayUrl)")
+            if XMTPEnvironment.customLocalAddress != nil {
+                Log.info("   Clearing previous customLocalAddress for gateway mode")
+                XMTPEnvironment.customLocalAddress = nil
+            }
         } else {
-            Log.debug("Using default XMTP endpoints")
+            Log.debug("   Mode = XMTP v3")
+            Log.debug("   XMTP_CUSTOM_HOST = \(environment.xmtpEndpoint ?? "nil")")
+            Log.debug("   customLocalAddress = \(environment.customLocalAddress ?? "nil")")
+            Log.debug("   xmtpEnv = \(environment.xmtpEnv)")
+            Log.debug("   isSecure = \(environment.isSecure)")
+
+            if let customHost = environment.customLocalAddress {
+                Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
+                XMTPEnvironment.customLocalAddress = customHost
+                Log.debug(
+                    "Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")"
+                )
+            } else {
+                Log.debug("Using default XMTP endpoints")
+            }
         }
     }
 
@@ -375,7 +378,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         await syncingManager.setInviteJoinErrorHandler(handler)
     }
 
-    public func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+    public func setTypingIndicatorHandler(
+        _ handler: @escaping @Sendable (String, String, Bool) -> Void
+    ) async {
         guard let syncingManager else { return }
         await syncingManager.setTypingIndicatorHandler(handler)
     }
@@ -391,7 +396,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         for await state in stateSequence {
             switch state {
             case .ready(_, let result),
-                 .backgrounded(_, let result):
+                .backgrounded(_, let result):
                 return result
             case .error(_, let error):
                 throw error
@@ -410,8 +415,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
     public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
         if case .ready(let currentClientId, let result) = _state,
-           result.client.inboxId == inboxId && currentClientId == clientId {
-            Log.info("Already authorized with inbox \(inboxId) and clientId \(clientId), skipping reauthorization")
+            result.client.inboxId == inboxId && currentClientId == clientId {
+            Log.info(
+                "Already authorized with inbox \(inboxId) and clientId \(clientId), skipping reauthorization"
+            )
             return result
         }
 
@@ -435,7 +442,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                     Log.info("Successfully reauthorized to inbox \(inboxId)")
                     return result
                 } else {
-                    Log.info("Waiting for correct inbox... current: \(result.client.inboxId), expected: \(inboxId)")
+                    Log.info(
+                        "Waiting for correct inbox... current: \(result.client.inboxId), expected: \(inboxId)"
+                    )
                     continue
                 }
             case .error(_, let error):
@@ -484,15 +493,15 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case let (.idle, .authorize(inboxId, clientId)):
+            case (.idle, .authorize(let inboxId, let clientId)):
                 try await handleAuthorize(inboxId: inboxId, clientId: clientId)
-            case let (.error(erroredClientId, _), .authorize(inboxId, clientId)):
+            case (.error(let erroredClientId, _), .authorize(let inboxId, let clientId)):
                 try await handleStop(clientId: erroredClientId)
                 try await handleAuthorize(inboxId: inboxId, clientId: clientId)
 
             case (.idle, let .register(clientId)):
                 try await handleRegister(clientId: clientId)
-            case let (.error(erroredClientId, _), .register(clientId)):
+            case (.error(let erroredClientId, _), .register(let clientId)):
                 try await handleStop(clientId: erroredClientId)
                 try await handleRegister(clientId: clientId)
 
@@ -505,34 +514,35 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 try await handleAuthorized(clientId: clientId, result: result)
 
             case (let .ready(clientId, result), .delete):
-                try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
+                try await handleDelete(
+                    clientId: clientId, client: result.client, apiClient: result.apiClient)
             case (let .error(clientId, _), .delete):
                 try await handleDeleteFromError(clientId: clientId)
             case (let .idle(clientId), .delete),
-                 (let .authorizing(clientId, _), .delete),
-                 (let .registering(clientId), .delete),
-                 (let .authenticatingBackend(clientId, _), .delete),
-                 (let .stopping(clientId), .delete):
+                (let .authorizing(clientId, _), .delete),
+                (let .registering(clientId), .delete),
+                (let .authenticatingBackend(clientId, _), .delete),
+                (let .stopping(clientId), .delete):
                 try await handleDeleteFromIdle(clientId: clientId)
             case (.deleting, .delete):
                 // Already deleting - ignore duplicate delete request (idempotent)
                 Log.debug("Duplicate delete request while already deleting, ignoring")
-            case let (.ready(clientId, result), .enterBackground):
+            case (.ready(let clientId, let result), .enterBackground):
                 try await handleEnterBackground(clientId: clientId, result: result)
 
-            case let (.backgrounded(clientId, result), .enterForeground):
+            case (.backgrounded(let clientId, let result), .enterForeground):
                 try await handleEnterForeground(clientId: clientId, result: result)
 
-            case let (.error(clientId, _), .enterForeground):
+            case (.error(let clientId, _), .enterForeground):
                 try await handleRetryFromError(clientId: clientId)
 
             case (let .backgrounded(clientId, result), .delete):
                 try await handleDeleteFromBackgrounded(clientId: clientId, result: result)
 
-            case let (.ready(clientId, _), .stop),
-                let (.error(clientId, _), .stop),
-                let (.deleting(clientId, _), .stop),
-                let (.backgrounded(clientId, _), .stop):
+            case (.ready(let clientId, _), .stop),
+                (.error(let clientId, _), .stop),
+                (.deleting(let clientId, _), .stop),
+                (.backgrounded(let clientId, _), .stop):
                 try await handleStop(clientId: clientId)
 
             case (.idle, .stop), (.stopping, .stop):
@@ -569,7 +579,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         // Verify clientId matches
         guard identity.clientId == clientId else {
-            throw KeychainIdentityStoreError.identityNotFound("ClientId mismatch: expected \(clientId), got \(identity.clientId)")
+            throw KeychainIdentityStoreError.identityNotFound(
+                "ClientId mismatch: expected \(clientId), got \(identity.clientId)")
         }
 
         emitStateChange(.authorizing(clientId: clientId, inboxId: inboxId))
@@ -660,7 +671,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         enqueueAction(.clientRegistered(clientId: clientId, client: client))
     }
 
-    private func handleClientAuthorized(clientId: String, client: any XMTPClientProvider) async throws {
+    private func handleClientAuthorized(clientId: String, client: any XMTPClientProvider)
+        async throws {
         try Task.checkCancellation()
 
         emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
@@ -670,10 +682,12 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        enqueueAction(
+            .authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
     }
 
-    private func handleClientRegistered(clientId: String, client: any XMTPClientProvider) async throws {
+    private func handleClientRegistered(clientId: String, client: any XMTPClientProvider)
+        async throws {
         try Task.checkCancellation()
 
         emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
@@ -682,7 +696,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        enqueueAction(
+            .authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
     }
 
     private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
@@ -698,7 +713,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         }
     }
 
-    private func handleDelete(clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
+    private func handleDelete(
+        clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol
+    ) async throws {
         try Task.checkCancellation()
 
         Log.info("Deleting inbox with clientId: \(clientId)...")
@@ -732,7 +749,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         }
 
         if resolvedInboxId == nil {
-            Log.warning("Could not resolve inboxId for clientId \(clientId) - database files will not be cleaned up")
+            Log.warning(
+                "Could not resolve inboxId for clientId \(clientId) - database files will not be cleaned up"
+            )
         }
 
         emitStateChange(.deleting(clientId: clientId, inboxId: resolvedInboxId))
@@ -883,7 +902,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         try Task.checkCancellation()
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
-            Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
+            Log.warning(
+                "Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
             return
         }
 
@@ -894,12 +914,15 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         }
 
         foregroundRetryCount += 1
-        Log.info("Retrying authorization for inbox \(identity.inboxId) after foregrounding (attempt \(foregroundRetryCount)/\(Self.maxForegroundRetries))")
+        Log.info(
+            "Retrying authorization for inbox \(identity.inboxId) after foregrounding (attempt \(foregroundRetryCount)/\(Self.maxForegroundRetries))"
+        )
         try await handleStop(clientId: clientId)
         try await handleAuthorize(inboxId: identity.inboxId, clientId: clientId)
     }
 
-    private func handleDeleteFromBackgrounded(clientId: String, result: InboxReadyResult) async throws {
+    private func handleDeleteFromBackgrounded(clientId: String, result: InboxReadyResult)
+        async throws {
         try Task.checkCancellation()
 
         Log.info("Deleting inbox with clientId \(clientId) from backgrounded state...")
@@ -914,7 +937,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Network monitoring already stopped when backgrounded
 
         // Perform common cleanup operations
-        try await performInboxCleanup(clientId: clientId, client: result.client, apiClient: result.apiClient)
+        try await performInboxCleanup(
+            clientId: clientId, client: result.client, apiClient: result.apiClient)
     }
 
     /// Performs common cleanup operations when deleting an inbox
@@ -951,7 +975,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             Log.debug("Unregistered installation from backend: \(clientId)")
         } catch {
             // Ignore errors during unregistration (common during account deletion when auth may be invalid)
-            Log.debug("Could not unregister installation (likely during account deletion): \(error)")
+            Log.debug(
+                "Could not unregister installation (likely during account deletion): \(error)")
         }
 
         try Task.checkCancellation()
@@ -1010,7 +1035,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             "\(dbBaseName).db3",
             "\(dbBaseName).db3.sqlcipher_salt",
             "\(dbBaseName).db3-shm",
-            "\(dbBaseName).db3-wal"
+            "\(dbBaseName).db3-wal",
         ]
 
         for filename in filesToDelete {
@@ -1032,30 +1057,41 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         Log.info("Cleaning up all data for inbox clientId: \(clientId)")
 
         let attachmentKeys: [String] = try await databaseWriter.write { db in
-            let conversationIds = try DBConversation
+            let conversationIds =
+                try DBConversation
                 .filter(DBConversation.Columns.clientId == clientId)
                 .fetchAll(db)
                 .map { $0.id }
 
-            Log.info("Found \(conversationIds.count) conversations to clean up for inbox clientId: \(clientId)")
+            Log.info(
+                "Found \(conversationIds.count) conversations to clean up for inbox clientId: \(clientId)"
+            )
 
             var allAttachmentKeys: [String] = []
             for conversationId in conversationIds {
-                let messages = try DBMessage
+                let messages =
+                    try DBMessage
                     .filter(DBMessage.Columns.conversationId == conversationId)
                     .fetchAll(db)
                 for message in messages {
                     allAttachmentKeys.append(contentsOf: message.attachmentUrls)
                 }
 
-                try DBMessage.filter(DBMessage.Columns.conversationId == conversationId).deleteAll(db)
-                try DBConversationMember.filter(DBConversationMember.Columns.conversationId == conversationId).deleteAll(db)
-                try ConversationLocalState.filter(ConversationLocalState.Columns.conversationId == conversationId).deleteAll(db)
+                try DBMessage.filter(DBMessage.Columns.conversationId == conversationId).deleteAll(
+                    db)
+                try DBConversationMember.filter(
+                    DBConversationMember.Columns.conversationId == conversationId
+                ).deleteAll(db)
+                try ConversationLocalState.filter(
+                    ConversationLocalState.Columns.conversationId == conversationId
+                ).deleteAll(db)
                 try DBInvite.filter(DBInvite.Columns.conversationId == conversationId).deleteAll(db)
-                try DBMemberProfile.filter(DBMemberProfile.Columns.conversationId == conversationId).deleteAll(db)
+                try DBMemberProfile.filter(DBMemberProfile.Columns.conversationId == conversationId)
+                    .deleteAll(db)
             }
 
-            if let inboxId = try DBInbox.filter(DBInbox.Columns.clientId == clientId).fetchOne(db)?.inboxId {
+            if let inboxId = try DBInbox.filter(DBInbox.Columns.clientId == clientId).fetchOne(db)?
+                .inboxId {
                 try DBMember.filter(DBMember.Columns.inboxId == inboxId).deleteAll(db)
             }
 
@@ -1067,7 +1103,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         }
 
         if !attachmentKeys.isEmpty {
-            Log.info("Removing \(attachmentKeys.count) persistent photo(s) for inbox clientId: \(clientId)")
+            Log.info(
+                "Removing \(attachmentKeys.count) persistent photo(s) for inbox clientId: \(clientId)"
+            )
             ImageCacheContainer.shared.removePersistentImages(for: attachmentKeys)
         }
     }
@@ -1075,25 +1113,23 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     // MARK: - Helpers
 
     private func clientOptions(keys: any XMTPClientKeys) -> ClientOptions {
-        // @lourou: Enable XMTP v4 d14n when ready
-        // When gatewayUrl is provided, we're using d14n
-        // The gateway handles env/isSecure automatically, so we don't set them
-        // if let gatewayUrl = environment.gatewayUrl, !gatewayUrl.isEmpty {
-        //     // d14n mode: gateway handles network selection
-        //     Log.info("Using XMTP d14n - Gateway: \(gatewayUrl)")
-        //     apiOptions = .init(
-        //         appVersion: "convos/\(Bundle.appVersion)",
-        //         gatewayUrl: gatewayUrl
-        //     )
-        // }
-
-        // Direct XMTP v3 connection: we specify env and isSecure
-        Log.debug("Using direct XMTP connection with env: \(environment.xmtpEnv)")
-        let apiOptions: ClientOptions.Api = .init(
-            env: environment.xmtpEnv,
-            isSecure: environment.isSecure,
-            appVersion: "convos/\(Bundle.appVersion)"
-        )
+        let apiOptions: ClientOptions.Api
+        if let gatewayUrl = environment.gatewayUrl, !gatewayUrl.isEmpty {
+            Log.info("Using XMTP d14n - Gateway: \(gatewayUrl)")
+            apiOptions = .init(
+                env: environment.xmtpEnv,
+                isSecure: environment.isSecure,
+                appVersion: "convos/\(Bundle.appVersion)",
+                gatewayHost: gatewayUrl
+            )
+        } else {
+            Log.debug("Using direct XMTP connection with env: \(environment.xmtpEnv)")
+            apiOptions = .init(
+                env: environment.xmtpEnv,
+                isSecure: environment.isSecure,
+                appVersion: "convos/\(Bundle.appVersion)"
+            )
+        }
 
         return ClientOptions(
             api: apiOptions,
@@ -1112,11 +1148,15 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec(),
                 TypingIndicatorCodec(),
-                ReadReceiptCodec()
+                ReadReceiptCodec(),
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
             deviceSyncEnabled: false,
+            waitForRegistrationVisible: VisibilityConfirmationOptions(
+                quorumPercentage: nil,
+                quorumAbsolute: 1,
+            ),
             dbPoolOptions: DbPoolOptions(
                 maxPoolSize: 10,
                 minPoolSize: 3
@@ -1136,17 +1176,21 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         }
     }
 
-    private func createXmtpClient(signingKey: SigningKey,
-                                  options: ClientOptions) async throws -> any XMTPClientProvider {
+    private func createXmtpClient(
+        signingKey: SigningKey,
+        options: ClientOptions
+    ) async throws -> any XMTPClientProvider {
         Log.info("Creating XMTP client...")
         let client = try await Client.create(account: signingKey, options: options)
         Log.info("XMTP Client created with app version: convos/\(Bundle.appVersion)")
         return client
     }
 
-    private func buildXmtpClient(inboxId: String,
-                                 identity: PublicIdentity,
-                                 options: ClientOptions) async throws -> any XMTPClientProvider {
+    private func buildXmtpClient(
+        inboxId: String,
+        identity: PublicIdentity,
+        options: ClientOptions
+    ) async throws -> any XMTPClientProvider {
         Log.debug("Building XMTP client for \(inboxId)...")
         let client = try await Client.build(
             publicIdentity: identity,
@@ -1199,7 +1243,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 throw CancellationError()
             } catch {
                 lastError = error
-                Log.warning("Backend auth attempt \(attempt + 1) failed: \(error.localizedDescription)")
+                Log.warning(
+                    "Backend auth attempt \(attempt + 1) failed: \(error.localizedDescription)")
             }
         }
 
@@ -1234,14 +1279,16 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         appLifecycleTask = Task { [weak self] in
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { [weak self] in
-                    let backgroundStream = notificationCenter.notifications(named: backgroundNotificationName)
+                    let backgroundStream = notificationCenter.notifications(
+                        named: backgroundNotificationName)
                     for await _ in backgroundStream {
                         await self?.enqueueAction(.enterBackground)
                     }
                 }
 
                 group.addTask { [weak self] in
-                    let foregroundStream = notificationCenter.notifications(named: foregroundNotificationName)
+                    let foregroundStream = notificationCenter.notifications(
+                        named: foregroundNotificationName)
                     for await _ in foregroundStream {
                         await self?.enqueueAction(.enterForeground)
                     }

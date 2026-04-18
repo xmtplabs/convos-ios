@@ -2,7 +2,7 @@
 set -e
 
 # Part 1: Generate Secrets.swift for App Clip (Local and Dev builds)
-if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
+if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ] || [ "$CONFIGURATION" = "Testnet" ]; then
     echo "🔧 $CONFIGURATION build detected - generating App Clip secrets from .env"
     
     SECRETS_FILE="${SRCROOT}/ConvosAppClip/Config/Secrets.swift"

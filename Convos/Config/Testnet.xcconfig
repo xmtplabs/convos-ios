@@ -1,0 +1,42 @@
+// Testnet Configuration
+// Connects to XMTP dev network via testnet gateway (payer.testnet.xmtp.network)
+// with a separate Convos API backend
+CONFIG_FILE = config.testnet.json
+DEVELOPMENT_TEAM = FY4NZR34Z3
+
+// Swift compiler flags - define DEBUG for conditional compilation
+// Note: SWIFT_ACTIVE_COMPILATION_CONDITIONS propagates to Swift Package dependencies
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+
+// Override Swift Package optimization for debugging
+// This ensures ConvosCore and other Swift Packages are not optimized
+OTHER_SWIFT_FLAGS = $(inherited) -Onone
+
+// Bundle IDs for all targets
+MAIN_BUNDLE_ID = org.convos.ios-testnet
+PRODUCT_BUNDLE_IDENTIFIER = $(MAIN_BUNDLE_ID)
+
+// Target-specific bundle IDs (will be used in target build settings)
+CONVOS_BUNDLE_ID = $(MAIN_BUNDLE_ID)
+CONVOS_TESTS_BUNDLE_ID = $(MAIN_BUNDLE_ID).tests
+CONVOS_APP_CLIP_BUNDLE_ID = $(MAIN_BUNDLE_ID).Clip
+CONVOS_APP_CLIP_TESTS_BUNDLE_ID = $(MAIN_BUNDLE_ID).ConvosAppClipTests
+CONVOS_APP_CLIP_UI_TESTS_BUNDLE_ID = $(MAIN_BUNDLE_ID).ConvosAppClipUITests
+NOTIFICATION_SERVICE_BUNDLE_ID = $(MAIN_BUNDLE_ID).ConvosNSE
+
+// Environment-specific entitlements
+APP_GROUP_IDENTIFIER = group.$(MAIN_BUNDLE_ID)
+ASSOCIATED_DOMAIN = testnet.convos.org
+WEB_CREDENTIALS_DOMAIN = testnet.convos.org
+SECONDARY_ASSOCIATED_DOMAIN = app-testnet.convos.org
+URL_SCHEME = convos-testnet
+KEYCHAIN_GROUP_IDENTIFIER = $(MAIN_BUNDLE_ID)
+APP_DISPLAY_NAME = Convos Testnet
+APNS_ENVIRONMENT = production
+
+// App Icon Configuration
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Testnet
+
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+ENABLE_TESTABILITY = YES
+DEBUG_INFORMATION_FORMAT = dwarf

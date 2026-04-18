@@ -79,6 +79,41 @@ enum Secrets {
 // swiftlint:enable all
 EOF
     echo "🏁 Generated Secrets.swift for Dev"
+
+elif [ "$CONFIGURATION" = "Testnet" ]; then
+    echo "🔧 Testnet build detected - generating secrets from .env"
+
+    SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
+    mkdir -p "${SRCROOT}/Convos/Config"
+
+    FIREBASE_TOKEN=""
+    CONVOS_API_BASE_URL=""
+    if [ -f "${SRCROOT}/.env" ]; then
+        FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+
+        CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+    fi
+
+    if [ -n "$FIREBASE_TOKEN" ]; then
+        echo "✅ Found Firebase debug token in .env"
+    else
+        echo "⚠️  No Firebase debug token in .env - you may need to register tokens manually"
+    fi
+
+    cat > "$SECRETS_FILE" << EOF
+import Foundation
+
+// swiftlint:disable all
+enum Secrets {
+    static let CONVOS_API_BASE_URL = "$CONVOS_API_BASE_URL"
+    static let XMTP_CUSTOM_HOST = ""
+    static let GATEWAY_URL = ""
+    static let SENTRY_DSN = ""
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+}
+// swiftlint:enable all
+EOF
+    echo "🏁 Generated Secrets.swift for Testnet"
 fi
 
 # Part 3: Copy config file to app bundle

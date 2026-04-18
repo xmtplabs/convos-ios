@@ -9,7 +9,7 @@ Build the Convos iOS app using the Dev scheme.
 ```
 
 - Default scheme: "Convos (Dev)"
-- Other schemes: "Convos (Local)", "Convos (Prod)"
+- Other schemes: "Convos (Local)", "Convos (Testnet)", "Convos (Prod)"
 - Add `--run` to build AND launch the app in the simulator
 
 ## Modes
@@ -85,6 +85,7 @@ If `--run` was specified and build succeeded:
    - The app bundle is located at `.derivedData/Build/Products/{Configuration}-iphonesimulator/Convos.app`
    - For Dev scheme: `.derivedData/Build/Products/Dev-iphonesimulator/Convos.app`
    - For Local scheme: `.derivedData/Build/Products/Local-iphonesimulator/Convos.app`
+   - For Testnet scheme: `.derivedData/Build/Products/Testnet-iphonesimulator/Convos.app`
    - For Prod scheme: `.derivedData/Build/Products/Prod-iphonesimulator/Convos.app`
 
 3. Install and launch the app (WITHOUT log capture to save context):
@@ -97,6 +98,7 @@ If `--run` was specified and build succeeded:
    Bundle IDs by scheme:
    - "Convos (Dev)": org.convos.ios-preview
    - "Convos (Local)": org.convos.ios-local
+   - "Convos (Testnet)": org.convos.ios-testnet
    - "Convos (Prod)": org.convos.ios
 
 **IMPORTANT: Do NOT automatically:**

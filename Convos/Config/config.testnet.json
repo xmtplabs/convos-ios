@@ -1,0 +1,11 @@
+{
+  "environment": "testnet",
+  "backendUrl": "https://api.testnet.convos.xyz/api",
+  "xmtpNetwork": "dev",
+  "bundleId": "org.convos.ios-testnet",
+  "appGroupIdentifier": "group.org.convos.ios-testnet",
+  "relyingPartyIdentifier": "testnet.convos.org",
+  "associatedDomains": ["testnet.convos.org", "app-testnet.convos.org"],
+  "appUrlScheme": "convos-testnet",
+  "gatewayUrl": "https://payer.testnet.xmtp.network"
+}

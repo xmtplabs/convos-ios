@@ -1,0 +1,95 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.10196,0.03922,0.23137,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.02745,0.01176,0.12549,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "hidden": false,
+          "image-name": "sun.svg",
+          "name": "sun"
+        },
+        {
+          "hidden": false,
+          "image-name": "shine.svg",
+          "name": "shine"
+        },
+        {
+          "hidden": false,
+          "image-name": "triangle.svg",
+          "name": "triangle"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.6
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "layers": [
+        {
+          "hidden": false,
+          "image-name": "grid.svg",
+          "name": "grid"
+        },
+        {
+          "hidden": false,
+          "image-name": "sunGlow.svg",
+          "name": "sunGlow"
+        },
+        {
+          "hidden": false,
+          "image-name": "ring.svg",
+          "name": "ring"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.4
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "layers": [
+        {
+          "hidden": false,
+          "image-name": "background.svg",
+          "name": "background"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

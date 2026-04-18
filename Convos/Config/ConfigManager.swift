@@ -108,6 +108,28 @@ final class ConfigManager: @unchecked Sendable {
             )
             environment = .dev(config: config)
 
+        case "testnet":
+            let url = resolveAndValidateURL(
+                secretsOverride: Secrets.CONVOS_API_BASE_URL,
+                configDefault: apiBaseURL,
+                environmentName: "testnet"
+            )
+            let gatewayUrlValue: String? = {
+                if let gw = self.config["gatewayUrl"] as? String, !isEmptyOrWhitespace(gw) {
+                    return gw.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return nil
+            }()
+            let config = ConvosConfiguration(
+                apiBaseURL: url,
+                appGroupIdentifier: appGroupIdentifier,
+                relyingPartyIdentifier: relyingPartyIdentifier,
+                xmtpEndpoint: isEmptyOrWhitespace(Secrets.XMTP_CUSTOM_HOST) ? nil : Secrets.XMTP_CUSTOM_HOST.trimmingCharacters(in: .whitespacesAndNewlines),
+                xmtpNetwork: xmtpNetwork,
+                gatewayUrl: gatewayUrlValue
+            )
+            environment = .testnet(config: config)
+
         case "production":
             let url = resolveAndValidateURL(
                 secretsOverride: Secrets.CONVOS_API_BASE_URL,
@@ -192,11 +214,11 @@ final class ConfigManager: @unchecked Sendable {
             return nil
         }
 
-        let validNetworks = ["local", "dev", "production", "prod"]
+        let validNetworks = ["local", "dev", "testnet", "production", "prod"]
         let normalizedNetwork = network.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard validNetworks.contains(normalizedNetwork) else {
-            fatalError("Invalid 'xmtpNetwork' value '\(network)' in config.json. Must be one of: local, dev, production, prod")
+            fatalError("Invalid 'xmtpNetwork' value '\(network)' in config.json. Must be one of: local, dev, testnet, production, prod")
         }
 
         return normalizedNetwork
