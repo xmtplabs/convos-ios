@@ -50,27 +50,41 @@ public actor CachedPushNotificationHandler {
     private let identityStore: any KeychainIdentityStoreProtocol
     private let platformProviders: PlatformProviders
 
-    /// The single `MessagingService` for the process's lifetime (or until it ages out).
-    private var messagingService: MessagingService?
-    private var lastAccessTime: Date?
+    /// The currently-cached service, tagged with the identity it was built for.
+    /// Tagging lets us detect and invalidate the cache when the user signs out
+    /// and signs in as someone else within the same long-lived NSE process —
+    /// without it, a payload for B would be handed a `MessagingService` still
+    /// bound to A's MLS state.
+    private struct CachedService {
+        let inboxId: String
+        let clientId: String
+        let service: MessagingService
+        var lastAccessTime: Date
+    }
+    private var cached: CachedService?
 
     /// Maximum age before a cached service is torn down and re-created on the next
     /// notification. Protects against stale MLS state accumulating in a long-lived NSE
     /// process the system occasionally reuses for many back-to-back deliveries.
     private let maxServiceAge: TimeInterval = 900
 
+    /// Injection seam for tests — the wall clock ticks under normal operation.
+    private let now: @Sendable () -> Date
+
     private init(
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         identityStore: any KeychainIdentityStoreProtocol,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
         self.identityStore = identityStore
         self.platformProviders = platformProviders
+        self.now = now
     }
 
     /// Handles a push notification using the structured payload with timeout protection.
@@ -129,25 +143,21 @@ public actor CachedPushNotificationHandler {
     /// between processes or in tests; the system normally tears the NSE process down
     /// before this matters.
     public func cleanup() {
-        if let service = messagingService {
-            service.stop()
+        if let cached {
+            cached.service.stop()
         }
-        messagingService = nil
-        lastAccessTime = nil
+        cached = nil
     }
 
     // MARK: - Private
 
     private func cleanupIfStale() {
-        guard let lastAccess = lastAccessTime,
-              let service = messagingService,
-              Date().timeIntervalSince(lastAccess) > maxServiceAge else {
+        guard let cached, now().timeIntervalSince(cached.lastAccessTime) > maxServiceAge else {
             return
         }
         Log.debug("Cleaning up stale messaging service (age > \(Int(maxServiceAge))s)")
-        service.stop()
-        messagingService = nil
-        lastAccessTime = nil
+        cached.service.stop()
+        self.cached = nil
     }
 
     private func getOrCreateMessagingService(
@@ -155,11 +165,20 @@ public actor CachedPushNotificationHandler {
         clientId: String,
         overrideJWTToken: String?
     ) -> MessagingService {
-        lastAccessTime = Date()
-
-        if let existing = messagingService {
-            Log.debug("Reusing existing messaging service for inbox: \(inboxId)")
-            return existing
+        if var existing = cached {
+            if existing.inboxId == inboxId, existing.clientId == clientId {
+                existing.lastAccessTime = now()
+                cached = existing
+                Log.debug("Reusing existing messaging service for inbox: \(inboxId)")
+                return existing.service
+            }
+            // Identity swapped out from under us (user signed out and in as
+            // someone else while this NSE process was still warm). Tear the
+            // old service down before building the new one so streams and
+            // sync workers from the prior identity drain cleanly.
+            Log.info("Identity rotated mid-process: tearing down cached service for \(existing.inboxId), building for \(inboxId)")
+            existing.service.stop()
+            cached = nil
         }
 
         Log.info("Creating new messaging service for inbox: \(inboxId), with JWT: \(overrideJWTToken != nil)")
@@ -174,7 +193,12 @@ public actor CachedPushNotificationHandler {
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders
         )
-        messagingService = service
+        cached = CachedService(
+            inboxId: inboxId,
+            clientId: clientId,
+            service: service,
+            lastAccessTime: now()
+        )
         return service
     }
 

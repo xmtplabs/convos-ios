@@ -42,13 +42,25 @@ Tag the cached service with the `(inboxId, clientId)` it was built for. Invalida
 - **Logging**
     - Add a single info-level log on the mismatch path: `"Identity rotated mid-process: tearing down cached service for <old-inboxId>, building for <new-inboxId>"`. This is rare enough that it's worth one log line if it ever fires in production.
 
-### Test coverage to add
+### Test coverage
 
-1. **Unit: cache invalidates on identity swap.** Drive the handler through two deliveries with different `(inboxId, clientId)` pairs and assert the second returns a *different* `MessagingService` instance than the first, and that `stop()` was called on the first.
-2. **Unit: cache reused across matching deliveries.** Same `(inboxId, clientId)` twice, both deliveries return the same service instance; `stop()` never called.
-3. **Unit: stale-by-age still invalidates even on match.** Pin `Date()` via an injected clock, advance past `maxServiceAge`, assert second call creates a fresh service.
+The three scenarios we want to pin — swap invalidates, match reuses, age-out
+invalidates — all need an assertable handle on whether two deliveries got the
+same `MessagingService` instance. `MessagingService.authorizedMessagingService`
+wires up a real `AuthorizeInboxOperation`, a `SyncingManager`, and an XMTP
+client under the hood, none of which we can stand up in a plain unit test
+without a running XMTP node.
 
-Tests live in `ConvosCoreTests` and exercise the handler against `MockKeychainIdentityStore` + `MockDatabaseManager` so no live XMTP / Firebase surface is needed.
+A proper unit test pass here wants a small `MessagingServiceFactory` protocol
+that `CachedPushNotificationHandler` depends on, so tests can inject a stub
+factory that returns distinguishable instances. That factory protocol doesn't
+exist yet and introducing it expands scope beyond a tight NSE fix.
+
+Until that refactor lands, this change ships with a clock injection seam (the
+`now` closure) so at least the stale-by-age branch is exercisable in isolation,
+and the compare-and-swap logic is simple enough that inspection pins it. Add a
+follow-up in the C13 test-cleanup checkpoint to introduce the factory
+protocol + the three unit tests.
 
 ### What we deliberately don't do
 
