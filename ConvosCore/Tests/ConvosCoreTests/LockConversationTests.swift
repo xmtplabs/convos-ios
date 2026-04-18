@@ -892,7 +892,7 @@ struct LockConversationTests {
 
 final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
     var generatedInvites: [(conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool)] = []
-    var updatedInvites: [(conversationId: String, name: String?, description: String?, imageURL: String?)] = []
+    var updatedInvites: [String] = []
     var deletedConversationIds: [String] = []
 
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite {
@@ -905,8 +905,8 @@ final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
         )
     }
 
-    func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite {
-        updatedInvites.append((conversationId: conversationId, name: name, description: description, imageURL: imageURL))
+    func update(for conversationId: String) async throws -> Invite {
+        updatedInvites.append(conversationId)
         return Invite(
             conversationId: conversationId,
             urlSlug: "mock-updated-slug",

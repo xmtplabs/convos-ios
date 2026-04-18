@@ -4,7 +4,7 @@ import GRDB
 
 protocol InviteWriterProtocol {
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite
-    func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite
+    func update(for conversationId: String) async throws -> Invite
     func delete(for conversationId: String) async throws
 }
 
@@ -91,12 +91,7 @@ class InviteWriter: InviteWriterProtocol {
         }
     }
 
-    func update(
-        for conversationId: String,
-        name: String?,
-        description: String?,
-        imageURL: String?
-    ) async throws -> Invite {
+    func update(for conversationId: String) async throws -> Invite {
         guard let conversation = try await databaseWriter.read({ db in
             try DBConversation
                 .fetchOne(db, key: conversationId)

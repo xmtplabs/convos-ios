@@ -71,12 +71,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     // MARK: - Invite Preview Sync
 
     private func syncInvitePreview(for conversation: DBConversation) async throws {
-        _ = try await inviteWriter.update(
-            for: conversation.id,
-            name: conversation.includeInfoInPublicPreview ? conversation.name : nil,
-            description: conversation.includeInfoInPublicPreview ? conversation.description : nil,
-            imageURL: conversation.includeInfoInPublicPreview ? conversation.publicImageURLString : nil
-        )
+        _ = try await inviteWriter.update(for: conversation.id)
     }
 
     // MARK: - Conversation Metadata Updates
@@ -634,15 +629,10 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func refreshInvite(for conversationId: String) async throws -> Invite? {
-        guard let conversation = try await databaseWriter.read({ db in
-            try DBConversation.fetchOne(db, key: conversationId)
+        guard try await databaseWriter.read({ db in
+            try DBConversation.fetchOne(db, key: conversationId) != nil
         }) else { return nil }
 
-        return try await inviteWriter.update(
-            for: conversationId,
-            name: conversation.includeInfoInPublicPreview ? conversation.name : nil,
-            description: conversation.includeInfoInPublicPreview ? conversation.description : nil,
-            imageURL: conversation.includeInfoInPublicPreview ? conversation.publicImageURLString : nil
-        )
+        return try await inviteWriter.update(for: conversationId)
     }
 }

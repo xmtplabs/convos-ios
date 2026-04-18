@@ -65,7 +65,7 @@ All teammates share the `single-inbox-refactor` branch and coordinate through th
 ### Test Agent (unit + integration)
 - Runs the Swift test suite: `./dev/up && swift test --package-path ConvosCore && ./dev/down`.
 - Focuses on the Docker-backed integration tests that exercise real XMTP flows against a local node. These are currently the flakiest surface in the repo, largely because multi-inbox coordination, LRU eviction, and pre-creation timing races produce intermittent failures that are hard to reproduce.
-- **Secondary goal**: use the simplification to make the integration suite reliable. Each checkpoint that removes a source of flake (e.g., C4 deletes `InboxLifecycleManager`, C8 replaces per-conversation profile races with a serialized broadcast queue) is an opportunity to de-flake tests. Record before/after flake rates in a dedicated file (`docs/plans/integration-test-stabilization-log.md`) so we have evidence the architecture change delivers the reliability dividend.
+- **Secondary goal**: use the simplification to make the integration suite reliable. Each checkpoint that removes a source of flake (e.g., C4 deletes `InboxLifecycleManager`) is an opportunity to de-flake tests. Record before/after flake rates in a dedicated file (`docs/plans/integration-test-stabilization-log.md`) so we have evidence the architecture change delivers the reliability dividend.
 - Reports regressions immediately so the implementation agent can address them in the same checkpoint.
 
 ### Code Review Agent (architecture + quality)

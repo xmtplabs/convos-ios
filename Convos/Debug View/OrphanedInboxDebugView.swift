@@ -72,7 +72,7 @@ struct OrphanedInboxDebugView: View {
     private func resetAccount() {
         guard !isDeleting else { return }
         isDeleting = true
-        Task {
+        Task { @MainActor in
             do {
                 try await session.deleteAllInboxes()
             } catch {
