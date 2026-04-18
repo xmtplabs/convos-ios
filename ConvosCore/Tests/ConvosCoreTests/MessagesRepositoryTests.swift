@@ -48,7 +48,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 1)
@@ -110,7 +110,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 1)
@@ -185,7 +185,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 1)
@@ -260,7 +260,7 @@ struct MessagesRepositoryTests {
                 .deleteAll(db)
         }
 
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId)
+        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: conversationId, currentInboxId: "")
         let messages = try repository.fetchInitial()
 
         #expect(messages.count == 2)

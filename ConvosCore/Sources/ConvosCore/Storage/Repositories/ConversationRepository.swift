@@ -31,7 +31,8 @@ class ConversationRepository: ConversationRepositoryProtocol {
         self.conversationId = conversationId
         self.messagesRepository = MessagesRepository(
             dbReader: dbReader,
-            conversationId: conversationId
+            conversationId: conversationId,
+            currentInboxId: MessagesRepository.currentInboxId(from: dbReader)
         )
         self.myProfileRepository = MyProfileRepository(
             sessionStateManager: sessionStateManager,

@@ -438,7 +438,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
         MessagesRepository(
             dbReader: databaseReader,
-            conversationId: conversationId
+            conversationId: conversationId,
+            currentInboxId: MessagesRepository.currentInboxId(from: databaseReader)
         )
     }
 

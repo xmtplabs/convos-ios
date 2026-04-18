@@ -24,6 +24,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
         messagesRepository = MessagesRepository(
             dbReader: dbReader,
             conversationId: conversationId,
+            currentInboxId: MessagesRepository.currentInboxId(from: dbReader),
             conversationIdPublisher: conversationIdPublisher
         )
         myProfileRepository = MyProfileRepository(
