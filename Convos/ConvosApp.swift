@@ -15,6 +15,11 @@ struct ConvosApp: App {
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
 
+        ConfigManager.configure(overrides: ConvosSecretOverrides(
+            apiBaseURL: Secrets.CONVOS_API_BASE_URL,
+            xmtpCustomHost: Secrets.XMTP_CUSTOM_HOST,
+            gatewayURL: Secrets.GATEWAY_URL
+        ))
         let environment = ConfigManager.shared.currentEnvironment
         // Configure logging (automatically disabled in production)
         ConvosLog.configure(environment: environment)

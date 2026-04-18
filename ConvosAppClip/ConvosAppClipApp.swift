@@ -1,40 +1,38 @@
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 @main
 struct ConvosAppClipApp: App {
-    @UIApplicationDelegateAdaptor(ConvosAppDelegate.self) private var appDelegate: ConvosAppDelegate
-
-    let session: any SessionManagerProtocol
-    let conversationsViewModel: ConversationsViewModel
+    private let convos: ConvosClient
 
     init() {
+        ConfigManager.configure(overrides: ConvosSecretOverrides(
+            apiBaseURL: Secrets.CONVOS_API_BASE_URL,
+            xmtpCustomHost: Secrets.XMTP_CUSTOM_HOST,
+            gatewayURL: Secrets.GATEWAY_URL
+        ))
         let environment = ConfigManager.shared.currentEnvironment
-        // Configure logging (automatically disabled in production)
         ConvosLog.configure(environment: environment)
+        ConvosLog.info("App Clip starting with environment: \(environment)", namespace: "ConvosAppClip")
 
-        Log.info("App starting with environment: \(environment)")
-
-        // Configure Firebase BEFORE creating ConvosClient
-        // This prevents a race condition where SessionManager tries to use AppCheck before it's configured
-        if let url = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
-            // Only pass debug token for non-production environments (safety check)
+        if let url = environment.firebaseConfigURL {
             let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
             FirebaseHelperCore.configure(with: url, debugToken: debugToken)
         } else {
-            Log.error("Missing Firebase plist URL for current environment")
+            ConvosLog.error("Missing Firebase plist URL for current environment", namespace: "ConvosAppClip")
         }
 
-        let convos: ConvosClient = .client(environment: environment)
-        self.session = convos.session
-        self.conversationsViewModel = .init(session: session)
-        appDelegate.session = session
+        // Instantiating the client seeds the shared-app-group KeychainIdentityStore on first
+        // launch. The main app picks up the same identity via the shared access group, so the
+        // full app skips identity creation and lands on the conversation the clip joined.
+        convos = .client(environment: environment, platformProviders: .iOS)
+        _ = convos // keep alive for the app lifetime
     }
 
     var body: some Scene {
         WindowGroup {
-            ConversationsView(viewModel: conversationsViewModel)
-                .withSafeAreaEnvironment()
+            AppClipRootView()
         }
     }
 }

@@ -423,3 +423,30 @@ Ancillary cleanup: the handler's cross-module dependency on
 `InboxesRepository` is removed (no longer needed for lookup), which frees
 `InboxesRepository`, `InboxWriter`, and the `inbox` table to be considered
 for removal alongside the `inboxId`/`clientId` column drops in C11.
+
+### C12 — App Clip identity bootstrap
+
+The App Clip and the main app share a single identity slot in the keychain.
+Both `Convos.entitlements` and `ConvosAppClip.entitlements` declare the same
+`keychain-access-groups` array (`$(AppIdentifierPrefix)$(APP_GROUP_IDENTIFIER)`
+and `$(AppIdentifierPrefix)$(KEYCHAIN_GROUP_IDENTIFIER)`), and both bind
+`KeychainIdentityStore` to `AppEnvironment.keychainAccessGroup`. On the
+clip's first launch `ConvosClient.client(...)` instantiates the
+`KeychainIdentityStore` against the app-group access group; the first
+`SessionManager.messagingService()` call triggers `makeService`, which
+registers the singleton identity and writes it into that shared slot.
+
+When the user later installs the full app, the main target's first launch
+reads the same access group, `identityStore.load()` returns the clip's
+identity, and `makeService` takes the `authorize` branch instead of
+`register` — reusing the inboxId, clientId, and key material the clip
+created. No onboarding carousel, no second registration, no keychain
+overwrite.
+
+Two unit suites pin the contract: `KeychainIdentityStoreRealKeychainTests`
+round-trips a real keychain item through the shared access group, and
+`AppClipIdentityHandoffTests` (in `ConvosCoreTests`) exercises the
+"clip-write → main-app-load" sequence against the in-memory mock.
+End-to-end coverage of the simulator-installable piece lives in
+`qa/tests/37-app-clip-handoff.md`; the TestFlight-only pieces of the
+real clip-invocation flow are documented there as manual steps.

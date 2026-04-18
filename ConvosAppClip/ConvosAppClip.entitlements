@@ -20,5 +20,10 @@
 	<array>
 		<string>$(APP_GROUP_IDENTIFIER)</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(APP_GROUP_IDENTIFIER)</string>
+		<string>$(AppIdentifierPrefix)$(KEYCHAIN_GROUP_IDENTIFIER)</string>
+	</array>
 </dict>
 </plist>
