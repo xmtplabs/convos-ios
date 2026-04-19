@@ -1124,8 +1124,14 @@ extension ConversationViewModel {
                 do {
                     try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: inviteURL)
                 } catch {
+                    // Even though the fallback finalize failed, the pending
+                    // invite row still exists in the DB — returning nil here
+                    // would signal "caller should send the invite" and cause
+                    // a duplicate send. Keep returning the pendingMessageId
+                    // so the caller treats the invite as already in flight;
+                    // the dangling pending row will surface through the
+                    // normal retry/failure UI.
                     Log.error("Failed to finalize side convo invite fallback: \(error)")
-                    return (inviteURL, nil)
                 }
             }
         }

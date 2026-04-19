@@ -278,9 +278,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
 
                 do {
-                    defer { DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo) }
-
+                    // Yield progress events in lockstep with the work they
+                    // describe: the UI reads the stream in order and expects
+                    // each event to correspond to the phase that is about to
+                    // run (or has just run).
                     continuation.yield(.clearingDeviceRegistration)
+                    DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
 
                     let hasService = self.cachedMessagingService.withLock { $0 != nil }
                     continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
@@ -297,6 +300,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     continuation.yield(.completed)
                     continuation.finish()
                 } catch {
+                    // Still clear device registration on the failure path so
+                    // we don't leave a dangling APNs record pointed at a
+                    // half-torn-down install.
+                    DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
                     continuation.finish(throwing: error)
                 }
             }
