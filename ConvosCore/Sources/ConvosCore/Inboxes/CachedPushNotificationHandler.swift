@@ -44,33 +44,102 @@ public actor CachedPushNotificationHandler {
         identityStore: any KeychainIdentityStoreProtocol,
         platformProviders: PlatformProviders
     ) {
-        registrationLock.lock()
-        defer { registrationLock.unlock() }
-        guard _shared == nil else { return }
-        _shared = CachedPushNotificationHandler(
+        let factory = PushNotificationServiceFactory(
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
             identityStore: identityStore,
             platformProviders: platformProviders
         )
+        initialize(
+            environment: environment,
+            identityStore: identityStore,
+            serviceFactory: factory
+        )
     }
 
-    private let databaseReader: any DatabaseReader
-    private let databaseWriter: any DatabaseWriter
+    /// Test-facing initialize that takes a pre-built factory. Production
+    /// goes through the wrapper above; tests substitute a stub factory
+    /// to assert cache invalidation behavior without firing a real
+    /// `AuthorizeInboxOperation`.
+    static func initialize(
+        environment: AppEnvironment,
+        identityStore: any KeychainIdentityStoreProtocol,
+        serviceFactory: any PushNotificationServiceFactoryProtocol,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) {
+        registrationLock.lock()
+        defer { registrationLock.unlock() }
+        guard _shared == nil else { return }
+        _shared = CachedPushNotificationHandler(
+            environment: environment,
+            identityStore: identityStore,
+            serviceFactory: serviceFactory,
+            now: now
+        )
+    }
+
+    /// Test-only reset hook. Lets a test suite re-initialize between
+    /// scenarios. Never called in production.
+    static func _resetForTesting() {
+        registrationLock.lock()
+        defer { registrationLock.unlock() }
+        if let existing = _shared {
+            // Tear down any cached service from the prior test run.
+            Task { await existing.cleanup() }
+        }
+        _shared = nil
+    }
+
+    /// Test-only constructor. Bypasses the singleton/lock machinery so
+    /// each test gets a fresh handler isolated from global state.
+    static func _testInstance(
+        environment: AppEnvironment,
+        identityStore: any KeychainIdentityStoreProtocol,
+        serviceFactory: any PushNotificationServiceFactoryProtocol,
+        now: @escaping @Sendable () -> Date = Date.init
+    ) -> CachedPushNotificationHandler {
+        CachedPushNotificationHandler(
+            environment: environment,
+            identityStore: identityStore,
+            serviceFactory: serviceFactory,
+            now: now
+        )
+    }
+
+    /// Test-only entry point into the cache-or-build path. Bypasses the
+    /// payload validation + identity-mismatch unregister logic in
+    /// `handlePushNotification` to focus on caching semantics.
+    func _getOrCreateMessagingServiceForTesting(
+        inboxId: String,
+        clientId: String,
+        overrideJWTToken: String?
+    ) -> any PushNotificationProcessing {
+        getOrCreateMessagingService(
+            inboxId: inboxId,
+            clientId: clientId,
+            overrideJWTToken: overrideJWTToken
+        )
+    }
+
+    /// Test-only entry point into the stale-by-age cleanup path.
+    func _cleanupIfStaleForTesting() {
+        cleanupIfStale()
+    }
+
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let platformProviders: PlatformProviders
+    private let serviceFactory: any PushNotificationServiceFactoryProtocol
 
     /// The currently-cached service, tagged with the identity it was built for.
     /// Tagging lets us detect and invalidate the cache when the user signs out
     /// and signs in as someone else within the same long-lived NSE process —
-    /// without it, a payload for B would be handed a `MessagingService` still
-    /// bound to A's MLS state.
+    /// without it, a payload for B would be handed a service still bound to
+    /// A's MLS state.
     private struct CachedService {
         let inboxId: String
         let clientId: String
-        let service: MessagingService
+        let service: any PushNotificationProcessing
         var lastAccessTime: Date
     }
     private var cached: CachedService?
@@ -85,18 +154,14 @@ public actor CachedPushNotificationHandler {
     private let now: @Sendable () -> Date
 
     private init(
-        databaseReader: any DatabaseReader,
-        databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         identityStore: any KeychainIdentityStoreProtocol,
-        platformProviders: PlatformProviders,
+        serviceFactory: any PushNotificationServiceFactoryProtocol,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
-        self.databaseReader = databaseReader
-        self.databaseWriter = databaseWriter
         self.environment = environment
         self.identityStore = identityStore
-        self.platformProviders = platformProviders
+        self.serviceFactory = serviceFactory
         self.now = now
     }
 
@@ -177,7 +242,7 @@ public actor CachedPushNotificationHandler {
         inboxId: String,
         clientId: String,
         overrideJWTToken: String?
-    ) -> MessagingService {
+    ) -> any PushNotificationProcessing {
         if var existing = cached {
             if existing.inboxId == inboxId, existing.clientId == clientId {
                 existing.lastAccessTime = now()
@@ -195,16 +260,10 @@ public actor CachedPushNotificationHandler {
         }
 
         Log.info("Creating new messaging service for inbox: \(inboxId), with JWT: \(overrideJWTToken != nil)")
-        let service = MessagingService.authorizedMessagingService(
-            for: inboxId,
+        let service = serviceFactory.makeService(
+            inboxId: inboxId,
             clientId: clientId,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment,
-            identityStore: identityStore,
-            startsStreamingServices: false,
-            overrideJWTToken: overrideJWTToken,
-            platformProviders: platformProviders
+            overrideJWTToken: overrideJWTToken
         )
         cached = CachedService(
             inboxId: inboxId,

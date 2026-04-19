@@ -44,23 +44,27 @@ Tag the cached service with the `(inboxId, clientId)` it was built for. Invalida
 
 ### Test coverage
 
-The three scenarios we want to pin — swap invalidates, match reuses, age-out
-invalidates — all need an assertable handle on whether two deliveries got the
-same `MessagingService` instance. `MessagingService.authorizedMessagingService`
-wires up a real `AuthorizeInboxOperation`, a `SyncingManager`, and an XMTP
-client under the hood, none of which we can stand up in a plain unit test
-without a running XMTP node.
+Landed in C13. `PushNotificationServiceFactoryProtocol` is a narrow
+seam — `makeService(inboxId:clientId:overrideJWTToken:)` returning an
+`any PushNotificationProcessing` — that `CachedPushNotificationHandler`
+depends on instead of reaching for `MessagingService.authorizedMessagingService`
+directly. Production uses the `PushNotificationServiceFactory` wrapper;
+`CachedPushNotificationHandlerTests` injects a stub factory + mutable
+clock to exercise:
 
-A proper unit test pass here wants a small `MessagingServiceFactory` protocol
-that `CachedPushNotificationHandler` depends on, so tests can inject a stub
-factory that returns distinguishable instances. That factory protocol doesn't
-exist yet and introducing it expands scope beyond a tight NSE fix.
+- **Same identity across deliveries reuses the cached service** — stub
+  factory made count stays at 1.
+- **Different identity invalidates and rebuilds** — two calls with
+  different `(inboxId, clientId)` produce two distinct stub services; the
+  first is `stop()`-ed before the second is built.
+- **Stale-by-age invalidates even on matching identity** — mutable clock
+  advances past the 15-minute threshold; next call rebuilds.
+- **ClientId-only mismatch still invalidates** — same inboxId, different
+  clientId still forces a rebuild.
 
-Until that refactor lands, this change ships with a clock injection seam (the
-`now` closure) so at least the stale-by-age branch is exercisable in isolation,
-and the compare-and-swap logic is simple enough that inspection pins it. Add a
-follow-up in the C13 test-cleanup checkpoint to introduce the factory
-protocol + the three unit tests.
+Test hooks (`_testInstance`, `_getOrCreateMessagingServiceForTesting`,
+`_cleanupIfStaleForTesting`) are internal + underscored so they're
+clearly not production API.
 
 ### What we deliberately don't do
 
