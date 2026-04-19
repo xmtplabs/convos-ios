@@ -146,12 +146,11 @@ With only one implementation teammate touching architecture at a time, overlaps 
 
 | Area | Decision |
 |------|----------|
-| Onboarding | Silent auto-create of the XMTP **identity** on first launch (no user prompt). The existing **Quickname setup flow** on first-conversation creation is preserved — it just writes to the new global profile instead of a local preset. |
-| Quickname storage | Migrated from UserDefaults/filesystem to **GRDB** (the `DBMyProfile` singleton table). UI preserved. Edits broadcast to every conversation. |
+| Onboarding | Silent auto-create of the XMTP **identity** on first launch (no user prompt). The existing **Quickname setup flow** on first-conversation creation is preserved. |
+| Quickname storage | Stays in UserDefaults (per-conversation-flavor). C8 originally planned a `DBMyProfile` table + a broadcast worker; that was rescoped to table drops only, so Quickname is unchanged from today. |
 | Key storage | Keychain with iCloud Keychain sync enabled by default |
 | Multi-device | XMTP Device Sync enabled by default; no UX/recovery in this phase |
-| Profile scope | Truly global; same name/avatar broadcast to every conversation |
-| Profile broadcast | Background queue, newest-conversation-first ordering |
+| Profile scope | Per-conversation (Quickname), same as today. The refactor does not globalize profiles — only identity. |
 | ConvosProfiles package | Folded back into ConvosCore |
 | Explode mechanic | Remove all members → creator leaves; no private-key destruction |
 | ClientId | Kept as a single per-user UUID indirection for backend privacy |

@@ -151,16 +151,62 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// guarantees exactly one `AuthorizeInboxOperation` for the process:
     /// whichever caller takes it first builds + installs, everyone else
     /// sees the cache hit.
+    ///
+    /// Identity disposition is strict: a `nil` return from `loadSync` means
+    /// the keychain is confirmed empty and we can safely register. Any
+    /// thrown error means the slot might be populated-but-unreadable
+    /// (daemon error, corrupt JSON, etc.) — registering on top of that
+    /// would overwrite a potentially-recoverable identity, so we refuse
+    /// and return an uncached error-state service instead. The caller
+    /// observes `.error` on `sessionStateManager` and can surface a
+    /// reinstall/retry prompt; skipping the cache means the next call
+    /// retries the keychain read.
     private func loadOrCreateService() -> MessagingService {
         cachedMessagingService.withLock { cached in
             if let existing = cached {
                 return existing
             }
-            let identity = try? identityStore.loadSync()
+
+            let identity: KeychainIdentity?
+            do {
+                identity = try identityStore.loadSync()
+            } catch {
+                Log.error("Keychain identity read failed (\(error)); refusing to register over a potentially-recoverable identity. Returning uncached error-state service.")
+                return buildErrorStateService()
+            }
+
             let service = buildMessagingService(for: identity)
             cached = service
             return service
         }
+    }
+
+    /// Deliberately-broken service for the "keychain unreadable" path.
+    /// Empty credentials + `startsStreamingServices: false` so the state
+    /// machine lands in `.error` without kicking off any network or
+    /// sync work. Never installed in `cachedMessagingService`; every
+    /// call returns a fresh instance so retries get a new keychain read.
+    private func buildErrorStateService() -> MessagingService {
+        let op = AuthorizeInboxOperation.authorize(
+            inboxId: "",
+            clientId: "",
+            identityStore: identityStore,
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            environment: environment,
+            startsStreamingServices: false,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
+        )
+        return MessagingService(
+            authorizationOperation: op,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            identityStore: identityStore,
+            environment: environment,
+            backgroundUploadManager: platformProviders.backgroundUploadManager
+        )
     }
 
     /// Build a `MessagingService` for the keychain's current identity, or

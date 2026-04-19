@@ -102,23 +102,35 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             return nil
         }
 
-        clearUnusedFromKeychain()
-
+        // Mark the DB row as used *before* clearing the keychain pointer.
+        // If the DB write throws and we've already cleared the keychain,
+        // the conversation becomes an orphan: the DB still says `isUnused
+        // = true` (so the conversation list filters it out) and the
+        // keychain no longer points to it, so nothing in the app knows
+        // the row exists. Ordering: succeed the DB write first, then
+        // drop the keychain entry.
+        let existedAndMarked: Bool
         do {
-            let existedAndMarked = try await markConversationAsUsed(
+            existedAndMarked = try await markConversationAsUsed(
                 conversationId: conversationId,
                 databaseWriter: databaseWriter
             )
-            guard existedAndMarked else {
-                Log.warning("Unused conversation \(conversationId) missing from database; dropping cache entry")
-                return nil
-            }
-            Log.debug("Consumed unused conversation: \(conversationId)")
-            return conversationId
         } catch {
-            Log.error("Failed to consume unused conversation \(conversationId): \(error). Dropping cache entry.")
+            Log.error("Failed to consume unused conversation \(conversationId): \(error). Leaving keychain entry intact for retry.")
             return nil
         }
+
+        guard existedAndMarked else {
+            // Keychain pointed to a row that's not in the DB anymore;
+            // the keychain entry is the stale one and safe to drop.
+            Log.warning("Unused conversation \(conversationId) missing from database; dropping stale cache entry")
+            clearUnusedFromKeychain()
+            return nil
+        }
+
+        clearUnusedFromKeychain()
+        Log.debug("Consumed unused conversation: \(conversationId)")
+        return conversationId
     }
 
     public func isUnusedConversation(_ conversationId: String) -> Bool {
