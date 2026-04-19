@@ -70,7 +70,7 @@ All teammates share the `single-inbox-refactor` branch and coordinate through th
 
 ### Code Review Agent (architecture + quality)
 - Reviews every diff merged to the integration branch `single-inbox-refactor` after each checkpoint lands.
-- Uses the `code-reviewer` subagent under the hood; supplements with `swift-architect` when reviewing structural changes (e.g., C4 deletions, C5 state machine, C8 broadcast worker).
+- Uses the `code-reviewer` subagent under the hood; supplements with `swift-architect` when reviewing structural changes (e.g., C4 deletions, C5 state machine).
 - Looks for: architectural drift from the plan, anti-patterns, bugs, security concerns, missing tests, CLAUDE.md/SwiftLint violations, gratuitous complexity, dead code, and improvements the implementing teammate may have missed.
 - Does **not** push code. Files findings back to the orchestrator (or directly to the owning teammate) as annotated review notes. If the finding is a bug, it becomes a fix-up commit on the owning teammate's branch; if it's architectural, it may prompt a plan revision.
 - Also reviews the plan itself periodically — if decisions drift during implementation, the plan should be updated rather than letting it rot.
@@ -196,7 +196,7 @@ MessagingService: single instance
 
 - **Create conversation**: use existing client → create group. No inbox pre-creation, no LRU, no cascading state machines.
 - **Join conversation**: use existing client → join group.
-- **Update profile**: write global profile once → enqueue broadcast to every group (background).
+- **Update profile**: same per-conversation `ProfileUpdate` message path as today (scope change dropped the global-profile strand; see line 8).
 - **Receive push**: single inbox decrypts; no `clientId` → inbox routing.
 - **Explode**: creator sends `ExplodeSettings`, removes all members, then leaves. Recipients delete the conversation locally; no identity is destroyed.
 
@@ -250,42 +250,39 @@ MessagingService: single instance
 - `InboxActivityRepository` and backing tables → delete.
 - `PendingInviteRepository` → simplify (no `clientId` scoping).
 
-**Tables added**
-- `DBMyProfile` — singleton table for the local user's global profile
-  - `name: String?`, `avatar: String?`, `avatarSalt/Nonce/Key: Data?`, `metadata: ProfileMetadata?`, `updatedAt: Date`
-- `DBProfileBroadcastQueue` — pending broadcasts
-  - `conversationId: String` (PK), `enqueuedAt: Date`, `lastAttemptAt: Date?`, `failureCount: Int`
+**Tables added** — none. C2 originally added `DBMyProfile` and
+`DBProfileBroadcastQueue` in anticipation of a global-profile design;
+the scope change (line 8) dropped that design, and C8 reduced to a
+schema cleanup that drops the unused tables. No tables added in the
+final landing.
 
-### 4. Profile System (Global)
+### 4. Profile System
 
-**Quickname stays as the user-facing concept.** What changes is its storage and scope: previously Quickname was a local preset copied into each conversation's independent profile; now Quickname **is** the global profile. Editing it from anywhere (onboarding, per-conversation edit, app settings) writes to a single `DBMyProfile` row and enqueues broadcast to every conversation.
+Per-conversation profiles are kept — the scope change dropped the
+global-profile strand (see line 8). What C1's `ConvosProfiles` →
+`ConvosCore` fold actually changes is module placement, not semantics.
 
-**Remove**
-- Per-conversation scoping in `MyProfileWriter` (writes always target the singleton)
-- Filesystem/UserDefaults-backed Quickname storage (replaced by `DBMyProfile`, a GRDB singleton table)
-- The "apply this preset to this conversation" semantics (the profile is already applied everywhere)
+**Fold**
+- `ConvosProfiles` → `ConvosCore/Sources/ConvosCore/Profiles/`.
+  `ProfileUpdateCodec`, `ProfileSnapshotCodec`, `ProfileSnapshotBuilder`,
+  `ProfileMessageHelpers`, protobuf schema, file names and contents all
+  unchanged. `MyProfileWriter` continues to publish per-conversation
+  `ProfileUpdate` messages as it does today.
 
-**Preserve (UI kept as-is)**
-- Quickname setup prompt on first conversation creation (`setup-quickname-button` flow)
-- Per-conversation Quickname edit entry point inside conversation detail
-- Quickname settings screens under app settings
-- The Quickname "Tap to chat as X" pill's accessibility affordances stay wired up; its runtime relevance will be re-evaluated during implementation since, in the global model, there is nothing left to "apply." Treat any change as a minor UX tweak, not an architectural decision.
+**Preserve (unchanged from today)**
+- Per-conversation profile storage (`DBMemberProfile`, keyed on
+  `(conversationId, inboxId)`) for both the local user and other
+  members.
+- `ProfileUpdate` / `ProfileSnapshot` custom content types.
+- Encrypted avatar storage (AES-256-GCM, ADR 009).
+- Quickname UX surface: setup prompt, per-conversation edit, App
+  Settings edit screen. Storage remains in UserDefaults.
 
-**Modify**
-- Fold `ConvosProfiles` into `ConvosCore` at `ConvosCore/Sources/ConvosCore/Profiles/`
-  - `ProfileUpdateCodec`, `ProfileSnapshotCodec`, `ProfileSnapshotBuilder`, `ProfileMessageHelpers`, protobuf schema
-- `MyProfileWriter` → writes to `DBMyProfile` singleton; enqueues broadcast to `DBProfileBroadcastQueue`
-- New `ProfileBroadcastWorker`
-  - Orders pending broadcasts by `conversation.lastMessageAt DESC` so the user's most-used conversations update first
-  - Sends `ProfileUpdate` messages with a small concurrency window
-  - Exponential backoff on failure; persists progress so broadcasts survive restart
-  - Resilient to app foreground/background transitions
-- `ProfileSnapshot` generation at group creation / member-add now uses the global profile directly
-
-**Preserve**
-- Per-conversation profile storage for **other members** (they may still publish different profiles per conversation)
-- `ProfileUpdate` / `ProfileSnapshot` custom content types
-- Encrypted avatar storage (AES-256-GCM, ADR 009)
+**What doesn't land this refactor**
+- Global-profile editor, `DBMyProfile`, `DBProfileBroadcastQueue`,
+  `ProfileBroadcastWorker`, and the "edit once, fan out everywhere"
+  UX. Tracked for a future cycle if/when the product direction
+  re-opens it.
 
 ### 5. Push Notifications
 
@@ -365,7 +362,7 @@ The follow-up plan must land **before** we start substantive invite code changes
 **Modify**
 - `ConversationViewModel`: drop `clientId`/`inboxId` tracking; drop the `leftConversationNotification` → inbox-deletion observer
 - `NewConversationViewModel`: drop the inbox-creation branch; talks directly to the single messaging service
-- `MyProfileViewModel`: single global profile editor; surfaces a subtle broadcast-in-progress indicator while the queue drains
+- `MyProfileViewModel`: unchanged (scope change kept per-conversation profiles and the existing UserDefaults-backed Quickname; the global-profile editor + broadcast-progress indicator are not part of this refactor — see line 8)
 - `ConversationsViewModel`: no cross-inbox filtering
 - `AppSettingsViewModel`: add iCloud Keychain sync status and device-sync status indicators
 
@@ -380,12 +377,11 @@ Files deleted entirely (non-exhaustive):
 
 Features deleted:
 - LRU eviction, sleep/wake, pre-creation cache
-- Per-conversation profile divergence (all profile edits are global)
 - `ClientId` invariant-mismatch error surface (trivial with singleton)
 
-Files kept but substantially rewritten:
-- `Convos/Profile/QuicknameSettings.swift`, `QuicknameSettingsViewModel.swift` — storage backend changes from filesystem/UserDefaults to `DBMyProfile`; UI untouched
-- `MyProfileWriter` — singleton-oriented, enqueues broadcast
+Files kept unchanged (scope change kept per-conversation profiles and UserDefaults-backed Quickname; see line 8):
+- `Convos/Profile/QuicknameSettings.swift`, `QuicknameSettingsViewModel.swift`
+- `MyProfileWriter`
 
 Conceptually retired but kept as simplified stubs:
 - `DBInbox` (singleton row)
@@ -492,7 +488,7 @@ Net effect on C4's PR diff: C4a+C4b+C4d land under C4. The column drop arrives w
 - **Tests**: `PendingInviteRepositoryTests` simplified (no `clientId` scoping). Invite-flow integration tests rewritten to target single-inbox join. Expect this to de-flake tests that previously raced against inbox pre-creation during invite accept.
 
 ### C11 — UI / ViewModel updates
-- **Code**: Remove inbox switcher (if any). Rewire `MyProfileViewModel`, `ConversationViewModel`, `NewConversationViewModel`, `ConversationsViewModel`, `AppSettingsViewModel` to drop `clientId`/`inboxId` tracking and talk to the single session. Quickname screens preserved; their view models now read/write `DBMyProfile`.
+- **Code**: Remove inbox switcher (if any). Rewire `MyProfileViewModel`, `ConversationViewModel`, `NewConversationViewModel`, `ConversationsViewModel`, `AppSettingsViewModel` to drop `clientId`/`inboxId` tracking and talk to the single session. Quickname screens preserved unchanged — scope change kept UserDefaults-backed Quickname storage (see line 8).
 - **ADR**: None.
 - **QA**: Update `01-onboarding.md` minimally if needed — identity creation is silent, but the existing Quickname prompt after first-conversation creation still fires. Most of the existing script should keep passing. If specific assertions (e.g., "Quickname saved confirmation appears") still apply verbatim, leave them. Update the corresponding YAML only where the UI sequence actually changed.
 - **Tests**: ViewModel tests updated for the simplified state. Build must pass. Snapshot/preview-driven tests updated only where behavior changed.
@@ -589,8 +585,6 @@ once on first launch of this version. See ADR 011 §7.
 - **iCloud Keychain data shape constraints**: sync has practical size limits and type restrictions. Our serialized identity (secp256k1 private key + 256-bit db encryption key) is small; expected to fit without issue. Confirmed that app-group keychain items can sync to iCloud under our configuration — no spike needed.
 - **Integration-test flakiness (opportunity, not blocker)**: the current Docker-backed integration suite is flaky, largely due to multi-inbox timing races. The Test Agent treats the refactor as an opportunity to de-flake — this is explicitly scoped in C4 and C13. If flake rate does *not* drop measurably after C4, that's a signal we've introduced new timing issues and should pause to investigate before proceeding.
 - **XMTP Device Sync edge cases**: enabling device sync silently means a second install discovered via iCloud Keychain on another device can inherit history. Acceptable because we said multi-device is deferred, but behavior should be documented (what happens on iPad + iPhone with the same iCloud account?).
-- **Broadcast storm**: a user with many conversations editing their name triggers many network sends. Rate-limit, batch, and respect backend throttling.
-- **Background execution limits**: iOS may stall the broadcast queue. Must resume cleanly on foreground.
 - **Pending invite links in the wild**: invites signed/encoded against the old identity format become unusable. Acceptable within the no-BC stance, but worth a line in release notes.
 - **Assistants/agents integration**: confirm assistants still work with single-inbox users (ConvosAgents, ConvosAssistants).
 - **Asset renewal (ADR 008)**: verify the single-inbox path for encrypted image renewal.
