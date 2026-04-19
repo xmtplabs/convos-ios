@@ -103,6 +103,22 @@ Flake rate: **0 / 10 = 0%**.
 10 consecutive passes against a 20%-flake-rate null would clear at
 rate `(0.8)^10 ≈ 10.7%`; 15 would clear at `(0.8)^15 ≈ 3.5%`.
 
+### C14 — Final ×3 clean run
+
+**Date**: 2026-04-19
+**Commits at pass time**:
+- `ca86cd58` C13: fix ExpiredConversationsWorker test flake; log stabilization pass
+- (C14 ADR finalization + ADR 011 on top)
+
+| Run | Tests | Result | Duration |
+| --- | --- | --- | --- |
+| 1 | 563 / 67 suites | pass | 15.701s |
+| 2 | 563 / 67 suites | pass | 15.333s |
+| 3 | 563 / 67 suites | pass | 15.849s |
+
+Flake rate: **0 / 3 = 0%**. Plan's C14 "final clean ×3" requirement
+satisfied.
+
 ## What's not in here
 
 - Pre-refactor baseline vs. post-refactor baseline for the same test

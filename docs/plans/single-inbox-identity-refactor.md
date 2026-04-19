@@ -515,6 +515,62 @@ Net effect on C4's PR diff: C4a+C4b+C4d land under C4. The column drop arrives w
 - **QA**: Run the full suite end-to-end; fix any drift discovered, then re-run. Produce a final CXDB report attached to the PR description.
 - **Tests**: Final `./dev/up && swift test && ./dev/down` run ×3 clean. Publish the final stabilization-log table in the PR description alongside the QA report.
 
+#### C14 release notes (for the PR description)
+
+Copy-paste into the PR body at merge time:
+
+```markdown
+## Single-Inbox Identity Refactor
+
+Replaces the per-conversation identity model (ADR 002) with a single
+XMTP inbox per user. Canonical design: [ADR 011](docs/adr/011-single-inbox-identity-model.md).
+
+### User-facing changes
+- Existing installs lose all conversations and identities on upgrade.
+  `LegacyDataWipe` runs once per schema-generation marker and reports
+  nothing to the user beyond the fresh state.
+- No more Quickname preset screen — users have one identity across all
+  conversations by default.
+- Explode now sends `ExplodeSettings`, removes every other member from
+  the MLS group, and leaves. Receivers drop the conversation on the
+  message or on the MLS "removed" commit, whichever arrives first.
+- New device under the same Apple ID inherits the identity via iCloud
+  Keychain and the group membership via XMTP device sync.
+
+### Architecture changes
+- **Deleted** (subsystems, not just files): `InboxLifecycleManager`,
+  `UnusedInboxCache`, `SleepingInboxMessageChecker`,
+  `InboxActivityRepository`, multi-inbox coordination in
+  `SessionManager`, pre-creation cache, placeholder service path.
+- **Added**: `KeychainIdentityStore.loadSync`, `SessionManager`
+  one-slot lock-guarded cache, `CachedPushNotificationHandler`
+  identity-keyed cache invalidation, `PushNotificationServiceFactory`
+  test seam, `LegacyDataWipe` generation-gated upgrade wipe, App Clip
+  identity bootstrap.
+- **Wire protocol**: push-notification payload shape unchanged;
+  `clientId` indirection preserved.
+
+### Privacy changes
+- **Lost**: cross-conversation identity isolation, cryptographic
+  finality on explode, device-binding guarantee (`kSecAttrSynchronizable`).
+- **Preserved**: backend sees only `clientId`, ciphertext stays inside
+  XMTP, per-conversation display profiles for other members, NSE
+  cannot decrypt for identities it was not routed to.
+
+### Evidence
+- Integration suite: 0 / 10 post-fix flake rate, plus final ×3 clean
+  in C14 — see `docs/plans/integration-test-stabilization-log.md`.
+- QA report: attach the CXDB report from the QA agent here at merge
+  time.
+- ADR changes: 002 superseded by 011; 003 superseded; 004 amended
+  (C9 remove-all-then-leave); 005 unchanged (per-conversation
+  profiles retained).
+
+### Migration
+No data migration. Existing installs are wiped by `LegacyDataWipe`
+once on first launch of this version. See ADR 011 §7.
+```
+
 ## Migration / Fresh-Start Strategy
 
 **On first launch of the new version**

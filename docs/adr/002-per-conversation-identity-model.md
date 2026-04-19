@@ -1,11 +1,24 @@
 # ADR 002: Per-Conversation Identity Model with Privacy-Preserving Push Notifications
 
-> **Status**: Superseded (in progress) — see `docs/plans/single-inbox-identity-refactor.md`.
-> Single-inbox replacement is landing incrementally in the checkpoint commits that make up
-> that plan. Full supersession (and the companion "ADR 011 – Single-Inbox Identity Model")
-> lands at C14 once the refactor is behaviorally complete. The sections below remain the
-> source of truth for the old code paths still present on this branch; amended sections at
-> the bottom of the file note which checkpoint retired each piece.
+> **Status**: Superseded by [ADR 011 — Single-Inbox Identity Model](./011-single-inbox-identity-model.md).
+>
+> **Superseded date**: 2026-04-19 (C14 of the single-inbox identity refactor,
+> `docs/plans/single-inbox-identity-refactor.md`).
+>
+> The per-conversation identity architecture described below is no longer the
+> live design. Convos now provisions a single XMTP inbox per user, keys are
+> synced across devices via iCloud Keychain, and Explode uses an MLS
+> remove-all-then-leave mechanism instead of destroying a per-conversation
+> inbox. The threat model has shifted: we traded cross-conversation identity
+> isolation and per-conversation cryptographic finality for a dramatically
+> smaller surface (no LRU, no pre-creation cache, no sleep/wake state machine,
+> one keychain slot, one XMTP database). Read ADR 011 for the current
+> architecture; the sections below are retained as historical context for the
+> pre-refactor design.
+>
+> The Single-Inbox Supersession Amendments section at the bottom of this file
+> remains in place and records which checkpoint retired each piece of the old
+> architecture — useful for anyone tracing the history of a code path.
 
 ## Context
 
