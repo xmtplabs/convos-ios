@@ -240,6 +240,8 @@ is no data-migration path; the refactor ships as a clean break.
 - `KeychainSyncConfigTests` — access attributes + sync flag.
 - `IncomingMessageWriterExplodeTests` — receiver-side explode on
   `ExplodeSettings` / MLS-remove.
+- `ExplodeRemoveAndLeaveTests` — sender-side explode call order
+  (`sendExplode` → remove → `leaveGroup`, `denyConsent` fallback).
 - `SessionStateMachineTests` — client options, single-inbox authorization.
 
 ## References

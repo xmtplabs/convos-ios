@@ -6,6 +6,19 @@ public protocol ConversationExplosionWriterProtocol: Sendable {
     func scheduleExplosion(conversationId: String, expiresAt: Date) async throws
 }
 
+/// The MLS-level operations the explosion writer needs to reach through to
+/// the XMTP SDK. Factored out so tests can assert the call sequence
+/// (`sendExplode` → remove members → `leaveGroup` → fallback
+/// `updateConsentState`) without standing up a real MLS group. Production
+/// implementation is `XMTPExplodeGroupOperations`; `MockExplodeGroupOperations`
+/// backs the unit tests.
+protocol ExplodeGroupOperationsProtocol: Sendable {
+    func currentInboxId() async throws -> String
+    func sendExplode(conversationId: String, expiresAt: Date) async throws
+    func leaveGroup(conversationId: String) async throws
+    func denyConsent(conversationId: String) async throws
+}
+
 enum ConversationExplosionError: LocalizedError {
     case conversationNotFound(String)
     case notGroupConversation(String)
@@ -20,45 +33,83 @@ enum ConversationExplosionError: LocalizedError {
     }
 }
 
+struct XMTPExplodeGroupOperations: ExplodeGroupOperationsProtocol {
+    let sessionStateManager: any SessionStateManagerProtocol
+
+    func currentInboxId() async throws -> String {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        return inboxReady.client.inboxId
+    }
+
+    func sendExplode(conversationId: String, expiresAt: Date) async throws {
+        let (xmtpConversation, _) = try await findGroupConversation(conversationId: conversationId)
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+    }
+
+    func leaveGroup(conversationId: String) async throws {
+        let (_, group) = try await findGroupConversation(conversationId: conversationId)
+        try await group.leaveGroup()
+    }
+
+    func denyConsent(conversationId: String) async throws {
+        let (_, group) = try await findGroupConversation(conversationId: conversationId)
+        try await group.updateConsentState(state: .denied)
+    }
+
+    private func findGroupConversation(
+        conversationId: String
+    ) async throws -> (XMTPiOS.Conversation, Group) {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(
+            conversationId: conversationId
+        ) else {
+            throw ConversationExplosionError.conversationNotFound(conversationId)
+        }
+
+        guard case .group(let group) = xmtpConversation else {
+            throw ConversationExplosionError.notGroupConversation(conversationId)
+        }
+
+        return (xmtpConversation, group)
+    }
+}
+
 final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @unchecked Sendable {
-    private let sessionStateManager: any SessionStateManagerProtocol
+    private let operations: any ExplodeGroupOperationsProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
 
     init(
-        sessionStateManager: any SessionStateManagerProtocol,
+        operations: any ExplodeGroupOperationsProtocol,
         metadataWriter: any ConversationMetadataWriterProtocol
     ) {
-        self.sessionStateManager = sessionStateManager
+        self.operations = operations
         self.metadataWriter = metadataWriter
     }
 
     func explodeConversation(conversationId: String, memberInboxIds: [String]) async throws {
         let expiresAt = Date()
 
-        let (xmtpConversation, group) = try await findGroupConversation(conversationId: conversationId)
-
-        // Step 0: filter the creator's own inboxId out of the member list. The
+        // Filter the creator's own inboxId out of the member list. The
         // ViewModel passes `conversation.members.map { $0.profile.inboxId }`
         // which includes the current user. MLS rejects self-removal via
-        // `removeMembers` — the creator must leave via `leaveGroup()` (Step 4).
-        // Without this filter Step 3 throws and the explode degrades to
+        // `removeMembers` — the creator must leave via `leaveGroup()` at the end.
+        // Without this filter the remove step throws and the explode degrades to
         // "the codec message went out but nothing else happened."
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-        let currentInboxId = inboxReady.client.inboxId
+        let currentInboxId = try await operations.currentInboxId()
         let otherMemberInboxIds = memberInboxIds.filter { $0 != currentInboxId }
 
-        // Step 1: broadcast the explode-now message so every other member gets the
+        // Broadcast the explode-now message so every other member gets the
         // `conversationExpired` signal even if they don't process the subsequent
         // member-removal event in time.
         Log.info("Sending ExplodeSettings message...")
-        nonisolated(unsafe) let unsafeConversation = xmtpConversation
-        try await withTimeout(seconds: 20) {
-            try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+        try await withTimeout(seconds: 20) { [operations] in
+            try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
         Log.info("ExplodeSettings message sent successfully")
         QAEvent.emit(.conversation, "exploded", ["id": conversationId])
 
-        // Step 2: set the local expiresAt so the sender's own UI hides the
+        // Set the local expiresAt so the sender's own UI hides the
         // conversation immediately. ConversationsRepository filters on
         // `expiresAt > Date()`, so a past value is the soft-delete trigger.
         do {
@@ -67,7 +118,7 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
         }
 
-        // Step 3: remove every other member from the MLS group (filtered list,
+        // Remove every other member from the MLS group (filtered list,
         // creator excluded). Emits GroupUpdated removal events that other
         // clients pick up even if they missed the ExplodeSettings message
         // (e.g. offline at send time).
@@ -77,22 +128,22 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             Log.error("Failed removing members during explosion: \(error.localizedDescription)")
         }
 
-        // Step 4: creator leaves the group. In the per-conversation-identity era
+        // Creator leaves the group. In the per-conversation-identity era
         // this step didn't exist — the whole inbox was destroyed. With a single
         // shared inbox we can't destroy keys (they secure every other conversation),
         // so the cleanest exit is an explicit self-remove via `leaveGroup()`. The
-        // XMTP SDK sends the MLS commit that takes us out of the group. `updateConsentState(.denied)`
-        // was used pre-C9 as a belt-and-suspenders to keep the conversation from
-        // re-syncing — it's now redundant with `leaveGroup()` (we're out of the
-        // group so there's nothing left to sync), but preserving it as a no-op
-        // guard in case the leave operation is interrupted.
+        // XMTP SDK sends the MLS commit that takes us out of the group.
+        // `denyConsent` was used pre-C9 as a belt-and-suspenders to keep the
+        // conversation from re-syncing — it's now redundant with `leaveGroup()`
+        // (we're out of the group so there's nothing left to sync), but
+        // preserved as a no-op guard in case the leave operation is interrupted.
         do {
-            try await group.leaveGroup()
+            try await operations.leaveGroup(conversationId: conversationId)
             Log.info("Creator left exploded group: \(conversationId)")
         } catch {
             Log.error("Failed leaving group after explosion: \(error.localizedDescription). Falling back to denied consent.")
             do {
-                try await group.updateConsentState(state: .denied)
+                try await operations.denyConsent(conversationId: conversationId)
             } catch {
                 Log.error("Also failed denying consent: \(error.localizedDescription)")
             }
@@ -100,12 +151,9 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
     }
 
     func scheduleExplosion(conversationId: String, expiresAt: Date) async throws {
-        let (xmtpConversation, _) = try await findGroupConversation(conversationId: conversationId)
-
         Log.info("Scheduling explosion for \(expiresAt)...")
-        nonisolated(unsafe) let unsafeConversation = xmtpConversation
-        try await withTimeout(seconds: 20) {
-            try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+        try await withTimeout(seconds: 20) { [operations] in
+            try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
         Log.info("Scheduled explosion message sent successfully for \(expiresAt)")
 
@@ -124,22 +172,5 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             ]
         )
         Log.info("Explosion scheduled for \(expiresAt)")
-    }
-
-    private func findGroupConversation(
-        conversationId: String
-    ) async throws -> (XMTPiOS.Conversation, Group) {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-        guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(
-            conversationId: conversationId
-        ) else {
-            throw ConversationExplosionError.conversationNotFound(conversationId)
-        }
-
-        guard case .group(let group) = xmtpConversation else {
-            throw ConversationExplosionError.notGroupConversation(conversationId)
-        }
-
-        return (xmtpConversation, group)
     }
 }

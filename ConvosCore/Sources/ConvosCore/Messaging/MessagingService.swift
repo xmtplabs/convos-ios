@@ -192,7 +192,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
         ConversationExplosionWriter(
-            sessionStateManager: sessionStateManager,
+            operations: XMTPExplodeGroupOperations(sessionStateManager: sessionStateManager),
             metadataWriter: conversationMetadataWriter()
         )
     }

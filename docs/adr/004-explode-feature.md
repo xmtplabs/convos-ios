@@ -442,6 +442,8 @@ the plan's QA scope for C9 covers this mismatch in
 ### Code locations
 
 - Sender: `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationExplosionWriter.swift`
+  (MLS operations are reached through the `ExplodeGroupOperationsProtocol`
+  seam so the sender-side call order is unit-testable)
 - Receiver (message): `ConvosCore/Sources/ConvosCore/Storage/Writers/IncomingMessageWriter.swift`
   (`processExplodeSettings`)
 - Receiver ("removed" event): `ConvosCore/Sources/ConvosCore/Storage/Writers/IncomingMessageWriter.swift`
@@ -449,4 +451,14 @@ the plan's QA scope for C9 covers this mismatch in
 - Filtering: `ConvosCore/Sources/ConvosCore/Storage/Repositories/ConversationsRepository.swift`
   (`expiresAt > Date()` clause)
 - Timer: `ConvosCore/Sources/ConvosCore/Storage/Workers/ExpiredConversationsWorker.swift`
+
+### Test locations
+
+- Sender: `ConvosCore/Tests/ConvosCoreTests/ExplodeRemoveAndLeaveTests.swift`
+  — pins the call order `currentInboxId → sendExplode → updateExpiresAt
+  → removeMembers → leaveGroup` and exercises the `denyConsent`
+  fallback when `leaveGroup` throws.
+- Receiver: `ConvosCore/Tests/ConvosCoreTests/IncomingMessageWriterExplodeTests.swift`
+  — covers the dispatch decision for `ExplodeSettings` messages
+  (from-self, from-creator, from-admin, from-non-admin).
 
