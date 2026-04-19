@@ -15,9 +15,10 @@ enum LegacyDataWipe {
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 
     /// Checks whether a wipe is needed for the current install and runs it before
-    /// the GRDB database is opened. Writes the new generation marker on success.
-    /// No-ops for fresh installs (no legacy markers present) and for installs
-    /// already on the current generation.
+    /// the GRDB database is opened. Writes the new generation marker when the
+    /// on-disk state is clean after the wipe attempt. No-ops for fresh installs
+    /// (no legacy markers present) and for installs already on the current
+    /// generation.
     static func runIfNeeded(environment: AppEnvironment) {
         let defaults = UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard
         let stored = defaults.string(forKey: schemaGenerationKey)
@@ -39,32 +40,46 @@ enum LegacyDataWipe {
         }
 
         Log.info("LegacyDataWipe: detected legacy data (storedGeneration=\(stored ?? "nil")), wiping before migration")
-        let dbWipeOK = wipeDatabases(at: databasesDirectory, environment: environment)
-        let keychainWipeOK = wipeLegacyKeychainItems(accessGroup: environment.appGroupIdentifier)
 
-        // Only mark the install as upgraded when both wipe phases succeeded.
-        // A partial wipe that claimed success would prevent retry on the next
-        // launch and leave the migrator opening a database in an
-        // incompatible shape.
-        if dbWipeOK && keychainWipeOK {
-            defaults.set(currentGeneration, forKey: schemaGenerationKey)
-        } else {
-            Log.error("LegacyDataWipe: one or more wipe phases failed (db=\(dbWipeOK), keychain=\(keychainWipeOK)). " +
+        // Two classes of legacy state with different severity:
+        //
+        // 1. Legacy keychain items (v1/v2 service names) — cosmetic.
+        //    The current KeychainIdentityStore (v3) ignores them; stray
+        //    entries don't affect behavior. Failures here are logged but
+        //    never gate the generation marker.
+        //
+        // 2. Legacy DB artifacts (convos.sqlite + xmtp-*) — fatal.
+        //    The new schema can't open them. If they remain after the
+        //    wipe attempt the app will crash trying to open the DB, so
+        //    we withhold the generation marker and let the next launch
+        //    retry. Verification is done by re-running
+        //    `detectLegacyArtifacts` against the on-disk state — bool
+        //    return values from the wipe helpers would just be a cache
+        //    of that same check.
+        wipeLegacyKeychainItems(accessGroup: environment.appGroupIdentifier)
+        wipeDatabases(at: databasesDirectory, environment: environment)
+
+        let artifactsRemaining = detectLegacyArtifacts(
+            databasesDirectory: databasesDirectory,
+            environment: environment
+        )
+        if artifactsRemaining {
+            Log.error("LegacyDataWipe: database artifacts still present after wipe attempt. " +
                       "Generation marker NOT set; will retry on next launch.")
+        } else {
+            defaults.set(currentGeneration, forKey: schemaGenerationKey)
         }
     }
 
     /// Removes keychain items registered under earlier service names. The
     /// current store (`KeychainIdentityStore.defaultService`) ignores these,
-    /// but they linger in the keychain otherwise. Returns `false` if any
-    /// delete failed for a reason other than "not found" so the caller can
-    /// withhold the generation marker.
-    private static func wipeLegacyKeychainItems(accessGroup: String) -> Bool {
+    /// so residual items are harmless cruft — logged on failure but not
+    /// treated as a blocker.
+    private static func wipeLegacyKeychainItems(accessGroup: String) {
         let legacyServices = [
             "org.convos.ios.KeychainIdentityStore.v2",
             "org.convos.ios.KeychainIdentityStore.v1"
         ]
-        var allOK = true
         for service in legacyServices {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
@@ -76,11 +91,9 @@ enum LegacyDataWipe {
             if status == errSecSuccess {
                 Log.debug("LegacyDataWipe: removed legacy keychain items for service \(service)")
             } else if status != errSecItemNotFound {
-                Log.error("LegacyDataWipe: failed to remove legacy keychain items for service \(service), status=\(status)")
-                allOK = false
+                Log.error("LegacyDataWipe: failed to remove legacy keychain items for service \(service), status=\(status) (cosmetic — not blocking)")
             }
         }
-        return allOK
     }
 
     /// Returns `true` if the install has on-disk state from an earlier
@@ -110,11 +123,11 @@ enum LegacyDataWipe {
         }
     }
 
-    /// Returns `false` if any file's delete attempt failed (file existed and
-    /// removeItem threw). Missing files are not failures.
-    private static func wipeDatabases(at directory: URL, environment: AppEnvironment) -> Bool {
+    /// Best-effort deletion of legacy GRDB + XMTP database files. Success
+    /// is measured after the fact via `detectLegacyArtifacts` on the same
+    /// directory, so we don't thread a boolean result back through.
+    private static func wipeDatabases(at directory: URL, environment: AppEnvironment) {
         let fileManager = FileManager.default
-        var allOK = true
 
         let grdbFiles = [
             "convos.sqlite",
@@ -122,10 +135,7 @@ enum LegacyDataWipe {
             "convos.sqlite-wal"
         ]
         for filename in grdbFiles {
-            let url = directory.appendingPathComponent(filename)
-            if !removeItem(at: url, fileManager: fileManager) {
-                allOK = false
-            }
+            removeItem(at: directory.appendingPathComponent(filename), fileManager: fileManager)
         }
 
         let envPrefix = xmtpEnvPrefix(for: environment)
@@ -135,26 +145,18 @@ enum LegacyDataWipe {
             includingPropertiesForKeys: nil
         ) {
             for url in entries where url.lastPathComponent.hasPrefix(xmtpPrefix) {
-                if !removeItem(at: url, fileManager: fileManager) {
-                    allOK = false
-                }
+                removeItem(at: url, fileManager: fileManager)
             }
         }
-
-        return allOK
     }
 
-    /// Returns `true` if the file was removed successfully or did not exist.
-    /// Returns `false` only when the file existed and removal threw.
-    private static func removeItem(at url: URL, fileManager: FileManager) -> Bool {
-        guard fileManager.fileExists(atPath: url.path) else { return true }
+    private static func removeItem(at url: URL, fileManager: FileManager) {
+        guard fileManager.fileExists(atPath: url.path) else { return }
         do {
             try fileManager.removeItem(at: url)
             Log.debug("LegacyDataWipe: removed \(url.lastPathComponent)")
-            return true
         } catch {
             Log.error("LegacyDataWipe: failed to remove \(url.lastPathComponent): \(error)")
-            return false
         }
     }
 
