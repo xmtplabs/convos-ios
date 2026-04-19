@@ -18,16 +18,25 @@ public enum NotificationProcessingError: Error {
 /// so the handler drops it.
 @globalActor
 public actor CachedPushNotificationHandler {
-    public static var shared: CachedPushNotificationHandler {
-        guard _shared != nil else {
-            fatalError("CachedPushNotificationHandler.initialize() must be called before accessing shared")
-        }
-        // swiftlint:disable:next force_unwrapping
-        return _shared!
-    }
+    /// `NSLock` rather than `OSAllocatedUnfairLock` because we both read and
+    /// mutate `_shared` across its lifetime; the lock keeps the guard + load
+    /// atomic so `shared` can't observe a torn intermediate state if some
+    /// future call path tears down and re-initializes the NSE handler.
+    private static let registrationLock = NSLock()
     nonisolated(unsafe) private static var _shared: CachedPushNotificationHandler?
 
-    /// Initialize the shared instance with required dependencies
+    public static var shared: CachedPushNotificationHandler {
+        registrationLock.lock()
+        defer { registrationLock.unlock() }
+        guard let instance = _shared else {
+            fatalError("CachedPushNotificationHandler.initialize() must be called before accessing shared")
+        }
+        return instance
+    }
+
+    /// Initialize the shared instance with required dependencies. Safe to
+    /// call multiple times from the same process — the first invocation
+    /// wins so early `shared` readers never observe a reconfigured handler.
     public static func initialize(
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
@@ -35,6 +44,9 @@ public actor CachedPushNotificationHandler {
         identityStore: any KeychainIdentityStoreProtocol,
         platformProviders: PlatformProviders
     ) {
+        registrationLock.lock()
+        defer { registrationLock.unlock() }
+        guard _shared == nil else { return }
         _shared = CachedPushNotificationHandler(
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
@@ -63,10 +75,11 @@ public actor CachedPushNotificationHandler {
     }
     private var cached: CachedService?
 
-    /// Maximum age before a cached service is torn down and re-created on the next
-    /// notification. Protects against stale MLS state accumulating in a long-lived NSE
-    /// process the system occasionally reuses for many back-to-back deliveries.
-    private let maxServiceAge: TimeInterval = 900
+    /// Maximum age (15 minutes) before a cached service is torn down and
+    /// re-created on the next notification. Protects against stale MLS
+    /// state accumulating in a long-lived NSE process the system
+    /// occasionally reuses for many back-to-back deliveries.
+    private let maxServiceAge: TimeInterval = 15 * 60
 
     /// Injection seam for tests — the wall clock ticks under normal operation.
     private let now: @Sendable () -> Date

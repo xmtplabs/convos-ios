@@ -88,9 +88,16 @@ enum LegacyDataWipe {
                 kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
             ]
             let status = SecItemDelete(query as CFDictionary)
-            if status == errSecSuccess {
+            switch status {
+            case errSecSuccess:
                 Log.debug("LegacyDataWipe: removed legacy keychain items for service \(service)")
-            } else if status != errSecItemNotFound {
+            case errSecItemNotFound:
+                // Nothing to clean up — expected for anyone installing fresh on this generation.
+                break
+            case errSecAuthFailed:
+                // Keychain is locked (not yet unlocked post-boot). Transient — will retry next launch.
+                Log.warning("LegacyDataWipe: keychain locked while removing \(service); will retry next launch (cosmetic — not blocking)")
+            default:
                 Log.error("LegacyDataWipe: failed to remove legacy keychain items for service \(service), status=\(status) (cosmetic — not blocking)")
             }
         }

@@ -341,6 +341,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         loadOrCreateService()
     }
 
+    /// Synchronous accessor for SwiftUI code paths that can't suspend (e.g.
+    /// `ConversationsViewModel.updateSelectionState`). Cache hits are free;
+    /// cache misses do a keychain `loadSync` plus `AuthorizeInboxOperation`
+    /// construction under the service-state lock — typically a few ms, with
+    /// worst-case keychain IPC in the tens of ms range. Called once per
+    /// process in practice, since the cache fills on first use.
     public func messagingServiceSync() -> AnyMessagingService {
         loadOrCreateService()
     }

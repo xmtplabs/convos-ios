@@ -186,7 +186,7 @@ User
       ├─ 1 XMTP local database
       ├─ 1 gRPC stream
       ├─ 1 Key pair
-      └─ 1 Global profile (broadcast to all groups)
+      └─ Per-conversation Quickname / DBMemberProfile (unchanged from today)
 
 Session: single session, single SessionStateMachine
 MessagingService: single instance

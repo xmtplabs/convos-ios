@@ -479,80 +479,87 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func processAction(_ action: Action) async {
         do {
-            switch (_state, action) {
-            case let (.idle, .authorize(inboxId, clientId)):
-                try await handleAuthorize(inboxId: inboxId, clientId: clientId)
-            case let (.error(erroredClientId, _), .authorize(inboxId, clientId)):
-                try await handleStop(clientId: erroredClientId)
-                try await handleAuthorize(inboxId: inboxId, clientId: clientId)
-
-            case (.idle, let .register(clientId)):
-                try await handleRegister(clientId: clientId)
-            case let (.error(erroredClientId, _), .register(clientId)):
-                try await handleStop(clientId: erroredClientId)
-                try await handleRegister(clientId: clientId)
-
-            case (.authorizing, let .clientAuthorized(clientId, client)):
-                try await handleClientAuthorized(clientId: clientId, client: client)
-            case (.registering, let .clientRegistered(clientId, client)):
-                try await handleClientRegistered(clientId: clientId, client: client)
-
-            case (.authenticatingBackend, let .authorized(clientId, result)):
-                try await handleAuthorized(clientId: clientId, result: result)
-
-            case (let .ready(clientId, result), .delete):
-                try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
-            case (let .error(clientId, _), .delete):
-                try await handleDeleteFromError(clientId: clientId)
-            case (let .idle(clientId), .delete),
-                 (let .authorizing(clientId, _), .delete),
-                 (let .registering(clientId), .delete),
-                 (let .authenticatingBackend(clientId, _), .delete):
-                try await handleDeleteFromIdle(clientId: clientId)
-            case (.deleting, .delete):
-                // Already deleting - ignore duplicate delete request (idempotent)
-                Log.debug("Duplicate delete request while already deleting, ignoring")
-            case let (.ready(clientId, result), .enterBackground):
-                try await handleEnterBackground(clientId: clientId, result: result)
-
-            case let (.backgrounded(clientId, result), .enterForeground):
-                try await handleEnterForeground(clientId: clientId, result: result)
-
-            case let (.error(clientId, _), .enterForeground):
-                try await handleRetryFromError(clientId: clientId)
-
-            case (let .backgrounded(clientId, result), .delete):
-                try await handleDeleteFromBackgrounded(clientId: clientId, result: result)
-
-            case let (.ready(clientId, _), .stop),
-                let (.error(clientId, _), .stop),
-                let (.deleting(clientId, _), .stop),
-                let (.backgrounded(clientId, _), .stop):
-                try await handleStop(clientId: clientId)
-
-            case (.idle, .stop):
-                break
-
-            // Ignore lifecycle events when not in appropriate state
-            case (_, .enterBackground), (_, .enterForeground):
-                Log.debug("Ignoring lifecycle event for transition: \(_state) -> \(action)")
-
-            default:
-                Log.warning("Invalid state transition: \(_state) -> \(action)")
-            }
+            try await dispatchTransition(for: action)
         } catch {
-            if error is CancellationError {
-                Log.debug("Action cancelled: \(action)")
-                return
-            }
-
-            await stopNetworkMonitoring()
-
-            Log.error(
-                "Failed state transition \(_state) -> \(action): \(error.localizedDescription)"
-            )
-            emitStateChange(.error(clientId: _state.clientId, error: error))
+            await handleTransitionError(error, during: action)
         }
+    }
+
+    /// The state-machine transition table. Each `(state, action)` pair is a
+    /// one-line dispatch into a dedicated handler so the table reads as the
+    /// state diagram it represents. Error classification lives in the caller
+    /// (`processAction`) so this stays pure dispatch.
+    private func dispatchTransition(for action: Action) async throws {
+        switch (_state, action) {
+        case let (.idle, .authorize(inboxId, clientId)):
+            try await handleAuthorize(inboxId: inboxId, clientId: clientId)
+        case let (.error(erroredClientId, _), .authorize(inboxId, clientId)):
+            try await handleStop(clientId: erroredClientId)
+            try await handleAuthorize(inboxId: inboxId, clientId: clientId)
+
+        case (.idle, let .register(clientId)):
+            try await handleRegister(clientId: clientId)
+        case let (.error(erroredClientId, _), .register(clientId)):
+            try await handleStop(clientId: erroredClientId)
+            try await handleRegister(clientId: clientId)
+
+        case (.authorizing, let .clientAuthorized(clientId, client)):
+            try await handleClientAuthorized(clientId: clientId, client: client)
+        case (.registering, let .clientRegistered(clientId, client)):
+            try await handleClientRegistered(clientId: clientId, client: client)
+
+        case (.authenticatingBackend, let .authorized(clientId, result)):
+            try await handleAuthorized(clientId: clientId, result: result)
+
+        case (let .ready(clientId, result), .delete):
+            try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
+        case (let .error(clientId, _), .delete):
+            try await handleDeleteFromError(clientId: clientId)
+        case (let .idle(clientId), .delete),
+             (let .authorizing(clientId, _), .delete),
+             (let .registering(clientId), .delete),
+             (let .authenticatingBackend(clientId, _), .delete):
+            try await handleDeleteFromIdle(clientId: clientId)
+        case (.deleting, .delete):
+            // Idempotent — ignore duplicate delete while already deleting.
+            Log.debug("Duplicate delete request while already deleting, ignoring")
+
+        case let (.ready(clientId, result), .enterBackground):
+            try await handleEnterBackground(clientId: clientId, result: result)
+        case let (.backgrounded(clientId, result), .enterForeground):
+            try await handleEnterForeground(clientId: clientId, result: result)
+        case let (.error(clientId, _), .enterForeground):
+            try await handleRetryFromError(clientId: clientId)
+        case (let .backgrounded(clientId, result), .delete):
+            try await handleDeleteFromBackgrounded(clientId: clientId, result: result)
+
+        case let (.ready(clientId, _), .stop),
+             let (.error(clientId, _), .stop),
+             let (.deleting(clientId, _), .stop),
+             let (.backgrounded(clientId, _), .stop):
+            try await handleStop(clientId: clientId)
+        case (.idle, .stop):
+            break
+
+        // Lifecycle events that don't map to a real transition from the
+        // current state — logged at debug, not warned, since it's normal
+        // for foreground/background to fire while we're mid-transition.
+        case (_, .enterBackground), (_, .enterForeground):
+            Log.debug("Ignoring lifecycle event for transition: \(_state) -> \(action)")
+
+        default:
+            Log.warning("Invalid state transition: \(_state) -> \(action)")
+        }
+    }
+
+    private func handleTransitionError(_ error: Error, during action: Action) async {
+        if error is CancellationError {
+            Log.debug("Action cancelled: \(action)")
+            return
+        }
+        await stopNetworkMonitoring()
+        Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
+        emitStateChange(.error(clientId: _state.clientId, error: error))
     }
 
     private func handleAuthorize(inboxId: String, clientId: String) async throws {
