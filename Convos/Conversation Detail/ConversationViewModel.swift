@@ -1837,7 +1837,7 @@ extension ConversationViewModel {
                     userInfo: ["conversationId": self.conversation.id]
                 )
                 self.conversation.postLeftConversationNotification()
-                Log.info("Explode complete, inbox deletion triggered")
+                Log.info("Explode complete: conversation removed locally, other members removed and creator left the MLS group")
             } catch {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
                 self.explodeState = .error("Explode failed")
