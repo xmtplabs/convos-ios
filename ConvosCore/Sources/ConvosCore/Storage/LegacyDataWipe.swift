@@ -20,17 +20,32 @@ enum LegacyDataWipe {
     /// (no legacy markers present) and for installs already on the current
     /// generation.
     static func runIfNeeded(environment: AppEnvironment) {
-        let defaults = UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard
+        runIfNeeded(
+            defaults: UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard,
+            databasesDirectory: environment.defaultDatabasesDirectoryURL,
+            legacyKeychainAccessGroup: environment.appGroupIdentifier,
+            xmtpEnvPrefix: xmtpEnvPrefix(for: environment)
+        )
+    }
+
+    /// Testable core with all environment lookups lifted to parameters. Tests
+    /// pass a private UserDefaults suite + a temp directory so they don't
+    /// collide with the app-group defaults or the real database directory.
+    static func runIfNeeded(
+        defaults: UserDefaults,
+        databasesDirectory: URL,
+        legacyKeychainAccessGroup: String,
+        xmtpEnvPrefix: String
+    ) {
         let stored = defaults.string(forKey: schemaGenerationKey)
 
         if stored == currentGeneration {
             return
         }
 
-        let databasesDirectory = environment.defaultDatabasesDirectoryURL
         let hasLegacyArtifacts = detectLegacyArtifacts(
             databasesDirectory: databasesDirectory,
-            environment: environment
+            xmtpEnvPrefix: xmtpEnvPrefix
         )
 
         if stored == nil && !hasLegacyArtifacts {
@@ -56,12 +71,12 @@ enum LegacyDataWipe {
         //    `detectLegacyArtifacts` against the on-disk state — bool
         //    return values from the wipe helpers would just be a cache
         //    of that same check.
-        wipeLegacyKeychainItems(accessGroup: environment.appGroupIdentifier)
-        wipeDatabases(at: databasesDirectory, environment: environment)
+        wipeLegacyKeychainItems(accessGroup: legacyKeychainAccessGroup)
+        wipeDatabases(at: databasesDirectory, xmtpEnvPrefix: xmtpEnvPrefix)
 
         let artifactsRemaining = detectLegacyArtifacts(
             databasesDirectory: databasesDirectory,
-            environment: environment
+            xmtpEnvPrefix: xmtpEnvPrefix
         )
         if artifactsRemaining {
             Log.error("LegacyDataWipe: database artifacts still present after wipe attempt. " +
@@ -108,7 +123,7 @@ enum LegacyDataWipe {
     /// distinguish a fresh install (nothing to wipe) from an upgrade.
     private static func detectLegacyArtifacts(
         databasesDirectory: URL,
-        environment: AppEnvironment
+        xmtpEnvPrefix: String
     ) -> Bool {
         let fileManager = FileManager.default
         let grdbURL = databasesDirectory.appendingPathComponent("convos.sqlite")
@@ -116,7 +131,6 @@ enum LegacyDataWipe {
             return true
         }
 
-        let envPrefix = xmtpEnvPrefix(for: environment)
         guard let entries = try? fileManager.contentsOfDirectory(
             at: databasesDirectory,
             includingPropertiesForKeys: nil
@@ -124,16 +138,16 @@ enum LegacyDataWipe {
             return false
         }
 
-        let xmtpPrefix = "xmtp-\(envPrefix)-"
+        let xmtpFilePrefix = "xmtp-\(xmtpEnvPrefix)-"
         return entries.contains { url in
-            url.lastPathComponent.hasPrefix(xmtpPrefix)
+            url.lastPathComponent.hasPrefix(xmtpFilePrefix)
         }
     }
 
     /// Best-effort deletion of legacy GRDB + XMTP database files. Success
     /// is measured after the fact via `detectLegacyArtifacts` on the same
     /// directory, so we don't thread a boolean result back through.
-    private static func wipeDatabases(at directory: URL, environment: AppEnvironment) {
+    private static func wipeDatabases(at directory: URL, xmtpEnvPrefix: String) {
         let fileManager = FileManager.default
 
         let grdbFiles = [
@@ -145,13 +159,12 @@ enum LegacyDataWipe {
             removeItem(at: directory.appendingPathComponent(filename), fileManager: fileManager)
         }
 
-        let envPrefix = xmtpEnvPrefix(for: environment)
-        let xmtpPrefix = "xmtp-\(envPrefix)-"
+        let xmtpFilePrefix = "xmtp-\(xmtpEnvPrefix)-"
         if let entries = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
         ) {
-            for url in entries where url.lastPathComponent.hasPrefix(xmtpPrefix) {
+            for url in entries where url.lastPathComponent.hasPrefix(xmtpFilePrefix) {
                 removeItem(at: url, fileManager: fileManager)
             }
         }
