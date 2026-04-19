@@ -23,8 +23,7 @@ enum LegacyDataWipe {
         runIfNeeded(
             defaults: UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard,
             databasesDirectory: environment.defaultDatabasesDirectoryURL,
-            legacyKeychainAccessGroup: environment.appGroupIdentifier,
-            xmtpEnvPrefix: xmtpEnvPrefix(for: environment)
+            legacyKeychainAccessGroup: environment.appGroupIdentifier
         )
     }
 
@@ -34,8 +33,7 @@ enum LegacyDataWipe {
     static func runIfNeeded(
         defaults: UserDefaults,
         databasesDirectory: URL,
-        legacyKeychainAccessGroup: String,
-        xmtpEnvPrefix: String
+        legacyKeychainAccessGroup: String
     ) {
         let stored = defaults.string(forKey: schemaGenerationKey)
 
@@ -43,10 +41,7 @@ enum LegacyDataWipe {
             return
         }
 
-        let hasLegacyArtifacts = detectLegacyArtifacts(
-            databasesDirectory: databasesDirectory,
-            xmtpEnvPrefix: xmtpEnvPrefix
-        )
+        let hasLegacyArtifacts = detectLegacyArtifacts(databasesDirectory: databasesDirectory)
 
         if stored == nil && !hasLegacyArtifacts {
             // Fresh install: nothing to wipe. Record the marker and move on.
@@ -72,12 +67,9 @@ enum LegacyDataWipe {
         //    return values from the wipe helpers would just be a cache
         //    of that same check.
         wipeLegacyKeychainItems(accessGroup: legacyKeychainAccessGroup)
-        wipeDatabases(at: databasesDirectory, xmtpEnvPrefix: xmtpEnvPrefix)
+        wipeDatabases(at: databasesDirectory)
 
-        let artifactsRemaining = detectLegacyArtifacts(
-            databasesDirectory: databasesDirectory,
-            xmtpEnvPrefix: xmtpEnvPrefix
-        )
+        let artifactsRemaining = detectLegacyArtifacts(databasesDirectory: databasesDirectory)
         if artifactsRemaining {
             Log.error("LegacyDataWipe: database artifacts still present after wipe attempt. " +
                       "Generation marker NOT set; will retry on next launch.")
@@ -121,10 +113,18 @@ enum LegacyDataWipe {
     /// Returns `true` if the install has on-disk state from an earlier
     /// schema. Used on first launch when the generation marker is absent to
     /// distinguish a fresh install (nothing to wipe) from an upgrade.
-    private static func detectLegacyArtifacts(
-        databasesDirectory: URL,
-        xmtpEnvPrefix: String
-    ) -> Bool {
+    ///
+    /// Matches any `xmtp-*` file in the databases directory. XMTPiOS names
+    /// its SQLite files `xmtp-<gRPC-host>-<hash>.db3` (e.g.
+    /// `xmtp-grpc.dev.xmtp.network-abc123.db3`); the previous check looked
+    /// for `xmtp-{env}-` (e.g. `xmtp-dev-`), which the SDK never produces,
+    /// so upgrade-wipe silently no-opped and orphaned db3 files
+    /// accumulated forever. The broad `xmtp-` match is safe because the
+    /// schema-generation marker gates this routine — on fresh installs the
+    /// directory is empty and the xmtp-prefix check returns false; on the
+    /// first upgrade launch any pre-existing xmtp-* files get swept; on
+    /// every subsequent launch the marker short-circuits before the scan.
+    private static func detectLegacyArtifacts(databasesDirectory: URL) -> Bool {
         let fileManager = FileManager.default
         let grdbURL = databasesDirectory.appendingPathComponent("convos.sqlite")
         if fileManager.fileExists(atPath: grdbURL.path) {
@@ -138,16 +138,20 @@ enum LegacyDataWipe {
             return false
         }
 
-        let xmtpFilePrefix = "xmtp-\(xmtpEnvPrefix)-"
         return entries.contains { url in
-            url.lastPathComponent.hasPrefix(xmtpFilePrefix)
+            url.lastPathComponent.hasPrefix("xmtp-")
         }
     }
 
     /// Best-effort deletion of legacy GRDB + XMTP database files. Success
     /// is measured after the fact via `detectLegacyArtifacts` on the same
     /// directory, so we don't thread a boolean result back through.
-    private static func wipeDatabases(at directory: URL, xmtpEnvPrefix: String) {
+    ///
+    /// Removes every `xmtp-*` file — see `detectLegacyArtifacts` for why
+    /// the env-specific prefix the SDK doesn't produce was wrong. Includes
+    /// the `.db3`, `.db3-shm`, `.db3-wal`, and `.db3.sqlcipher_salt`
+    /// sidecars XMTPiOS writes alongside the main database.
+    private static func wipeDatabases(at directory: URL) {
         let fileManager = FileManager.default
 
         let grdbFiles = [
@@ -159,12 +163,11 @@ enum LegacyDataWipe {
             removeItem(at: directory.appendingPathComponent(filename), fileManager: fileManager)
         }
 
-        let xmtpFilePrefix = "xmtp-\(xmtpEnvPrefix)-"
         if let entries = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
         ) {
-            for url in entries where url.lastPathComponent.hasPrefix(xmtpFilePrefix) {
+            for url in entries where url.lastPathComponent.hasPrefix("xmtp-") {
                 removeItem(at: url, fileManager: fileManager)
             }
         }
@@ -177,19 +180,6 @@ enum LegacyDataWipe {
             Log.debug("LegacyDataWipe: removed \(url.lastPathComponent)")
         } catch {
             Log.error("LegacyDataWipe: failed to remove \(url.lastPathComponent): \(error)")
-        }
-    }
-
-    private static func xmtpEnvPrefix(for environment: AppEnvironment) -> String {
-        switch environment.xmtpEnv {
-        case .local:
-            return "localhost"
-        case .dev:
-            return "dev"
-        case .production:
-            return "production"
-        @unknown default:
-            return "unknown"
         }
     }
 }

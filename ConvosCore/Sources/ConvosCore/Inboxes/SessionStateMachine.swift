@@ -997,38 +997,30 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         let fileManager = FileManager.default
         let dbDirectory = environment.defaultDatabasesDirectoryURL
 
-        // XMTP creates files like: xmtp-{env}-{inboxId}.db3
-        // Note: .local environment uses "localhost" in filename, not "local"
-        let envPrefix: String
-        switch environment.xmtpEnv {
-        case .local:
-            envPrefix = "localhost"
-        case .dev:
-            envPrefix = "dev"
-        case .production:
-            envPrefix = "production"
-        @unknown default:
-            envPrefix = "unknown"
+        // XMTPiOS names its SQLite files `xmtp-<gRPC-host>-<hash>.db3`
+        // (e.g. `xmtp-grpc.dev.xmtp.network-abc123.db3`), not the
+        // `xmtp-<env>-<inboxId>.db3` pattern the earlier code expected —
+        // so explicit per-inbox deletion silently no-opped and xmtp
+        // databases leaked on every inbox delete. Under single-inbox
+        // there's one `xmtp-*.db3` family per install, so removing every
+        // `xmtp-*` file in the directory is the correct scope. The
+        // `inboxId` parameter is retained for call-site clarity even
+        // though the filenames don't encode it.
+        _ = inboxId
+
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: dbDirectory,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
         }
 
-        let dbBaseName = "xmtp-\(envPrefix)-\(inboxId)"
-
-        let filesToDelete = [
-            "\(dbBaseName).db3",
-            "\(dbBaseName).db3.sqlcipher_salt",
-            "\(dbBaseName).db3-shm",
-            "\(dbBaseName).db3-wal"
-        ]
-
-        for filename in filesToDelete {
-            let fileURL = dbDirectory.appendingPathComponent(filename)
-            if fileManager.fileExists(atPath: fileURL.path) {
-                do {
-                    try fileManager.removeItem(at: fileURL)
-                    Log.debug("Deleted XMTP database file: \(filename)")
-                } catch {
-                    Log.error("Failed to delete XMTP database file \(filename): \(error)")
-                }
+        for url in entries where url.lastPathComponent.hasPrefix("xmtp-") {
+            do {
+                try fileManager.removeItem(at: url)
+                Log.debug("Deleted XMTP database file: \(url.lastPathComponent)")
+            } catch {
+                Log.error("Failed to delete XMTP database file \(url.lastPathComponent): \(error)")
             }
         }
     }

@@ -7,9 +7,6 @@ import Testing
 /// so state doesn't leak between tests or into the real app-group.
 @Suite("LegacyDataWipe", .serialized)
 struct LegacyDataWipeTests {
-    // Using a loose placeholder for the XMTP env prefix — the wipe logic
-    // only cares that it matches between detection + deletion.
-    private let xmtpPrefix = "test"
     // Keychain access group is only used for legacy v1/v2 delete attempts,
     // which return errSecItemNotFound in the test simulator keychain and
     // never contribute to the gate — safe to pass a dummy value.
@@ -22,8 +19,7 @@ struct LegacyDataWipeTests {
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
@@ -42,8 +38,7 @@ struct LegacyDataWipeTests {
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(FileManager.default.fileExists(atPath: grdb.path))
@@ -53,22 +48,55 @@ struct LegacyDataWipeTests {
     func upgradeWipesAndMarksGeneration() throws {
         let fixture = try TempFixture()
 
-        // Simulate an old install: legacy marker + legacy GRDB + xmtp files.
+        // Simulate an old install: legacy marker + legacy GRDB + xmtp files
+        // under the real SDK filename shape (xmtp-grpc.<host>-<hash>.db3).
         fixture.defaults.set("single-inbox-v1", forKey: "convos.schemaGeneration")
         let grdb = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
         try Data("old-db".utf8).write(to: grdb)
-        let xmtpDb = fixture.databasesDirectory.appendingPathComponent("xmtp-\(xmtpPrefix)-abc123.db3")
+        let xmtpDb = fixture.databasesDirectory.appendingPathComponent("xmtp-grpc.dev.xmtp.network-abc123.db3")
         try Data("old-xmtp".utf8).write(to: xmtpDb)
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(!FileManager.default.fileExists(atPath: grdb.path))
         #expect(!FileManager.default.fileExists(atPath: xmtpDb.path))
+        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
+    }
+
+    @Test("Upgrade from pre-refactor main: xmtp-grpc.<host>-<hash>.db3 sidecars all removed")
+    func upgradeRemovesXmtpGrpcFilenameFamily() throws {
+        let fixture = try TempFixture()
+
+        // No prior marker (main branch never set one). Seed the exact
+        // filename shape XMTPiOS produces — the original wipe looked for
+        // `xmtp-{env}-` which never matched these, so upgrade silently
+        // no-opped and db3 sidecars leaked on every install.
+        let base = "xmtp-grpc.dev.xmtp.network-2b157ccd2a467e2096e8942a73422358c4dcdd777e1541d46ff80f558be56ad1"
+        let files = [
+            "\(base).db3",
+            "\(base).db3-shm",
+            "\(base).db3-wal",
+            "\(base).db3.sqlcipher_salt"
+        ]
+        for filename in files {
+            let url = fixture.databasesDirectory.appendingPathComponent(filename)
+            try Data("legacy".utf8).write(to: url)
+        }
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        for filename in files {
+            let url = fixture.databasesDirectory.appendingPathComponent(filename)
+            #expect(!FileManager.default.fileExists(atPath: url.path), "\(filename) should be gone")
+        }
         #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
     }
 
@@ -84,8 +112,7 @@ struct LegacyDataWipeTests {
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(!FileManager.default.fileExists(atPath: grdb.path))
@@ -100,8 +127,7 @@ struct LegacyDataWipeTests {
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
         let firstMarker = fixture.defaults.string(forKey: "convos.schemaGeneration")
 
@@ -113,8 +139,7 @@ struct LegacyDataWipeTests {
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == firstMarker)
@@ -133,8 +158,7 @@ struct LegacyDataWipeTests {
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
             databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup,
-            xmtpEnvPrefix: xmtpPrefix
+            legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(!FileManager.default.fileExists(atPath: grdb.path))
