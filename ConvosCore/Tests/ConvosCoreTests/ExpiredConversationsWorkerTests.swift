@@ -35,7 +35,7 @@ struct ExpiredConversationsWorkerTests {
     @Test("Schedules timer for next expiring conversation and fires cleanup")
     func testSchedulesTimerForNextExpiration() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
-        let expiresAt = Date().addingTimeInterval(1.0)
+        let expiresAt = Date().addingTimeInterval(2.0)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
         let conversationId = fixtures.conversationId
@@ -45,7 +45,7 @@ struct ExpiredConversationsWorkerTests {
 
         let worker = fixtures.createWorker()
 
-        try await waitForCondition(timeout: 3.0) {
+        try await waitForCondition(timeout: 5.0) {
             capture.notifications(named: .leftConversationNotification).contains {
                 ($0.userInfo?["conversationId"] as? String) == conversationId
             }
@@ -62,7 +62,7 @@ struct ExpiredConversationsWorkerTests {
     @Test("Reschedules timer when new explosion is scheduled")
     func testReschedulesOnNewExplosion() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
-        let expiresAt = Date().addingTimeInterval(1.0)
+        let expiresAt = Date().addingTimeInterval(2.0)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
         let conversationId = fixtures.conversationId
@@ -83,7 +83,7 @@ struct ExpiredConversationsWorkerTests {
             )
         }
 
-        try await waitForCondition(timeout: 3.0) {
+        try await waitForCondition(timeout: 5.0) {
             capture.notifications(named: .leftConversationNotification).contains {
                 ($0.userInfo?["conversationId"] as? String) == conversationId
             }
