@@ -131,3 +131,6 @@ qa/cxdb/qa.sqlite-shm
 .DS_Store
 .mote-preview.html
 .pi/convos.json
+
+# Runtime artifacts
+.claude/scheduled_tasks.lock
