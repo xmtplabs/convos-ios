@@ -136,7 +136,7 @@ struct PendingInviteRepositoryTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAssistant: false,
         )
     }
 }
