@@ -149,7 +149,17 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
                       expiresAt <= Date() else {
                     return nil
                 }
-                return ExpiredConversation(conversationId: row.id)
+                let members = try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == row.id)
+                    .fetchAll(db)
+                    .map(\.inboxId)
+                return ExpiredConversation(
+                    conversationId: row.id,
+                    ownershipContext: .init(
+                        creatorInboxId: row.creatorId,
+                        memberInboxIds: members
+                    )
+                )
             }
             if let conversation {
                 await cleanupExpiredConversation(conversation)
@@ -180,6 +190,23 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
     private func cleanupExpiredConversation(_ conversation: ExpiredConversation) async {
         Log.info("Cleaning up expired conversation: \(conversation.conversationId), posting leftConversationNotification")
 
+        // Scheduled-explode parity: when the timer fires on the creator's
+        // device, the MLS teardown (removeMembers + leaveGroup) has to
+        // actually run. Pre-fix, the worker only posted
+        // `.leftConversationNotification` — the creator stayed in the
+        // group on the network indefinitely until they manually exploded
+        // again from the UI. A scheduled explode was strictly weaker than
+        // an immediate one.
+        //
+        // We fetch the member list + creator inboxId, check whether the
+        // current inbox is the creator, and if so invoke the writer. The
+        // writer's own `runBoundedMLSOp` helper absorbs any MLS flakes
+        // without rethrowing, so this is fire-and-observe — failures log
+        // and the notification still posts below.
+        if let context = conversation.ownershipContext {
+            await executeExplodeIfCreator(conversation: conversation, context: context)
+        }
+
         await MainActor.run {
             NotificationCenter.default.post(
                 name: .leftConversationNotification,
@@ -188,10 +215,46 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             )
         }
     }
+
+    private func executeExplodeIfCreator(
+        conversation: ExpiredConversation,
+        context: ExpiredConversation.OwnershipContext
+    ) async {
+        let service = sessionManager.messagingService()
+        guard
+            let currentInboxId = service.sessionStateManager.currentState.inboxId,
+            currentInboxId == context.creatorInboxId
+        else {
+            return
+        }
+        let writer = service.conversationExplosionWriter()
+        do {
+            try await writer.explodeConversation(
+                conversationId: conversation.conversationId,
+                memberInboxIds: context.memberInboxIds
+            )
+        } catch {
+            Log.error("Scheduled explode for \(conversation.conversationId) threw: \(error)")
+        }
+    }
 }
 
 struct ExpiredConversation {
     let conversationId: String
+    /// Populated when the row has the creator + member data needed to
+    /// invoke the explosion writer. `nil` for the legacy notification-only
+    /// cleanup path (rows created pre-scheduled-explode-parity).
+    let ownershipContext: OwnershipContext?
+
+    struct OwnershipContext {
+        let creatorInboxId: String
+        let memberInboxIds: [String]
+    }
+
+    init(conversationId: String, ownershipContext: OwnershipContext? = nil) {
+        self.conversationId = conversationId
+        self.ownershipContext = ownershipContext
+    }
 }
 
 private extension Database {
@@ -201,8 +264,18 @@ private extension Database {
             .filter(DBConversation.Columns.expiresAt <= Date())
             .fetchAll(self)
 
-        return rows.map { row in
-            ExpiredConversation(conversationId: row.id)
+        return try rows.map { row in
+            let members = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == row.id)
+                .fetchAll(self)
+                .map(\.inboxId)
+            return ExpiredConversation(
+                conversationId: row.id,
+                ownershipContext: .init(
+                    creatorInboxId: row.creatorId,
+                    memberInboxIds: members
+                )
+            )
         }
     }
 
