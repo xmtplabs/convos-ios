@@ -991,27 +991,23 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             Log.debug("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
         } catch {
             Log.warning("SDK deleteLocalDatabase failed, attempting manual file deletion: \(error)")
-            deleteDatabaseFiles(for: client.inboxId)
+            deleteDatabaseFiles()
         }
 
         Log.info("Deleted inbox \(client.inboxId) with clientId \(clientId)")
     }
 
-    private func deleteDatabaseFiles(for inboxId: String) {
+    private func deleteDatabaseFiles() {
         let fileManager = FileManager.default
         let dbDirectory = environment.defaultDatabasesDirectoryURL
 
         // XMTPiOS names its SQLite files `xmtp-<gRPC-host>-<hash>.db3`
-        // (e.g. `xmtp-grpc.dev.xmtp.network-abc123.db3`), not the
-        // `xmtp-<env>-<inboxId>.db3` pattern the earlier code expected —
-        // so explicit per-inbox deletion silently no-opped and xmtp
-        // databases leaked on every inbox delete. Under single-inbox
-        // there's one `xmtp-*.db3` family per install, so removing every
-        // `xmtp-*` file in the directory is the correct scope. The
-        // `inboxId` parameter is retained for call-site clarity even
-        // though the filenames don't encode it.
-        _ = inboxId
-
+        // (e.g. `xmtp-grpc.dev.xmtp.network-abc123.db3`) — earlier code
+        // looked for an `xmtp-<env>-<inboxId>` pattern the SDK never
+        // produces, so explicit per-inbox deletion silently no-opped.
+        // Under single-inbox there's one `xmtp-*.db3` family per install,
+        // so removing every `xmtp-*` file in the directory is the correct
+        // scope.
         guard let entries = try? fileManager.contentsOfDirectory(
             at: dbDirectory,
             includingPropertiesForKeys: nil
