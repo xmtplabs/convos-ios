@@ -99,15 +99,15 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         let currentInboxId = try await operations.currentInboxId()
         let otherMemberInboxIds = memberInboxIds.filter { $0 != currentInboxId }
 
-        // Every MLS boundary call below runs through `runBoundedMLSOp`: bounded
-        // timeout, logged failure, non-fatal. The MLS teardown (removeMembers +
+        // Every leg below runs through `runBoundedOp`: bounded timeout,
+        // logged failure, non-fatal. The MLS teardown (removeMembers +
         // leaveGroup) is the source of truth for "group ends"; the codec
         // `ExplodeSettings` send is a best-effort hint so receivers can hide the
         // conversation ahead of the MLS commit arriving. Any single leg failing
         // must not abort the remaining legs — partial-destruction leaves the
         // group half-gone on the network, which is strictly worse than a
         // best-effort full sweep where some pieces may still retry later.
-        await runBoundedMLSOp("ExplodeSettings send") { [operations] in
+        await runBoundedOp("ExplodeSettings send", logSuccess: true) { [operations] in
             try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
         QAEvent.emit(.conversation, "exploded", ["id": conversationId])
@@ -115,7 +115,7 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         // Local `expiresAt` makes the sender's UI hide the conversation
         // immediately. `ConversationsRepository` filters on `expiresAt > Date()`,
         // so a past value is the soft-delete trigger.
-        await runBoundedMetadataOp("updateExpiresAt") { [metadataWriter] in
+        await runBoundedOp("updateExpiresAt") { [metadataWriter] in
             try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
         }
 
@@ -123,26 +123,21 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         // creator excluded). Emits GroupUpdated removal events that other
         // clients pick up even if they missed the ExplodeSettings message
         // (e.g. offline at send time).
-        await runBoundedMetadataOp("removeMembers") { [metadataWriter] in
+        await runBoundedOp("removeMembers") { [metadataWriter] in
             try await metadataWriter.removeMembers(otherMemberInboxIds, from: conversationId)
         }
 
-        // Creator leaves the group. In the per-conversation-identity era
-        // this step didn't exist — the whole inbox was destroyed. With a single
-        // shared inbox we can't destroy keys (they secure every other conversation),
-        // so the cleanest exit is an explicit self-remove via `leaveGroup()`. The
-        // XMTP SDK sends the MLS commit that takes us out of the group.
-        // `denyConsent` was used pre-C9 as a belt-and-suspenders to keep the
-        // conversation from re-syncing — it's now redundant with `leaveGroup()`
-        // (we're out of the group so there's nothing left to sync), but
-        // preserved as a no-op guard in case the leave operation is interrupted.
-        let left = await runBoundedMLSOp("leaveGroup") { [operations] in
+        // The creator leaves the group via an explicit self-remove; the
+        // XMTP SDK sends the MLS commit that takes us out. `denyConsent` is
+        // a belt-and-suspenders fallback for when `leaveGroup()` gets
+        // interrupted — we're out of the group on success so there's
+        // nothing left to sync, but denying consent still blocks the
+        // conversation from re-syncing if the leave commit never landed.
+        let left = await runBoundedOp("leaveGroup", logSuccess: true) { [operations] in
             try await operations.leaveGroup(conversationId: conversationId)
         }
-        if left {
-            Log.info("Creator left exploded group: \(conversationId)")
-        } else {
-            await runBoundedMLSOp("denyConsent fallback") { [operations] in
+        if !left {
+            await runBoundedOp("denyConsent fallback", logSuccess: true) { [operations] in
                 try await operations.denyConsent(conversationId: conversationId)
             }
         }
@@ -171,40 +166,26 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         Log.info("Explosion scheduled for \(expiresAt)")
     }
 
-    /// Bounded best-effort wrapper for a single MLS boundary call. Any thrown
-    /// error or timeout is logged and swallowed — the caller continues. Every
-    /// MLS reach-through in this writer goes through here so the failure
-    /// semantics are uniform: no one leg's flake can abort the other legs.
-    /// Returns `true` on success, `false` on timeout or throw; callers who
-    /// branch on the result (e.g. leave → denyConsent fallback) use that.
+    /// Bounded best-effort wrapper for a single leg of the explode sweep. Any
+    /// thrown error or timeout is logged and swallowed so the remaining legs
+    /// still run — partial destruction is strictly worse than a best-effort
+    /// full sweep. Returns `true` on success, `false` on throw or timeout;
+    /// callers that branch on the result (e.g. `leaveGroup` → `denyConsent`
+    /// fallback) read it. `logSuccess` toggles a success log line, set to
+    /// true on the network-visible MLS legs so telemetry can confirm they
+    /// completed.
     @discardableResult
-    private func runBoundedMLSOp(
+    private func runBoundedOp(
         _ name: String,
         timeout: TimeInterval = 20,
+        logSuccess: Bool = false,
         _ body: @escaping @Sendable () async throws -> Void
     ) async -> Bool {
         do {
             try await withTimeout(seconds: timeout, operation: body)
-            Log.info("\(name) succeeded")
-            return true
-        } catch {
-            Log.error("\(name) failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    /// Bounded wrapper for a metadata-writer call. Same shape as
-    /// `runBoundedMLSOp` — separate for log-prefix clarity at call sites.
-    /// Metadata writes still reach the network via XMTP commits under the
-    /// hood, so the 20s ceiling matches.
-    @discardableResult
-    private func runBoundedMetadataOp(
-        _ name: String,
-        timeout: TimeInterval = 20,
-        _ body: @escaping @Sendable () async throws -> Void
-    ) async -> Bool {
-        do {
-            try await withTimeout(seconds: timeout, operation: body)
+            if logSuccess {
+                Log.info("\(name) succeeded")
+            }
             return true
         } catch {
             Log.error("\(name) failed: \(error.localizedDescription)")
