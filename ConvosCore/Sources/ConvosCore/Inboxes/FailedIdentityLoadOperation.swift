@@ -30,7 +30,6 @@ final class FailedIdentityLoadOperation: AuthorizeInboxOperationProtocol, @unche
 /// mismatch.
 final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
     private let error: any Error
-    let clientId: String = ""
     let currentState: SessionStateMachine.State
     var isSyncReady: Bool { get async { false } }
 
@@ -48,7 +47,6 @@ final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, 
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}
 
     func requestDiscovery() async {}
-    func ensureForeground() async {}
 
     func addObserver(_ observer: SessionStateObserver) {
         observer.sessionStateDidChange(currentState)

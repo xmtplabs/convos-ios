@@ -6,7 +6,6 @@ public protocol SessionStateObserver: AnyObject, Sendable {
 }
 
 public protocol SessionStateManagerProtocol: AnyObject, Sendable {
-    var clientId: String { get }
     var currentState: SessionStateMachine.State { get }
     var isSyncReady: Bool { get async }
 
@@ -16,7 +15,6 @@ public protocol SessionStateManagerProtocol: AnyObject, Sendable {
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
 
     func requestDiscovery() async
-    func ensureForeground() async
 
     func addObserver(_ observer: SessionStateObserver)
     func removeObserver(_ observer: SessionStateObserver)

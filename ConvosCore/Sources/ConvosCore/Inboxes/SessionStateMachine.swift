@@ -4,34 +4,6 @@ import GRDB
 import os
 @preconcurrency import XMTPiOS
 
-extension SessionStateMachine.State {
-    var isReady: Bool {
-        switch self {
-        case .ready:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// The current user's XMTP inbox ID if known from the state, else nil.
-    /// Available synchronously from `SessionStateManagerProtocol.currentState`.
-    public var inboxId: String? {
-        switch self {
-        case .authorizing(let inboxId),
-             .authenticatingBackend(let inboxId):
-            return inboxId
-        case .ready(let result),
-             .backgrounded(let result):
-            return result.client.inboxId
-        case .deleting(let inboxId):
-            return inboxId
-        case .idle, .registering, .error:
-            return nil
-        }
-    }
-}
-
 enum SessionStateError: Error {
     case inboxNotReady
     case clientIdInboxInconsistency
@@ -115,10 +87,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         _stateCache.withLock { $0 }
     }
 
-    public nonisolated var clientId: String {
-        initialClientId
-    }
-
     private func updateStateCache(_ newState: State) {
         _stateCache.withLock { $0 = newState }
     }
@@ -187,10 +155,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             guard let syncingManager else { return false }
             return await syncingManager.isSyncReady
         }
-    }
-
-    var inboxId: String? {
-        _state.inboxId
     }
 
     var stateSequence: AsyncStream<State> {
@@ -382,12 +346,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             }
         }
         throw SessionStateError.inboxNotReady
-    }
-
-    public func ensureForeground() {
-        if case .backgrounded = currentState {
-            enqueueAction(.enterForeground)
-        }
     }
 
     // MARK: - Private
@@ -695,7 +653,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             return
         }
 
-        try await cleanupInboxData()
+        // Swallow cleanup failures so identity + file teardown still runs.
+        // Otherwise a mid-cleanup throw jumps to `.error` and the encrypted
+        // xmtp-*.db3 files survive user-facing "Delete All Data".
+        do {
+            try await cleanupInboxData()
+        } catch {
+            Log.error("Failed to clean up inbox data for clientId \(initialClientId): \(error). Continuing with identity + file teardown.")
+        }
+
         try Task.checkCancellation()
 
         // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.

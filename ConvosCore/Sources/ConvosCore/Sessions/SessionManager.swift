@@ -11,10 +11,6 @@ public extension Notification.Name {
 public typealias AnyMessagingService = any MessagingServiceProtocol
 public typealias AnyClientProvider = any XMTPClientProvider
 
-enum SessionManagerError: Error {
-    case inboxNotFound
-}
-
 /// Coordinates the XMTP inbox that backs the app.
 ///
 /// On first access (`addInbox` / `messagingService`) the manager either loads
@@ -29,7 +25,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Pending invite drafts older than this are removed during cleanup.
     public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
 
-    private var leftConversationObserver: Any?
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
 
@@ -128,9 +123,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
-        if let leftConversationObserver {
-            NotificationCenter.default.removeObserver(leftConversationObserver)
-        }
     }
 
     // MARK: - Private Methods
@@ -146,14 +138,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 self.notificationChangeReporter.notifyChangesInDatabase()
             }
         }
-
-        // Leaving a conversation doesn't touch the inbox identity; the
-        // observer just logs the event so downstream cleanup can hook in.
-        leftConversationObserver = NotificationCenter.default
-            .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { notification in
-                let conversationId = notification.userInfo?["conversationId"] as? String
-                Log.debug("Left conversation: \(conversationId ?? "unknown")")
-            }
     }
 
     private func prewarmUnusedConversation() async {
@@ -337,11 +321,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private func tearDownInbox() async throws {
         await unusedConversationCache.cancel()
 
-        let existing = cachedMessagingService.withLock { cached -> MessagingService? in
-            let current = cached
-            cached = nil
-            return current
-        }
+        // Keep the cached service reference live through the entire teardown.
+        // A concurrent `loadOrCreateService()` (push arriving mid-delete,
+        // SwiftUI sync accessor, etc.) will then observe the being-torn-down
+        // service rather than building a second one that would open the same
+        // SQLCipher xmtp-*.db3 files while the first is being deleted. The
+        // cache is cleared only after the XMTP client, keychain, and DBInbox
+        // rows are fully gone — at which point any new caller correctly
+        // builds a fresh registering-state service.
+        let existing = cachedMessagingService.withLock { $0 }
 
         if let existing {
             Log.info("Tearing down authorized inbox")
@@ -352,6 +340,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await identityStore.delete()
 
         try await wipeResidualInboxRows()
+
+        cachedMessagingService.withLock { $0 = nil }
     }
 
     private func wipeResidualInboxRows() async throws {

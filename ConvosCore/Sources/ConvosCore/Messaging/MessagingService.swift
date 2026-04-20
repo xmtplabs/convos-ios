@@ -17,6 +17,11 @@ import GRDB
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
     let sessionStateManager: any SessionStateManagerProtocol
+    /// Captured at construction for the topic-subscription APIs that
+    /// require the backend clientId; empty string on the failed-keychain
+    /// path, which is structurally unreachable (every caller goes through
+    /// `waitForInboxReadyResult()` first, which throws the keychain error).
+    private let clientId: String
     internal let identityStore: any KeychainIdentityStoreProtocol
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
@@ -70,6 +75,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.identityStore = identityStore
         self.authorizationOperation = authorizationOperation
         self.sessionStateManager = authorizationOperation.stateMachine
+        self.clientId = authorizationOperation.stateMachine.initialClientId
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
@@ -92,6 +98,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.identityStore = identityStore
         self.authorizationOperation = operation
         self.sessionStateManager = operation.stateMachine
+        self.clientId = ""
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
@@ -256,12 +263,12 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             let deviceId = DeviceInfo.deviceIdentifier
             try await result.apiClient.subscribeToTopics(
                 deviceId: deviceId,
-                clientId: sessionStateManager.clientId,
+                clientId: clientId,
                 topics: [topic]
             )
         } else {
             try await result.apiClient.unsubscribeFromTopics(
-                clientId: sessionStateManager.clientId,
+                clientId: clientId,
                 topics: [topic]
             )
         }

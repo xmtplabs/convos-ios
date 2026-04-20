@@ -46,7 +46,7 @@ struct SessionStateMachineTests {
         // Start in idle state
         let initialState = await stateMachine.state
         if case .idle = initialState {} else { Issue.record("Expected idle initial state, got \(initialState)") }
-        #expect(stateMachine.clientId == clientId)
+        #expect(await stateMachine.initialClientId == clientId)
 
         // Register
         await stateMachine.register()

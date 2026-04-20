@@ -4,7 +4,6 @@ import Foundation
 
 /// Mock implementation of SessionStateManagerProtocol for testing
 public final class MockSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
-    public var clientId: String = "mock-client-id"
     public var currentState: SessionStateMachine.State
     public var isSyncReady: Bool = true
 
@@ -42,9 +41,6 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
     }
 
     public func requestDiscovery() async {
-    }
-
-    public func ensureForeground() async {
     }
 
     public func addObserver(_ observer: any SessionStateObserver) {

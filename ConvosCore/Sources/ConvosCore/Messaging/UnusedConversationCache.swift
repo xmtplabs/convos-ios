@@ -26,9 +26,10 @@ public protocol UnusedConversationCacheProtocol: Actor {
         databaseWriter: any DatabaseWriter
     ) async -> String?
 
-    /// Cancels any in-flight preparation task. Call during inbox teardown so a
-    /// late-resolving prewarm can't land a stale row in a fresh DB.
-    func cancel()
+    /// Cancels any in-flight preparation task and awaits its unwind. Call
+    /// during inbox teardown so a late-resolving prewarm can't land a stale
+    /// row in a fresh DB after teardown returns.
+    func cancel() async
 }
 
 // MARK: - UnusedConversationCache
@@ -104,9 +105,11 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
     }
 
-    public func cancel() {
-        backgroundCreationTask?.cancel()
+    public func cancel() async {
+        let task = backgroundCreationTask
         backgroundCreationTask = nil
+        task?.cancel()
+        await task?.value
     }
 
     // MARK: - Private
@@ -153,11 +156,12 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             return
         }
 
-        // Post-publish work: the group is live on the XMTP network. Any failure
-        // past this point must best-effort `leaveGroup()` so network state
-        // matches local state. Otherwise a row in the DB would be missing its
-        // invite tag or the group would stay on the network with no local
-        // record — both of which are worse than not caching at all.
+        // Post-publish work: the group is live on the XMTP network. Any
+        // failure past this point must leave both sides in sync —
+        // `leaveGroup()` to get off the network, and the DB row deleted
+        // (if we already wrote it) so `consumeUnusedConversationId` can't
+        // hand out an id pointing to a group we already left.
+        var dbRowWritten = false
         do {
             try await group.ensureInviteTag()
             do {
@@ -171,6 +175,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 inboxId: inboxId,
                 databaseWriter: databaseWriter
             )
+            dbRowWritten = true
 
             let inviteWriter = InviteWriter(
                 identityStore: identityStore,
@@ -181,9 +186,24 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             lastPreparationFailure = nil
             Log.debug("Pre-created unused conversation: \(group.id)")
         } catch {
-            Log.error("Failed to finish unused conversation setup post-publish: \(error). Leaving XMTP group to keep state consistent.")
+            Log.error("Failed to finish unused conversation setup post-publish: \(error). Rolling back to keep state consistent.")
             lastPreparationFailure = Date()
             try? await group.leaveGroup()
+            if dbRowWritten {
+                let conversationId = group.id
+                try? await databaseWriter.write { db in
+                    try ConversationLocalState
+                        .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                    try DBMemberProfile
+                        .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                    try DBConversationMember
+                        .filter(DBConversationMember.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                    try DBConversation.deleteOne(db, key: conversationId)
+                }
+            }
         }
     }
 
