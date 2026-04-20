@@ -44,11 +44,10 @@ private final class OAuthPresentationContextProvider: NSObject, ASWebAuthenticat
     static let shared: OAuthPresentationContextProvider = OAuthPresentationContextProvider()
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = scene.windows.first else {
-            return ASPresentationAnchor()
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            return UIWindow()
         }
-        return window
+        return scene.windows.first ?? UIWindow(windowScene: scene)
     }
 }
 #endif

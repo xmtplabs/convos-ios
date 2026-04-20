@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import Foundation
 import Observation
 
@@ -16,21 +17,22 @@ final class AppSettingsViewModel {
     private let session: any SessionManagerProtocol
     let connectionsListViewModel: ConnectionsListViewModel
 
-    init(session: any SessionManagerProtocol,
-         connectionManager: (any ConnectionManagerProtocol)? = nil,
-         connectionRepository: (any ConnectionRepositoryProtocol)? = nil) {
+    init(session: any SessionManagerProtocol) {
         self.session = session
-        if let connectionManager, let connectionRepository {
-            self.connectionsListViewModel = ConnectionsListViewModel(
-                connectionManager: connectionManager,
-                connectionRepository: connectionRepository
-            )
-        } else {
-            self.connectionsListViewModel = ConnectionsListViewModel(
-                connectionManager: MockConnectionManager(),
-                connectionRepository: MockConnectionRepository()
-            )
-        }
+
+        let oauthProvider: any OAuthSessionProvider = IOSOAuthSessionProvider()
+        let callbackScheme = ConfigManager.shared.appUrlScheme
+
+        let manager = session.connectionManager(
+            oauthProvider: oauthProvider,
+            callbackURLScheme: callbackScheme
+        )
+        let repository = session.connectionRepository()
+
+        self.connectionsListViewModel = ConnectionsListViewModel(
+            connectionManager: manager,
+            connectionRepository: repository
+        )
     }
 
     // MARK: - Actions
