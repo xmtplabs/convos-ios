@@ -4,7 +4,7 @@ import SwiftUI
 
 @main
 struct ConvosAppClipApp: App {
-    private let convos: ConvosClient
+    private let clipSession: ClipIdentityBootstrap.ClipSession
 
     init() {
         ConfigManager.configure(overrides: ConvosSecretOverrides(
@@ -23,11 +23,14 @@ struct ConvosAppClipApp: App {
             ConvosLog.error("Missing Firebase plist URL for current environment", namespace: "ConvosAppClip")
         }
 
-        // Instantiating the client seeds the shared-app-group KeychainIdentityStore on first
-        // launch. The main app picks up the same identity via the shared access group, so the
-        // full app skips identity creation and lands on the conversation the clip joined.
-        convos = .client(environment: environment, platformProviders: .iOS)
-        _ = convos // keep alive for the app lifetime
+        // Dedicated clip bootstrap: seeds the shared-app-group keychain with
+        // a single-inbox identity so the main app install skips onboarding.
+        // Skips push-token registration, asset renewal, and
+        // unused-conversation prewarm — all wasted (or actively wrong) in
+        // the clip's ephemeral runtime.
+        clipSession = MainActor.assumeIsolated {
+            ClipIdentityBootstrap.bootstrap(environment: environment, platformProviders: .iOS)
+        }
     }
 
     var body: some Scene {

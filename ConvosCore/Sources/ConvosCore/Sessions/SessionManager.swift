@@ -52,12 +52,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
     private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
+    /// Runtime context for the owning binary. The main app needs the full
+    /// session machinery (push-token registration, asset renewal, prewarm,
+    /// worker timers); the App Clip just needs to seed the keychain
+    /// identity and hand off. The clip context skips the post-init
+    /// background work — see `ClipIdentityBootstrap`.
+    enum Mode: Sendable {
+        case fullApp
+        case clipBootstrap
+    }
+
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          environment: AppEnvironment,
          identityStore: any KeychainIdentityStoreProtocol,
          unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
-         platformProviders: PlatformProviders) {
+         platformProviders: PlatformProviders,
+         mode: Mode = .fullApp) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
@@ -74,6 +85,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
 
         observe()
+
+        guard mode == .fullApp else {
+            // Clip bootstrap: skip everything below. The clip writes the
+            // keychain identity during its one `messagingService()` call
+            // and the main app picks it up via the shared access group —
+            // no push token to register (clip lacks the entitlement), no
+            // prewarm to do, no renewal to run.
+            initializationTask = nil
+            return
+        }
 
         initializationTask = Task { [weak self] in
             guard let self else { return }
