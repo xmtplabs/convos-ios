@@ -106,6 +106,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         if baseMemberKind != nil, let profileMetadata {
             let tempProfile = Profile(
                 inboxId: result.joinerInboxId,
+                conversationId: result.conversationId,
                 name: profile?.name,
                 avatar: profile?.imageURL,
                 isAgent: true,

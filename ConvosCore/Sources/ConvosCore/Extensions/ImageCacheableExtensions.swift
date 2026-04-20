@@ -2,16 +2,11 @@ import Foundation
 
 extension Profile: ImageCacheable {
     /// Conversation-scoped cache key. A member's display name, avatar, and
-    /// metadata are all per-conversation — `DBMemberProfile` is keyed on
-    /// `(conversationId, inboxId)` — so caching by bare `inboxId` collapses
-    /// distinct per-conversation profiles into one entry and the last
-    /// write wins. When `conversationId` is nil (contexts that intentionally
-    /// aren't scoped to a conversation), fall back to `inboxId`.
+    /// metadata are all per-conversation (`DBMemberProfile` is keyed on
+    /// `(conversationId, inboxId)`), so keying by bare `inboxId` would
+    /// collapse distinct per-conversation profiles into one entry.
     public var imageCacheIdentifier: String {
-        if let conversationId, !conversationId.isEmpty {
-            return "\(inboxId)@\(conversationId)"
-        }
-        return inboxId
+        "\(inboxId)@\(conversationId)"
     }
 
     public var imageCacheURL: URL? {
@@ -61,12 +56,7 @@ extension Conversation: ImageCacheable {
         case .customImage:
             return clientConversationId
         case .profile(let profile, _):
-            // Conversation-scoped so that different DMs with the same peer
-            // (same `inboxId` but distinct per-conversation profiles) don't
-            // share an avatar cache entry.
-            return profile.inboxId.isEmpty
-                ? clientConversationId
-                : "\(profile.inboxId)@\(clientConversationId)"
+            return profile.imageCacheIdentifier
         default:
             return clientConversationId
         }

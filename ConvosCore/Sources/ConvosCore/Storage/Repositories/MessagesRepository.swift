@@ -12,11 +12,13 @@ public struct ConversationMessagesResult: Sendable {
 
 public struct MemberProfileInfo: Sendable {
     public let inboxId: String
+    public let conversationId: String
     public let name: String?
     public let avatar: String?
 
-    public init(inboxId: String, name: String?, avatar: String?) {
+    public init(inboxId: String, conversationId: String, name: String?, avatar: String?) {
         self.inboxId = inboxId
+        self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
     }
@@ -396,7 +398,12 @@ class MessagesRepository: MessagesRepositoryProtocol {
             .fetchAll(db)
         var result: [String: MemberProfileInfo] = [:]
         for row in rows {
-            result[row.inboxId] = MemberProfileInfo(inboxId: row.inboxId, name: row.name, avatar: row.avatar)
+            result[row.inboxId] = MemberProfileInfo(
+                inboxId: row.inboxId,
+                conversationId: conversationId,
+                name: row.name,
+                avatar: row.avatar
+            )
         }
         return result
     }
