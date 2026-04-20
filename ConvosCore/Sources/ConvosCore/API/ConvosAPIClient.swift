@@ -670,7 +670,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
         let request = try authenticatedRequest(for: "v2/connections", method: "GET")
-        return try await performRequest(request)
+        let response: ConnectionsAPI.ListResponse = try await performRequest(request)
+        return response.connections
     }
 
     func revokeConnection(connectionId: String) async throws {

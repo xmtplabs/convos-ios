@@ -39,11 +39,11 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         let connection = Connection(
             id: completion.connectionId,
             serviceId: completion.serviceId,
-            serviceName: completion.serviceName,
+            serviceName: displayName(for: completion.serviceName, fallbackFrom: completion.serviceId),
             provider: .composio,
             composioEntityId: completion.composioEntityId,
             composioConnectionId: completion.composioConnectionId,
-            status: ConnectionStatus(rawValue: completion.status) ?? .active,
+            status: ConnectionStatus.from(composioStatus: completion.status),
             connectedAt: Date()
         )
 
@@ -68,14 +68,14 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
 
         let connections: [Connection] = responses.map { response in
             Connection(
-                id: response.id,
+                id: response.connectionId,
                 serviceId: response.serviceId,
-                serviceName: response.serviceName,
+                serviceName: displayName(for: response.serviceName, fallbackFrom: response.serviceId),
                 provider: .composio,
                 composioEntityId: response.composioEntityId,
                 composioConnectionId: response.composioConnectionId,
-                status: ConnectionStatus(rawValue: response.status) ?? .active,
-                connectedAt: ISO8601DateFormatter().date(from: response.connectedAt) ?? Date()
+                status: ConnectionStatus.from(composioStatus: response.status),
+                connectedAt: Date()
             )
         }
 
@@ -88,6 +88,15 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
 
         return connections
     }
+
+    private func displayName(for serviceName: String, fallbackFrom serviceId: String) -> String {
+        let base = serviceName.isEmpty ? serviceId : serviceName
+        return base
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
 }
 
 enum ConnectionManagerError: LocalizedError {
@@ -97,6 +106,21 @@ enum ConnectionManagerError: LocalizedError {
         switch self {
         case .invalidOAuthURL:
             "Invalid OAuth URL received from server"
+        }
+    }
+}
+
+extension ConnectionStatus {
+    static func from(composioStatus raw: String) -> ConnectionStatus {
+        switch raw.uppercased() {
+        case "ACTIVE", "INITIATED", "INITIALIZING":
+            return .active
+        case "EXPIRED":
+            return .expired
+        case "FAILED", "INACTIVE":
+            return .revoked
+        default:
+            return .active
         }
     }
 }

@@ -16,12 +16,15 @@ public enum ConnectionsAPI {
     }
 
     public struct ConnectionResponse: Codable, Sendable {
-        public let id: String
+        public let connectionId: String
         public let serviceId: String
         public let serviceName: String
         public let composioEntityId: String
         public let composioConnectionId: String
         public let status: String
-        public let connectedAt: String
+    }
+
+    public struct ListResponse: Codable, Sendable {
+        public let connections: [ConnectionResponse]
     }
 }
