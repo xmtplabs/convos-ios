@@ -7,7 +7,13 @@ import GRDB
 /// having to mock the main app's whole messaging-service surface.
 public protocol PushNotificationProcessing: AnyObject, Sendable {
     func processPushNotification(payload: PushNotificationPayload) async throws -> DecodedNotificationContent?
-    func stop()
+    /// Async so the NSE's cache-invalidation path can actually await stream
+    /// teardown before rebuilding for a new identity. The sync `stop()` on
+    /// `MessagingService` spawns a detached task and returns immediately —
+    /// good enough for "fire and forget" cleanup, but not what the NSE's
+    /// identity-rotation path needs. Conformers implementing via
+    /// `MessagingService` pick up the async overload automatically.
+    func stop() async
 }
 
 /// Constructs a push-notification-capable service for a given identity.

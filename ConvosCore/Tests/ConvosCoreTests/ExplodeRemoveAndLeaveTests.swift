@@ -90,25 +90,28 @@ struct ExplodeRemoveAndLeaveTests {
         #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
     }
 
-    @Test("sendExplode failure is propagated — writer throws before any further step")
-    func sendExplodeFailureAborts() async throws {
+    @Test("sendExplode failure is logged but does not abort MLS teardown")
+    func sendExplodeFailureDoesNotAbortFlow() async throws {
+        // MLS teardown (removeMembers + leaveGroup) is the source of truth
+        // for "group ends"; the ExplodeSettings codec message is a best-effort
+        // hint so receivers can hide the conversation ahead of the MLS commit
+        // arriving. If sendExplode flakes, the remaining legs must still run —
+        // partial-destruction (message went out but group still has all
+        // members) is strictly worse than a full best-effort sweep.
         let fixtures = Fixtures()
         fixtures.operations.failSendExplode(with: StubError.sendFailed)
 
-        do {
-            try await fixtures.writer.explodeConversation(
-                conversationId: conversationId,
-                memberInboxIds: [selfInboxId, otherA]
-            )
-            Issue.record("Expected sendExplode failure to propagate")
-        } catch {
-            // Expected
-        }
+        try await fixtures.writer.explodeConversation(
+            conversationId: conversationId,
+            memberInboxIds: [selfInboxId, otherA]
+        )
 
-        // currentInboxId + sendExplode — no leave, no denyConsent.
-        #expect(fixtures.operations.calls.count == 2)
-        #expect(fixtures.metadataWriter.updatedExpiresAt.isEmpty)
-        #expect(fixtures.metadataWriter.removedMembers.isEmpty)
+        // currentInboxId → sendExplode (fails) → leaveGroup still fires.
+        #expect(fixtures.operations.calls.count == 3)
+        #expect(fixtures.operations.calls.last == .leaveGroup(conversationId: conversationId))
+        // Local expiresAt + removeMembers both land despite the send failure.
+        #expect(fixtures.metadataWriter.updatedExpiresAt.count == 1)
+        #expect(fixtures.metadataWriter.removedMembers.count == 1)
     }
 
     @Test("metadataWriter.removeMembers failure does not prevent leaveGroup")

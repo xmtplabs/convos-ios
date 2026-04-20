@@ -114,8 +114,8 @@ public actor CachedPushNotificationHandler {
         inboxId: String,
         clientId: String,
         overrideJWTToken: String?
-    ) -> any PushNotificationProcessing {
-        getOrCreateMessagingService(
+    ) async -> any PushNotificationProcessing {
+        await getOrCreateMessagingService(
             inboxId: inboxId,
             clientId: clientId,
             overrideJWTToken: overrideJWTToken
@@ -123,8 +123,8 @@ public actor CachedPushNotificationHandler {
     }
 
     /// Test-only entry point into the stale-by-age cleanup path.
-    func _cleanupIfStaleForTesting() {
-        cleanupIfStale()
+    func _cleanupIfStaleForTesting() async {
+        await cleanupIfStale()
     }
 
     private let environment: AppEnvironment
@@ -172,7 +172,7 @@ public actor CachedPushNotificationHandler {
     ) async throws -> DecodedNotificationContent? {
         Log.debug("Processing push notification")
 
-        cleanupIfStale()
+        await cleanupIfStale()
 
         guard payload.isValid, let payloadClientId = payload.clientId else {
             Log.debug("Dropping notification without clientId (v1/legacy)")
@@ -219,22 +219,23 @@ public actor CachedPushNotificationHandler {
 
     /// Tears down the cached messaging service, if any. Useful for explicit cleanup
     /// between processes or in tests; the system normally tears the NSE process down
-    /// before this matters.
-    public func cleanup() {
+    /// before this matters. Async so stream teardown truly precedes return — see
+    /// `PushNotificationProcessing.stop()` for why the protocol method is async.
+    public func cleanup() async {
         if let cached {
-            cached.service.stop()
+            await cached.service.stop()
         }
         cached = nil
     }
 
     // MARK: - Private
 
-    private func cleanupIfStale() {
+    private func cleanupIfStale() async {
         guard let cached, now().timeIntervalSince(cached.lastAccessTime) > maxServiceAge else {
             return
         }
-        Log.debug("Cleaning up stale messaging service (age > \(Int(maxServiceAge))s)")
-        cached.service.stop()
+        Log.info("Cleaning up stale messaging service (age > \(Int(maxServiceAge))s)")
+        await cached.service.stop()
         self.cached = nil
     }
 
@@ -242,7 +243,7 @@ public actor CachedPushNotificationHandler {
         inboxId: String,
         clientId: String,
         overrideJWTToken: String?
-    ) -> any PushNotificationProcessing {
+    ) async -> any PushNotificationProcessing {
         if var existing = cached {
             if existing.inboxId == inboxId, existing.clientId == clientId {
                 existing.lastAccessTime = now()
@@ -251,11 +252,11 @@ public actor CachedPushNotificationHandler {
                 return existing.service
             }
             // Identity swapped out from under us (user signed out and in as
-            // someone else while this NSE process was still warm). Tear the
-            // old service down before building the new one so streams and
-            // sync workers from the prior identity drain cleanly.
+            // someone else while this NSE process was still warm). Await the
+            // teardown so streams and sync workers from the prior identity
+            // drain before the new service's state-machine touches disk.
             Log.info("Identity rotated mid-process: tearing down cached service for \(existing.inboxId), building for \(inboxId)")
-            existing.service.stop()
+            await existing.service.stop()
             cached = nil
         }
 

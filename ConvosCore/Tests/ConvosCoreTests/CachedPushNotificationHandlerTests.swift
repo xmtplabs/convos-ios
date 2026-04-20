@@ -138,7 +138,7 @@ private final class StubMessagingService: PushNotificationProcessing, @unchecked
         nil
     }
 
-    func stop() {
+    func stop() async {
         lock.withLock { $0 += 1 }
     }
 }

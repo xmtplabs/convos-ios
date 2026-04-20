@@ -99,33 +99,32 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         let currentInboxId = try await operations.currentInboxId()
         let otherMemberInboxIds = memberInboxIds.filter { $0 != currentInboxId }
 
-        // Broadcast the explode-now message so every other member gets the
-        // `conversationExpired` signal even if they don't process the subsequent
-        // member-removal event in time.
-        Log.info("Sending ExplodeSettings message...")
-        try await withTimeout(seconds: 20) { [operations] in
+        // Every MLS boundary call below runs through `runBoundedMLSOp`: bounded
+        // timeout, logged failure, non-fatal. The MLS teardown (removeMembers +
+        // leaveGroup) is the source of truth for "group ends"; the codec
+        // `ExplodeSettings` send is a best-effort hint so receivers can hide the
+        // conversation ahead of the MLS commit arriving. Any single leg failing
+        // must not abort the remaining legs — partial-destruction leaves the
+        // group half-gone on the network, which is strictly worse than a
+        // best-effort full sweep where some pieces may still retry later.
+        await runBoundedMLSOp("ExplodeSettings send") { [operations] in
             try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
-        Log.info("ExplodeSettings message sent successfully")
         QAEvent.emit(.conversation, "exploded", ["id": conversationId])
 
-        // Set the local expiresAt so the sender's own UI hides the
-        // conversation immediately. ConversationsRepository filters on
-        // `expiresAt > Date()`, so a past value is the soft-delete trigger.
-        do {
+        // Local `expiresAt` makes the sender's UI hide the conversation
+        // immediately. `ConversationsRepository` filters on `expiresAt > Date()`,
+        // so a past value is the soft-delete trigger.
+        await runBoundedMetadataOp("updateExpiresAt") { [metadataWriter] in
             try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
-        } catch {
-            Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
         }
 
         // Remove every other member from the MLS group (filtered list,
         // creator excluded). Emits GroupUpdated removal events that other
         // clients pick up even if they missed the ExplodeSettings message
         // (e.g. offline at send time).
-        do {
+        await runBoundedMetadataOp("removeMembers") { [metadataWriter] in
             try await metadataWriter.removeMembers(otherMemberInboxIds, from: conversationId)
-        } catch {
-            Log.error("Failed removing members during explosion: \(error.localizedDescription)")
         }
 
         // Creator leaves the group. In the per-conversation-identity era
@@ -137,30 +136,26 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         // conversation from re-syncing — it's now redundant with `leaveGroup()`
         // (we're out of the group so there's nothing left to sync), but
         // preserved as a no-op guard in case the leave operation is interrupted.
-        do {
+        let left = await runBoundedMLSOp("leaveGroup") { [operations] in
             try await operations.leaveGroup(conversationId: conversationId)
+        }
+        if left {
             Log.info("Creator left exploded group: \(conversationId)")
-        } catch {
-            Log.error("Failed leaving group after explosion: \(error.localizedDescription). Falling back to denied consent.")
-            do {
+        } else {
+            await runBoundedMLSOp("denyConsent fallback") { [operations] in
                 try await operations.denyConsent(conversationId: conversationId)
-            } catch {
-                Log.error("Also failed denying consent: \(error.localizedDescription)")
             }
         }
     }
 
     func scheduleExplosion(conversationId: String, expiresAt: Date) async throws {
         Log.info("Scheduling explosion for \(expiresAt)...")
-        try await withTimeout(seconds: 20) { [operations] in
+        await runBoundedMLSOp("ExplodeSettings schedule") { [operations] in
             try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
-        Log.info("Scheduled explosion message sent successfully for \(expiresAt)")
 
-        do {
+        await runBoundedMetadataOp("updateExpiresAt (schedule)") { [metadataWriter] in
             try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
-        } catch {
-            Log.error("Failed to persist expiresAt locally: \(error.localizedDescription)")
         }
 
         NotificationCenter.default.post(
@@ -172,5 +167,46 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             ]
         )
         Log.info("Explosion scheduled for \(expiresAt)")
+    }
+
+    /// Bounded best-effort wrapper for a single MLS boundary call. Any thrown
+    /// error or timeout is logged and swallowed — the caller continues. Every
+    /// MLS reach-through in this writer goes through here so the failure
+    /// semantics are uniform: no one leg's flake can abort the other legs.
+    /// Returns `true` on success, `false` on timeout or throw; callers who
+    /// branch on the result (e.g. leave → denyConsent fallback) use that.
+    @discardableResult
+    private func runBoundedMLSOp(
+        _ name: String,
+        timeout: TimeInterval = 20,
+        _ body: @escaping @Sendable () async throws -> Void
+    ) async -> Bool {
+        do {
+            try await withTimeout(seconds: timeout, operation: body)
+            Log.info("\(name) succeeded")
+            return true
+        } catch {
+            Log.error("\(name) failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Bounded wrapper for a metadata-writer call. Shorter timeout than MLS
+    /// ops because these are local-DB + prepared-XMTP-message operations
+    /// rather than full network commits; failures here are even less fatal
+    /// (DB retry on next launch, XMTP metadata delivered lazily).
+    @discardableResult
+    private func runBoundedMetadataOp(
+        _ name: String,
+        timeout: TimeInterval = 20,
+        _ body: @escaping @Sendable () async throws -> Void
+    ) async -> Bool {
+        do {
+            try await withTimeout(seconds: timeout, operation: body)
+            return true
+        } catch {
+            Log.error("\(name) failed: \(error.localizedDescription)")
+            return false
+        }
     }
 }
