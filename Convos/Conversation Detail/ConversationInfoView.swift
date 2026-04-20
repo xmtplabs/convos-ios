@@ -72,6 +72,7 @@ struct FeatureRowItem<AccessoryView: View>: View {
 struct ConversationInfoView: View {
     @Bindable var viewModel: ConversationViewModel
     let focusCoordinator: FocusCoordinator
+    var connectionsViewModel: ConversationConnectionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeSheet: Bool = false
@@ -436,6 +437,13 @@ struct ConversationInfoView: View {
             membersSection
 
             assistantSection
+
+            if FeatureFlags.shared.isConnectionsEnabled,
+               let connectionsViewModel,
+               connectionsViewModel.hasConnections,
+               viewModel.conversation.hasEverHadVerifiedAssistant {
+                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            }
 
             convoCodeSection
 
