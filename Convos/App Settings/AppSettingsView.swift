@@ -115,6 +115,20 @@ struct AppSettingsView: View {
                     }
                 }
 
+                if FeatureFlags.shared.isConnectionsEnabled {
+                    Section {
+                        NavigationLink {
+                            ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+                        } label: {
+                            Text("Connections")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                        .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                    } footer: {
+                        Text("Share services with conversations")
+                    }
+                }
+
                 Section {
                     NavigationLink {
                         CustomizeSettingsView()

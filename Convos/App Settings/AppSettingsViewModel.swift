@@ -14,9 +14,23 @@ final class AppSettingsViewModel {
     // MARK: - Dependencies
 
     private let session: any SessionManagerProtocol
+    let connectionsListViewModel: ConnectionsListViewModel
 
-    init(session: any SessionManagerProtocol) {
+    init(session: any SessionManagerProtocol,
+         connectionManager: (any ConnectionManagerProtocol)? = nil,
+         connectionRepository: (any ConnectionRepositoryProtocol)? = nil) {
         self.session = session
+        if let connectionManager, let connectionRepository {
+            self.connectionsListViewModel = ConnectionsListViewModel(
+                connectionManager: connectionManager,
+                connectionRepository: connectionRepository
+            )
+        } else {
+            self.connectionsListViewModel = ConnectionsListViewModel(
+                connectionManager: MockConnectionManager(),
+                connectionRepository: MockConnectionRepository()
+            )
+        }
     }
 
     // MARK: - Actions
