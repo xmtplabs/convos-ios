@@ -50,10 +50,6 @@ final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, 
         throw error
     }
 
-    func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
-        throw error
-    }
-
     func waitForDeletionComplete() async {}
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {}
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}

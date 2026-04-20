@@ -29,10 +29,6 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
         InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
     }
 
-    public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
-        InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
-    }
-
     public func waitForDeletionComplete() async {
         currentState = .idle(clientId: currentState.clientId)
         notifyObservers()

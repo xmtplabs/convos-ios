@@ -10,7 +10,6 @@ public protocol SessionStateManagerProtocol: AnyObject, Sendable {
     var isSyncReady: Bool { get async }
 
     func waitForInboxReadyResult() async throws -> InboxReadyResult
-    func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult
     func waitForDeletionComplete() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async

@@ -411,46 +411,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         }
     }
 
-    public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
-        if case .ready(let currentClientId, let result) = _state,
-           result.client.inboxId == inboxId && currentClientId == clientId {
-            Log.info("Already authorized with inbox \(inboxId) and clientId \(clientId), skipping reauthorization")
-            return result
-        }
-
-        Log.info("Reauthorizing with inbox \(inboxId)...")
-
-        if case .ready = _state {
-            stop()
-            for await state in stateSequence {
-                if case .idle = state {
-                    break
-                }
-            }
-        }
-
-        authorize(inboxId: inboxId, clientId: clientId)
-
-        for await state in stateSequence {
-            switch state {
-            case .ready(_, let result):
-                if result.client.inboxId == inboxId {
-                    Log.info("Successfully reauthorized to inbox \(inboxId)")
-                    return result
-                } else {
-                    Log.info("Waiting for correct inbox... current: \(result.client.inboxId), expected: \(inboxId)")
-                    continue
-                }
-            case .error(_, let error):
-                throw error
-            default:
-                continue
-            }
-        }
-
-        throw SessionStateError.inboxNotReady
-    }
-
     // MARK: - Private
 
     private func enqueueAction(_ action: Action) {
