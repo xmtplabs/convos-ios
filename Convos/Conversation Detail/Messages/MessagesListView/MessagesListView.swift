@@ -148,6 +148,7 @@ struct MessagesListView: View {
     private func messagesGroupView(for group: MessagesGroup) -> MessagesGroupView {
         return MessagesGroupView(
             group: group,
+            conversationId: conversation.id,
             shouldBlurPhotos: shouldBlurPhotos,
             onTapAvatar: onTapAvatar,
             onTapInvite: onTapInvite,

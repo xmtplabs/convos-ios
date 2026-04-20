@@ -12,6 +12,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onReply: ((AnyMessage) -> Void)? { get set }
     var contextMenuState: MessageContextMenuState? { get set }
     var shouldBlurPhotos: Bool { get set }
+    var conversationId: String { get set }
     var onPhotoRevealed: ((String) -> Void)? { get set }
     var onPhotoHidden: ((String) -> Void)? { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }

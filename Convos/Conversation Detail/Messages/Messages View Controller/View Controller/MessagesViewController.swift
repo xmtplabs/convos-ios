@@ -96,6 +96,7 @@ final class MessagesViewController: UIViewController {
             }
 
             let animated = oldValue?.conversation.id == state.conversation.id
+            dataSource.conversationId = state.conversation.id
             processUpdates(
                 for: state.conversation,
                 with: state.messages,

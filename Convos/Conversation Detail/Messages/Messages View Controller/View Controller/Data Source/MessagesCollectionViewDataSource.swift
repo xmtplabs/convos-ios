@@ -13,6 +13,7 @@ final class MessagesCollectionViewDataSource: NSObject {
         }
     }
 
+    var conversationId: String = ""
     var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
@@ -75,6 +76,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
         let config = CellConfig(
+            conversationId: conversationId,
             shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
