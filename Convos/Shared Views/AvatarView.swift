@@ -109,6 +109,8 @@ struct ConversationAvatarView: View {
         case let .profile(profile, verification):
             if let emoji = profile.profileEmoji, !emoji.isEmpty {
                 EmojiAvatarView(emoji: emoji)
+            } else if verification == .unverified {
+                EmojiAvatarView(emoji: conversation.defaultEmoji)
             } else {
                 MonogramView(name: profile.displayName, agentVerification: verification)
             }
