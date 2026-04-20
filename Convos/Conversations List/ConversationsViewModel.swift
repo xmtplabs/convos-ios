@@ -253,6 +253,8 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
+        case .connectionGrant(serviceId: let serviceId, conversationId: let conversationId):
+            Log.info("Connection grant deep link received: service=\(serviceId) conversationId=\(conversationId)")
         }
     }
 
