@@ -13,10 +13,10 @@ public typealias AnyClientProvider = any XMTPClientProvider
 
 /// Coordinates the XMTP inbox that backs the app.
 ///
-/// On first access (`addInbox` / `messagingService`) the manager either loads
-/// the existing identity from the keychain and authorizes its
-/// `MessagingService`, or registers a fresh identity. Subsequent calls return
-/// the same service.
+/// On first access (`prepareNewConversation` / `messagingService`) the
+/// manager either loads the existing identity from the keychain and
+/// authorizes its `MessagingService`, or registers a fresh identity.
+/// Subsequent calls return the same service.
 ///
 /// @unchecked Sendable: mutable state is protected by `cachedMessagingService`. Long-lived
 /// tasks (initialization, foreground observation, asset renewal) are created
@@ -260,7 +260,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
+    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
         let service = loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter

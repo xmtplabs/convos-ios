@@ -12,7 +12,12 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
-    func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
+    /// Returns the shared messaging service and an optional conversation id
+    /// for a group pre-prepared by `UnusedConversationCache`. A background
+    /// prewarm is kicked off for the next caller. `conversationId` is nil
+    /// if no prepared group was available and the caller should create one
+    /// on demand.
+    func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 

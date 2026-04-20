@@ -1950,7 +1950,7 @@ extension ConversationViewModel {
         guard pendingInvite == nil, convosButtonTask == nil else { return }
         convosButtonTask = Task { [session] in
             defer { convosButtonTask = nil }
-            let (messagingService, existingConversationId) = await session.addInbox()
+            let (messagingService, existingConversationId) = await session.prepareNewConversation()
 
             guard !Task.isCancelled else { return }
 

@@ -161,7 +161,7 @@ One identity per install. One `MessagingService`. One state machine. Conversatio
 
 ### Typical flow: New conversation
 
-1. ViewModel calls `sessionManager.addInbox()` (note: legacy name — now really "add a conversation").
-2. `SessionManager.consumeUnusedConversationId` atomically flips an `isUnused=true` DB row to `false` and returns its id.
+1. ViewModel calls `sessionManager.prepareNewConversation()`.
+2. Internally, `UnusedConversationCache.consumeUnusedConversationId` atomically flips an `isUnused=true` DB row to `false` and returns its id.
 3. If the cache had one pre-prepared, you get an instant, already-published group. If not, the ViewModel creates a fresh group on demand.
 4. Either way, a fresh prewarm is kicked off in the background for the next tap.
