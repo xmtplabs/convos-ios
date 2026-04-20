@@ -85,7 +85,7 @@ struct ConversationConnectionsSection: View {
 
     private func iconName(for serviceId: String) -> String {
         switch serviceId {
-        case "google_calendar":
+        case "googlecalendar":
             "calendar"
         default:
             "link"

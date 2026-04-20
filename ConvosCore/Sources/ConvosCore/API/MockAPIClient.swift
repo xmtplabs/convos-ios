@@ -101,7 +101,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
         .init(
             connectionId: "mock-conn-\(UUID().uuidString)",
-            serviceId: "google_calendar",
+            serviceId: "googlecalendar",
             serviceName: "Google Calendar",
             composioEntityId: "convos_mock_entity",
             composioConnectionId: "mock_composio_conn",

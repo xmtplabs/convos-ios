@@ -97,13 +97,13 @@ struct ConnectionsListView: View {
 
     private var availableSection: some View {
         Section {
-            let hasCalendar = viewModel.connections.contains { $0.serviceId == "google_calendar" }
+            let hasCalendar = viewModel.connections.contains { $0.serviceId == "googlecalendar" }
 
             if !hasCalendar {
-                let action = { viewModel.connect(serviceId: "google_calendar") }
+                let action = { viewModel.connect(serviceId: "googlecalendar") }
                 Button(action: action) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        connectionIcon(for: "google_calendar")
+                        connectionIcon(for: "googlecalendar")
 
                         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                             Text("Google Calendar")
@@ -153,7 +153,7 @@ struct ConnectionsListView: View {
 
     private func iconName(for serviceId: String) -> String {
         switch serviceId {
-        case "google_calendar":
+        case "googlecalendar":
             "calendar"
         default:
             "link"
@@ -162,7 +162,7 @@ struct ConnectionsListView: View {
 
     private func iconColor(for serviceId: String) -> Color {
         switch serviceId {
-        case "google_calendar":
+        case "googlecalendar":
             .blue
         default:
             .gray

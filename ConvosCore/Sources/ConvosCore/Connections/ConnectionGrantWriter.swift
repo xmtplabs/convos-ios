@@ -110,7 +110,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
     private func triggerTypes(for serviceId: String) -> [String] {
         switch serviceId {
-        case "google_calendar":
+        case "googlecalendar":
             ["GOOGLE_CALENDAR_EVENT_STARTING"]
         default:
             []
