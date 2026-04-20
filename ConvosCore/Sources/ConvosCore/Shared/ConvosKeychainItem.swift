@@ -6,7 +6,4 @@ enum KeychainAccount {
     static func jwt(deviceId: String) -> String {
         return deviceId
     }
-
-    /// Account for storing the pre-created unused conversation ID
-    static let unusedConversation: String = "unused-conversation"
 }

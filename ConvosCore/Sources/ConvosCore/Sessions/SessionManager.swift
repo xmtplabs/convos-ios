@@ -335,6 +335,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        await unusedConversationCache.cancel()
+
         let existing = cachedMessagingService.withLock { cached -> MessagingService? in
             let current = cached
             cached = nil

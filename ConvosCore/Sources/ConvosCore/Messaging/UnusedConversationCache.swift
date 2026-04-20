@@ -5,11 +5,14 @@ import GRDB
 // MARK: - UnusedConversationCacheProtocol
 
 /// Pre-creates an XMTP group on the authorized messaging service so the first
-/// "new conversation" a user taps into is already published. Consumers either
-/// get a cached conversation ID back or nil — in which case they create the
+/// "new conversation" a user taps into is already published. The pre-created
+/// group lives as a `DBConversation` row with `isUnused = true`; callers either
+/// consume one via `consumeUnusedConversationId` or get `nil` and create a
 /// conversation on demand.
 public protocol UnusedConversationCacheProtocol: Actor {
-    /// Schedules pre-creation of an unused conversation on `service`. Idempotent.
+    /// Schedules pre-creation of an unused conversation on `service`. Idempotent:
+    /// no-op if a preparation task is already in flight or an unused row already
+    /// exists in the DB.
     func prepareUnusedConversation(
         service: any MessagingServiceProtocol,
         databaseWriter: any DatabaseWriter,
@@ -17,47 +20,26 @@ public protocol UnusedConversationCacheProtocol: Actor {
         environment: AppEnvironment
     ) async
 
-    /// Returns the pre-created conversation ID if one is cached and valid;
-    /// the returned conversation is marked `isUnused = false` atomically.
-    /// Returns nil if no conversation is cached or the cached one is stale.
+    /// Atomically claims any available unused conversation: flips `isUnused`
+    /// to `false` and returns its id, or returns `nil` if no unused row exists.
     func consumeUnusedConversationId(
         databaseWriter: any DatabaseWriter
     ) async -> String?
 
-    /// Whether the given conversation ID refers to the currently cached
-    /// unused conversation.
-    func isUnusedConversation(_ conversationId: String) -> Bool
-
-    /// Whether the cache has a pre-created conversation ready to consume.
-    func hasUnusedConversation() -> Bool
-
-    /// Clears the cached conversation pointer from the keychain. Does not
-    /// touch the database row.
-    func clearUnusedFromKeychain()
-}
-
-// MARK: - UnusedConversationCacheError
-
-enum UnusedConversationCacheError: Error {
-    case invalidConversationType
-    case identityMismatch
+    /// Cancels any in-flight preparation task. Call during inbox teardown so a
+    /// late-resolving prewarm can't land a stale row in a fresh DB.
+    func cancel()
 }
 
 // MARK: - UnusedConversationCache
 
 public actor UnusedConversationCache: UnusedConversationCacheProtocol {
-    private let keychainService: any KeychainServiceProtocol
     private let identityStore: any KeychainIdentityStoreProtocol
-    private var isCreating: Bool = false
     private var backgroundCreationTask: Task<Void, Never>?
     private var lastPreparationFailure: Date?
     private static let preparationCooldown: TimeInterval = 30
 
-    public init(
-        keychainService: any KeychainServiceProtocol = KeychainService(),
-        identityStore: any KeychainIdentityStoreProtocol
-    ) {
-        self.keychainService = keychainService
+    public init(identityStore: any KeychainIdentityStoreProtocol) {
         self.identityStore = identityStore
     }
 
@@ -73,10 +55,6 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             Log.debug("Unused conversation preparation already in flight, skipping...")
             return
         }
-        if getUnusedConversationIdFromKeychain() != nil {
-            Log.debug("Unused conversation already cached, skipping...")
-            return
-        }
         if let lastFailure = lastPreparationFailure,
            Date().timeIntervalSince(lastFailure) < Self.preparationCooldown {
             let remaining = Int(Self.preparationCooldown - Date().timeIntervalSince(lastFailure))
@@ -86,105 +64,101 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
 
         backgroundCreationTask = Task(priority: .background) { [weak self] in
             guard let self else { return }
+            if await self.hasUnusedConversationInDatabase(databaseReader: databaseReader) {
+                Log.debug("Unused conversation already cached, skipping...")
+                await self.clearBackgroundCreationTask()
+                return
+            }
             await self.runPreparation(
                 service: service,
                 databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
                 environment: environment
             )
         }
     }
 
+    private func clearBackgroundCreationTask() {
+        backgroundCreationTask = nil
+    }
+
     public func consumeUnusedConversationId(
         databaseWriter: any DatabaseWriter
     ) async -> String? {
-        guard let conversationId = getUnusedConversationIdFromKeychain() else {
-            return nil
-        }
-
-        // Mark the DB row as used *before* clearing the keychain pointer.
-        // If the DB write throws and we've already cleared the keychain,
-        // the conversation becomes an orphan: the DB still says `isUnused
-        // = true` (so the conversation list filters it out) and the
-        // keychain no longer points to it, so nothing in the app knows
-        // the row exists. Ordering: succeed the DB write first, then
-        // drop the keychain entry.
-        let existedAndMarked: Bool
+        let now = Date()
         do {
-            existedAndMarked = try await markConversationAsUsed(
-                conversationId: conversationId,
-                databaseWriter: databaseWriter
-            )
+            return try await databaseWriter.write { db -> String? in
+                guard let row = try DBConversation
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchOne(db) else {
+                    return nil
+                }
+                try db.execute(
+                    sql: "UPDATE conversation SET isUnused = ?, createdAt = ? WHERE id = ?",
+                    arguments: [false, now, row.id]
+                )
+                return row.id
+            }
         } catch {
-            Log.error("Failed to consume unused conversation \(conversationId): \(error). Leaving keychain entry intact for retry.")
+            Log.error("Failed to consume unused conversation: \(error)")
             return nil
         }
-
-        guard existedAndMarked else {
-            // Keychain pointed to a row that's not in the DB anymore;
-            // the keychain entry is the stale one and safe to drop.
-            Log.warning("Unused conversation \(conversationId) missing from database; dropping stale cache entry")
-            clearUnusedFromKeychain()
-            return nil
-        }
-
-        clearUnusedFromKeychain()
-        Log.debug("Consumed unused conversation: \(conversationId)")
-        return conversationId
     }
 
-    public func isUnusedConversation(_ conversationId: String) -> Bool {
-        getUnusedConversationIdFromKeychain() == conversationId
-    }
-
-    public func hasUnusedConversation() -> Bool {
-        getUnusedConversationIdFromKeychain() != nil
-    }
-
-    public func clearUnusedFromKeychain() {
-        // Cancel an in-flight preparation first — otherwise it can complete
-        // after we delete and race-restore the entry via
-        // `saveUnusedConversationIdToKeychain`, leaving stale keychain
-        // state after logout.
+    public func cancel() {
         backgroundCreationTask?.cancel()
         backgroundCreationTask = nil
-        try? keychainService.delete(account: KeychainAccount.unusedConversation)
     }
 
     // MARK: - Private
 
+    private func hasUnusedConversationInDatabase(
+        databaseReader: any DatabaseReader
+    ) async -> Bool {
+        do {
+            return try await databaseReader.read { db in
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchCount(db) > 0
+            }
+        } catch {
+            Log.error("Failed to query existing unused conversation: \(error)")
+            return false
+        }
+    }
+
     private func runPreparation(
         service: any MessagingServiceProtocol,
         databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async {
-        guard !isCreating else { return }
-        isCreating = true
-        defer {
-            isCreating = false
-            backgroundCreationTask = nil
-        }
+        defer { backgroundCreationTask = nil }
 
+        let inboxId: String
+        let group: XMTPiOS.Group
         do {
             let inboxReady = try await service.sessionStateManager.waitForInboxReadyResult()
             let client = inboxReady.client
-            let inboxId = client.inboxId
-
-            guard let identity = try await identityStore.load(),
-                  identity.inboxId == inboxId else {
-                throw UnusedConversationCacheError.identityMismatch
-            }
-
+            inboxId = client.inboxId
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
-            let conversationId = optimisticConversation.id
-
             try await optimisticConversation.publish()
-
-            guard let group = optimisticConversation as? XMTPiOS.Group else {
-                throw UnusedConversationCacheError.invalidConversationType
+            guard let xmtpGroup = optimisticConversation as? XMTPiOS.Group else {
+                Log.error("Pre-created conversation was not a group; abandoning")
+                lastPreparationFailure = Date()
+                return
             }
+            group = xmtpGroup
+        } catch {
+            Log.error("Failed to pre-create unused conversation: \(error)")
+            lastPreparationFailure = Date()
+            return
+        }
 
+        // Post-publish work: the group is live on the XMTP network. Any failure
+        // past this point must best-effort `leaveGroup()` so network state
+        // matches local state. Otherwise a row in the DB would be missing its
+        // invite tag or the group would stay on the network with no local
+        // record — both of which are worse than not caching at all.
+        do {
             try await group.ensureInviteTag()
             do {
                 try await group.ensureImageEncryptionKey()
@@ -204,28 +178,12 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             )
             _ = try await inviteWriter.generate(for: dbConversation)
 
-            saveUnusedConversationIdToKeychain(conversationId)
             lastPreparationFailure = nil
-            Log.debug("Pre-created unused conversation: \(conversationId)")
+            Log.debug("Pre-created unused conversation: \(group.id)")
         } catch {
-            Log.error("Failed to pre-create unused conversation: \(error)")
+            Log.error("Failed to finish unused conversation setup post-publish: \(error). Leaving XMTP group to keep state consistent.")
             lastPreparationFailure = Date()
-        }
-    }
-
-    /// Marks the conversation as consumed (`isUnused = false`) and updates
-    /// its `createdAt` to now. Returns `true` if a row was updated.
-    private func markConversationAsUsed(
-        conversationId: String,
-        databaseWriter: any DatabaseWriter
-    ) async throws -> Bool {
-        let now = Date()
-        return try await databaseWriter.write { db in
-            try db.execute(
-                sql: "UPDATE conversation SET isUnused = ?, createdAt = ? WHERE id = ?",
-                arguments: [false, now, conversationId]
-            )
-            return db.changesCount > 0
+            try? await group.leaveGroup()
         }
     }
 
@@ -307,18 +265,6 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             ).save(db, onConflict: .ignore)
 
             return dbConversation
-        }
-    }
-
-    private func getUnusedConversationIdFromKeychain() -> String? {
-        try? keychainService.retrieveString(account: KeychainAccount.unusedConversation)
-    }
-
-    private func saveUnusedConversationIdToKeychain(_ conversationId: String) {
-        do {
-            try keychainService.saveString(conversationId, account: KeychainAccount.unusedConversation)
-        } catch {
-            Log.error("Failed to save unused conversation to keychain: \(error)")
         }
     }
 }
