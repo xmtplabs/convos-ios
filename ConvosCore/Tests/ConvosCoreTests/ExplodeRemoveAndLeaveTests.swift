@@ -127,6 +127,69 @@ struct ExplodeRemoveAndLeaveTests {
         #expect(fixtures.operations.calls.last == .leaveGroup(conversationId: conversationId))
     }
 
+    @Test("currentInboxId throw aborts before any MLS call — session not ready")
+    func currentInboxIdThrowAbortsEarly() async throws {
+        // If the session never reports ready (keychain load failure, XMTP
+        // bootstrap stuck), the writer should propagate and land nothing.
+        // Pre-refactor this path was never asserted — adding it pins the
+        // contract that explode requires a ready session at entry.
+        let fixtures = Fixtures()
+        final class ThrowingOperations: ExplodeGroupOperationsProtocol, @unchecked Sendable {
+            func currentInboxId() async throws -> String {
+                throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: "session not ready"])
+            }
+            func sendExplode(conversationId: String, expiresAt: Date) async throws {}
+            func leaveGroup(conversationId: String) async throws {}
+            func denyConsent(conversationId: String) async throws {}
+        }
+        let throwing = ThrowingOperations()
+        let writer = ConversationExplosionWriter(
+            operations: throwing,
+            metadataWriter: fixtures.metadataWriter
+        )
+
+        do {
+            try await writer.explodeConversation(
+                conversationId: conversationId,
+                memberInboxIds: [selfInboxId, otherA]
+            )
+            Issue.record("Expected currentInboxId failure to propagate")
+        } catch {
+            // Expected
+        }
+
+        // Writer aborted before any MLS call or metadata write.
+        #expect(fixtures.metadataWriter.updatedExpiresAt.isEmpty)
+        #expect(fixtures.metadataWriter.removedMembers.isEmpty)
+    }
+
+    @Test("All three MLS calls fail — writer completes without throwing; denyConsent runs as leave fallback")
+    func allMLSOperationsFailingDoesNotThrow() async throws {
+        // The category-collapse fix: no single leg's failure aborts the
+        // other legs. Even if sendExplode, leaveGroup, and denyConsent
+        // all fail, the writer still completes and metadataWriter still
+        // gets its calls — a best-effort sweep is strictly better than
+        // partial destruction.
+        let fixtures = Fixtures()
+        fixtures.operations.failSendExplode(with: StubError.sendFailed)
+        fixtures.operations.failLeaveGroup(with: StubError.leaveFailed)
+        fixtures.operations.failDenyConsent(with: StubError.consentFailed)
+
+        try await fixtures.writer.explodeConversation(
+            conversationId: conversationId,
+            memberInboxIds: [selfInboxId, otherA]
+        )
+
+        // sendExplode, leaveGroup, denyConsent all recorded even though
+        // each threw; metadata writes still landed.
+        let calls = fixtures.operations.calls
+        #expect(calls.contains { if case .sendExplode = $0 { return true } else { return false } })
+        #expect(calls.contains(.leaveGroup(conversationId: conversationId)))
+        #expect(calls.contains(.denyConsent(conversationId: conversationId)))
+        #expect(fixtures.metadataWriter.updatedExpiresAt.count == 1)
+        #expect(fixtures.metadataWriter.removedMembers.count == 1)
+    }
+
     @Test("scheduleExplosion sends the message and records expiresAt; never touches leaveGroup")
     func scheduleExplosionDoesNotLeaveGroup() async throws {
         let fixtures = Fixtures()

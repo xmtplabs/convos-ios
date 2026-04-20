@@ -776,10 +776,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try? await identityStore.delete()
         if let priorIdentity, priorIdentity.clientId == clientId {
             Log.debug("Deleted identity from keychain for clientId: \(clientId)")
-            deleteDatabaseFiles(for: priorIdentity.inboxId)
-        } else if let resolvedInboxId {
+            deleteDatabaseFiles()
+        } else if resolvedInboxId != nil {
             Log.debug("Identity absent or not matching clientId: \(clientId), continuing cleanup")
-            deleteDatabaseFiles(for: resolvedInboxId)
+            deleteDatabaseFiles()
         }
 
         Log.info("Deleted inbox with clientId \(clientId)")
@@ -821,10 +821,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try? await identityStore.delete()
         if let priorIdentity, priorIdentity.clientId == clientId {
             Log.debug("Deleted identity from keychain for clientId: \(clientId)")
-            deleteDatabaseFiles(for: priorIdentity.inboxId)
-        } else if let inboxIdFromDb {
+            deleteDatabaseFiles()
+        } else if inboxIdFromDb != nil {
             Log.debug("Identity absent or not matching clientId: \(clientId), continuing cleanup")
-            deleteDatabaseFiles(for: inboxIdFromDb)
+            deleteDatabaseFiles()
         }
 
         Log.info("Deleted inbox with clientId \(clientId)")
