@@ -194,7 +194,6 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         set { setNotificationsEnabled(newValue) }
     }
 
-    // Editing state flags
     var isEditingDisplayName: Bool {
         get { myProfileViewModel.isEditingDisplayName }
         set { myProfileViewModel.isEditingDisplayName = newValue }
@@ -202,11 +201,9 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var isEditingConversationName: Bool = false
     var isEditingDescription: Bool = false
 
-    // Editing values
     var editingConversationName: String = ""
     var editingDescription: String = ""
 
-    // Computed properties for display
     var displayName: String {
         myProfileViewModel.displayName
     }
@@ -554,7 +551,6 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
     }
 
-    // Alternative initializer for draft conversations with pre-loaded dependencies
     init(
         conversation: Conversation,
         session: any SessionManagerProtocol,
@@ -569,7 +565,6 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
-        // Extract dependencies from conversation state manager
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
         let messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
@@ -850,7 +845,6 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
 
         isEditingConversationName = false
-        // Delegate focus transition to coordinator
         focusCoordinator.endEditing(for: .conversationName, context: context)
     }
 }
@@ -1325,13 +1319,11 @@ extension ConversationViewModel {
         let pickedImage = myProfileViewModel.profileImage
         _ = myProfileViewModel.onEndedEditing(for: conversation.id)
 
-        // Forward profile editing completion to onboarding coordinator
         onboardingCoordinator.handleDisplayNameEndedEditing(
             displayName: myProfileViewModel.editingDisplayName,
             profileImage: pickedImage
         )
 
-        // Delegate focus transition to coordinator
         if onboardingCoordinator.isSettingUpQuickname {
             focusCoordinator.endEditing(for: .displayName, context: .onboardingQuickname)
         } else {

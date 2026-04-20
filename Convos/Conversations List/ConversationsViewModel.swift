@@ -15,7 +15,6 @@ final class ConversationsViewModel {
 
     // MARK: - Selection State
 
-    // Single source of truth for selection
     @ObservationIgnored
     private var _selectedConversationId: String? {
         didSet {
@@ -23,7 +22,6 @@ final class ConversationsViewModel {
         }
     }
 
-    // for selection binding
     var selectedConversationId: Conversation.ID? {
         get { _selectedConversationId }
         set {
@@ -32,7 +30,6 @@ final class ConversationsViewModel {
         }
     }
 
-    // Computed property derived from selectedConversationId
     private(set) var selectedConversation: Conversation? {
         get {
             guard let id = _selectedConversationId else { return nil }
@@ -48,7 +45,6 @@ final class ConversationsViewModel {
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
 
-    // Called whenever _selectedConversationId changes
     private func updateSelectionState() {
         let conversation = selectedConversation
         let previousViewModelId = selectedConversationViewModel?.conversation.id
@@ -71,9 +67,7 @@ final class ConversationsViewModel {
             selectedConversationViewModel = nil
         }
 
-        // Only update if the selection actually changed
         if previousViewModelId != _selectedConversationId {
-            // Post notification for other observers (e.g., SyncingManager)
             let userInfo: [AnyHashable: Any] = _selectedConversationId.map { ["conversationId": $0] } ?? [:]
             NotificationCenter.default.post(
                 name: .activeConversationChanged,
@@ -144,7 +138,7 @@ final class ConversationsViewModel {
     }
 
     var unpinnedConversations: [Conversation] {
-        let baseConversations = conversations.filter { !$0.isPinned }.filter { $0.kind == .group } // @jarodl temporarily filtering out dms
+        let baseConversations = conversations.filter { !$0.isPinned }.filter { $0.kind == .group }
         switch activeFilter {
         case .all:
             return baseConversations
@@ -221,12 +215,9 @@ final class ConversationsViewModel {
         observe()
     }
 
-    /// Update the horizontal size class when it changes (call from view)
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
         guard horizontalSizeClass != sizeClass else { return }
         horizontalSizeClass = sizeClass
-
-        // Update the focus coordinator's size class - it will react to the change
         focusCoordinator.horizontalSizeClass = sizeClass
     }
 
@@ -310,7 +301,6 @@ final class ConversationsViewModel {
                 }
             }
 
-        // Observe explosion notification taps
         NotificationCenter.default
             .publisher(for: .explosionNotificationTapped)
             .receive(on: DispatchQueue.main)
@@ -320,7 +310,6 @@ final class ConversationsViewModel {
             }
             .store(in: &cancellables)
 
-        // Observe conversation notification taps
         NotificationCenter.default
             .publisher(for: .conversationNotificationTapped)
             .receive(on: DispatchQueue.main)
@@ -343,20 +332,17 @@ final class ConversationsViewModel {
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
-                // Clear selection if selected conversation no longer exists
                 if let selectedId = _selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
                 }
 
-                // Reset filter only when base conversations list is empty (not when filtered list is empty)
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
                 }
             }
             .store(in: &cancellables)
 
-        // Mark active conversation as read when app becomes active
         NotificationCenter.default
             .publisher(for: UIApplication.didBecomeActiveNotification)
             .receive(on: DispatchQueue.main)

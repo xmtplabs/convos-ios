@@ -38,9 +38,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         let token = tokenParts.joined()
 
         Log.info("Received device token from APNS")
-        // Store token in shared storage
         pushNotificationRegistrar?.save(token: token)
-        Log.info("Stored device token in shared storage")
     }
 
     func application(_ application: UIApplication,
@@ -65,17 +63,14 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
 
     // MARK: - UNUserNotificationCenterDelegate
 
-    // Handle notifications when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let conversationId = notification.request.content.threadIdentifier
 
-        // Wake the inbox for this conversation so it's ready when the user opens it
         if !conversationId.isEmpty, let session = session {
             session.wakeInboxForNotification(conversationId: conversationId)
         }
 
-        // Handle explosion notifications - trigger cleanup and show banner
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("App in foreground - explosion notification received, triggering cleanup")
             NotificationCenter.default.post(
@@ -86,7 +81,6 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             return [.banner, .sound]
         }
 
-        // Check if we should display regular notifications based on the active conversation
         if !conversationId.isEmpty,
            let session = session {
             let shouldDisplay = await session.shouldDisplayNotification(for: conversationId)
@@ -95,20 +89,16 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             }
         }
 
-        // Show notification banner when app is in foreground
-        // NSE processes all notifications regardless of app state
         Log.info("App in foreground - showing notification banner")
         return [.banner]
     }
 
-    // Handle notification taps
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         Log.debug("Notification tapped")
 
         let conversationId = response.notification.request.content.threadIdentifier
 
-        // Check if this is an explosion notification tap
         if response.notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("Explosion notification tapped")
             DispatchQueue.main.async {
@@ -135,11 +125,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             return
         }
 
-        // Wake the inbox for this conversation when notification is tapped
-        // This ensures the inbox is ready when the user opens the conversation
         session.wakeInboxForNotification(conversationId: conversationId)
-
-        // Clear all delivered notifications for this conversation
         await clearDeliveredNotifications(for: conversationId)
 
         Log
