@@ -71,7 +71,15 @@ The creator's XMTP inbox ID is embedded in every invite as raw bytes (hex-decode
 Cryptographically binds the encrypted conversation token to the creator's identity, preventing token transplant attacks where an attacker might try to use a valid token with a different creator.
 
 **Privacy Note:**
-Exposing the creator's inbox ID in the invite is acceptable in Convos' architecture because every conversation uses a single-purpose identity. Each identity is only ever tied to one conversation, so revealing the inbox ID doesn't expose any information beyond what the invite already contains (the conversation itself).
+Under the pre-refactor per-conversation identity model (ADR 002, now
+superseded) exposing the creator's inbox ID in the invite was acceptable
+because every conversation used a single-purpose identity. Under ADR 011
+(single-inbox) the inbox ID is 1:1 with the user across all conversations,
+so an invite slug reveals the inviter's global inbox ID to anyone who
+decodes it. That privacy regression is a known consequence of the
+single-inbox refactor and is tracked for follow-up in
+[`docs/plans/invite-system-single-inbox.md`](../plans/invite-system-single-inbox.md);
+the invite wire format is unchanged at C10.
 
 **Location:** `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/invite.proto:8-9`
 
@@ -201,7 +209,14 @@ Key design decisions:
 - **Revocation Lag:** Updating invite tag only affects future joins, can't force-expire already-shared invites
 
 **Note on Creator Inbox ID Exposure:**
-While the creator's inbox ID is visible in invites, this is not a privacy concern in Convos' architecture. Every conversation uses a single-purpose identity, and each identity is only ever tied to one conversation. Therefore, revealing the inbox ID doesn't expose any information beyond what the invite already conveys (the conversation itself).
+The creator's inbox ID is embedded in every invite. Under ADR 002 this was
+not a privacy concern because each identity was scoped to a single
+conversation. Under ADR 011 (single-inbox) the inbox ID identifies the
+user across every conversation they create, so an invite recipient who
+decodes the slug learns the inviter's global identifier. Addressing this
+privacy regression is tracked in the
+[invite-system-single-inbox plan](../plans/invite-system-single-inbox.md);
+the C10 wire format is unchanged.
 
 ### Security Model
 
@@ -241,10 +256,17 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 
 ## Related ADRs
 
-- ADR 002: Per-Conversation Identity Model (explains the per-conversation inbox architecture used for invite creators)
-- ADR 003: Inbox Lifecycle Management (explains how pre-created inboxes optimize the join flow)
-- ADR 004: Conversation Explode Feature (join error feedback follows the same custom content type codec pattern)
-- ADR 005: Member Profile System (profiles moved to XMTP messages; appData no longer shared with profiles)
+- ADR 002: Per-Conversation Identity Model (superseded — described the
+  per-conversation inbox architecture the original invite threat model
+  assumed)
+- ADR 003: Inbox Lifecycle Management (superseded — described the
+  pre-created inbox pool the pre-refactor join flow consumed from)
+- ADR 004: Conversation Explode Feature (join error feedback follows the
+  same custom content type codec pattern)
+- ADR 005: Member Profile System (profiles moved to XMTP messages;
+  appData no longer shared with profiles)
+- ADR 011: Single-Inbox Identity Model (governs how joins bind to the
+  user's singleton inbox — see the C10 amendment below)
 
 ## References
 

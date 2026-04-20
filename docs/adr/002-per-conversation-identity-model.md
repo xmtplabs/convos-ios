@@ -1,24 +1,20 @@
 # ADR 002: Per-Conversation Identity Model with Privacy-Preserving Push Notifications
 
-> **Status**: Superseded by [ADR 011 — Single-Inbox Identity Model](./011-single-inbox-identity-model.md).
+> **Status**: Superseded by [ADR 011 — Single-Inbox Identity Model](./011-single-inbox-identity-model.md) (2026-04-20).
 >
-> **Superseded date**: 2026-04-19 (C14 of the single-inbox identity refactor,
-> `docs/plans/single-inbox-identity-refactor.md`).
+> The architecture described below — one XMTP inbox per conversation, an LRU
+> lifecycle manager, a pre-creation cache, per-conversation keychain entries
+> keyed by `clientId`, and explode via per-conversation inbox destruction — is
+> no longer the live design. Convos now provisions a single XMTP inbox per
+> user, keys are synced across devices via iCloud Keychain, and Explode uses
+> an MLS remove-all-then-leave mechanism. Read
+> [ADR 011](./011-single-inbox-identity-model.md) for the current architecture.
 >
-> The per-conversation identity architecture described below is no longer the
-> live design. Convos now provisions a single XMTP inbox per user, keys are
-> synced across devices via iCloud Keychain, and Explode uses an MLS
-> remove-all-then-leave mechanism instead of destroying a per-conversation
-> inbox. The threat model has shifted: we traded cross-conversation identity
-> isolation and per-conversation cryptographic finality for a dramatically
-> smaller surface (no LRU, no pre-creation cache, no sleep/wake state machine,
-> one keychain slot, one XMTP database). Read ADR 011 for the current
-> architecture; the sections below are retained as historical context for the
-> pre-refactor design.
->
-> The Single-Inbox Supersession Amendments section at the bottom of this file
-> remains in place and records which checkpoint retired each piece of the old
-> architecture — useful for anyone tracing the history of a code path.
+> The document below is retained for historical context and for anyone tracing
+> the rationale of a pre-refactor code path. The "Single-Inbox Supersession
+> Amendments" section at the bottom records the checkpoint-by-checkpoint
+> migration history, but readers interested in the current system should start
+> at ADR 011 instead.
 
 ## Context
 
@@ -270,33 +266,39 @@ replaces the architecture described above. Amendments here track each checkpoint
 lands on the `single-inbox-refactor` branch so readers of this ADR see what is still live
 and what has been retired.
 
-### C2 — Migration reset (landing now)
+### C2 — Migration reset
 
-The GRDB migration chain was collapsed to a single baseline named `v0-single-inbox`. The
-refactor explicitly ships without a data migration path: on first launch of any install
-carrying pre-refactor artefacts, `LegacyDataWipe` deletes the shared GRDB file and every
-`xmtp-{env}-*.db3` under the app-group container so the baseline migration runs against a
-clean directory. A `convos.schemaGeneration` marker in the app-group UserDefaults records
-that the wipe has run, so it only happens once per install generation.
+The GRDB migration chain was collapsed to a single baseline
+(`v1-single-inbox`, in `SharedDatabaseMigrator.swift`). The refactor ships
+without a data migration path: on first launch of any install carrying
+pre-refactor artefacts, `LegacyDataWipe` deletes the shared GRDB file and
+every `xmtp-*.db3` under the app-group container so the baseline migration
+runs against a clean directory. A `convos.schemaGeneration` marker in the
+app-group UserDefaults records that the wipe has run, so it only happens
+once per install generation. The GRDB file was renamed to
+`convos-single-inbox.sqlite` at the same time so a partial-downgrade can't
+silently reopen a post-refactor schema with pre-refactor code.
 
-Two new tables land with the baseline to carry the global-profile model:
+C2 initially added `myProfile` and `profileBroadcastQueue` tables in
+anticipation of a fan-out "global profile" design; that design was dropped
+in C8 (scope reduced — per-conversation profiles are retained, see
+ADR 005). The tables were never populated and were removed in C8 before
+the refactor landed.
 
-- `myProfile` — singleton row for the local user's global profile (fully populated by C8).
-- `profileBroadcastQueue` — pending broadcasts to per-conversation `ProfileUpdate`
-  messages (drained by the worker introduced in C8).
+Column removals for the multi-inbox `inboxId`/`clientId` columns on
+`conversation`, `message`, `conversation_members`, etc. are deferred to
+C11. The baseline migration keeps those columns in place for the
+intermediate checkpoints so the multi-inbox Swift layer still compiles
+during the transition; C11c drops them once the Swift callers are gone.
 
-Column removals for `inboxId`/`clientId` on `conversation`, `message`, `conversation_members`,
-etc. are deferred to C4, which deletes the multi-inbox Swift layer that still references
-them. The baseline migration keeps those columns in place so the current Swift code
-continues to compile and run while the refactor is mid-flight.
+### C3 — Keychain singleton + iCloud Keychain sync
 
-### C3 — Keychain singleton + iCloud Keychain sync (landing now)
-
-`KeychainIdentityStore` gains a singleton API (`saveSingleton` / `loadSingleton` /
-`deleteSingleton`) that reads and writes a single identity under a fixed account key
-(`single-inbox-identity`). The service name bumps from
-`org.convos.ios.KeychainIdentityStore.v2` to `v3` so the new schema does not collide with
-legacy entries.
+`KeychainIdentityStore` collapses to a single identity slot with the
+public API `save` / `load` / `loadSync` / `delete` (singleton-prefixed
+names from mid-refactor have since been renamed; see C4a/C4b). Reads and
+writes hit a fixed account key (`convos-identity`) under service
+`org.convos.ios.KeychainIdentityStore.v3`. The service name bumps from v2
+to v3 so the new schema does not collide with legacy entries.
 
 **Access attributes** change to support iCloud Keychain sync:
 
@@ -323,21 +325,20 @@ we lose":
   is no worse than what Keychain Access Groups already expose to the user's trust
   boundary when signed in on multiple devices.
 
-**Private polymorphism dropped.** The old `identity(forClientId:)` lookup (used internally
-for uniqueness enforcement on save and for `delete(clientId:)`) is removed. The write path
-no longer verifies clientId uniqueness — with the singleton model the question is moot —
-and `delete(clientId:)` falls back to scanning `loadAll()` until the legacy multi-identity
-callers are retired in C4.
+**ClientId uniqueness enforcement dropped.** The old `identity(forClientId:)`
+lookup (used internally for uniqueness enforcement on save and for
+`delete(clientId:)`) is gone. With one identity slot the question is moot —
+the store just overwrites.
 
-**Legacy keychain cleanup.** `LegacyDataWipe` (introduced in C2) now also deletes
-`KeychainIdentityStore.v1` and `v2` entries in the shared access group during the
-one-shot upgrade wipe, alongside the GRDB and XMTP database files. The new `v3` store
-never reads these, but without explicit cleanup they would linger indefinitely.
+**Legacy keychain cleanup.** `LegacyDataWipe` also deletes
+`KeychainIdentityStore.v1` and `v2` entries in the shared access group during
+the one-shot upgrade wipe, alongside the GRDB and XMTP database files. The new
+v3 store never reads these, but without explicit cleanup they would linger
+indefinitely.
 
-The multi-identity public API (`save(inboxId:clientId:keys:)`, `identity(for inboxId:)`,
-`loadAll`, `delete(inboxId:)`, `delete(clientId:)`, `deleteAll`) remains available in C3
-so the multi-inbox Swift stack still compiles during the intermediate state. Those
-methods are retired in C4 when their callers are deleted.
+The multi-identity public API (`identity(for inboxId:)`, `loadAll`,
+`delete(inboxId:)`, `delete(clientId:)`, `deleteAll`) was retired in C4 along
+with its multi-inbox callers.
 
 ### C6 — XMTP device sync enabled
 

@@ -1,11 +1,17 @@
 # ADR 011: Single-Inbox Identity Model
 
-> **Status**: Accepted (2026-04-19).
-> **Supersedes**: [ADR 002 — Per-Conversation Identity Model](./002-per-conversation-identity-model.md).
-> **Related**: [ADR 003 — Inbox Lifecycle Management](./003-inbox-lifecycle-management.md)
-> (superseded, deleted subsystem), [ADR 004 — Explode Feature](./004-explode-feature.md)
-> (amended: remove-all-then-leave), [ADR 005 — Member Profile System](./005-member-profile-system.md)
-> (unchanged — per-conversation profiles retained).
+> **Status**: Accepted (2026-04-20).
+> **Supersedes**: [ADR 002 — Per-Conversation Identity Model](./002-per-conversation-identity-model.md)
+> and [ADR 003 — Inbox Lifecycle Management](./003-inbox-lifecycle-management.md)
+> (subsystem deleted).
+> **Amends**: [ADR 004 — Explode Feature](./004-explode-feature.md)
+> (§3–§5 replaced by remove-all-then-leave).
+> **Related**: [ADR 001 — Invite System](./001-invite-system-architecture.md)
+> (C10 join shim reuses the singleton inbox; invite wire format unchanged,
+> cryptographic redesign tracked separately in
+> `docs/plans/invite-system-single-inbox.md`),
+> [ADR 005 — Member Profile System](./005-member-profile-system.md)
+> (per-conversation profiles retained).
 > **Refactor plan**: [`docs/plans/single-inbox-identity-refactor.md`](../plans/single-inbox-identity-refactor.md).
 
 ## Context
@@ -48,7 +54,7 @@ conversation).
 
 Keychain material:
 
-- One entry in the app-group keychain, account key `single-inbox-identity`,
+- One entry in the app-group keychain, account key `convos-identity`,
   service `org.convos.ios.KeychainIdentityStore.v3`.
 - `kSecAttrAccessible = kSecAttrAccessibleAfterFirstUnlock` (relaxed from
   `…ThisDeviceOnly` to support sync).
@@ -58,9 +64,9 @@ Keychain material:
   App Clip; no other code gains access.
 
 The `KeychainIdentityStore` public API is `save`, `load`, `loadSync`
-(nonisolated fast-path for `SessionManager`), and `delete`. The
-multi-identity API (`loadAll`, `delete(inboxId:)`, etc.) and the old
-`clientId`-keyed lookups were removed in C4a.
+(nonisolated fast-path for `SessionManager`), and `delete`. There is no
+multi-identity API and no clientId-keyed lookups — the store owns exactly
+one slot.
 
 ### 2. XMTP client configuration
 
@@ -75,9 +81,10 @@ with:
   ExplodeSettingsCodec, InviteJoinErrorCodec, ProfileUpdateCodec,
   ProfileSnapshotCodec, JoinRequestCodec, AssistantJoinRequestCodec,
   TypingIndicatorCodec, ReadReceiptCodec).
-- Local XMTP database at `xmtp-{env}-{inboxId}.db3` under the app-group
-  container, encrypted with the per-install db encryption key from the
-  keychain.
+- Local XMTP database at `xmtp-<gRPC-host>-<hash>.db3` under the
+  app-group container (the XMTPiOS SDK owns the filename scheme; the
+  install holds exactly one such family of files), encrypted with the
+  per-install db encryption key from the keychain.
 
 ### 3. Push notification routing
 
@@ -104,18 +111,32 @@ NSE-side routing is single-inbox:
 
 ### 4. Session lifecycle
 
-`SessionManager.messagingService()` is a synchronous, lock-guarded
+`SessionManager.loadOrCreateService()` is a synchronous, lock-guarded
 lookup under `OSAllocatedUnfairLock<MessagingService?>`. First call
 synchronously loads the keychain identity via `loadSync()` and builds a
-service (the `.authorize` path if an identity exists, `.register` if not);
-subsequent calls return the same cached instance. The entire
-async/Task-based plumbing from the multi-inbox era is gone — there are no
-placeholder services, no creation-in-flight tasks, no awaited caches.
+service via `AuthorizeInboxOperation` (the `.authorize` path if an
+identity exists, `.register` if not); subsequent calls return the same
+cached instance. If `loadSync()` throws (daemon error, corrupt JSON,
+iCloud sync mid-flight), the lock caches a
+`FailedIdentityLoadOperation`-backed service that surfaces the real error
+via `sessionStateManager.currentState` — registering on top would
+overwrite a potentially-recoverable identity. On the next call we retry
+`loadSync` inside the lock; on success the errored cache is replaced by a
+real service, on continued failure the same frozen errored instance is
+returned with no rebuild thrash.
 
-On wipe (explode of a conversation, or an error-state fallback) the
-service is torn down; the next call rebuilds. The NSE and main app share
-the keychain, so a main-app wipe of the keychain causes the NSE to drop
-the next delivery and unregister its clientId.
+The entire async/Task-based service-construction plumbing from the
+multi-inbox era is gone — there are no placeholder services, no
+creation-in-flight tasks, no awaited caches.
+
+On account wipe (`deleteAllInboxes()`) the cached service is kept live
+through the entire teardown so a concurrent `loadOrCreateService()` call
+(push arriving mid-delete, SwiftUI sync accessor) observes the
+being-torn-down service rather than racing a fresh one against the same
+SQLCipher files. The cache is cleared only after the XMTP client,
+keychain, and `DBInbox` rows are gone. The NSE and main app share the
+keychain, so a main-app wipe causes the NSE to drop the next delivery and
+best-effort `unregisterInstallation(clientId:)` its clientId.
 
 ### 5. Conversation explode
 
@@ -137,32 +158,46 @@ on every participant that applied the commit."
 
 ### 6. App Clip handoff
 
-The App Clip target declares the same `keychain-access-groups` as the main
-app and instantiates `KeychainIdentityStore` against the same app-group
-access group. The clip's first `SessionManager.messagingService()` call
-registers the singleton identity and writes it into the shared slot. When
-the user later installs the full app, its first launch finds that
-identity already present — `makeService` takes the `.authorize` branch,
-reuses the clip's inboxId, clientId, and key material, and skips the
+The App Clip target declares the same `keychain-access-groups` as the
+main app and instantiates `KeychainIdentityStore` against the same
+app-group access group. `ClipIdentityBootstrap` builds a
+`SessionManager` in `.clipBootstrap` mode — skipping push-token
+registration, asset renewal, the prewarm, and the worker timers the
+full app runs — and forces one service materialization so the register
+path writes the identity into the shared slot. When the user later
+installs the full app, its first launch finds that identity already
+present: `loadOrCreateService()` takes the `.authorize` branch, reuses
+the clip's inboxId, clientId, and key material, and skips the
 onboarding carousel entirely.
 
 ### 7. Legacy data wipe
 
 On first launch of the refactor build, `LegacyDataWipe` deletes all
-pre-refactor state: the shared GRDB file, every `xmtp-{env}-*.db3` under
-the app-group container, and the legacy `v1`/`v2` keychain service
-entries. A `convos.schemaGeneration` marker in app-group UserDefaults
-records that the wipe has run; it only fires once per generation. There
-is no data-migration path; the refactor ships as a clean break.
+pre-refactor state: the old shared GRDB file (`convos.sqlite`), every
+`xmtp-*` file under the app-group databases directory, and the legacy
+`v1`/`v2` keychain service entries. The current build writes to a new
+GRDB file (`convos-single-inbox.sqlite`) so the two names can't
+collide on a partial downgrade. A `convos.schemaGeneration` marker in
+app-group UserDefaults records that the wipe has run (generation tag
+`single-inbox-v2`); it only fires once per generation, and the marker is
+only written after the next `detectLegacyArtifacts` scan confirms the
+directory is clean. There is no data-migration path; the refactor ships
+as a clean break.
 
 ## Consequences
 
 ### Positive
 
 - **Simpler Swift layer.** `InboxLifecycleManager`, `UnusedInboxCache`,
-  `SleepingInboxMessageChecker`, `InboxActivityRepository`, the pre-creation
-  cache, per-conversation identity state machines, and the multi-inbox
-  coordination tests are all deleted. `SessionManager` is a one-slot cache.
+  `SleepingInboxMessageChecker`, `InboxActivityRepository`, `InboxesRepository`,
+  the pre-creation cache, per-conversation identity state machines, and the
+  multi-inbox coordination tests are all deleted. `SessionManager` is a
+  one-slot cache; `SessionStateMachine` (renamed from `InboxStateMachine` in
+  C5) drives a single client through `authorizing/authenticatingBackend/ready`
+  without threading a `clientId` through its `State`/`Action` enums.
+  `UnusedConversationCache` replaces the old per-identity pre-creation cache
+  with a DB-backed unused-conversation row that is self-healing on publish
+  failure.
 - **Standard XMTP model.** No diverging from the SDK's expected shape;
   device sync, history replay, and multi-device UX follow the protocol's
   native mechanisms.
@@ -218,17 +253,39 @@ is no data-migration path; the refactor ships as a clean break.
 ### Code
 
 - `ConvosCore/Sources/ConvosCore/Auth/Keychain/KeychainIdentityStore.swift`
-  — singleton identity store.
+  — singleton identity store (save/load/loadSync/delete).
 - `ConvosCore/Sources/ConvosCore/Sessions/SessionManager.swift` — one-slot
-  `MessagingService` cache.
-- `ConvosCore/Sources/ConvosCore/Inboxes/SessionStateMachine.swift` — XMTP
-  client options (device sync enabled).
+  `OSAllocatedUnfairLock<MessagingService?>` cache, drives teardown
+  via `deleteAllInboxesWithProgress()`.
+- `ConvosCore/Sources/ConvosCore/Sessions/ClipIdentityBootstrap.swift` —
+  App Clip entry point; builds a minimal `SessionManager` in
+  `.clipBootstrap` mode and forces identity materialization.
+- `ConvosCore/Sources/ConvosCore/Inboxes/SessionStateMachine.swift` —
+  actor driving the XMTP client lifecycle; State/Action enums no longer
+  thread `clientId`.
+- `ConvosCore/Sources/ConvosCore/Inboxes/AuthorizeInboxOperation.swift`
+  — async-to-sync bridge used by `SessionManager` to build a service
+  under the cache lock.
+- `ConvosCore/Sources/ConvosCore/Inboxes/FailedIdentityLoadOperation.swift`
+  — null-object operation cached when `loadSync` throws so keychain-read
+  failures are surfaced via `sessionStateManager.currentState` without
+  rebuild thrash.
 - `ConvosCore/Sources/ConvosCore/Inboxes/CachedPushNotificationHandler.swift`
   — NSE-side identity-keyed service cache.
 - `ConvosCore/Sources/ConvosCore/Inboxes/PushNotificationServiceFactory.swift`
   — narrow seam for NSE testability.
+- `ConvosCore/Sources/ConvosCore/Messaging/MessagingService.swift` —
+  protocol-fronted messaging API; stores its own `clientId` captured
+  from the authorization operation at construction.
+- `ConvosCore/Sources/ConvosCore/Messaging/UnusedConversationCache.swift`
+  — DB-backed pre-creation of one unused `DBConversation` row, self-healing
+  on publish failure (cooldown + cancel on teardown).
 - `ConvosCore/Sources/ConvosCore/Storage/LegacyDataWipe.swift` —
-  generation-gated one-shot wipe.
+  generation-gated one-shot wipe; current generation tag
+  `single-inbox-v2`.
+- `ConvosCore/Sources/ConvosCore/Storage/SharedDatabaseMigrator.swift` —
+  single baseline migration `v1-single-inbox` against the new GRDB file
+  `convos-single-inbox.sqlite`.
 
 ### Tests
 

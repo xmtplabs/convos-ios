@@ -1,22 +1,20 @@
 # ADR 004: Conversation Explode Feature
 
-> **Status**: Amended by the single-inbox identity refactor
-> (`docs/plans/single-inbox-identity-refactor.md`).
+> **Status**: Accepted, with §3–§5 amended by
+> [ADR 011 — Single-Inbox Identity Model](./011-single-inbox-identity-model.md) (2026-04-20).
 >
 > The original design (below) destroyed the conversation's XMTP inbox identity
-> as the deletion mechanism. With the single-inbox refactor (ADR 002 superseded),
-> there is exactly one inbox per user — destroying it would wipe the user's
-> entire account. C9 of the refactor rewrites the deletion mechanism to
+> as the deletion mechanism. Under ADR 011 there is exactly one inbox per
+> user — destroying it would wipe the user's entire account. Explode is now
 > **remove-all-then-leave**: the creator sends the `ExplodeSettings` message,
 > removes every other member from the MLS group, then calls `group.leaveGroup()`.
 > Receivers drop the conversation locally on the `ExplodeSettings` message or
-> on the MLS "removed" event, whichever arrives first. No keychain material is
-> touched.
+> on the MLS "removed" commit, whichever arrives first. No keychain material is
+> touched and no cryptographic finality is claimed.
 >
-> The C9 amendment at the end of this file documents the new flow. The sections
-> below describe the original per-conversation-identity mechanism and remain
-> accurate for any install on a pre-single-inbox build; the single-inbox branch
-> no longer uses them.
+> The C9 amendment at the end of this file documents the live flow. The
+> sections below describe the original per-conversation-identity mechanism
+> and are retained as historical context.
 
 ## Context
 
@@ -342,9 +340,15 @@ However, the per-conversation identity model provides cryptographic assurance: e
 
 ## Related ADRs
 
-- ADR 002: Per-Conversation Identity Model (explains why destroying the inbox destroys the conversation's cryptographic identity)
-- ADR 003: Inbox Lifecycle Management (explains inbox deletion process)
-- ADR 005: Member Profile System (profiles use XMTP messages; expiration timestamps remain in appData)
+- ADR 002: Per-Conversation Identity Model (superseded — explained why
+  destroying the inbox destroyed the conversation's cryptographic identity
+  in the pre-refactor design)
+- ADR 003: Inbox Lifecycle Management (superseded — explained the
+  pre-refactor inbox deletion process)
+- ADR 005: Member Profile System (profiles use XMTP messages; expiration
+  timestamps remain in appData)
+- ADR 011: Single-Inbox Identity Model (governs the current deletion
+  mechanism — see the C9 amendment below)
 
 ## References
 

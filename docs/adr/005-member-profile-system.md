@@ -1,18 +1,30 @@
 # ADR 005: Member Profile System
 
-> **Status**: Accepted (revised 2026-03)
+> **Status**: Accepted (revised 2026-03; clarified against
+> [ADR 011](./011-single-inbox-identity-model.md) on 2026-04-20).
 > **Supersedes**: Original ADR 005 (profile storage in appData)
+>
+> Profiles remain **per-conversation** even under the single-inbox identity
+> model. The data model (`DBMemberProfile` keyed on
+> `(conversationId, inboxId)`), the wire formats (`ProfileUpdate`,
+> `ProfileSnapshot`, `JoinRequest`), and the resolution precedence below
+> are unchanged by ADR 011. What changed is that `inboxId` is now 1:1 with
+> the user across every conversation rather than 1:1 with one
+> conversation, so two different `DBMemberProfile` rows for the same user
+> share an `inboxId` but keep independent name/avatar/metadata.
 
 ## Context
 
-Convos uses a per-conversation identity model where each conversation has its own XMTP inbox (see ADR 002). To support user profiles (display names and avatars) in this model, we need a solution that:
+Convos historically used a per-conversation identity model (ADR 002,
+superseded by ADR 011) where each conversation had its own XMTP inbox.
+Per-conversation profiles were a natural fit and are retained under the
+single-inbox model. The profile system must:
 
-- Works without a centralized profile server
-- Maintains privacy isolation between conversations
-- Allows users to have different profiles per conversation
-- Supports optional profile sharing (users can remain anonymous)
-- Works within XMTP's infrastructure constraints
-- Provides good UX for users who want to reuse profiles
+- Work without a centralized profile server
+- Allow users to have different profiles per conversation
+- Support optional profile sharing (users can remain anonymous)
+- Work within XMTP's infrastructure constraints
+- Provide good UX for users who want to reuse profiles
 
 The original design stored profiles in the group's `appData` field as compressed protobuf. The biggest problem was that appData is not permissioned — any member could overwrite any other member's profile. This became especially problematic with agents, which could inadvertently clobber human profiles during concurrent metadata writes. Beyond that, the approach caused write contention (concurrent profile and tag updates clobbering each other), wasted bandwidth (changing one name rebroadcast every profile), and coupled profiles with unrelated metadata (invite tags, encryption keys). The system was migrated to dedicated XMTP messages in 2026-03.
 
@@ -235,7 +247,7 @@ Profile messages received via push notifications are processed silently in the N
 
 | Property | Guarantee |
 |----------|-----------|
-| Cross-conversation linkability | Different XMTP identities per conversation (ADR 002) |
+| Cross-conversation linkability | Per-conversation profiles are independent rows, but the underlying `inboxId` is shared across conversations under ADR 011 — a peer in two of the user's conversations can correlate them via the inbox ID |
 | Profile server correlation | No profile server exists |
 | Quickname detection | Local-only; other participants cannot detect reuse |
 | Profile scope | Visible only to members of that conversation |
@@ -286,7 +298,12 @@ Profile messages received via push notifications are processed silently in the N
 
 ## Related ADRs
 
-- ADR 001: Invite System (invite tags still stored in appData; profiles no longer compete for 8KB space)
-- ADR 002: Per-Conversation Identity Model (each conversation has a separate XMTP inbox)
+- ADR 001: Invite System (invite tags still stored in appData; profiles no
+  longer compete for 8KB space)
+- ADR 002: Per-Conversation Identity Model (superseded — historical
+  context for why per-conversation profiles were introduced)
 - ADR 004: Explode Feature (expiration timestamps in appData)
 - ADR 009: Encrypted Conversation Images (AES-256-GCM encryption for profile avatars)
+- ADR 011: Single-Inbox Identity Model (current identity model;
+  per-conversation profile rows now share an inboxId across conversations
+  but remain independent)

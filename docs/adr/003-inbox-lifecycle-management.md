@@ -1,14 +1,25 @@
 # ADR 003: Inbox Lifecycle Management with LRU Eviction
 
-> **Status**: Superseded by the Single-Inbox Identity Refactor (`docs/plans/single-inbox-identity-refactor.md`).
+> **Status**: Superseded by [ADR 011 — Single-Inbox Identity Model](./011-single-inbox-identity-model.md) (2026-04-20).
 >
-> **Superseded date**: 2026-04-16 (commit `30c2a519`, C4b of the single-inbox refactor branch).
+> The lifecycle manager existed to rotate a capacity-limited set of
+> per-conversation XMTP inboxes. ADR 011 replaced that model with one XMTP
+> inbox per user, which has no LRU, no wake/sleep state machine, no
+> pre-creation cache, and no pending-invite capacity tier — so the entire
+> subsystem (`InboxLifecycleManager`, `UnusedInboxCache`,
+> `SleepingInboxMessageChecker`, `InboxActivityRepository`) is gone.
+> `SessionManager` holds one `MessagingService` directly, guarded by a
+> single-slot `OSAllocatedUnfairLock<MessagingService?>`. The observations
+> below about resource cost and latency still hold for a hypothetical
+> multi-inbox world — they are the reason single-inbox is cheaper by
+> design, not a reason to reintroduce the lifecycle layer.
 >
-> **Why**: The lifecycle manager existed to rotate a capacity-limited set of per-conversation XMTP inboxes. The single-inbox refactor deletes the per-conversation identity model (ADR 002 was also superseded in C2/C3) and replaces it with one XMTP inbox per user. A single inbox has no LRU, no wake/sleep state machine, no pre-creation cache, and no pending-invite capacity tier — so the entire subsystem (`InboxLifecycleManager`, `UnusedInboxCache`, `SleepingInboxMessageChecker`, `InboxActivityRepository`) was removed in C4a. `SessionManager` now holds one `MessagingService` directly. The observations below about resource cost and latency still hold for a hypothetical multi-inbox world — they are the reason single-inbox is cheaper by design, not a reason to reintroduce the lifecycle layer.
+> **What to read instead**: [ADR 011](./011-single-inbox-identity-model.md)
+> for the current architecture, and `SessionManager.swift` +
+> `SessionStateMachine.swift` for the current session code.
 >
-> **What to read instead**: `docs/plans/single-inbox-identity-refactor.md` (C4 describes the deletion) and the collapsed `SessionManager` in `ConvosCore/Sources/ConvosCore/Sessions/SessionManager.swift`.
->
-> The original content is preserved below for historical context.
+> The document below is preserved as historical context for anyone tracing
+> a pre-refactor code path.
 
 ---
 
