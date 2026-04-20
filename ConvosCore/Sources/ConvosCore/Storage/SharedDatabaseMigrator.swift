@@ -486,6 +486,35 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("createConnections") { db in
+            try db.create(table: "connection") { t in
+                t.column("id", .text).notNull().primaryKey()
+                t.column("serviceId", .text).notNull()
+                t.column("serviceName", .text).notNull()
+                t.column("provider", .text).notNull()
+                t.column("composioEntityId", .text).notNull()
+                t.column("composioConnectionId", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("connectedAt", .datetime).notNull()
+            }
+
+            try db.create(table: "connectionGrant") { t in
+                t.column("connectionId", .text).notNull()
+                    .references("connection", onDelete: .cascade)
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("serviceId", .text).notNull()
+                t.column("grantedAt", .datetime).notNull()
+                t.primaryKey(["connectionId", "conversationId"])
+            }
+
+            try db.create(
+                index: "connectionGrant_conversationId",
+                on: "connectionGrant",
+                columns: ["conversationId"]
+            )
+        }
+
         return migrator
     }
 }

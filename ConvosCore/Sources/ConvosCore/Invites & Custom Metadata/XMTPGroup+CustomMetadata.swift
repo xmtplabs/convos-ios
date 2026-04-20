@@ -84,6 +84,32 @@ extension XMTPiOS.Group {
         }
     }
 
+    // MARK: - Connections
+
+    public var connectionsJson: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasConnectionsJson, !metadata.connectionsJson.isEmpty else { return nil }
+            return metadata.connectionsJson
+        }
+    }
+
+    public func updateConnectionsJson(_ json: String) async throws {
+        try await atomicUpdateMetadata(operation: "updateConnectionsJson") { metadata in
+            metadata.connectionsJson = json
+        } verify: { metadata in
+            metadata.hasConnectionsJson && metadata.connectionsJson == json
+        }
+    }
+
+    public func clearConnectionsJson() async throws {
+        try await atomicUpdateMetadata(operation: "clearConnectionsJson") { metadata in
+            metadata.clearConnectionsJson()
+        } verify: { metadata in
+            !metadata.hasConnectionsJson
+        }
+    }
+
     // MARK: - Image Encryption Key Management
 
     public var imageEncryptionKey: Data? {
