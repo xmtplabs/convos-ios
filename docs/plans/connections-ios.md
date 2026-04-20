@@ -39,7 +39,8 @@ public struct Connection: Codable, Identifiable, Sendable, Hashable {
     public let id: String                // Composio connected account ID
     public let serviceId: String          // "google_calendar"
     public let serviceName: String        // "Google Calendar"
-    public let composioEntityId: String   // "convos_{inboxId}" - maps user to Composio entity
+    public let composioEntityId: String   // deviceId - scopes tokens in Composio to this device
+    public let composioConnectionId: String
     public let status: ConnectionStatus
     public let connectedAt: Date
 }
@@ -63,20 +64,32 @@ public struct ConnectionGrant: Codable, Sendable, Hashable {
 The JSON format stored in XMTP metadata, matching the PRD's runtime expectation:
 ```swift
 public struct ConnectionsMetadataPayload: Codable, Sendable {
-    // Keyed by inbox ID -> list of grant entries
-    // Runtime uses this to match msg.senderId to grants
+    // Keyed by the user's inbox ID in THIS conversation.
+    // Convos uses per-conversation identities, so the same physical user
+    // appears under different inbox IDs across conversations.
+    // Runtime matches msg.senderId against these keys for per-user security.
     public var grantsByInboxId: [String: [ConnectionGrantEntry]]
 }
 
 public struct ConnectionGrantEntry: Codable, Sendable {
-    public let id: String           // connection ID
-    public let service: String      // "google_calendar"
-    public let provider: String     // "composio"
-    public let composioEntityId: String
-    public let composioConnectionId: String
-    public let triggerTypes: [String]  // e.g. ["GOOGLE_CALENDAR_EVENT_STARTING"]
+    public let id: String                   // connection ID (same across all conversations)
+    public let service: String              // "google_calendar"
+    public let provider: String             // "composio"
+    public let composioEntityId: String     // deviceId - same across all conversations
+    public let composioConnectionId: String // Composio ID - same across all conversations
+    public let triggerTypes: [String]       // e.g. ["GOOGLE_CALENDAR_EVENT_STARTING"]
 }
 ```
+
+**Key insight on identity split:**
+
+| Field | Value | Purpose |
+|-------|-------|---------|
+| Map key (inbox ID) | Conversation-specific (e.g. `inbox_work` in Conv A, `inbox_friends` in Conv B) | Per-user security scoping — runtime matches against `msg.senderId` |
+| `composioEntityId` | `deviceId` (same everywhere) | Composio-side token scoping |
+| `composioConnectionId` | Composio's connection ID (same everywhere) | Which Composio connection to use |
+
+One connection, shared across N conversations — each conversation's metadata entry keyed by whichever inbox ID the user appears as in that conversation.
 
 ### GRDB Models
 - `DBConnection.swift` in `Storage/Database Models/` - `FetchableRecord, PersistableRecord`
@@ -126,7 +139,9 @@ migrator.registerMigration("createConnections") { db in
         t.column("id", .text).notNull().primaryKey()
         t.column("serviceId", .text).notNull()
         t.column("serviceName", .text).notNull()
-        t.column("composioEntityId", .text).notNull()
+        t.column("provider", .text).notNull()
+        t.column("composioEntityId", .text).notNull()          // = deviceId
+        t.column("composioConnectionId", .text).notNull()
         t.column("status", .text).notNull()
         t.column("connectedAt", .datetime).notNull()
     }
@@ -163,12 +178,18 @@ Follows the pattern of existing repositories (e.g., `ConversationsCountRepositor
 
 Handles granting/revoking + metadata sync:
 1. Insert/delete `DBConnectionGrant` in GRDB
-2. Build `ConnectionsMetadataPayload` from all grants for the conversation
-3. Serialize to JSON
-4. Call `group.updateConnectionsJson(json)` via the XMTP metadata extension
-5. Uses `ConvosAPIClientProtocol` for connection metadata (Composio entity/connection IDs)
+2. Determine the user's inbox ID **in this conversation** — Convos uses per-conversation identities, so fetch via the conversation's XMTP client (`client(for: conversationId).inboxId`), NOT a global identity
+3. Read existing `connectionsJson` from the group's metadata (may contain other users' grants in groups)
+4. Update the entry for the current inbox ID, leaving other users' entries untouched
+5. Serialize updated payload and call `group.updateConnectionsJson(json)`
 
-Needs: `DatabaseWriter` (GRDB), inbox ID (from `InboxStateManager`), XMTP group access.
+Needs: `DatabaseWriter` (GRDB), `InboxStateManager` (to resolve the conversation-specific inbox ID), XMTP group access.
+
+**Concrete example:** Same user grants Google Calendar to Conv A (as `inbox_work`) and Conv B (as `inbox_friends`):
+- Conv A metadata → `{ "inbox_work":    [{ composioConnectionId: "conn_abc", composioEntityId: "device_xyz", ... }] }`
+- Conv B metadata → `{ "inbox_friends": [{ composioConnectionId: "conn_abc", composioEntityId: "device_xyz", ... }] }`
+
+Same Composio connection referenced from both; the map key differs per conversation.
 
 ---
 
@@ -231,11 +252,13 @@ public protocol ConnectionManagerProtocol: Sendable {
 ```
 
 Flow:
-1. Call backend `initiateConnection` -> get OAuth URL + request ID
+1. Call backend `initiateConnection` -> backend uses `entityId = deviceId` (from JWT) when calling Composio, returns OAuth URL + request ID
 2. Call `OAuthSessionProvider.authenticate(url:)` -> user completes OAuth
-3. Call backend `completeConnection` -> get connection metadata
+3. Call backend `completeConnection` -> backend confirms with Composio, returns connection metadata (`composioEntityId = deviceId`, `composioConnectionId`)
 4. Store `DBConnection` in GRDB
 5. Return `Connection` to caller
+
+**Device change handling (v0.1):** If the deviceId changes (wipe, reinstall, new device), the user needs to reconnect each service. Acceptable for v0.1 — connections are a per-device concept. The iOS app stores the connection's `composioEntityId` (= deviceId at connect time) in GRDB; if the current deviceId no longer matches, treat the connection as stale and prompt reconnect.
 
 ---
 
@@ -382,9 +405,9 @@ These endpoints proxy to Composio's API, keeping the API key server-side.
 ## Open Questions
 
 1. **Backend readiness**: Do the backend endpoints exist yet, or is that a parallel workstream?
-2. **Composio entity mapping**: Is `convos_{inboxId}` the right entity ID format, or does the backend define this?
-3. **Trigger types**: For Google Calendar, which Composio trigger types should be included in the grant metadata? The PRD mentions `GOOGLE_CALENDAR_EVENT_STARTING`.
-4. **Feature flag default**: Should connections be enabled by default in Dev/Local environments?
+2. **Trigger types**: For Google Calendar, which Composio trigger types should be included in the grant metadata? The PRD mentions `GOOGLE_CALENDAR_EVENT_STARTING`.
+3. **Feature flag default**: Should connections be enabled by default in Dev/Local environments?
+4. **Stale device handling**: How exactly to detect a changed deviceId and surface "reconnect" UX. v0.1 can simply mark connection as `.expired` when API calls fail.
 
 ---
 
