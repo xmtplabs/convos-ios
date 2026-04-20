@@ -136,7 +136,9 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         let left = await runBoundedOp("leaveGroup", logSuccess: true) { [operations] in
             try await operations.leaveGroup(conversationId: conversationId)
         }
-        if !left {
+        if left {
+            Log.info("Creator left exploded group: \(conversationId)")
+        } else {
             await runBoundedOp("denyConsent fallback", logSuccess: true) { [operations] in
                 try await operations.denyConsent(conversationId: conversationId)
             }

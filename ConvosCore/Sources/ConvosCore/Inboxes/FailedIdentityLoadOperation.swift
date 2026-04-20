@@ -1,16 +1,8 @@
 import Foundation
 
 /// Dedicated entry state for the "keychain read failed" branch of
-/// `SessionManager.loadOrCreateService`. The pre-collapse version built a
-/// full `AuthorizeInboxOperation.authorize("", "")` — spinning up a real
-/// state-machine actor, a task, and an async load that would throw
-/// `identityNotFound` ("Singleton inboxId mismatch: expected , got …").
-/// That hid the real keychain error behind a confusing inbox-mismatch and
-/// paid the cost of a full authorization run on every single call while
-/// the keychain was unhappy.
-///
-/// This type skips all of it: constructed synchronously, holds the real
-/// `Error` the keychain threw, and reports `.error(clientId: "", error)`
+/// `SessionManager.loadOrCreateService`. Constructed synchronously, holds
+/// the real `Error` the keychain threw, and reports `.error(error)`
 /// immediately. No task starts, no state machine is built. Teardown is a
 /// no-op because there is nothing to tear down.
 ///
@@ -32,10 +24,10 @@ final class FailedIdentityLoadOperation: AuthorizeInboxOperationProtocol, @unche
 }
 
 /// Frozen `SessionStateManagerProtocol` for the failed-keychain-load path.
-/// Always reports `.error(clientId: "", error: <the real keychain error>)`.
-/// All other methods are no-ops or throw the held error — callers that
-/// `await waitForInboxReadyResult()` get the underlying cause, not a
-/// synthesized mismatch.
+/// Always reports `.error(<the real keychain error>)`. All other methods
+/// are no-ops or throw the held error — callers that `await
+/// waitForInboxReadyResult()` get the underlying cause, not a synthesized
+/// mismatch.
 final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
     private let error: any Error
     let clientId: String = ""
