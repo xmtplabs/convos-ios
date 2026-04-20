@@ -197,7 +197,7 @@ struct LockConversationTests {
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
         let mockInboxStateManager = MockSessionStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -287,7 +287,7 @@ struct LockConversationTests {
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
         let mockInboxStateManager = MockSessionStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -328,7 +328,7 @@ struct LockConversationTests {
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
         let mockInboxStateManager = MockSessionStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -456,7 +456,7 @@ struct LockConversationTests {
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
         let mockInboxStateManager = MockSessionStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )
@@ -598,7 +598,7 @@ struct LockConversationTests {
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: clientA, apiClient: mockAPIClient)
         let mockInboxStateManager = MockSessionStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+            initialState: .ready(readyResult),
             mockClient: clientA,
             mockAPIClient: mockAPIClient
         )

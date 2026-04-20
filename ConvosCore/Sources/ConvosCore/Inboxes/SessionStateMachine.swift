@@ -14,31 +14,17 @@ extension SessionStateMachine.State {
         }
     }
 
-    var clientId: String {
-        switch self {
-        case .idle(let clientId),
-             .authorizing(let clientId, _),
-             .registering(let clientId),
-             .authenticatingBackend(let clientId, _),
-             .ready(let clientId, _),
-             .backgrounded(let clientId, _),
-             .deleting(let clientId, _),
-             .error(let clientId, _):
-            return clientId
-        }
-    }
-
     /// The current user's XMTP inbox ID if known from the state, else nil.
     /// Available synchronously from `SessionStateManagerProtocol.currentState`.
     public var inboxId: String? {
         switch self {
-        case .authorizing(_, let inboxId),
-             .authenticatingBackend(_, let inboxId):
+        case .authorizing(let inboxId),
+             .authenticatingBackend(let inboxId):
             return inboxId
-        case .ready(_, let result),
-             .backgrounded(_, let result):
+        case .ready(let result),
+             .backgrounded(let result):
             return result.client.inboxId
-        case .deleting(_, let inboxId):
+        case .deleting(let inboxId):
             return inboxId
         case .idle, .registering, .error:
             return nil
@@ -79,11 +65,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// with `XMTPClientProvider` / `InboxReadyResult` wrap thread-safe XMTP
     /// types designed for async/await use.
     enum Action: @unchecked Sendable {
-        case authorize(inboxId: String, clientId: String),
-             register(clientId: String),
-             clientAuthorized(clientId: String, client: any XMTPClientProvider),
-             clientRegistered(clientId: String, client: any XMTPClientProvider),
-             authorized(clientId: String, result: InboxReadyResult),
+        case authorize(inboxId: String),
+             register,
+             clientAuthorized(any XMTPClientProvider),
+             clientRegistered(any XMTPClientProvider),
+             authorized(InboxReadyResult),
              enterBackground,
              enterForeground,
              delete,
@@ -91,14 +77,14 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     public enum State: Sendable {
-        case idle(clientId: String)
-        case authorizing(clientId: String, inboxId: String)
-        case registering(clientId: String)
-        case authenticatingBackend(clientId: String, inboxId: String)
-        case ready(clientId: String, result: InboxReadyResult)
-        case backgrounded(clientId: String, result: InboxReadyResult)
-        case deleting(clientId: String, inboxId: String?)
-        case error(clientId: String, error: any Error)
+        case idle
+        case authorizing(inboxId: String)
+        case registering
+        case authenticatingBackend(inboxId: String)
+        case ready(InboxReadyResult)
+        case backgrounded(InboxReadyResult)
+        case deleting(inboxId: String?)
+        case error(any Error)
     }
 
     // MARK: -
@@ -127,6 +113,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     public nonisolated var currentState: State {
         _stateCache.withLock { $0 }
+    }
+
+    public nonisolated var clientId: String {
+        initialClientId
     }
 
     private func updateStateCache(_ newState: State) {
@@ -200,18 +190,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     var inboxId: String? {
-        switch _state {
-        case .authorizing(_, let inboxId),
-                .authenticatingBackend(_, let inboxId):
-            return inboxId
-        case .deleting(_, let inboxId):
-            return inboxId
-        case .ready(_, let result),
-                .backgrounded(_, let result):
-            return result.client.inboxId
-        default:
-            return nil
-        }
+        _state.inboxId
     }
 
     var stateSequence: AsyncStream<State> {
@@ -282,7 +261,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         appLifecycle: any AppLifecycleProviding,
         apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
-        let initialState: State = .idle(clientId: clientId)
+        let initialState: State = .idle
         self.initialClientId = clientId
         self._state = initialState
         self._stateCache = OSAllocatedUnfairLock(initialState: initialState)
@@ -341,12 +320,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     // MARK: - Public
 
-    func authorize(inboxId: String, clientId: String) {
-        enqueueAction(.authorize(inboxId: inboxId, clientId: clientId))
+    func authorize(inboxId: String) {
+        enqueueAction(.authorize(inboxId: inboxId))
     }
 
-    func register(clientId: String) {
-        enqueueAction(.register(clientId: clientId))
+    func register() {
+        enqueueAction(.register)
     }
 
     func stop() {
@@ -393,10 +372,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
         for await state in stateSequence {
             switch state {
-            case .ready(_, let result),
-                 .backgrounded(_, let result):
+            case .ready(let result),
+                 .backgrounded(let result):
                 return result
-            case .error(_, let error):
+            case .error(let error):
                 throw error
             default:
                 continue
@@ -453,49 +432,49 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// (`processAction`) so this stays pure dispatch.
     private func dispatchTransition(for action: Action) async throws {
         switch (_state, action) {
-        case let (.idle, .authorize(inboxId, clientId)):
-            try await handleAuthorize(inboxId: inboxId, clientId: clientId)
-        case let (.error(erroredClientId, _), .authorize(inboxId, clientId)):
-            try await handleStop(clientId: erroredClientId)
-            try await handleAuthorize(inboxId: inboxId, clientId: clientId)
+        case let (.idle, .authorize(inboxId)):
+            try await handleAuthorize(inboxId: inboxId)
+        case let (.error, .authorize(inboxId)):
+            try await handleStop()
+            try await handleAuthorize(inboxId: inboxId)
 
-        case (.idle, let .register(clientId)):
-            try await handleRegister(clientId: clientId)
-        case let (.error(erroredClientId, _), .register(clientId)):
-            try await handleStop(clientId: erroredClientId)
-            try await handleRegister(clientId: clientId)
+        case (.idle, .register):
+            try await handleRegister()
+        case (.error, .register):
+            try await handleStop()
+            try await handleRegister()
 
-        case (.authorizing, let .clientAuthorized(clientId, client)):
-            try await handleClientAuthorized(clientId: clientId, client: client)
-        case (.registering, let .clientRegistered(clientId, client)):
-            try await handleClientRegistered(clientId: clientId, client: client)
+        case (.authorizing, let .clientAuthorized(client)):
+            try await handleClientAuthorized(client: client)
+        case (.registering, let .clientRegistered(client)):
+            try await handleClientRegistered(client: client)
 
-        case (.authenticatingBackend, let .authorized(clientId, result)):
-            try await handleAuthorized(clientId: clientId, result: result)
+        case (.authenticatingBackend, let .authorized(result)):
+            try await handleAuthorized(result: result)
 
-        case (let .ready(clientId, _), .delete),
-             (let .backgrounded(clientId, _), .delete),
-             (let .error(clientId, _), .delete),
-             (let .idle(clientId), .delete),
-             (let .authorizing(clientId, _), .delete),
-             (let .registering(clientId), .delete),
-             (let .authenticatingBackend(clientId, _), .delete):
-            try await handleDelete(clientId: clientId)
+        case (.ready, .delete),
+             (.backgrounded, .delete),
+             (.error, .delete),
+             (.idle, .delete),
+             (.authorizing, .delete),
+             (.registering, .delete),
+             (.authenticatingBackend, .delete):
+            try await handleDelete()
         case (.deleting, .delete):
             Log.debug("Duplicate delete request while already deleting, ignoring")
 
-        case let (.ready(clientId, result), .enterBackground):
-            try await handleEnterBackground(clientId: clientId, result: result)
-        case let (.backgrounded(clientId, result), .enterForeground):
-            try await handleEnterForeground(clientId: clientId, result: result)
-        case let (.error(clientId, _), .enterForeground):
-            try await handleRetryFromError(clientId: clientId)
+        case let (.ready(result), .enterBackground):
+            try await handleEnterBackground(result: result)
+        case let (.backgrounded(result), .enterForeground):
+            try await handleEnterForeground(result: result)
+        case (.error, .enterForeground):
+            try await handleRetryFromError()
 
-        case let (.ready(clientId, _), .stop),
-             let (.error(clientId, _), .stop),
-             let (.deleting(clientId, _), .stop),
-             let (.backgrounded(clientId, _), .stop):
-            try await handleStop(clientId: clientId)
+        case (.ready, .stop),
+             (.error, .stop),
+             (.deleting, .stop),
+             (.backgrounded, .stop):
+            try await handleStop()
         case (.idle, .stop):
             break
 
@@ -517,10 +496,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         }
         await stopNetworkMonitoring()
         Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
-        emitStateChange(.error(clientId: _state.clientId, error: error))
+        emitStateChange(.error(error))
     }
 
-    private func handleAuthorize(inboxId: String, clientId: String) async throws {
+    private func handleAuthorize(inboxId: String) async throws {
         try Task.checkCancellation()
 
         guard let identity = try await identityStore.load() else {
@@ -532,18 +511,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Verify clientId matches
-        guard identity.clientId == clientId else {
-            throw KeychainIdentityStoreError.identityNotFound("ClientId mismatch: expected \(clientId), got \(identity.clientId)")
+        guard identity.clientId == initialClientId else {
+            throw KeychainIdentityStoreError.identityNotFound("ClientId mismatch: expected \(initialClientId), got \(identity.clientId)")
         }
 
-        emitStateChange(.authorizing(clientId: clientId, inboxId: inboxId))
-        Log.info(
-            "Started authorization flow for inbox: \(inboxId), clientId: \(clientId)"
-        )
+        emitStateChange(.authorizing(inboxId: inboxId))
+        Log.info("Started authorization flow for inbox: \(inboxId), clientId: \(initialClientId)")
 
-        // Set custom local address before building/creating client
-        // Only updates if different, avoiding unnecessary mutations
+        // Set custom local address before building/creating client.
+        // Only updates if different, avoiding unnecessary mutations.
         setCustomLocalAddress()
 
         let keys = identity.keys
@@ -571,16 +547,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Ensure inbox is saved to database when authorizing
-        // (in case it was registered as unused but is now being used)
+        // Ensure inbox is saved to database when authorizing in case it was
+        // previously registered as unused but is now being used.
         let inboxWriter = InboxWriter(dbWriter: databaseWriter)
         try await inboxWriter.save(inboxId: client.inboxId, clientId: identity.clientId)
         Log.info("Saved inbox to database: \(client.inboxId)")
 
-        enqueueAction(.clientAuthorized(clientId: clientId, client: client))
+        enqueueAction(.clientAuthorized(client))
     }
 
-    private func handleRegister(clientId: String) async throws {
+    private func handleRegister() async throws {
         try Task.checkCancellation()
 
         // Under single-inbox, registration is only valid from an empty
@@ -595,11 +571,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             throw SessionStateError.alreadyRegistered(inboxId: existing.inboxId, clientId: existing.clientId)
         }
 
-        emitStateChange(.registering(clientId: clientId))
-        Log.info("Started registration flow with clientId: \(clientId)")
+        emitStateChange(.registering)
+        Log.info("Started registration flow with clientId: \(initialClientId)")
 
-        // Set custom local address before creating client
-        // Only updates if different, avoiding unnecessary mutations
+        // Set custom local address before creating client.
+        // Only updates if different, avoiding unnecessary mutations.
         setCustomLocalAddress()
 
         try Task.checkCancellation()
@@ -615,61 +591,58 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        Log.info("Generated clientId: \(clientId) for inboxId: \(client.inboxId)")
+        Log.info("Generated clientId: \(initialClientId) for inboxId: \(client.inboxId)")
 
-        _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
+        _ = try await identityStore.save(inboxId: client.inboxId, clientId: initialClientId, keys: keys)
 
         try Task.checkCancellation()
 
         do {
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try await inboxWriter.save(inboxId: client.inboxId, clientId: clientId)
-            Log.info("Saved inbox to database with clientId: \(clientId)")
+            try await inboxWriter.save(inboxId: client.inboxId, clientId: initialClientId)
+            Log.info("Saved inbox to database with clientId: \(initialClientId)")
         } catch {
             // Keychain was empty at entry (guard above), so rollback is
-            // unambiguous: delete the identity we just wrote. No snapshot
-            // needed — "restore to previous" is always "delete".
+            // unambiguous: delete the identity we just wrote.
             Log.error("Failed to save inbox to database, rolling back keychain: \(error)")
             try? await identityStore.delete()
             throw error
         }
 
-        enqueueAction(.clientRegistered(clientId: clientId, client: client))
+        enqueueAction(.clientRegistered(client))
     }
 
-    private func handleClientAuthorized(clientId: String, client: any XMTPClientProvider) async throws {
+    private func handleClientAuthorized(client: any XMTPClientProvider) async throws {
         try Task.checkCancellation()
 
-        emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
+        emitStateChange(.authenticatingBackend(inboxId: client.inboxId))
 
         Log.info("Authenticating with backend...")
         try await authenticateBackend()
 
         try Task.checkCancellation()
 
-        enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
 
-    private func handleClientRegistered(clientId: String, client: any XMTPClientProvider) async throws {
+    private func handleClientRegistered(client: any XMTPClientProvider) async throws {
         try Task.checkCancellation()
 
-        emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
+        emitStateChange(.authenticatingBackend(inboxId: client.inboxId))
         Log.info("Authenticating with backend...")
         try await authenticateBackend()
 
         try Task.checkCancellation()
 
-        enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
 
-    private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
+    private func handleAuthorized(result: InboxReadyResult) async throws {
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
-        emitStateChange(.ready(clientId: clientId, result: result))
-        // Start app lifecycle observation and network monitoring after starting sync
+        emitStateChange(.ready(result))
         await startNetworkMonitoring()
         startAppLifecycleObservation()
-        // check if app was backgrounded during auth
         if await appLifecycle.currentState != .active {
             enqueueAction(.enterBackground)
         }
@@ -679,15 +652,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// client + apiClient from `.ready`/`.backgrounded` when present; otherwise
     /// resolves the inbox id from the DB for telemetry and falls through to
     /// a manual cleanup that doesn't need the XMTP SDK.
-    private func handleDelete(clientId: String) async throws {
+    private func handleDelete() async throws {
         try Task.checkCancellation()
 
-        Log.info("Deleting inbox with clientId: \(clientId)...")
+        Log.info("Deleting inbox with clientId: \(initialClientId)...")
         defer { enqueueAction(.stop) }
 
         let liveContext: (client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol)?
         switch _state {
-        case .ready(_, let result), .backgrounded(_, let result):
+        case .ready(let result), .backgrounded(let result):
             liveContext = (result.client, result.apiClient)
         default:
             liveContext = nil
@@ -697,6 +670,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         if let liveContext {
             inboxId = liveContext.client.inboxId
         } else {
+            let clientId = initialClientId
             inboxId = try? await databaseWriter.read { db in
                 try DBInbox
                     .filter(DBInbox.Columns.clientId == clientId)
@@ -708,7 +682,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             }
         }
 
-        emitStateChange(.deleting(clientId: clientId, inboxId: inboxId))
+        emitStateChange(.deleting(inboxId: inboxId))
 
         stopAppLifecycleObservation()
         await stopNetworkMonitoring()
@@ -717,94 +691,84 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try Task.checkCancellation()
 
         if let liveContext {
-            try await performInboxCleanup(clientId: clientId, client: liveContext.client, apiClient: liveContext.apiClient)
+            try await performInboxCleanup(client: liveContext.client, apiClient: liveContext.apiClient)
             return
         }
 
-        try await cleanupInboxData(clientId: clientId)
+        try await cleanupInboxData()
         try Task.checkCancellation()
 
         // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
         let priorIdentity = try? await identityStore.load()
         try? await identityStore.delete()
-        if let priorIdentity, priorIdentity.clientId == clientId {
-            Log.debug("Deleted identity from keychain for clientId: \(clientId)")
+        if let priorIdentity, priorIdentity.clientId == initialClientId {
+            Log.debug("Deleted identity from keychain for clientId: \(initialClientId)")
             deleteDatabaseFiles()
         } else if inboxId != nil {
-            Log.debug("Identity absent or not matching clientId: \(clientId), continuing cleanup")
+            Log.debug("Identity absent or not matching clientId: \(initialClientId), continuing cleanup")
             deleteDatabaseFiles()
         }
 
-        Log.info("Deleted inbox with clientId \(clientId)")
+        Log.info("Deleted inbox with clientId \(initialClientId)")
     }
 
-    private func handleStop(clientId: String) async throws {
-        Log.info("Stopping inbox with clientId \(clientId)...")
+    private func handleStop() async throws {
+        Log.info("Stopping inbox with clientId \(initialClientId)...")
 
-        // Capture client reference before state transition
         let clientToClose: (any XMTPClientProvider)?
         switch _state {
-        case .ready(_, let result), .backgrounded(_, let result):
+        case .ready(let result), .backgrounded(let result):
             clientToClose = result.client
         default:
             clientToClose = nil
         }
 
-        // Cancel app lifecycle and network monitoring
         stopAppLifecycleObservation()
         await stopNetworkMonitoring()
 
-        // Stop sync BEFORE dropping database connection to prevent in-flight operations from failing
+        // Stop sync before dropping database connection to prevent in-flight operations from failing.
         await syncingManager?.stop()
 
-        // Drop database connection after sync is stopped
-        // This releases SQLCipher connections in the Rust layer (LibXMTP)
+        // Drop database connection after sync is stopped; this releases SQLCipher connections in LibXMTP.
         if let client = clientToClose {
             do {
                 try client.dropLocalDatabaseConnection()
-                Log.debug("Dropped local database connection for \(clientId)")
+                Log.debug("Dropped local database connection for \(initialClientId)")
             } catch {
-                Log.error("Failed to drop database connection for \(clientId): \(error)")
+                Log.error("Failed to drop database connection for \(initialClientId): \(error)")
             }
         }
 
-        emitStateChange(.idle(clientId: clientId))
+        emitStateChange(.idle)
 
-        // Clean up all state continuations to prevent memory leaks
         cleanupContinuations()
     }
 
-    private func handleEnterBackground(clientId: String, result: InboxReadyResult) async throws {
-        Log.info("App entering background, pausing sync for clientId \(clientId)...")
+    private func handleEnterBackground(result: InboxReadyResult) async throws {
+        Log.info("App entering background, pausing sync for clientId \(initialClientId)...")
 
-        // Stop network monitoring while backgrounded
         await stopNetworkMonitoring()
-
-        // Pause the syncing manager
         await syncingManager?.pause()
 
         try result.client.dropLocalDatabaseConnection()
 
-        emitStateChange(.backgrounded(clientId: clientId, result: result))
+        emitStateChange(.backgrounded(result))
         Log.info("Inbox backgrounded successfully")
     }
 
-    private func handleEnterForeground(clientId: String, result: InboxReadyResult) async throws {
-        Log.info("App entering foreground, resuming sync for clientId \(clientId)...")
+    private func handleEnterForeground(result: InboxReadyResult) async throws {
+        Log.info("App entering foreground, resuming sync for clientId \(initialClientId)...")
 
         try await result.client.reconnectLocalDatabase()
 
-        // Restart network monitoring
         await startNetworkMonitoring()
-
-        // Resume the syncing manager
         await syncingManager?.resume()
 
-        emitStateChange(.ready(clientId: clientId, result: result))
+        emitStateChange(.ready(result))
         Log.info("Inbox returned to ready state")
     }
 
-    private func handleRetryFromError(clientId: String) async throws {
+    private func handleRetryFromError() async throws {
         try Task.checkCancellation()
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
@@ -812,20 +776,19 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             return
         }
 
-        guard let identity = try await identityStore.load(), identity.clientId == clientId else {
-            Log.warning("Cannot retry from error: no identity matching clientId \(clientId)")
+        guard let identity = try await identityStore.load(), identity.clientId == initialClientId else {
+            Log.warning("Cannot retry from error: no identity matching clientId \(initialClientId)")
             return
         }
 
         foregroundRetryCount += 1
         Log.info("Retrying authorization for inbox \(identity.inboxId) after foregrounding (attempt \(foregroundRetryCount)/\(Self.maxForegroundRetries))")
-        try await handleStop(clientId: clientId)
-        try await handleAuthorize(inboxId: identity.inboxId, clientId: clientId)
+        try await handleStop()
+        try await handleAuthorize(inboxId: identity.inboxId)
     }
 
     /// Performs common cleanup operations when deleting an inbox with a live client.
     private func performInboxCleanup(
-        clientId: String,
         client: any XMTPClientProvider,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
@@ -835,42 +798,36 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         // Note: Conversation topics are handled by ConversationStateMachine.cleanUp()
         let welcomeTopic = client.installationId.xmtpWelcomeTopicFormat
 
-        // Unsubscribe from welcome topic (inbox-level topic only)
         do {
-            try await apiClient.unsubscribeFromTopics(clientId: clientId, topics: [welcomeTopic])
+            try await apiClient.unsubscribeFromTopics(clientId: initialClientId, topics: [welcomeTopic])
             Log.debug("Unsubscribed from welcome topic: \(welcomeTopic)")
         } catch {
             Log.error("Failed to unsubscribe from welcome topic: \(error)")
-            // Continue with cleanup even if unsubscribe fails
         }
 
         try Task.checkCancellation()
 
-        // Unregister installation
         do {
-            try await apiClient.unregisterInstallation(clientId: clientId)
-            Log.debug("Unregistered installation from backend: \(clientId)")
+            try await apiClient.unregisterInstallation(clientId: initialClientId)
+            Log.debug("Unregistered installation from backend: \(initialClientId)")
         } catch {
-            // Ignore errors during unregistration (common during account deletion when auth may be invalid)
+            // Auth may be invalid during account deletion; treat as non-fatal.
             Log.debug("Could not unregister installation (likely during account deletion): \(error)")
         }
 
         try Task.checkCancellation()
 
-        // Clean up all database records for this inbox
-        try await cleanupInboxData(clientId: clientId)
+        try await cleanupInboxData()
 
         try Task.checkCancellation()
 
-        // Delete identity and local database
-        // Idempotent: delete swallows the not-found case, so retries are safe.
+        // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
         try? await identityStore.delete()
-        Log.debug("Deleted identity from keychain (clientId: \(clientId))")
+        Log.debug("Deleted identity from keychain (clientId: \(initialClientId))")
 
         try Task.checkCancellation()
 
-        // Delete XMTP local database
-        // Try SDK method first, fall back to manual file deletion if it fails
+        // Try SDK method first, fall back to manual file deletion if it fails.
         do {
             try client.deleteLocalDatabase()
             Log.debug("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
@@ -879,7 +836,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             deleteDatabaseFiles()
         }
 
-        Log.info("Deleted inbox \(client.inboxId) with clientId \(clientId)")
+        Log.info("Deleted inbox \(client.inboxId) with clientId \(initialClientId)")
     }
 
     private func deleteDatabaseFiles() {
@@ -910,9 +867,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         }
     }
 
-    private func cleanupInboxData(clientId: String) async throws {
+    private func cleanupInboxData() async throws {
         try Task.checkCancellation()
 
+        let clientId = initialClientId
         Log.info("Cleaning up all data for inbox clientId: \(clientId)")
 
         // Reached only via `SessionManager.deleteAllInboxes` — a full

@@ -4,6 +4,7 @@ import Foundation
 
 /// Mock implementation of SessionStateManagerProtocol for testing
 public final class MockSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
+    public var clientId: String = "mock-client-id"
     public var currentState: SessionStateMachine.State
     public var isSyncReady: Bool = true
 
@@ -22,7 +23,7 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
     ) {
         self.mockClient = mockClient ?? MockXMTPClientProvider()
         self.mockAPIClient = mockAPIClient ?? MockAPIClient()
-        self.currentState = initialState ?? .idle(clientId: "mock-client-id")
+        self.currentState = initialState ?? .idle
     }
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
@@ -30,7 +31,7 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
     }
 
     public func waitForDeletionComplete() async {
-        currentState = .idle(clientId: currentState.clientId)
+        currentState = .idle
         notifyObservers()
     }
 

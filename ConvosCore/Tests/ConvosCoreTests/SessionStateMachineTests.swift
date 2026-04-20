@@ -45,10 +45,11 @@ struct SessionStateMachineTests {
 
         // Start in idle state
         let initialState = await stateMachine.state
-        #expect(initialState.clientId == clientId)
+        if case .idle = initialState {} else { Issue.record("Expected idle initial state, got \(initialState)") }
+        #expect(stateMachine.clientId == clientId)
 
         // Register
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state (with timeout)
         let state = try await waitForState(stateMachine, timeout: 30) { state in
@@ -57,8 +58,8 @@ struct SessionStateMachineTests {
             return false
         }
 
-        guard case .ready(_, let result) = state else {
-            if case .error(_, let error) = state {
+        guard case .ready(let result) = state else {
+            if case .error(let error) = state {
                 Issue.record("Registration failed: \(error)")
             }
             Issue.record("Did not reach ready state")
@@ -101,15 +102,15 @@ struct SessionStateMachineTests {
             appLifecycle: testAppLifecycle
         )
 
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state
         var result: InboxReadyResult?
         for await state in await stateMachine.stateSequence {
             switch state {
-            case .ready(_, let readyResult):
+            case .ready(let readyResult):
                 result = readyResult
-            case .error(_, let error):
+            case .error(let error):
                 Issue.record("Registration failed: \(error)")
             default:
                 continue
@@ -165,15 +166,15 @@ struct SessionStateMachineTests {
         )
 
         // Authorize with the existing inbox
-        await stateMachine.authorize(inboxId: client.inboxId, clientId: clientId)
+        await stateMachine.authorize(inboxId: client.inboxId)
 
         // Wait for ready state
         var result: InboxReadyResult?
         for await state in await stateMachine.stateSequence {
             switch state {
-            case .ready(_, let readyResult):
+            case .ready(let readyResult):
                 result = readyResult
-            case .error(_, let error):
+            case .error(let error):
                 Issue.record("Authorization failed: \(error)")
             default:
                 continue
@@ -212,8 +213,11 @@ struct SessionStateMachineTests {
             appLifecycle: testAppLifecycle
         )
 
-        // Try to authorize with wrong clientId
-        await stateMachine.authorize(inboxId: client.inboxId, clientId: wrongClientId)
+        // Try to authorize with wrong clientId. The state machine was
+        // constructed with wrongClientId as its initialClientId, so the
+        // identity guard inside handleAuthorize fires against the real
+        // stored identity.
+        await stateMachine.authorize(inboxId: client.inboxId)
 
         // Wait for error state
         var errorOccurred = false
@@ -260,11 +264,11 @@ struct SessionStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         var client: (any XMTPClientProvider)?
         for await state in await stateMachine.stateSequence {
-            if case .ready(_, let result) = state {
+            if case .ready(let result) = state {
                 client = result.client
                 break
             }
@@ -328,11 +332,11 @@ struct SessionStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         var inboxId: String?
         for await state in await stateMachine.stateSequence {
-            if case .ready(_, let result) = state {
+            if case .ready(let result) = state {
                 inboxId = result.client.inboxId
                 break
             }
@@ -399,7 +403,7 @@ struct SessionStateMachineTests {
 
         // Try to authorize with non-existent inboxId to trigger error
         let nonExistentInboxId = "0000000000000000000000000000000000000000000000000000000000000000"
-        await stateMachine.authorize(inboxId: nonExistentInboxId, clientId: clientId)
+        await stateMachine.authorize(inboxId: nonExistentInboxId)
 
         // Wait for error state
         var errorOccurred = false
@@ -494,7 +498,7 @@ struct SessionStateMachineTests {
         }
 
         // Register
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for observer to finish
         await observerTask.value
@@ -507,7 +511,7 @@ struct SessionStateMachineTests {
 
         // Clean up
         let finalState = await stateMachine.state
-        if case .ready(_, let result) = finalState {
+        if case .ready(let result) = finalState {
             try? result.client.deleteLocalDatabase()
         }
         try? await fixtures.cleanup()
@@ -537,12 +541,12 @@ struct SessionStateMachineTests {
         )
 
         // Queue register and then stop
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready, then queue stop
         var client: (any XMTPClientProvider)?
         for await state in await stateMachine.stateSequence {
-            if case .ready(_, let result) = state {
+            if case .ready(let result) = state {
                 client = result.client
                 await stateMachine.stop()
                 break
@@ -592,7 +596,7 @@ struct SessionStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state with timeout
         let state = try await waitForState(stateMachine, timeout: 30) { state in
@@ -601,8 +605,8 @@ struct SessionStateMachineTests {
             return false
         }
 
-        guard case .ready(_, let result) = state else {
-            if case .error(_, let error) = state {
+        guard case .ready(let result) = state else {
+            if case .error(let error) = state {
                 Issue.record("Registration failed: \(error)")
             }
             Issue.record("Did not reach ready state")
@@ -670,7 +674,7 @@ struct SessionStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state with timeout
         let state = try await waitForState(stateMachine, timeout: 30) { state in
@@ -679,8 +683,8 @@ struct SessionStateMachineTests {
             return false
         }
 
-        guard case .ready(_, let result) = state else {
-            if case .error(_, let error) = state {
+        guard case .ready(let result) = state else {
+            if case .error(let error) = state {
                 Issue.record("Registration failed: \(error)")
             }
             Issue.record("Did not reach ready state")
@@ -813,7 +817,7 @@ struct SessionStateMachineTests {
         }
 
         // Register
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state
         _ = try await waitForState(stateMachine, timeout: 30) { state in
@@ -853,7 +857,7 @@ struct SessionStateMachineTests {
 
         // Clean up
         let finalState = await stateMachine.state
-        if case .ready(_, let result) = finalState {
+        if case .ready(let result) = finalState {
             try? result.client.deleteLocalDatabase()
         }
         try? await fixtures.cleanup()

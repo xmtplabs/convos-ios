@@ -256,12 +256,12 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             let deviceId = DeviceInfo.deviceIdentifier
             try await result.apiClient.subscribeToTopics(
                 deviceId: deviceId,
-                clientId: clientId,
+                clientId: sessionStateManager.clientId,
                 topics: [topic]
             )
         } else {
             try await result.apiClient.unsubscribeFromTopics(
-                clientId: clientId,
+                clientId: sessionStateManager.clientId,
                 topics: [topic]
             )
         }

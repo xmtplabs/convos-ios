@@ -38,12 +38,13 @@ final class FailedIdentityLoadOperation: AuthorizeInboxOperationProtocol, @unche
 /// synthesized mismatch.
 final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
     private let error: any Error
+    let clientId: String = ""
     let currentState: SessionStateMachine.State
     var isSyncReady: Bool { get async { false } }
 
     init(error: any Error) {
         self.error = error
-        self.currentState = .error(clientId: "", error: error)
+        self.currentState = .error(error)
     }
 
     func waitForInboxReadyResult() async throws -> InboxReadyResult {

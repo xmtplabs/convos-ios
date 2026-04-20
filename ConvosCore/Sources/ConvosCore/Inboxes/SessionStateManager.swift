@@ -6,6 +6,7 @@ public protocol SessionStateObserver: AnyObject, Sendable {
 }
 
 public protocol SessionStateManagerProtocol: AnyObject, Sendable {
+    var clientId: String { get }
     var currentState: SessionStateMachine.State { get }
     var isSyncReady: Bool { get async }
 

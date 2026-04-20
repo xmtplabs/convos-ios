@@ -817,9 +817,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func saveTextToDatabase(clientMessageId: String, text: String, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
-        if case .ready(_, let result) = sessionStateManager.currentState {
+        if case .ready(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
-        } else if case .backgrounded(_, let result) = sessionStateManager.currentState {
+        } else if case .backgrounded(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
         } else {
             let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
@@ -877,9 +877,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func savePhotoToDatabase(clientMessageId: String, localCacheURL: URL, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
-        if case .ready(_, let result) = sessionStateManager.currentState {
+        if case .ready(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
-        } else if case .backgrounded(_, let result) = sessionStateManager.currentState {
+        } else if case .backgrounded(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
         } else {
             let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
