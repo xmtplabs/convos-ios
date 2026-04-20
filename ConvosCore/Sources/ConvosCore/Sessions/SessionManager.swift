@@ -601,4 +601,22 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             recoveryHandler: recoveryHandler
         )
     }
+
+    // MARK: - Connections
+
+    public func connectionManager(
+        oauthProvider: any OAuthSessionProvider,
+        callbackURLScheme: String
+    ) -> any ConnectionManagerProtocol {
+        ConnectionManager(
+            apiClient: apiClient,
+            oauthProvider: oauthProvider,
+            databaseWriter: databaseWriter,
+            callbackURLScheme: callbackURLScheme
+        )
+    }
+
+    public func connectionRepository() -> any ConnectionRepositoryProtocol {
+        ConnectionRepository(databaseReader: databaseReader)
+    }
 }

@@ -271,4 +271,12 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
     func makeAssetRenewalManager() async -> AssetRenewalManager {
         await base.makeAssetRenewalManager()
     }
+
+    func connectionManager(oauthProvider: any OAuthSessionProvider, callbackURLScheme: String) -> any ConnectionManagerProtocol {
+        base.connectionManager(oauthProvider: oauthProvider, callbackURLScheme: callbackURLScheme)
+    }
+
+    func connectionRepository() -> any ConnectionRepositoryProtocol {
+        base.connectionRepository()
+    }
 }

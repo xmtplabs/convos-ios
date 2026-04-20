@@ -226,4 +226,8 @@ private final class SpySessionManager: SessionManagerProtocol, @unchecked Sendab
     func orphanedInboxDetails() throws -> [OrphanedInboxDetail] { try base.orphanedInboxDetails() }
     func deleteOrphanedInbox(clientId: String, inboxId: String) async throws { try await base.deleteOrphanedInbox(clientId: clientId, inboxId: inboxId) }
     func makeAssetRenewalManager() async -> AssetRenewalManager { await base.makeAssetRenewalManager() }
+    func connectionManager(oauthProvider: any OAuthSessionProvider, callbackURLScheme: String) -> any ConnectionManagerProtocol {
+        base.connectionManager(oauthProvider: oauthProvider, callbackURLScheme: callbackURLScheme)
+    }
+    func connectionRepository() -> any ConnectionRepositoryProtocol { base.connectionRepository() }
 }
