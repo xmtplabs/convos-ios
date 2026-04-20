@@ -47,7 +47,9 @@ extension SessionStateMachine.State {
 }
 
 enum SessionStateError: Error {
-    case inboxNotReady, clientIdInboxInconsistency
+    case inboxNotReady
+    case clientIdInboxInconsistency
+    case alreadyRegistered(inboxId: String, clientId: String)
 }
 
 public struct InboxReadyResult: @unchecked Sendable {
@@ -625,6 +627,18 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private func handleRegister(clientId: String) async throws {
         try Task.checkCancellation()
 
+        // Under single-inbox, registration is only valid from an empty
+        // keychain slot. The pre-refactor rollback-snapshot path existed
+        // to handle identity swaps mid-process — impossible in the new
+        // model. Fail fast if the slot is populated: a successful register
+        // would overwrite a potentially-recoverable identity, and a
+        // failed one plus rollback would leave the backend half-
+        // registered against the new clientId anyway.
+        if let existing = try? await identityStore.load() {
+            Log.error("handleRegister called with a populated keychain (inboxId \(existing.inboxId)); refusing to overwrite. Caller should have taken the .authorize branch.")
+            throw SessionStateError.alreadyRegistered(inboxId: existing.inboxId, clientId: existing.clientId)
+        }
+
         emitStateChange(.registering(clientId: clientId))
         Log.info("Started registration flow with clientId: \(clientId)")
 
@@ -647,11 +661,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         Log.info("Generated clientId: \(clientId) for inboxId: \(client.inboxId)")
 
-        // Snapshot the prior identity so a failure partway through the save
-        // can restore it instead of wiping the account. `save` overwrites
-        // the singleton slot; without the snapshot, the rollback deletes
-        // whatever identity was present before this registration began.
-        let priorIdentity = try? await identityStore.load()
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         try Task.checkCancellation()
@@ -661,16 +670,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             try await inboxWriter.save(inboxId: client.inboxId, clientId: clientId)
             Log.info("Saved inbox to database with clientId: \(clientId)")
         } catch {
+            // Keychain was empty at entry (guard above), so rollback is
+            // unambiguous: delete the identity we just wrote. No snapshot
+            // needed — "restore to previous" is always "delete".
             Log.error("Failed to save inbox to database, rolling back keychain: \(error)")
-            if let priorIdentity {
-                _ = try? await identityStore.save(
-                    inboxId: priorIdentity.inboxId,
-                    clientId: priorIdentity.clientId,
-                    keys: priorIdentity.keys
-                )
-            } else {
-                try? await identityStore.delete()
-            }
+            try? await identityStore.delete()
             throw error
         }
 
