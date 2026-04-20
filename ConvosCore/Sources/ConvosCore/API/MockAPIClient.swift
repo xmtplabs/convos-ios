@@ -94,7 +94,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Connections
 
-    func initiateConnection(serviceId: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "mock-request-\(UUID().uuidString)", redirectUrl: "https://accounts.google.com/o/oauth2/auth?mock=true")
     }
 

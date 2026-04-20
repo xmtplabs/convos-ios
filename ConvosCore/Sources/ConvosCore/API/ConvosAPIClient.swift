@@ -62,7 +62,7 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
 
     // Connections
-    func initiateConnection(serviceId: String) async throws -> ConnectionsAPI.InitiateResponse
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse
     func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse
     func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse]
     func revokeConnection(connectionId: String) async throws
@@ -644,14 +644,17 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Connections
 
-    func initiateConnection(serviceId: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
         var request = try authenticatedRequest(for: "v2/connections/initiate", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         struct InitiateBody: Codable {
             let serviceId: String
+            let redirectUri: String
         }
-        request.httpBody = try JSONEncoder().encode(InitiateBody(serviceId: serviceId))
+        request.httpBody = try JSONEncoder().encode(
+            InitiateBody(serviceId: serviceId, redirectUri: redirectUri)
+        )
 
         return try await performRequest(request)
     }

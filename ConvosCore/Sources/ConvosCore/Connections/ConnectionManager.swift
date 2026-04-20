@@ -26,7 +26,11 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     }
 
     public func connect(serviceId: String) async throws -> Connection {
-        let initiation = try await apiClient.initiateConnection(serviceId: serviceId)
+        let redirectUri = "\(callbackURLScheme)://connections/callback"
+        let initiation = try await apiClient.initiateConnection(
+            serviceId: serviceId,
+            redirectUri: redirectUri
+        )
 
         guard let oauthURL = URL(string: initiation.redirectUrl) else {
             throw ConnectionManagerError.invalidOAuthURL
