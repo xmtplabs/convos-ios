@@ -513,17 +513,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         case (.authenticatingBackend, let .authorized(clientId, result)):
             try await handleAuthorized(clientId: clientId, result: result)
 
-        case (let .ready(clientId, result), .delete):
-            try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
-        case (let .error(clientId, _), .delete):
-            try await handleDeleteFromError(clientId: clientId)
-        case (let .idle(clientId), .delete),
+        case (let .ready(clientId, _), .delete),
+             (let .backgrounded(clientId, _), .delete),
+             (let .error(clientId, _), .delete),
+             (let .idle(clientId), .delete),
              (let .authorizing(clientId, _), .delete),
              (let .registering(clientId), .delete),
              (let .authenticatingBackend(clientId, _), .delete):
-            try await handleDeleteFromIdle(clientId: clientId)
+            try await handleDelete(clientId: clientId)
         case (.deleting, .delete):
-            // Idempotent — ignore duplicate delete while already deleting.
             Log.debug("Duplicate delete request while already deleting, ignoring")
 
         case let (.ready(clientId, result), .enterBackground):
@@ -532,8 +530,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             try await handleEnterForeground(clientId: clientId, result: result)
         case let (.error(clientId, _), .enterForeground):
             try await handleRetryFromError(clientId: clientId)
-        case (let .backgrounded(clientId, result), .delete):
-            try await handleDeleteFromBackgrounded(clientId: clientId, result: result)
 
         case let (.ready(clientId, _), .stop),
              let (.error(clientId, _), .stop),
@@ -719,110 +715,62 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         }
     }
 
-    private func handleDelete(clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
+    /// Single entry point for `.delete` across every state. Pulls a live
+    /// client + apiClient from `.ready`/`.backgrounded` when present; otherwise
+    /// resolves the inbox id from the DB for telemetry and falls through to
+    /// a manual cleanup that doesn't need the XMTP SDK.
+    private func handleDelete(clientId: String) async throws {
         try Task.checkCancellation()
 
         Log.info("Deleting inbox with clientId: \(clientId)...")
-        let inboxId = client.inboxId
+        defer { enqueueAction(.stop) }
+
+        let liveContext: (client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol)?
+        switch _state {
+        case .ready(_, let result), .backgrounded(_, let result):
+            liveContext = (result.client, result.apiClient)
+        default:
+            liveContext = nil
+        }
+
+        let inboxId: String?
+        if let liveContext {
+            inboxId = liveContext.client.inboxId
+        } else {
+            inboxId = try? await databaseWriter.read { db in
+                try DBInbox
+                    .filter(DBInbox.Columns.clientId == clientId)
+                    .fetchOne(db)?
+                    .inboxId
+            }
+            if inboxId == nil {
+                Log.warning("Could not resolve inboxId for clientId \(clientId) - database files will not be cleaned up")
+            }
+        }
+
         emitStateChange(.deleting(clientId: clientId, inboxId: inboxId))
 
-        defer { enqueueAction(.stop) }
-
-        // Stop app lifecycle observation and network monitoring
         stopAppLifecycleObservation()
         await stopNetworkMonitoring()
-
-        await syncingManager?.stop()
-
-        // Perform common cleanup operations
-        try await performInboxCleanup(clientId: clientId, client: client, apiClient: apiClient)
-    }
-
-    private func handleDeleteFromError(clientId: String) async throws {
-        try Task.checkCancellation()
-
-        Log.info("Deleting inbox with clientId \(clientId) from error state...")
-        defer { enqueueAction(.stop) }
-
-        // Resolve inboxId from database since it might be nil in error state
-        let resolvedInboxId: String? = try await databaseWriter.write { db in
-            try? DBInbox
-                .filter(DBInbox.Columns.clientId == clientId)
-                .fetchOne(db)?
-                .inboxId
-        }
-
-        if resolvedInboxId == nil {
-            Log.warning("Could not resolve inboxId for clientId \(clientId) - database files will not be cleaned up")
-        }
-
-        emitStateChange(.deleting(clientId: clientId, inboxId: resolvedInboxId))
-
-        // Stop app lifecycle observation and network monitoring
-        stopAppLifecycleObservation()
-        await stopNetworkMonitoring()
-
         await syncingManager?.stop()
 
         try Task.checkCancellation()
 
-        // Clean up database records and keychain if we have an inbox ID
+        if let liveContext {
+            try await performInboxCleanup(clientId: clientId, client: liveContext.client, apiClient: liveContext.apiClient)
+            return
+        }
+
         try await cleanupInboxData(clientId: clientId)
-
         try Task.checkCancellation()
 
-        // Delete identity - idempotent operation, may already be deleted from previous attempt
+        // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
         let priorIdentity = try? await identityStore.load()
         try? await identityStore.delete()
         if let priorIdentity, priorIdentity.clientId == clientId {
             Log.debug("Deleted identity from keychain for clientId: \(clientId)")
             deleteDatabaseFiles()
-        } else if resolvedInboxId != nil {
-            Log.debug("Identity absent or not matching clientId: \(clientId), continuing cleanup")
-            deleteDatabaseFiles()
-        }
-
-        Log.info("Deleted inbox with clientId \(clientId)")
-    }
-
-    /// Handles deletion when we don't have an initialized client/apiClient
-    /// Used for .idle, .authorizing, .registering, and .authenticatingBackend states
-    private func handleDeleteFromIdle(clientId: String) async throws {
-        Log.info("Deleting inbox with clientId \(clientId) without initialized client...")
-        defer { enqueueAction(.stop) }
-
-        // Try to get inboxId from database if available
-        let inboxIdFromDb: String? = try? await databaseWriter.read { db in
-            try DBInbox
-                .filter(DBInbox.Columns.clientId == clientId)
-                .fetchOne(db)?
-                .inboxId
-        }
-
-        try Task.checkCancellation()
-
-        emitStateChange(.deleting(clientId: clientId, inboxId: inboxIdFromDb))
-
-        // Stop app lifecycle observation and network monitoring
-        stopAppLifecycleObservation()
-        await stopNetworkMonitoring()
-
-        await syncingManager?.stop()
-
-        try Task.checkCancellation()
-
-        // Clean up database records
-        try await cleanupInboxData(clientId: clientId)
-
-        try Task.checkCancellation()
-
-        // Delete identity - idempotent operation, may already be deleted
-        let priorIdentity = try? await identityStore.load()
-        try? await identityStore.delete()
-        if let priorIdentity, priorIdentity.clientId == clientId {
-            Log.debug("Deleted identity from keychain for clientId: \(clientId)")
-            deleteDatabaseFiles()
-        } else if inboxIdFromDb != nil {
+        } else if inboxId != nil {
             Log.debug("Identity absent or not matching clientId: \(clientId), continuing cleanup")
             deleteDatabaseFiles()
         }
@@ -915,35 +863,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         try await handleAuthorize(inboxId: identity.inboxId, clientId: clientId)
     }
 
-    private func handleDeleteFromBackgrounded(clientId: String, result: InboxReadyResult) async throws {
-        try Task.checkCancellation()
-
-        Log.info("Deleting inbox with clientId \(clientId) from backgrounded state...")
-        let inboxId = result.client.inboxId
-        emitStateChange(.deleting(clientId: clientId, inboxId: inboxId))
-
-        defer { enqueueAction(.stop) }
-
-        // App lifecycle observation is still running, stop it
-        stopAppLifecycleObservation()
-
-        // Network monitoring already stopped when backgrounded
-
-        // Perform common cleanup operations
-        try await performInboxCleanup(clientId: clientId, client: result.client, apiClient: result.apiClient)
-    }
-
-    /// Performs common cleanup operations when deleting an inbox
+    /// Performs common cleanup operations when deleting an inbox with a live client.
     private func performInboxCleanup(
         clientId: String,
         client: any XMTPClientProvider,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
-        try Task.checkCancellation()
-
-        // Stop all services
-        await syncingManager?.stop()
-
         try Task.checkCancellation()
 
         // Unsubscribe from inbox-level welcome topic and unregister installation from backend
