@@ -290,13 +290,17 @@ existing sections as authoritative.
   "the user has some, or doesn't" — the no-arg methods cover that.
   `PendingInviteRepositoryTests` was rewritten against the new surface.
 
-- **`PendingInviteInfo` / `PendingInviteDetail` keep their `clientId` /
-  `inboxId` fields.** Those fields surface to the debug view and they
-  go away with the broader column-drop in C11 (see the C4c → C11
-  deferral note in `docs/plans/single-inbox-identity-refactor.md`).
-  The repository SQL still selects `c.clientId` because the column
-  still exists; in single-inbox mode every row carries the same value
-  (the user's singleton clientId), so the field is informational.
+- **`PendingInviteInfo` removed, `PendingInviteDetail` dropped its
+  `clientId` / `inboxId` fields.** The separate `-Info` type existed
+  to serve the multi-inbox summary query that's now deleted; the
+  detail struct now carries just the fields the debug view actually
+  reads (`conversationId`, `inviteTag`, `conversationName`,
+  `createdAt`, `memberCount`). The repository SQL no longer selects
+  `c.clientId` — every row carried the same singleton value so the
+  column was informational-only, and the C11 column drop retired it.
+  Net: cleaner than originally planned. The `c.clientId` drop landed
+  in C11 as scheduled; this amendment was written before C11's rewire
+  pass replaced the types in place.
 
 ### What's deferred to the linked follow-up plan
 
