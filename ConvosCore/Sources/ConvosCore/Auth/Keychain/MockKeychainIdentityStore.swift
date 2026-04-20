@@ -6,6 +6,10 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// actor isolation — mirrors the real store's keychain-daemon-owned
     /// concurrency model.
     private let state: OSAllocatedUnfairLock<KeychainIdentity?> = .init(initialState: nil)
+    /// Optional error injection for the load path. Tests simulating a
+    /// transient keychain daemon failure set this to a non-nil `Error`;
+    /// `loadSync` and `load` both throw it until the test clears it.
+    private let loadError: OSAllocatedUnfairLock<(any Error)?> = .init(initialState: nil)
 
     func generateKeys() throws -> KeychainIdentityKeys {
         try KeychainIdentityKeys.generate()
@@ -22,10 +26,19 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     nonisolated func loadSync() throws -> KeychainIdentity? {
-        state.withLock { $0 }
+        if let error = loadError.withLock({ $0 }) {
+            throw error
+        }
+        return state.withLock { $0 }
     }
 
     func delete() throws {
         state.withLock { $0 = nil }
+    }
+
+    /// Test-only — inject an error for the next `loadSync`/`load` calls.
+    /// Pass `nil` to clear.
+    nonisolated func _setLoadError(_ error: (any Error)?) {
+        loadError.withLock { $0 = error }
     }
 }

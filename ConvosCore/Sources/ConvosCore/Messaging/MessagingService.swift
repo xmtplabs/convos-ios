@@ -76,6 +76,28 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.backgroundUploadManager = backgroundUploadManager
     }
 
+    /// Constructs a MessagingService that represents the failed-keychain-read
+    /// branch of `SessionManager.loadOrCreateService`. No authorization is
+    /// attempted; `sessionStateManager.currentState` returns `.error` with
+    /// the real keychain error. Used so downstream code can surface a
+    /// "keychain unreadable — retry" affordance without the cost of spinning
+    /// up a real state machine + authorization task for every retry.
+    internal init(identityReadFailure error: any Error,
+                  databaseWriter: any DatabaseWriter,
+                  databaseReader: any DatabaseReader,
+                  identityStore: any KeychainIdentityStoreProtocol,
+                  environment: AppEnvironment,
+                  backgroundUploadManager: any BackgroundUploadManagerProtocol) {
+        let operation = FailedIdentityLoadOperation(error: error)
+        self.identityStore = identityStore
+        self.authorizationOperation = operation
+        self.sessionStateManager = operation.stateMachine
+        self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
+        self.environment = environment
+        self.backgroundUploadManager = backgroundUploadManager
+    }
+
     deinit {
         cancellables.removeAll()
     }

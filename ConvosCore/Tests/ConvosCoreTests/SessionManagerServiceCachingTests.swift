@@ -68,6 +68,44 @@ struct SessionManagerServiceCachingTests {
         #expect(after?.clientId == "seeded-client")
     }
 
+    @Test("Keychain load failure caches a frozen error service; no rebuild on repeat failure")
+    func keychainErrorCachedAndRepeatedCallsReturnSameInstance() throws {
+        let identityStore = MockKeychainIdentityStore()
+        identityStore._setLoadError(StubKeychainError.daemonUnavailable)
+
+        let session = makeSession(identityStore: identityStore)
+        let first = identity(of: session.messagingService())
+        let second = identity(of: session.messagingService())
+        let third = identity(of: session.messagingService())
+
+        // Pre-fix, each throwing call returned a fresh service.
+        // Post-fix, the frozen errored instance is reused.
+        #expect(first == second)
+        #expect(second == third)
+    }
+
+    @Test("Errored cache is replaced when keychain recovers")
+    func keychainErrorRecoveryReplacesCachedService() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        identityStore._setLoadError(StubKeychainError.daemonUnavailable)
+
+        let session = makeSession(identityStore: identityStore)
+        let errored = identity(of: session.messagingService())
+
+        // Keychain recovers — next call should build a real service and
+        // evict the errored one.
+        identityStore._setLoadError(nil)
+        let recovered = identity(of: session.messagingService())
+        let recoveredAgain = identity(of: session.messagingService())
+
+        #expect(recovered != errored)
+        #expect(recovered == recoveredAgain, "Recovered service should itself be cached")
+    }
+
+    private enum StubKeychainError: Error {
+        case daemonUnavailable
+    }
+
     // MARK: - Helpers
 
     private func makeSession(

@@ -152,61 +152,65 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// whichever caller takes it first builds + installs, everyone else
     /// sees the cache hit.
     ///
-    /// Identity disposition is strict: a `nil` return from `loadSync` means
-    /// the keychain is confirmed empty and we can safely register. Any
-    /// thrown error means the slot might be populated-but-unreadable
-    /// (daemon error, corrupt JSON, etc.) — registering on top of that
-    /// would overwrite a potentially-recoverable identity, so we refuse
-    /// and return an uncached error-state service instead. The caller
-    /// observes `.error` on `sessionStateManager` and can surface a
-    /// reinstall/retry prompt; skipping the cache means the next call
-    /// retries the keychain read.
+    /// **Cache invariant:** `cached` non-nil means "one service per process",
+    /// *not* "the cached service has a usable identity." During the
+    /// registering window the service exists but its sessionStateManager
+    /// hasn't reached `.ready`; callers needing a ready inbox must
+    /// `await waitForInboxReadyResult()`, never read
+    /// `currentState.inboxId` directly.
+    ///
+    /// Identity disposition is strict:
+    /// - `loadSync` returns `nil` → keychain confirmed empty, safe to `.register`.
+    /// - `loadSync` returns an identity → `.authorize` path.
+    /// - `loadSync` throws → keychain is populated-but-unreadable (daemon
+    ///   error, corrupt JSON, iCloud sync in flight). Registering on top
+    ///   would overwrite a potentially-recoverable identity, so we cache
+    ///   a dedicated `FailedIdentityLoadOperation`-backed service that
+    ///   reports the real error via `sessionStateManager.currentState`.
+    ///   On the next call we retry `loadSync` inside the lock; on success
+    ///   the errored cache is replaced by a real service, on continued
+    ///   failure the cached errored instance is returned unchanged (no
+    ///   fresh allocation, no fresh state machine, no fresh task — this
+    ///   fix collapses the pre-refactor thrash where every call rebuilt).
     private func loadOrCreateService() -> MessagingService {
         cachedMessagingService.withLock { cached in
+            let previousWasErrored: Bool
             if let existing = cached {
-                return existing
+                if case .error = existing.sessionStateManager.currentState {
+                    previousWasErrored = true
+                } else {
+                    return existing
+                }
+            } else {
+                previousWasErrored = false
             }
 
             let identity: KeychainIdentity?
             do {
                 identity = try identityStore.loadSync()
             } catch {
-                Log.error("Keychain identity read failed (\(error)); refusing to register over a potentially-recoverable identity. Returning uncached error-state service.")
-                return buildErrorStateService()
+                if previousWasErrored, let existing = cached {
+                    // Still unhappy; return the frozen errored service we
+                    // cached on the previous call. No rebuild thrash.
+                    return existing
+                }
+                Log.error("Keychain identity read failed (\(error)); caching dedicated error-state service until next successful read.")
+                let errored = MessagingService(
+                    identityReadFailure: error,
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    identityStore: identityStore,
+                    environment: environment,
+                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                )
+                cached = errored
+                return errored
             }
 
             let service = buildMessagingService(for: identity)
             cached = service
             return service
         }
-    }
-
-    /// Deliberately-broken service for the "keychain unreadable" path.
-    /// Empty credentials + `startsStreamingServices: false` so the state
-    /// machine lands in `.error` without kicking off any network or
-    /// sync work. Never installed in `cachedMessagingService`; every
-    /// call returns a fresh instance so retries get a new keychain read.
-    private func buildErrorStateService() -> MessagingService {
-        let op = AuthorizeInboxOperation.authorize(
-            inboxId: "",
-            clientId: "",
-            identityStore: identityStore,
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            environment: environment,
-            startsStreamingServices: false,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
-        )
-        return MessagingService(
-            authorizationOperation: op,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            identityStore: identityStore,
-            environment: environment,
-            backgroundUploadManager: platformProviders.backgroundUploadManager
-        )
     }
 
     /// Build a `MessagingService` for the keychain's current identity, or
