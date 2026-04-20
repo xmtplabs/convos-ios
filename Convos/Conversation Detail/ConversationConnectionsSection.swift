@@ -61,12 +61,13 @@ struct ConversationConnectionsSection: View {
     var body: some View {
         Section {
             ForEach(viewModel.connections) { connection in
+                let info = ConnectionServiceCatalog.info(for: connection.serviceId)
                 FeatureRowItem(
                     imageName: nil,
-                    symbolName: iconName(for: connection.serviceId),
-                    title: connection.serviceName,
+                    symbolName: info?.iconSystemName ?? "link",
+                    title: ConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName),
                     subtitle: "Share with this conversation",
-                    iconBackgroundColor: .blue,
+                    iconBackgroundColor: info?.iconBackgroundColor ?? .gray,
                     iconForegroundColor: .white
                 ) {
                     Toggle("", isOn: Binding(
@@ -80,15 +81,6 @@ struct ConversationConnectionsSection: View {
             Text("Connections")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    private func iconName(for serviceId: String) -> String {
-        switch serviceId {
-        case "googlecalendar":
-            "calendar"
-        default:
-            "link"
         }
     }
 }
