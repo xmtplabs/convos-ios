@@ -471,6 +471,14 @@ extension Array where Element == DBMessage {
                 case .assistantJoinRequest:
                     let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
                     messageContent = .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
+                case .connectionGrantRequest:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let request = try? JSONDecoder().decode(ConnectionGrantRequest.self, from: data) {
+                        messageContent = .connectionGrantRequest(request)
+                    } else {
+                        messageContent = .text("")
+                    }
                 }
 
                 let message = Message(
@@ -532,7 +540,7 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest:
             return nil
         }
 
@@ -569,7 +577,7 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text(sourceDBMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest:
             parentContent = .text("[Update]")
         }
 

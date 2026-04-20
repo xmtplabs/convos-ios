@@ -1111,6 +1111,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec(),
+                ConnectionGrantRequestCodec(),
                 TypingIndicatorCodec(),
                 ReadReceiptCodec()
             ],

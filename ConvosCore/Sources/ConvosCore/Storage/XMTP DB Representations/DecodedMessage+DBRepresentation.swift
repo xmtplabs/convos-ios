@@ -67,6 +67,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleExplodeSettingsContent()
         case ContentTypeAssistantJoinRequest:
             components = try handleAssistantJoinRequestContent()
+        case ContentTypeConnectionGrantRequest:
+            components = try handleConnectionGrantRequestContent()
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
@@ -460,6 +462,24 @@ extension XMTPiOS.DecodedMessage {
             emoji: nil,
             attachmentUrls: [],
             text: request.status.rawValue,
+            update: nil
+        )
+    }
+
+    private func handleConnectionGrantRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? ConnectionGrantRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(request)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionGrantRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
             update: nil
         )
     }

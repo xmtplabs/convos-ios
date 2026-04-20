@@ -154,6 +154,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     static let lastMessageRequest: QueryInterfaceRequest<DBMessage> = DBMessage
         .filter(DBMessage.Columns.contentType != MessageContentType.update.rawValue)
         .filter(DBMessage.Columns.contentType != MessageContentType.assistantJoinRequest.rawValue)
+        .filter(DBMessage.Columns.contentType != MessageContentType.connectionGrantRequest.rawValue)
         .annotated { max($0.dateNs) }
         .group(\.conversationId)
 
@@ -173,19 +174,21 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                     src.text as sourceMessageText
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType NOT IN (?, ?)
+                WHERE m.contentType NOT IN (?, ?, ?)
                 AND m.dateNs = (
                     SELECT MAX(m2.dateNs)
                     FROM message m2
                     WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType NOT IN (?, ?)
+                    AND m2.contentType NOT IN (?, ?, ?)
                 )
                 """,
             arguments: [
                 MessageContentType.update.rawValue,
                 MessageContentType.assistantJoinRequest.rawValue,
+                MessageContentType.connectionGrantRequest.rawValue,
                 MessageContentType.update.rawValue,
                 MessageContentType.assistantJoinRequest.rawValue,
+                MessageContentType.connectionGrantRequest.rawValue,
             ]
         )
 
