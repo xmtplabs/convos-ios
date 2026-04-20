@@ -79,6 +79,16 @@ public struct ConversationCustomMetadata: Sendable {
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
   public mutating func clearEmoji() {self._emoji = nil}
 
+  /// JSON grants payload for runtime
+  public var connectionsJson: String {
+    get {_connectionsJson ?? String()}
+    set {_connectionsJson = newValue}
+  }
+  /// Returns true if `connectionsJson` has been explicitly set.
+  public var hasConnectionsJson: Bool {self._connectionsJson != nil}
+  /// Clears the value of `connectionsJson`. Subsequent reads from it will return its default value.
+  public mutating func clearConnectionsJson() {self._connectionsJson = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -87,6 +97,7 @@ public struct ConversationCustomMetadata: Sendable {
   fileprivate var _imageEncryptionKey: Data? = nil
   fileprivate var _encryptedGroupImage: EncryptedImageRef? = nil
   fileprivate var _emoji: String? = nil
+  fileprivate var _connectionsJson: String? = nil
 }
 
 /// EncryptedImageRef stores encrypted image metadata
@@ -161,7 +172,7 @@ public struct ConversationProfile: Sendable {
 
 extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{1}connectionsJson\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -175,6 +186,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       case 4: try { try decoder.decodeSingularBytesField(value: &self._imageEncryptionKey) }()
       case 5: try { try decoder.decodeSingularMessageField(value: &self._encryptedGroupImage) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self._connectionsJson) }()
       default: break
       }
     }
@@ -203,6 +215,9 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try { if let v = self._emoji {
       try visitor.visitSingularStringField(value: v, fieldNumber: 6)
     } }()
+    try { if let v = self._connectionsJson {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 7)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -213,6 +228,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs._imageEncryptionKey != rhs._imageEncryptionKey {return false}
     if lhs._encryptedGroupImage != rhs._encryptedGroupImage {return false}
     if lhs._emoji != rhs._emoji {return false}
+    if lhs._connectionsJson != rhs._connectionsJson {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
