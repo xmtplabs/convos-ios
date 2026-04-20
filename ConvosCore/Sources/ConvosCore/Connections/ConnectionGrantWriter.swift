@@ -59,7 +59,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
     private func syncGrantsToMetadata(for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        let inboxId = inboxReady.client.inboxId
+        let senderId = inboxReady.client.inboxId
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -79,41 +79,35 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         }
         let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
 
+        let iso8601 = ISO8601DateFormatter()
         let entries: [ConnectionGrantEntry] = grants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
             return ConnectionGrantEntry(
-                id: conn.id,
+                id: "grant_\(grant.connectionId)_\(conversationId)",
+                senderId: senderId,
                 service: conn.serviceId,
                 provider: conn.provider,
+                scope: "conversation",
                 composioEntityId: conn.composioEntityId,
                 composioConnectionId: conn.composioConnectionId,
-                triggerTypes: triggerTypes(for: conn.serviceId)
+                grantedAt: iso8601.string(from: grant.grantedAt)
             )
         }
 
-        var existingPayload: ConnectionsMetadataPayload
+        var payload: ConnectionsMetadataPayload
         if let existingJson = try? group.connectionsJson {
-            existingPayload = (try? ConnectionsMetadataPayload.fromJsonString(existingJson)) ?? ConnectionsMetadataPayload()
+            payload = (try? ConnectionsMetadataPayload.fromJsonString(existingJson)) ?? ConnectionsMetadataPayload()
         } else {
-            existingPayload = ConnectionsMetadataPayload()
+            payload = ConnectionsMetadataPayload()
         }
 
-        existingPayload.setEntries(entries, forInboxId: inboxId)
+        payload.setEntries(entries, forSenderId: senderId)
 
-        if existingPayload.isEmpty {
+        if payload.isEmpty {
             try await group.clearConnectionsJson()
         } else {
-            let json = try existingPayload.toJsonString()
+            let json = try payload.toJsonString()
             try await group.updateConnectionsJson(json)
-        }
-    }
-
-    private func triggerTypes(for serviceId: String) -> [String] {
-        switch serviceId {
-        case "googlecalendar":
-            ["GOOGLE_CALENDAR_EVENT_STARTING"]
-        default:
-            []
         }
     }
 }
