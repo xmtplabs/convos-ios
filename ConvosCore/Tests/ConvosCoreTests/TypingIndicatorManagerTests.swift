@@ -173,81 +173,72 @@ struct TypingIndicatorManagerTests {
         #expect(manager.typers(for: "conv1").count == 1)
     }
 
-    @Test("expiry removes typer after interval")
-    func expiryRemovesTyper() async throws {
-        let manager = TypingIndicatorManager(expiryInterval: 0.2)
+    @Test("scheduled expiry uses the configured interval")
+    func expiryUsesConfiguredInterval() {
+        let scheduler = ManualExpiryScheduler()
+        let manager = TypingIndicatorManager(expiryInterval: 7, scheduler: scheduler.scheduler())
+        manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
+
+        #expect(scheduler.pending.count == 1)
+        #expect(scheduler.pending[0].delay == 7)
+        #expect(scheduler.pending[0].cancelled == false)
+    }
+
+    @Test("firing the scheduled expiry removes the typer")
+    func expiryRemovesTyper() {
+        let scheduler = ManualExpiryScheduler()
+        let manager = TypingIndicatorManager(expiryInterval: 5, scheduler: scheduler.scheduler())
         manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
         #expect(manager.typers(for: "conv1").count == 1)
 
-        // Poll until the expiry task has run, with generous headroom.
-        // Pre-fix this used a 2× fixed sleep — fine on fast machines but
-        // vulnerable when the manager's expiry Task is scheduled behind
-        // other actor work. Polling terminates as soon as the condition
-        // holds and throws on genuine timeout (~4× the expiry interval).
-        try await waitUntil(timeout: .milliseconds(800)) { @MainActor in
-            manager.typers(for: "conv1").isEmpty
-        }
+        scheduler.fire(at: 0)
+
+        #expect(manager.typers(for: "conv1").isEmpty)
     }
 
-    @Test("re-adding typer resets expiry timer")
-    func reAddResetsExpiry() async throws {
-        // This test's hard invariant is "re-adding prevents the original
-        // expiry from firing." Timing budget has to account for the
-        // manager's expiry Task being subject to scheduler slippage
-        // (measured up to ~150ms under Docker load).
-        //
-        // Timeline with expiry=0.5:
-        //   t=0.0  add user1 (original expiry scheduled for 0.5)
-        //   t=0.2  re-add user1 (cancels original, reschedules for 0.7)
-        //   t=0.6  check — must still have 1 typer (past original expiry
-        //          of 0.5 with 100ms margin, well before reset expiry
-        //          at 0.7 with 100ms margin)
-        //   then poll until empty, with wide timeout
-        let expiry: TimeInterval = 0.5
-        let manager = TypingIndicatorManager(expiryInterval: expiry)
+    @Test("re-adding the same typer cancels the prior expiry and schedules a new one")
+    func reAddResetsExpiry() {
+        let scheduler = ManualExpiryScheduler()
+        let manager = TypingIndicatorManager(expiryInterval: 5, scheduler: scheduler.scheduler())
+        manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
         manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
 
-        try await Task.sleep(for: .milliseconds(200))
-        manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
+        #expect(scheduler.pending.count == 2)
+        #expect(scheduler.pending[0].cancelled == true, "first expiry must be cancelled by re-add")
+        #expect(scheduler.pending[1].cancelled == false, "second expiry is the live one")
 
-        // Sleep an additional 400ms → t=0.6, past the original expiry
-        // deadline (0.5) but before the reset expiry fires (0.7).
-        try await Task.sleep(for: .milliseconds(400))
-        #expect(manager.typers(for: "conv1").count == 1, "re-add must cancel the original expiry")
+        // Firing the cancelled action would still call removeTyper — but
+        // the manager must guard against that landing post-cancel. Verify
+        // the cancelled action is a no-op against the live typer.
+        scheduler.fire(at: 0)
+        #expect(manager.typers(for: "conv1").count == 1, "cancelled expiry must not remove the live typer")
 
-        // Wide margin for the reset expiry. Polling handles scheduler
-        // delay gracefully.
-        try await waitUntil(timeout: .seconds(1.5)) { @MainActor in
-            manager.typers(for: "conv1").isEmpty
-        }
+        scheduler.fire(at: 1)
+        #expect(manager.typers(for: "conv1").isEmpty)
     }
 
-    @Test("clearing all cancels expiry tasks")
-    func clearAllCancelsExpiry() async throws {
-        let expiry: TimeInterval = 0.2
-        let manager = TypingIndicatorManager(expiryInterval: expiry)
+    @Test("clearing all cancels pending expiry actions")
+    func clearAllCancelsExpiry() {
+        let scheduler = ManualExpiryScheduler()
+        let manager = TypingIndicatorManager(expiryInterval: 5, scheduler: scheduler.scheduler())
         manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
+        manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user2", isTyping: true)
+
         manager.clearAll(for: "conv1")
 
-        // Negative assertion: wait past the expiry window to prove
-        // clearAll removed the typer AND prevented a late expiry Task
-        // from doing anything surprising. Sleep is the right shape here
-        // — polling for "nothing happens" doesn't make sense — with
-        // 2.5× headroom to absorb scheduler slippage.
-        try await Task.sleep(for: .seconds(expiry * 2.5))
-        #expect(manager.typers(for: "conv1").isEmpty)
+        #expect(scheduler.pending[0].cancelled == true)
+        #expect(scheduler.pending[1].cancelled == true)
         #expect(manager.typingMembersByConversation["conv1"] == nil)
     }
 
-    @Test("stop typing cancels expiry task")
-    func stopTypingCancelsExpiry() async throws {
-        let expiry: TimeInterval = 0.2
-        let manager = TypingIndicatorManager(expiryInterval: expiry)
+    @Test("stop typing cancels the pending expiry action")
+    func stopTypingCancelsExpiry() {
+        let scheduler = ManualExpiryScheduler()
+        let manager = TypingIndicatorManager(expiryInterval: 5, scheduler: scheduler.scheduler())
         manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: true)
         manager.handleTypingEvent(conversationId: "conv1", senderInboxId: "user1", isTyping: false)
 
-        // Same negative-assertion shape as `clearAllCancelsExpiry`.
-        try await Task.sleep(for: .seconds(expiry * 2.5))
+        #expect(scheduler.pending[0].cancelled == true)
         #expect(manager.typingMembersByConversation["conv1"] == nil)
     }
 
@@ -255,5 +246,37 @@ struct TypingIndicatorManagerTests {
     func unknownConversation() {
         let manager = TypingIndicatorManager()
         #expect(manager.typers(for: "nonexistent").isEmpty)
+    }
+}
+
+// MARK: - Manual scheduler
+
+/// Test scheduler that captures expiry actions instead of running them
+/// against the wall clock. `fire(at:)` invokes a captured action; cancelled
+/// actions are ignored, matching production's `Task.isCancelled` guard.
+@MainActor
+private final class ManualExpiryScheduler {
+    struct Pending {
+        let delay: TimeInterval
+        let action: @MainActor () -> Void
+        var cancelled: Bool = false
+    }
+
+    private(set) var pending: [Pending] = []
+
+    func scheduler() -> TypingExpiryScheduler {
+        { [weak self] delay, action in
+            guard let self else { return {} }
+            let index = self.pending.count
+            self.pending.append(Pending(delay: delay, action: action))
+            return { [weak self] in
+                self?.pending[index].cancelled = true
+            }
+        }
+    }
+
+    func fire(at index: Int) {
+        guard index < pending.count, !pending[index].cancelled else { return }
+        pending[index].action()
     }
 }

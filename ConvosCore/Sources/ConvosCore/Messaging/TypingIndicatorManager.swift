@@ -11,6 +11,15 @@ public struct TypingMember: Equatable, Sendable {
     }
 }
 
+/// Closure that schedules `action` to run after `delay` seconds and returns
+/// a cancel handle. The default implementation wraps `Task.sleep`; tests
+/// inject one that captures the action so expiry can fire deterministically
+/// without wall-clock waits.
+public typealias TypingExpiryScheduler = @MainActor (
+    _ delay: TimeInterval,
+    _ action: @escaping @MainActor () -> Void
+) -> @MainActor () -> Void
+
 @Observable
 @MainActor
 public final class TypingIndicatorManager {
@@ -18,14 +27,19 @@ public final class TypingIndicatorManager {
 
     public var typingMembersByConversation: [String: [TypingMember]] = [:]
 
-    private var expiryTasks: [String: [String: Task<Void, Never>]] = [:]
+    private var expiryCancels: [String: [String: @MainActor () -> Void]] = [:]
 
     private let expiryInterval: TimeInterval
+    private let scheduleExpiryAction: TypingExpiryScheduler
 
     public static let defaultExpiryInterval: TimeInterval = 15
 
-    public init(expiryInterval: TimeInterval = TypingIndicatorManager.defaultExpiryInterval) {
+    public init(
+        expiryInterval: TimeInterval = TypingIndicatorManager.defaultExpiryInterval,
+        scheduler: TypingExpiryScheduler? = nil
+    ) {
         self.expiryInterval = expiryInterval
+        self.scheduleExpiryAction = scheduler ?? Self.taskBasedScheduler
     }
 
     public func typers(for conversationId: String) -> [TypingMember] {
@@ -77,25 +91,34 @@ public final class TypingIndicatorManager {
     private func scheduleExpiry(conversationId: String, inboxId: String) {
         cancelExpiryTask(conversationId: conversationId, inboxId: inboxId)
 
-        let task = Task { [weak self, expiryInterval] in
-            try? await Task.sleep(for: .seconds(expiryInterval))
-            guard !Task.isCancelled else { return }
+        let cancel = scheduleExpiryAction(expiryInterval) { [weak self] in
             self?.removeTyper(conversationId: conversationId, inboxId: inboxId)
         }
 
-        if expiryTasks[conversationId] == nil {
-            expiryTasks[conversationId] = [:]
+        if expiryCancels[conversationId] == nil {
+            expiryCancels[conversationId] = [:]
         }
-        expiryTasks[conversationId]?[inboxId] = task
+        expiryCancels[conversationId]?[inboxId] = cancel
     }
 
     private func cancelExpiryTask(conversationId: String, inboxId: String) {
-        expiryTasks[conversationId]?[inboxId]?.cancel()
-        expiryTasks[conversationId]?.removeValue(forKey: inboxId)
+        if let cancel = expiryCancels[conversationId]?[inboxId] {
+            cancel()
+        }
+        expiryCancels[conversationId]?.removeValue(forKey: inboxId)
     }
 
     private func cancelAllExpiryTasks(for conversationId: String) {
-        expiryTasks[conversationId]?.values.forEach { $0.cancel() }
-        expiryTasks.removeValue(forKey: conversationId)
+        expiryCancels[conversationId]?.values.forEach { $0() }
+        expiryCancels.removeValue(forKey: conversationId)
+    }
+
+    private static let taskBasedScheduler: TypingExpiryScheduler = { delay, action in
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            action()
+        }
+        return { task.cancel() }
     }
 }
