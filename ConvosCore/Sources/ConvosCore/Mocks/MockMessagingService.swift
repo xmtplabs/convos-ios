@@ -120,6 +120,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationPermissionsRepository
     }
 
+    public func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
+        MockConnectionGrantWriter()
+    }
+
     public func uploadImage(data: Data, filename: String) async throws -> String {
         "https://example.com/uploads/\(filename)"
     }

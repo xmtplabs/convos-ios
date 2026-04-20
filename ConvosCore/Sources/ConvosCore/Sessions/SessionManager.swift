@@ -269,6 +269,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await lifecycleManager.getOrWake(clientId: clientId, inboxId: inboxId)
     }
 
+    public func messagingService(forConversation conversationId: String) async throws -> AnyMessagingService {
+        guard let (clientId, inboxId) = try await databaseReader.read({ db in
+            try DBConversation
+                .filter(DBConversation.Columns.id == conversationId)
+                .fetchOne(db)
+                .map { ($0.clientId, $0.inboxId) }
+        }) else {
+            throw SessionManagerError.inboxNotFound
+        }
+        return try await messagingService(for: clientId, inboxId: inboxId)
+    }
+
     public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
         if let tracked = lifecycleManager.getAwakeService(clientId: clientId) {
             return tracked

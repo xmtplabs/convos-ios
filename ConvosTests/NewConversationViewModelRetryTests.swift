@@ -202,6 +202,7 @@ private final class SpySessionManager: SessionManagerProtocol, @unchecked Sendab
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error> { base.deleteAllInboxesWithProgress() }
     func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService { try await base.messagingService(for: clientId, inboxId: inboxId) }
     func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService { base.messagingServiceSync(for: clientId, inboxId: inboxId) }
+    func messagingService(forConversation conversationId: String) async throws -> AnyMessagingService { try await base.messagingService(forConversation: conversationId) }
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol { base.conversationsRepository(for: consent) }
     func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol { base.conversationsCountRepo(for: consent, kinds: kinds) }
     func pinnedConversationsCountRepo() -> any PinnedConversationsCountRepositoryProtocol { base.pinnedConversationsCountRepo() }

@@ -43,3 +43,11 @@ public final class MockConnectionRepository: ConnectionRepositoryProtocol, Senda
         Just([]).eraseToAnyPublisher()
     }
 }
+
+public final class MockConnectionGrantWriter: ConnectionGrantWriterProtocol, Sendable {
+    public init() {}
+
+    public func grantConnection(_ connectionId: String, to conversationId: String) async throws {}
+
+    public func revokeGrant(connectionId: String, from conversationId: String) async throws {}
+}

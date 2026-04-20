@@ -176,6 +176,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.messagingServiceSync(for: clientId, inboxId: inboxId)
     }
 
+    func messagingService(forConversation conversationId: String) async throws -> AnyMessagingService {
+        try await base.messagingService(forConversation: conversationId)
+    }
+
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {
         base.inviteRepository(for: conversationId)
     }

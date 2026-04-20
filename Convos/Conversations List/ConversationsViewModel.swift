@@ -89,6 +89,8 @@ final class ConversationsViewModel {
         }
     }
 
+    var pendingGrantRequest: PendingGrantRequest?
+
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
             oldValue?.cleanUpIfNeeded()
@@ -245,6 +247,14 @@ final class ConversationsViewModel {
         updateSelectionTask?.cancel()
     }
 
+    func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> ConnectionGrantRequestSheetViewModel {
+        ConnectionGrantRequestSheetViewModel(
+            serviceId: request.serviceId,
+            conversationId: request.conversationId,
+            session: session
+        )
+    }
+
     func handleURL(_ url: URL) {
         guard let destination = DeepLinkHandler.destination(for: url) else {
             return
@@ -254,7 +264,11 @@ final class ConversationsViewModel {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
         case .connectionGrant(serviceId: let serviceId, conversationId: let conversationId):
-            Log.info("Connection grant deep link received: service=\(serviceId) conversationId=\(conversationId)")
+            _selectedConversationId = conversationId
+            pendingGrantRequest = PendingGrantRequest(
+                serviceId: serviceId,
+                conversationId: conversationId
+            )
         }
     }
 
