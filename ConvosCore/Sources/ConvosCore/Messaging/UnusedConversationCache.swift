@@ -142,6 +142,12 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     }
 
     public func clearUnusedFromKeychain() {
+        // Cancel an in-flight preparation first — otherwise it can complete
+        // after we delete and race-restore the entry via
+        // `saveUnusedConversationIdToKeychain`, leaving stale keychain
+        // state after logout.
+        backgroundCreationTask?.cancel()
+        backgroundCreationTask = nil
         try? keychainService.delete(account: KeychainAccount.unusedConversation)
     }
 

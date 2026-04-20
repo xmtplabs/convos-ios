@@ -313,14 +313,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     let hasService = self.cachedMessagingService.withLock { $0 != nil }
                     continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
 
+                    continuation.yield(.deletingFromDatabase)
                     try await self.tearDownInbox()
 
                     if hasService {
                         continuation.yield(.stoppingServices(completed: 1, total: 1))
                     }
-
-                    continuation.yield(.deletingFromDatabase)
-                    try await self.wipeResidualInboxRows()
 
                     continuation.yield(.completed)
                     continuation.finish()

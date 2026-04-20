@@ -245,7 +245,7 @@ MessagingService: single instance
 - `DBInbox` → singleton table (one row). Columns: `inboxId`, `clientId`, `createdAt`. Enforce singleton with a uniqueness constraint on a fixed key column.
 - `DBConversation` → drop `inboxId` and `clientId` columns; drop their composite unique key.
 - `DBMember` → keep; `inboxId` is the canonical XMTP member identifier (including other users).
-- `DBMemberProfile` → keep composite PK `(conversationId, inboxId)` for **other members'** profiles only; our own profile no longer stored per-conversation.
+- `DBMemberProfile` → keep composite PK `(conversationId, inboxId)` for every member's profile, including the local user's — the scope-change note at line 8 preserved per-conversation profiles across the board.
 - `DBMessage`, `DBConversationMember`, `ConversationLocalState`, `DBInvite` → drop `clientId` columns where present.
 - `InboxActivityRepository` and backing tables → delete.
 - `PendingInviteRepository` → simplify (no `clientId` scoping).

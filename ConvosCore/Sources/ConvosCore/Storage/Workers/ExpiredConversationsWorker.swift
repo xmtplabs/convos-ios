@@ -221,10 +221,19 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
         context: ExpiredConversation.OwnershipContext
     ) async {
         let service = sessionManager.messagingService()
-        guard
-            let currentInboxId = service.sessionStateManager.currentState.inboxId,
-            currentInboxId == context.creatorInboxId
-        else {
+        let currentInboxId: String
+        do {
+            // Don't read `currentState.inboxId` directly — it's nil during
+            // `.registering` and `.error`, which would silently skip the
+            // creator-side teardown when the timer fires against an inbox
+            // that's still bootstrapping.
+            let inboxReady = try await service.sessionStateManager.waitForInboxReadyResult()
+            currentInboxId = inboxReady.client.inboxId
+        } catch {
+            Log.error("Scheduled explode for \(conversation.conversationId) skipped: inbox never became ready (\(error))")
+            return
+        }
+        guard currentInboxId == context.creatorInboxId else {
             return
         }
         let writer = service.conversationExplosionWriter()

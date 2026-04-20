@@ -150,13 +150,15 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
 
     func scheduleExplosion(conversationId: String, expiresAt: Date) async throws {
         Log.info("Scheduling explosion for \(expiresAt)...")
-        await runBoundedMLSOp("ExplodeSettings schedule") { [operations] in
+        // Unlike the immediate-explode path where partial failure is better
+        // than an aborted sweep, scheduling is a single user-facing action —
+        // if the `ExplodeSettings` broadcast fails the schedule didn't
+        // actually propagate, and the caller needs to see that so the UI
+        // can land on `.error` instead of falsely showing `.scheduled`.
+        try await withTimeout(seconds: 20) { [operations] in
             try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
-
-        await runBoundedMetadataOp("updateExpiresAt (schedule)") { [metadataWriter] in
-            try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
-        }
+        try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
 
         NotificationCenter.default.post(
             name: .conversationScheduledExplosion,
@@ -191,10 +193,10 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         }
     }
 
-    /// Bounded wrapper for a metadata-writer call. Shorter timeout than MLS
-    /// ops because these are local-DB + prepared-XMTP-message operations
-    /// rather than full network commits; failures here are even less fatal
-    /// (DB retry on next launch, XMTP metadata delivered lazily).
+    /// Bounded wrapper for a metadata-writer call. Same shape as
+    /// `runBoundedMLSOp` — separate for log-prefix clarity at call sites.
+    /// Metadata writes still reach the network via XMTP commits under the
+    /// hood, so the 20s ceiling matches.
     @discardableResult
     private func runBoundedMetadataOp(
         _ name: String,
