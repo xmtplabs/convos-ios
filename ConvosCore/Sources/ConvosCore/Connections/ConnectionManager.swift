@@ -25,10 +25,12 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         self.callbackURLScheme = callbackURLScheme
     }
 
-    public func connect(serviceId: String) async throws -> Connection {
+    public func connect(serviceId canonicalServiceId: String) async throws -> Connection {
         let redirectUri = "\(callbackURLScheme)://connections/callback"
+        let toolkitSlug = ConnectionServiceNaming.composioToolkitSlug(for: canonicalServiceId)
+
         let initiation = try await apiClient.initiateConnection(
-            serviceId: serviceId,
+            serviceId: toolkitSlug,
             redirectUri: redirectUri
         )
 
@@ -40,10 +42,14 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
 
         let completion = try await apiClient.completeConnection(connectionRequestId: initiation.connectionRequestId)
 
+        // Backend echoes whatever slug Composio returns; normalise back to canonical.
+        let canonicalFromResponse = ConnectionServiceNaming.canonicalService(fromComposioSlug: completion.serviceId)
+        let finalCanonical = canonicalFromResponse == completion.serviceId ? canonicalServiceId : canonicalFromResponse
+
         let connection = Connection(
             id: completion.connectionId,
-            serviceId: completion.serviceId,
-            serviceName: displayName(for: completion.serviceName, fallbackFrom: completion.serviceId),
+            serviceId: finalCanonical,
+            serviceName: displayName(for: completion.serviceName, fallbackFrom: finalCanonical),
             provider: .composio,
             composioEntityId: completion.composioEntityId,
             composioConnectionId: completion.composioConnectionId,
@@ -71,10 +77,11 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         let responses = try await apiClient.listConnections()
 
         let connections: [Connection] = responses.map { response in
-            Connection(
+            let canonical = ConnectionServiceNaming.canonicalService(fromComposioSlug: response.serviceId)
+            return Connection(
                 id: response.connectionId,
-                serviceId: response.serviceId,
-                serviceName: displayName(for: response.serviceName, fallbackFrom: response.serviceId),
+                serviceId: canonical,
+                serviceName: displayName(for: response.serviceName, fallbackFrom: canonical),
                 provider: .composio,
                 composioEntityId: response.composioEntityId,
                 composioConnectionId: response.composioConnectionId,
