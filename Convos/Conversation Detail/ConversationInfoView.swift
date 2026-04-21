@@ -72,7 +72,8 @@ struct FeatureRowItem<AccessoryView: View>: View {
 struct ConversationInfoView: View {
     @Bindable var viewModel: ConversationViewModel
     let focusCoordinator: FocusCoordinator
-    var connectionsViewModel: ConversationConnectionsViewModel?
+
+    @State private var connectionsViewModel: ConversationConnectionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeSheet: Bool = false
@@ -440,8 +441,7 @@ struct ConversationInfoView: View {
 
             if FeatureFlags.shared.isConnectionsEnabled,
                let connectionsViewModel,
-               connectionsViewModel.hasConnections,
-               viewModel.conversation.hasEverHadVerifiedAssistant {
+               connectionsViewModel.hasConnections {
                 ConversationConnectionsSection(viewModel: connectionsViewModel)
             }
 
@@ -589,6 +589,11 @@ struct ConversationInfoView: View {
     private var infoContent: some View {
         NavigationStack {
             infoList
+                .task {
+                    if FeatureFlags.shared.isConnectionsEnabled, connectionsViewModel == nil {
+                        connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+                    }
+                }
                 .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
                     TextField("Invite tag", text: $restoreInviteTagText)
                     Button("Cancel", role: .cancel) {
