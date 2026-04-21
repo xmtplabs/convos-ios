@@ -1,13 +1,13 @@
 import Foundation
 
-/// Single grant entry stored in XMTP conversation metadata.
+/// Single grant entry stored in a member profile's `connections` metadata.
 ///
 /// Shape matches the runtime's expected format exactly. See:
 /// `runtime/convos-platform/skills/connections/scripts/connections.mjs`.
 public struct ConnectionGrantEntry: Codable, Sendable, Hashable {
     public let id: String                    // grant identifier (grant_…)
     public let senderId: String               // XMTP inbox ID of the user who granted
-    public let service: String                // e.g. "google_calendar"
+    public let service: String                // canonical service name, e.g. "google_calendar"
     public let provider: String               // e.g. "composio"
     public let scope: String                  // "conversation" for v0.1
     public let composioEntityId: String
@@ -35,6 +35,9 @@ public struct ConnectionGrantEntry: Codable, Sendable, Hashable {
     }
 }
 
+/// Payload stored as a JSON string on a sender's member profile under the
+/// `connections` key. Contains only that sender's grants — each member
+/// writes their own profile.
 public struct ConnectionsMetadataPayload: Codable, Sendable {
     public let version: Int
     public var grants: [ConnectionGrantEntry]
@@ -46,20 +49,6 @@ public struct ConnectionsMetadataPayload: Codable, Sendable {
 
     public var isEmpty: Bool {
         grants.isEmpty
-    }
-
-    /// Entries owned by a given sender (XMTP inbox ID).
-    public func entries(forSenderId senderId: String) -> [ConnectionGrantEntry] {
-        grants.filter { $0.senderId == senderId }
-    }
-
-    /// Replaces this sender's entries, leaving everyone else's grants untouched.
-    public mutating func setEntries(
-        _ entries: [ConnectionGrantEntry],
-        forSenderId senderId: String
-    ) {
-        grants.removeAll { $0.senderId == senderId }
-        grants.append(contentsOf: entries)
     }
 
     public func toJsonString() throws -> String {

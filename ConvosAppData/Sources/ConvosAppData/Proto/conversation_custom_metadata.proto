@@ -36,4 +36,5 @@ message ConversationProfile {
     optional string name = 2;
     optional string image = 3;  // Legacy: plain URL (backward compatibility)
     optional EncryptedImageRef encryptedImage = 4;  // New: encrypted image reference
+    optional string connections = 5;  // JSON grants payload for this sender's connections (see connections.mjs)
 }

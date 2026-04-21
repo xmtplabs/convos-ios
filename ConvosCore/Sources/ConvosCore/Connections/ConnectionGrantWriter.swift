@@ -94,26 +94,23 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             )
         }
 
-        var payload: ConnectionsMetadataPayload
-        if let existingJson = try? group.connectionsJson {
-            Log.info("[Connections] existing connectionsJson for groupId=\(conversationId): \(existingJson)")
-            payload = (try? ConnectionsMetadataPayload.fromJsonString(existingJson)) ?? ConnectionsMetadataPayload()
+        if let existingJson = try? group.senderConnections(forInboxId: senderId) {
+            Log.info("[Connections] existing profile.connections for groupId=\(conversationId) senderId=\(senderId):\n\(prettyPrint(existingJson))")
         } else {
-            Log.info("[Connections] no existing connectionsJson for groupId=\(conversationId)")
-            payload = ConnectionsMetadataPayload()
+            Log.info("[Connections] no existing profile.connections for groupId=\(conversationId) senderId=\(senderId)")
         }
 
-        payload.setEntries(entries, forSenderId: senderId)
+        let payload = ConnectionsMetadataPayload(grants: entries)
 
         if payload.isEmpty {
-            Log.info("[Connections] clearing connectionsJson for groupId=\(conversationId) senderId=\(senderId)")
-            try await group.clearConnectionsJson()
+            Log.info("[Connections] clearing profile.connections for groupId=\(conversationId) senderId=\(senderId)")
+            try await group.clearSenderConnections(senderInboxId: senderId)
         } else {
             let json = try payload.toJsonString()
-            Log.info("[Connections] writing connectionsJson for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(json.utf8.count)\n\(prettyPrint(json))")
-            try await group.updateConnectionsJson(json)
-            if let persisted = try? group.connectionsJson {
-                Log.info("[Connections] verified persisted connectionsJson for groupId=\(conversationId):\n\(prettyPrint(persisted))")
+            Log.info("[Connections] writing profile.connections for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(json.utf8.count)\n\(prettyPrint(json))")
+            try await group.updateSenderConnections(json, senderInboxId: senderId)
+            if let persisted = try? group.senderConnections(forInboxId: senderId) {
+                Log.info("[Connections] verified persisted profile.connections for groupId=\(conversationId):\n\(prettyPrint(persisted))")
             }
         }
     }

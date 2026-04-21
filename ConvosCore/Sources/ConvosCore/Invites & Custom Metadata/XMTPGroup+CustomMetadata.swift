@@ -84,29 +84,41 @@ extension XMTPiOS.Group {
         }
     }
 
-    // MARK: - Connections
+    // MARK: - Connections (per-sender-profile)
 
-    public var connectionsJson: String? {
-        get throws {
-            let metadata = try currentCustomMetadata
-            guard metadata.hasConnectionsJson, !metadata.connectionsJson.isEmpty else { return nil }
-            return metadata.connectionsJson
+    /// Returns the JSON grants payload stored on a specific sender's profile.
+    /// The runtime reads grants from `profile.metadata.connections` per sender,
+    /// so each member's grants live under their own profile entry.
+    public func senderConnections(forInboxId inboxId: String) throws -> String? {
+        let metadata = try currentCustomMetadata
+        guard let profile = metadata.findProfile(inboxId: inboxId),
+              profile.hasConnections,
+              !profile.connections.isEmpty else {
+            return nil
+        }
+        return profile.connections
+    }
+
+    public func updateSenderConnections(_ json: String, senderInboxId: String) async throws {
+        try await atomicUpdateMetadata(operation: "updateSenderConnections") { metadata in
+            var profile = metadata.findProfile(inboxId: senderInboxId)
+                ?? ConversationProfile(inboxIdString: senderInboxId)
+                ?? ConversationProfile()
+            profile.connections = json
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            metadata.findProfile(inboxId: senderInboxId)?.connections == json
         }
     }
 
-    public func updateConnectionsJson(_ json: String) async throws {
-        try await atomicUpdateMetadata(operation: "updateConnectionsJson") { metadata in
-            metadata.connectionsJson = json
+    public func clearSenderConnections(senderInboxId: String) async throws {
+        try await atomicUpdateMetadata(operation: "clearSenderConnections") { metadata in
+            guard var profile = metadata.findProfile(inboxId: senderInboxId) else { return }
+            profile.clearConnections()
+            metadata.upsertProfile(profile)
         } verify: { metadata in
-            metadata.hasConnectionsJson && metadata.connectionsJson == json
-        }
-    }
-
-    public func clearConnectionsJson() async throws {
-        try await atomicUpdateMetadata(operation: "clearConnectionsJson") { metadata in
-            metadata.clearConnectionsJson()
-        } verify: { metadata in
-            !metadata.hasConnectionsJson
+            let profile = metadata.findProfile(inboxId: senderInboxId)
+            return profile == nil || !(profile?.hasConnections ?? false)
         }
     }
 
