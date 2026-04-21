@@ -346,6 +346,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
+            // A prior process may have left `isUnused == true` rows from an
+            // interrupted prewarm. Under a nil cached service the MLS-side
+            // `cleanupInboxData` never runs, so those rows would otherwise
+            // survive into the next session and hand out unusable conversation
+            // ids via `consumeUnusedConversationId`.
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .deleteAll(db)
             try DBInbox.deleteAll(db)
         }
     }

@@ -317,7 +317,7 @@ global-profile strand (see line 8). What C1's `ConvosProfiles` →
 **Shipped in this refactor**
 - Accept-invite flow no longer creates a per-conversation inbox; it simply adds the user's single inbox to the existing group
 - Invite token generation and validation remain in place as-is where possible
-- `JoinRequest` content type continues to work; payload now reflects the global profile
+- `JoinRequest` content type continues to work; payload carries the existing per-conversation profile (see scope-change note at line 8 — global profile was dropped)
 - Pending-invite storage simplified (`clientId` scoping removed)
 
 **Deferred to a dedicated follow-up plan** (`docs/plans/invite-system-single-inbox.md`)
@@ -397,7 +397,6 @@ The Test Agent runs continuously (see **Parallel Validation Agents** above). Wha
 - Multi-inbox fixtures in other tests → simplify to single-inbox
 
 **Add**
-- `ProfileBroadcastWorkerTests`: queue ordering, retry with backoff, persistence across restart, foreground/background transitions
 - `AppClipIdentityHandoffTests`: identity created in App Clip, discovered by main app
 - `KeychainSyncConfigTests`: smoke-test that sync attributes are set correctly (full iCloud sync is not unit-testable)
 - `ExplodeRemoveAndLeaveTests`: end-to-end "remove all then creator leaves" flow, including receiver-side local cleanup

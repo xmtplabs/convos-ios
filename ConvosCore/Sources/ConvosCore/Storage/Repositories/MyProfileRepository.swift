@@ -102,10 +102,10 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             .tracking { db in
                 try DBMemberProfile
                     .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                    .hydrateProfile() ?? .empty(inboxId: inboxId)
+                    .hydrateProfile() ?? .empty(inboxId: inboxId, conversationId: conversationId)
             }
             .publisher(in: databaseReader)
-            .replaceError(with: .empty(inboxId: inboxId))
+            .replaceError(with: .empty(inboxId: inboxId, conversationId: conversationId))
 
         observation
             .sink { [weak self] profile in
@@ -140,10 +140,11 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         }
         let inboxId = result.client.inboxId
 
+        let conversationId = self.conversationId
         return try databaseReader.read { db in
             try DBMemberProfile
                 .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                .hydrateProfile() ?? .empty(inboxId: inboxId)
+                .hydrateProfile() ?? .empty(inboxId: inboxId, conversationId: conversationId)
         }
     }
 }

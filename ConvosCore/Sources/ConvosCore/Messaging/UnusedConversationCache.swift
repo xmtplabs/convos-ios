@@ -266,7 +266,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 consent: .allowed,
                 createdAt: Date(),
                 invitedByInboxId: nil
-            ).save(db)
+            ).save(db, onConflict: .ignore)
 
             try DBMemberProfile(
                 conversationId: conversationId,
