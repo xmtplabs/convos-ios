@@ -47,6 +47,25 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
     private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
+    /// Wall-clock of the last `identityStore.loadSync()` failure, lock-
+    /// protected via the same lock as `cachedMessagingService` (both live
+    /// inside the same `withLock` block). Used together with
+    /// `consecutiveKeychainReadFailures` to short-circuit `loadSync`
+    /// reads during a persistent keychain error.
+    private var lastKeychainReadFailure: Date?
+    private var consecutiveKeychainReadFailures: Int = 0
+
+    /// How long `loadOrCreateService` holds off re-calling
+    /// `identityStore.loadSync()` once we've seen two consecutive failures.
+    /// The first retry after any failure is always free so transient
+    /// errors (locked keychain at first-unlock, iCloud Keychain not yet
+    /// synced) recover on the very next accessor call. A second failure
+    /// signals "probably persistent" (access-group mismatch, corrupt
+    /// data); the backoff then prevents SwiftUI-driven repeat reads from
+    /// hammering `securityd` at 60fps. 5s is short enough to pick up a
+    /// delayed iCloud sync without noticeable user-facing lag.
+    private static let keychainRetryBackoff: TimeInterval = 5
+
     /// Runtime context for the owning binary. The main app needs the full
     /// session machinery (push-token registration, asset renewal, prewarm,
     /// worker timers); the App Clip just needs to seed the keychain
@@ -190,10 +209,31 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 previousWasErrored = false
             }
 
+            // Skip the keychain read entirely if we've seen two or more
+            // consecutive failures within the backoff window. First
+            // retry after any failure is always free, so transient
+            // errors (locked keychain, iCloud Keychain not yet synced)
+            // recover on the very next accessor call without waiting
+            // out the backoff. Subsequent retries within the window
+            // short-circuit to prevent SwiftUI-driven repeat reads
+            // from turning a persistent failure into sustained
+            // `securityd` IPC traffic.
+            if previousWasErrored,
+               let existing = cached,
+               consecutiveKeychainReadFailures >= 2,
+               let lastFailure = lastKeychainReadFailure,
+               Date().timeIntervalSince(lastFailure) < Self.keychainRetryBackoff {
+                return existing
+            }
+
             let identity: KeychainIdentity?
             do {
                 identity = try identityStore.loadSync()
+                lastKeychainReadFailure = nil
+                consecutiveKeychainReadFailures = 0
             } catch {
+                lastKeychainReadFailure = Date()
+                consecutiveKeychainReadFailures += 1
                 if previousWasErrored, let existing = cached {
                     // Still unhappy; return the frozen errored service we
                     // cached on the previous call. No rebuild thrash.

@@ -214,7 +214,18 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 Log.error("Failed to finish unused conversation setup post-publish: \(error). Rolling back to keep state consistent.")
                 lastPreparationFailure = Date()
             }
-            try? await group.leaveGroup()
+            // Log leave-group failures at error level so telemetry can
+            // detect orphaned MLS groups (live on the XMTP network with no
+            // local record). Low-probability — we're the sole member and
+            // the group hasn't been shared yet — but a persistent stream
+            // of these would point to a libxmtp reconnect issue worth
+            // investigating. Group id is included so the orphan can be
+            // matched against XMTP-side state if needed.
+            do {
+                try await group.leaveGroup()
+            } catch {
+                Log.error("Failed to leave unused-conversation group \(group.id) after post-publish rollback: \(error). Group may remain live on the XMTP network.")
+            }
             if dbRowWritten {
                 let conversationId = group.id
                 try? await databaseWriter.write { db in
