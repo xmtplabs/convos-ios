@@ -22,7 +22,7 @@ public actor CachedPushNotificationHandler {
     /// mutate `_shared` across its lifetime; the lock keeps the guard + load
     /// atomic so `shared` can't observe a torn intermediate state if some
     /// future call path tears down and re-initializes the NSE handler.
-    private static let registrationLock = NSLock()
+    private static let registrationLock: NSLock = NSLock()
     nonisolated(unsafe) private static var _shared: CachedPushNotificationHandler?
 
     public static var shared: CachedPushNotificationHandler {
