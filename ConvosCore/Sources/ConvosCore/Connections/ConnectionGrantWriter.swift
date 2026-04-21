@@ -41,10 +41,32 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             try grant.save(db)
         }
 
-        try await syncGrantsToMetadata(for: conversationId)
+        do {
+            try await syncGrantsToMetadata(for: conversationId)
+        } catch {
+            Log.warning("[Connections] metadata write failed, rolling back DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+            try? await databaseWriter.write { db in
+                try DBConnectionGrant
+                    .filter(
+                        DBConnectionGrant.Columns.connectionId == connectionId
+                            && DBConnectionGrant.Columns.conversationId == conversationId
+                    )
+                    .deleteAll(db)
+            }
+            throw error
+        }
     }
 
     func revokeGrant(connectionId: String, from conversationId: String) async throws {
+        let removedGrant = try await databaseReader.read { db in
+            try DBConnectionGrant
+                .filter(
+                    DBConnectionGrant.Columns.connectionId == connectionId
+                        && DBConnectionGrant.Columns.conversationId == conversationId
+                )
+                .fetchOne(db)
+        }
+
         try await databaseWriter.write { db in
             try DBConnectionGrant
                 .filter(
@@ -54,7 +76,17 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
                 .deleteAll(db)
         }
 
-        try await syncGrantsToMetadata(for: conversationId)
+        do {
+            try await syncGrantsToMetadata(for: conversationId)
+        } catch {
+            Log.warning("[Connections] metadata write failed, restoring DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+            if let removedGrant {
+                try? await databaseWriter.write { db in
+                    try removedGrant.save(db)
+                }
+            }
+            throw error
+        }
     }
 
     private func syncGrantsToMetadata(for conversationId: String) async throws {

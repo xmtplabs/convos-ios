@@ -19,7 +19,9 @@ message ConversationCustomMetadata {
     optional bytes imageEncryptionKey = 4;  // 32-byte AES-256 key for encrypting all images
     optional EncryptedImageRef encryptedGroupImage = 5;  // Encrypted group avatar
     optional string emoji = 6;
-    optional string connectionsJson = 7;  // JSON grants payload for runtime
+    // Field 7 was a short-lived group-level connectionsJson blob; connections
+    // now live on each sender's ConversationProfile.connections (field 5).
+    reserved 7;
 }
 
 // EncryptedImageRef stores encrypted image metadata
