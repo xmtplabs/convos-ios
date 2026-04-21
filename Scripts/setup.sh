@@ -21,28 +21,14 @@ DIRNAME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # setup developer environment
 
 if [ ! "${CI}" = true ]; then
-  # assumes you are in ./Scripts/ folder
-  git_dir="${DIRNAME}/../.git"
-  pre_commit_file="../../Scripts/hooks/pre-commit"
-  pre_push_file="../../Scripts/hooks/pre-push"
-  post_checkout_file="../../Scripts/hooks/post-checkout"
-  post_merge_file="../../Scripts/hooks/post-merge"
-
-  info "Installing Git hooks..."
-  cd "${git_dir}"
-  if [ ! -L hooks/pre-push ]; then
-      ln -sf "${pre_push_file}" hooks/pre-push
-  fi
-  if [ ! -L hooks/pre-commit ]; then
-      ln -sf "${pre_commit_file}" hooks/pre-commit
-  fi
-  if [ ! -L hooks/post-checkout ]; then
-      ln -sf "${post_checkout_file}" hooks/post-checkout
-  fi
-  if [ ! -L hooks/post-merge ]; then
-      ln -sf "${post_merge_file}" hooks/post-merge
-  fi
-  cd "${DIRNAME}"
+  info "Configuring Git hooks..."
+  # Use core.hooksPath so hooks work in both the main clone and any git worktree.
+  # This replaces the previous per-hook symlinks into .git/hooks, which were
+  # broken inside worktrees (where .git is a file, not a directory).
+  repo_root="$(cd "${DIRNAME}/.." && pwd)"
+  (cd "${repo_root}" && git config core.hooksPath Scripts/hooks)
+  # Ensure hook files are executable (they're tracked as +x, but be safe).
+  chmod +x "${repo_root}/Scripts/hooks/"*
 fi
 
 ################################################################################
@@ -73,14 +59,25 @@ if ! command -v brew &> /dev/null; then
     exit 1
 fi
 
-# Check and install SwiftLint (pinned to 0.62.2 for compatibility with project)
+# Check Xcode version (README requires 16+)
+if command -v xcodebuild &> /dev/null; then
+    xcode_major="$(xcodebuild -version 2>/dev/null | awk '/^Xcode/ {split($2, v, "."); print v[1]; exit}')"
+    if [ -n "${xcode_major}" ] && [ "${xcode_major}" -lt 16 ]; then
+        die "Xcode 16+ is required (detected Xcode ${xcode_major}). Update via the App Store or https://xcodereleases.com"
+    fi
+fi
+
+# Check and install SwiftLint (pinned for compatibility with the project's rules)
 SWIFTLINT_VERSION="0.62.2"
+SWIFTLINT_INSTALL_DIR="$(brew --prefix)/bin"  # user-writable, avoids sudo; in PATH on both Intel & Apple Silicon
 install_swiftlint() {
-    echo "Installing SwiftLint ${SWIFTLINT_VERSION}..."
-    local tmp_dir=$(mktemp -d)
+    echo "Installing SwiftLint ${SWIFTLINT_VERSION} to ${SWIFTLINT_INSTALL_DIR}..."
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
     curl -sL "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip" -o "${tmp_dir}/swiftlint.zip"
-    unzip -o "${tmp_dir}/swiftlint.zip" -d "${tmp_dir}"
-    sudo mv "${tmp_dir}/swiftlint" /usr/local/bin/swiftlint
+    unzip -o "${tmp_dir}/swiftlint.zip" -d "${tmp_dir}" >/dev/null
+    mv -f "${tmp_dir}/swiftlint" "${SWIFTLINT_INSTALL_DIR}/swiftlint"
+    chmod +x "${SWIFTLINT_INSTALL_DIR}/swiftlint"
     rm -rf "${tmp_dir}"
 }
 
@@ -153,8 +150,10 @@ if [ ! "${CI}" = true ]; then
     if [ ! -f "$ENV_FILE" ]; then
         echo ""
         echo "⚠️  No .env file found"
-        echo "   Create one to configure local development settings."
-        echo "   See: https://console.firebase.google.com/project/convos-otr/appcheck for debug tokens"
+        echo "   Copy the template to get started:"
+        echo "     cp .env.example .env"
+        echo "   Then (optionally) add a FIREBASE_APP_CHECK_DEBUG_TOKEN from:"
+        echo "     https://console.firebase.google.com/project/convos-otr/appcheck"
     elif ! grep -q "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" || \
          [ -z "$(grep "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" | cut -d'=' -f2-)" ]; then
         echo ""
