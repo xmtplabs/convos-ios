@@ -131,7 +131,9 @@ extension ConnectionStatus {
         case "FAILED", "INACTIVE":
             return .revoked
         default:
-            return .active
+            // Unknown Composio states (e.g. a future "BLOCKED") shouldn't be treated
+            // as usable. Mark as expired so the UI surfaces a reconnect prompt.
+            return .expired
         }
     }
 }

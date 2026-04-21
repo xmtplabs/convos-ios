@@ -142,6 +142,16 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             Log.info("[Connections] clearing grants for groupId=\(conversationId) senderId=\(senderId)")
         }
 
+        // Primary: send a ProfileUpdate message with metadata["connections"]. This is
+        // the CLI's (and therefore the agent's) current read path — throws on failure
+        // so the caller rolls the DB grant back. We run this BEFORE the best-effort
+        // appData write so a ProfileUpdate failure can't leave a stale grant in appData.
+        try await sendProfileUpdateWithConnections(
+            conversationId: conversationId,
+            senderId: senderId,
+            grantsJson: grantsJson
+        )
+
         // Best-effort: stash on the sender's ConversationProfile in appData (field 5).
         // Forward-compat hedge for any CLI reader that looks at appData — failures are logged only.
         do {
@@ -153,15 +163,6 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         } catch {
             Log.warning("[Connections] appData write failed (best-effort), continuing: \(error.localizedDescription)")
         }
-
-        // Primary: send a ProfileUpdate message with metadata["connections"]. This is
-        // the CLI's (and therefore the agent's) current read path — throws on failure
-        // so the caller rolls the DB grant back.
-        try await sendProfileUpdateWithConnections(
-            conversationId: conversationId,
-            senderId: senderId,
-            grantsJson: grantsJson
-        )
     }
 
     private func sendProfileUpdateWithConnections(

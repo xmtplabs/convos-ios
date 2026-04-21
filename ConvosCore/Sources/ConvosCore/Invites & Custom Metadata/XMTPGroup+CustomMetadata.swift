@@ -100,10 +100,11 @@ extension XMTPiOS.Group {
     }
 
     public func updateSenderConnections(_ json: String, senderInboxId: String) async throws {
+        guard let seedProfile = ConversationProfile(inboxIdString: senderInboxId) else {
+            throw ConversationCustomMetadataError.invalidInboxIdHex(senderInboxId)
+        }
         try await atomicUpdateMetadata(operation: "updateSenderConnections") { metadata in
-            var profile = metadata.findProfile(inboxId: senderInboxId)
-                ?? ConversationProfile(inboxIdString: senderInboxId)
-                ?? ConversationProfile()
+            var profile = metadata.findProfile(inboxId: senderInboxId) ?? seedProfile
             profile.connections = json
             metadata.upsertProfile(profile)
         } verify: { metadata in
