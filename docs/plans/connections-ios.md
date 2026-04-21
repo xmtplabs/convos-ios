@@ -357,6 +357,8 @@ When the runtime sends a `grant_request` content type message:
 
 This parallels the existing `assistantJoinRequest` pattern. Can be deferred to v0.2 if needed.
 
+**Historical-message handling (v0.1):** no backfill is needed. The runtime-side `requestGrant` tool hasn't shipped, so no `connection_grant_request` messages exist in any conversation yet. Older clients that eventually receive one without the codec registered will store the codec's `fallback` string (`"The assistant asked to connect <service>"`) as plain text — acceptable, since those clients don't know about Connections at all. Once a client is upgraded, newly received messages decode and render as cards; previously-dropped-to-text messages stay as text (they're grant *requests*, not grants, so they expire naturally — the user just misses one prompt).
+
 ---
 
 ## File Summary
