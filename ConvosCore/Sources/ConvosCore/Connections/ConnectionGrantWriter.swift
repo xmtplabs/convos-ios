@@ -96,19 +96,36 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
         var payload: ConnectionsMetadataPayload
         if let existingJson = try? group.connectionsJson {
+            Log.info("[Connections] existing connectionsJson for groupId=\(conversationId): \(existingJson)")
             payload = (try? ConnectionsMetadataPayload.fromJsonString(existingJson)) ?? ConnectionsMetadataPayload()
         } else {
+            Log.info("[Connections] no existing connectionsJson for groupId=\(conversationId)")
             payload = ConnectionsMetadataPayload()
         }
 
         payload.setEntries(entries, forSenderId: senderId)
 
         if payload.isEmpty {
+            Log.info("[Connections] clearing connectionsJson for groupId=\(conversationId) senderId=\(senderId)")
             try await group.clearConnectionsJson()
         } else {
             let json = try payload.toJsonString()
+            Log.info("[Connections] writing connectionsJson for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(json.utf8.count)\n\(prettyPrint(json))")
             try await group.updateConnectionsJson(json)
+            if let persisted = try? group.connectionsJson {
+                Log.info("[Connections] verified persisted connectionsJson for groupId=\(conversationId):\n\(prettyPrint(persisted))")
+            }
         }
+    }
+
+    private func prettyPrint(_ json: String) -> String {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let string = String(data: pretty, encoding: .utf8) else {
+            return json
+        }
+        return string
     }
 }
 
