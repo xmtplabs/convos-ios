@@ -356,7 +356,7 @@ The follow-up plan must land **before** we start substantive invite code changes
 
 **Preserve**
 - Quickname settings screens and flows (semantics change, UI kept)
-- Per-conversation Quickname edit entry point (edits now propagate globally)
+- Per-conversation Quickname edit entry point (edits stay scoped to that conversation's `DBMemberProfile`; an opt-in toggle also writes the Quickname template in UserDefaults so future new conversations pick it up — see the scope-change note at line 8, nothing propagates globally to existing conversations)
 - First-conversation Quickname setup prompt
 
 **Modify**
