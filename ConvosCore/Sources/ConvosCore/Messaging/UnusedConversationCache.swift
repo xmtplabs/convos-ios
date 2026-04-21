@@ -136,20 +136,37 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     ) async {
         defer { backgroundCreationTask = nil }
 
+        // Explicit `Task.checkCancellation()` checkpoints at each boundary
+        // so `cancel()` (called during `tearDownInbox`) propagates through
+        // deterministically. Relying on the underlying XMTP/GRDB awaits to
+        // honor cancellation is not reliable — libxmtp's FFI wrappers and
+        // GRDB's serial writer both tend to run to completion. A cancelled
+        // task post-publish must hit the catch block so the network group
+        // and any DB row are rolled back in tandem.
         let inboxId: String
         let group: XMTPiOS.Group
         do {
+            try Task.checkCancellation()
             let inboxReady = try await service.sessionStateManager.waitForInboxReadyResult()
+            try Task.checkCancellation()
             let client = inboxReady.client
             inboxId = client.inboxId
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
             try await optimisticConversation.publish()
+            try Task.checkCancellation()
             guard let xmtpGroup = optimisticConversation as? XMTPiOS.Group else {
                 Log.error("Pre-created conversation was not a group; abandoning")
                 lastPreparationFailure = Date()
                 return
             }
             group = xmtpGroup
+        } catch is CancellationError {
+            // Teardown asked us to stop; no cooldown because this isn't a
+            // real failure, and nothing to roll back since publish was the
+            // only network side effect and it either didn't run or ran to
+            // completion (in which case the post-publish branch below owns
+            // rollback).
+            return
         } catch {
             Log.error("Failed to pre-create unused conversation: \(error)")
             lastPreparationFailure = Date()
@@ -163,12 +180,15 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         // hand out an id pointing to a group we already left.
         var dbRowWritten = false
         do {
+            try Task.checkCancellation()
             try await group.ensureInviteTag()
+            try Task.checkCancellation()
             do {
                 try await group.ensureImageEncryptionKey()
             } catch {
                 Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
             }
+            try Task.checkCancellation()
 
             let dbConversation = try await writeUnusedConversation(
                 conversation: group,
@@ -176,6 +196,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 databaseWriter: databaseWriter
             )
             dbRowWritten = true
+            try Task.checkCancellation()
 
             let inviteWriter = InviteWriter(
                 identityStore: identityStore,
@@ -186,8 +207,13 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             lastPreparationFailure = nil
             Log.debug("Pre-created unused conversation: \(group.id)")
         } catch {
-            Log.error("Failed to finish unused conversation setup post-publish: \(error). Rolling back to keep state consistent.")
-            lastPreparationFailure = Date()
+            let isCancellation = error is CancellationError
+            if isCancellation {
+                Log.debug("Unused conversation preparation cancelled post-publish; rolling back.")
+            } else {
+                Log.error("Failed to finish unused conversation setup post-publish: \(error). Rolling back to keep state consistent.")
+                lastPreparationFailure = Date()
+            }
             try? await group.leaveGroup()
             if dbRowWritten {
                 let conversationId = group.id
