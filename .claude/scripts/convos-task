@@ -167,28 +167,17 @@ launch_claude_in_terminal() {
     if [ -d "/Applications/iTerm.app" ]; then
         osascript <<EOF
 tell application "iTerm"
-    if application "iTerm" is running then
-        activate
-        if (count of windows) > 0 then
-            tell current window
-                create tab with default profile
-                tell current session
-                    set name to "$task_name"
-                    write text "$attach_cmd"
-                end tell
+    activate
+    if (count of windows) > 0 then
+        tell current window
+            create tab with default profile
+            tell current session
+                set name to "$task_name"
+                write text "$attach_cmd"
             end tell
-        else
-            create window with default profile
-            tell current window
-                tell current session
-                    set name to "$task_name"
-                    write text "$attach_cmd"
-                end tell
-            end tell
-        end if
+        end tell
     else
-        activate
-        delay 0.5
+        create window with default profile
         tell current window
             tell current session
                 set name to "$task_name"
@@ -200,17 +189,17 @@ end tell
 EOF
     else
         # For Terminal.app
-        local title_cmd="printf '\\033]0;$task_name\\007'"
         osascript <<EOF
 tell application "Terminal"
+    activate
     if (count of windows) > 0 then
         tell application "System Events" to keystroke "t" using command down
         delay 0.3
-        do script "$title_cmd; $attach_cmd" in front window
+        do script "$attach_cmd" in front window
     else
-        do script "$title_cmd; $attach_cmd"
+        do script "$attach_cmd"
     end if
-    activate
+    set custom title of selected tab of front window to "$task_name"
 end tell
 EOF
     fi
@@ -315,10 +304,10 @@ cmd_new() {
     SIM_NAME=$(get_simulator_name "$TASK_NAME")
     echo -e "${BLUE}📱 Simulator: $SIM_NAME (creating in background)${NC}"
 
-    # Show stack info
+    # Show stack info (--no-interactive disables gt's pager)
     cd "$WORKTREE_DIR"
     echo -e "\n${BLUE}Graphite stack:${NC}"
-    gt log short 2>/dev/null || gt stack 2>/dev/null || echo "Run 'gt stack' to see stack"
+    gt log short --no-interactive 2>/dev/null || gt stack --no-interactive 2>/dev/null || echo "Run 'gt stack' to see stack"
 
     # Create simulator in background with logging
     # The /setup command will verify/create simulator if this fails
