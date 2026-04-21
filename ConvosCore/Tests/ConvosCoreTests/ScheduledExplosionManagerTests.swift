@@ -294,7 +294,7 @@ private class ScheduledExplosionTestFixtures {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             )
             try conversation.insert(db)
         }

@@ -423,7 +423,7 @@ struct MessagesRepositoryTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAssistant: false,
         ).insert(db)
 
         try ConversationLocalState(

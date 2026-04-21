@@ -1409,7 +1409,7 @@ struct InboxLifecycleManagerStaleExpiryTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAssistant: false,
         )
     }
 }

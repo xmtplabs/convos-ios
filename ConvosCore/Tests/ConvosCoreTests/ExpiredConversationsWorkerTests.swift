@@ -218,7 +218,7 @@ private class ExpiredWorkerTestFixtures {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             )
             try conversation.upsert(db)
         }

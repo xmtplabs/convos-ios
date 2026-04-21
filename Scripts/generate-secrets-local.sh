@@ -156,21 +156,21 @@ if [ -f ".env" ]; then
     # Check if keys exist in .env (even if empty)
     if grep -v '^#' ".env" | grep -q '^CONVOS_API_BASE_URL='; then
         ENV_HAS_BACKEND_URL=true
-        ENV_BACKEND_URL=$(grep -v '^#' ".env" | grep '^CONVOS_API_BASE_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_BACKEND_URL=$(grep -v '^#' ".env" | grep '^CONVOS_API_BASE_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^XMTP_CUSTOM_HOST='; then
         ENV_HAS_XMTP_HOST=true
-        ENV_XMTP_HOST=$(grep -v '^#' ".env" | grep '^XMTP_CUSTOM_HOST=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_XMTP_HOST=$(grep -v '^#' ".env" | grep '^XMTP_CUSTOM_HOST=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^GATEWAY_URL='; then
         ENV_HAS_GATEWAY_URL=true
-        ENV_GATEWAY_URL=$(grep -v '^#' ".env" | grep '^GATEWAY_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_GATEWAY_URL=$(grep -v '^#' ".env" | grep '^GATEWAY_URL=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^SENTRY_DSN='; then
-        ENV_SENTRY_DSN=$(grep -v '^#' ".env" | grep '^SENTRY_DSN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_SENTRY_DSN=$(grep -v '^#' ".env" | grep '^SENTRY_DSN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN='; then
-        ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
 fi
 
@@ -285,8 +285,8 @@ if [ -f ".env" ]; then
             continue
         fi
 
-        # Remove any quotes from the value
-        value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//')
+        # Remove any quotes from the value and strip inline comments
+        value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//')
 
         # Escape the value to prevent injection
         escaped_value=$(swift_escape "$value")

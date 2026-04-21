@@ -447,7 +447,7 @@ private extension AssetRenewalManagerTests {
             conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAssistant: false,
         )
     }
 }
@@ -484,10 +484,10 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     }
 
     func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: "MOCKCODE", name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
     }
 
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: "MOCKCODE", name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
     }
 }

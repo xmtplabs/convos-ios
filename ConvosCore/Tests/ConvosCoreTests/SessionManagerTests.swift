@@ -49,7 +49,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -124,7 +124,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -167,7 +167,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -218,7 +218,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -247,7 +247,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -302,7 +302,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -331,7 +331,7 @@ struct SessionManagerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 

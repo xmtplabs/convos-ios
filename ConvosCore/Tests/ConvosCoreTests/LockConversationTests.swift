@@ -195,7 +195,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -292,7 +292,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -466,7 +466,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
         }
 
@@ -594,7 +594,7 @@ struct LockConversationTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAssistant: false,
             ).insert(db)
 
             // Create the member record with superAdmin role (this is what the UI reads)
