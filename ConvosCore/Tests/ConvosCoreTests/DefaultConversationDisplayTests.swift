@@ -297,9 +297,10 @@ struct DefaultConversationDisplayTests {
 
     @Test("avatarType returns profile for DM even when conversation emoji exists")
     func avatarTypeProfileForDMWithConversationEmoji() {
+        let otherMemberValue = ConversationMember.mock(isCurrentUser: false, name: "Alice")
         let members = [
             ConversationMember.mock(isCurrentUser: true, name: "You"),
-            ConversationMember.mock(isCurrentUser: false, name: "Alice")
+            otherMemberValue
         ]
         let conversation = Conversation(
             id: "test",
@@ -336,7 +337,7 @@ struct DefaultConversationDisplayTests {
         )
 
         if case .profile(let profile, _) = conversation.avatarType {
-            #expect(profile.inboxId == "mock-inbox-id-other")
+            #expect(profile.inboxId == otherMemberValue.profile.inboxId)
         } else {
             #expect(Bool(false), "Expected DM avatar to use other member profile before conversation emoji")
         }
