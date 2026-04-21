@@ -465,8 +465,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: Notifications
 
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        // TODO: suppress notifications when the target conversation is
-        // already visible to the user. Safer to over-notify than to swallow.
+        // Always returns true today. The hook exists so the NSE has a
+        // well-defined place to suppress notifications when the target
+        // conversation is already on-screen; until that signal is plumbed
+        // through, erring on the side of over-notification is safer than
+        // silently swallowing a legitimate notification.
         true
     }
 
