@@ -1,5 +1,5 @@
 {
-  "originHash" : "c40fcb5279ffcf05994801de5933e258d72c7e21e5c777ef54ffb951d4469a38",
+  "originHash" : "117a38cbe061d2bf5fd257d012ee24de3bdd440259ea9961a3cd34e0167f7c61",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -150,8 +150,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.9.0-dev.88ddfad",
-        "revision" : "899650a4189207ca2df515bf46beb549da07ff46"
+        "branch" : "ios-4.10.0-dev.796011d",
+        "revision" : "a76287f985501d0bc63cfc038e37e304d41296a3"
       }
     },
     {
