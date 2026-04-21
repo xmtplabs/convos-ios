@@ -5,14 +5,25 @@ import Foundation
 import UIKit
 
 public final class IOSOAuthSessionProvider: OAuthSessionProvider, @unchecked Sendable {
+    // Apple's docs: the caller must retain the ASWebAuthenticationSession until its
+    // completion handler is invoked. Without this, the session can be deallocated
+    // after start() returns and the continuation hangs forever.
+    private let sessionsLock: NSLock = NSLock()
+    private var retainedSessions: [ObjectIdentifier: ASWebAuthenticationSession] = [:]
+
     public init() {}
 
     public func authenticate(url: URL, callbackURLScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
+            var sessionKey: ObjectIdentifier?
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: callbackURLScheme
-            ) { callbackURL, error in
+            ) { [weak self] callbackURL, error in
+                if let sessionKey {
+                    self?.releaseSession(key: sessionKey)
+                }
+
                 if let error {
                     if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
                         continuation.resume(throwing: OAuthError.cancelled)
@@ -30,6 +41,7 @@ public final class IOSOAuthSessionProvider: OAuthSessionProvider, @unchecked Sen
                 continuation.resume(returning: callbackURL)
             }
 
+            sessionKey = retainSession(session)
             session.prefersEphemeralWebBrowserSession = false
 
             DispatchQueue.main.async {
@@ -37,6 +49,20 @@ public final class IOSOAuthSessionProvider: OAuthSessionProvider, @unchecked Sen
                 session.start()
             }
         }
+    }
+
+    private func retainSession(_ session: ASWebAuthenticationSession) -> ObjectIdentifier {
+        let key = ObjectIdentifier(session)
+        sessionsLock.lock()
+        defer { sessionsLock.unlock() }
+        retainedSessions[key] = session
+        return key
+    }
+
+    private func releaseSession(key: ObjectIdentifier) {
+        sessionsLock.lock()
+        defer { sessionsLock.unlock() }
+        retainedSessions.removeValue(forKey: key)
     }
 }
 

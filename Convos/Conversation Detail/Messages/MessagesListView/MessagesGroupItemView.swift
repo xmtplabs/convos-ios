@@ -243,6 +243,12 @@ struct MessagesGroupItemView: View {
                 request: request,
                 conversationId: conversationId
             )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onReply: onReply
+            )
+            .padding(.trailing, trailingPadding)
         }
     }
 

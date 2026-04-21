@@ -61,31 +61,34 @@ public struct ConnectionGrant: Codable, Sendable, Hashable {
 ```
 
 ### ConnectionsMetadataPayload.swift
-The JSON format stored in XMTP metadata, matching the PRD's runtime expectation:
+The JSON payload stored as a string value under `profile.metadata["connections"]` on each sender's own profile — matches the runtime's schema in `connections.mjs`:
+
 ```swift
 public struct ConnectionsMetadataPayload: Codable, Sendable {
-    // Keyed by the user's inbox ID in THIS conversation.
-    // Convos uses per-conversation identities, so the same physical user
-    // appears under different inbox IDs across conversations.
-    // Runtime matches msg.senderId against these keys for per-user security.
-    public var grantsByInboxId: [String: [ConnectionGrantEntry]]
+    public let version: Int
+    public var grants: [ConnectionGrantEntry]
 }
 
 public struct ConnectionGrantEntry: Codable, Sendable {
-    public let id: String                   // connection ID (same across all conversations)
-    public let service: String              // "google_calendar"
+    public let id: String                   // grant identifier (grant_…)
+    public let senderId: String             // XMTP inbox ID of the user who granted
+    public let service: String              // canonical name, e.g. "google_calendar"
     public let provider: String             // "composio"
-    public let composioEntityId: String     // deviceId - same across all conversations
-    public let composioConnectionId: String // Composio ID - same across all conversations
-    public let triggerTypes: [String]       // e.g. ["GOOGLE_CALENDAR_EVENT_STARTING"]
+    public let scope: String                // "conversation" for v0.1
+    public let composioEntityId: String     // deviceId — scopes Composio tokens to this device
+    public let composioConnectionId: String // ca_…
+    public let grantedAt: String            // ISO8601
 }
 ```
+
+**Wire-level layout:** grants live on each sender's **own** `ProfileUpdate` message (`metadata["connections"]`) rather than in a cross-user map. The runtime's `readSenderGrants` fetches the profile for `msg.senderId` and reads its `metadata.connections` directly — no map lookup needed. Each user writes only their own entries; the per-sender security scoping falls out naturally from "only the sender can author their own ProfileUpdate."
 
 **Key insight on identity split:**
 
 | Field | Value | Purpose |
 |-------|-------|---------|
-| Map key (inbox ID) | Conversation-specific (e.g. `inbox_work` in Conv A, `inbox_friends` in Conv B) | Per-user security scoping — runtime matches against `msg.senderId` |
+| Profile owner (inbox ID) | The sender's inbox ID in THIS conversation | Per-user security scoping — runtime matches against `msg.senderId` |
+| `senderId` in the entry | Same as profile owner | Agent-profile fallback path carries sender explicitly |
 | `composioEntityId` | `deviceId` (same everywhere) | Composio-side token scoping |
 | `composioConnectionId` | Composio's connection ID (same everywhere) | Which Composio connection to use |
 
