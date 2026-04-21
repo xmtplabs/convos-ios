@@ -32,9 +32,19 @@ final class DeepLinkHandler {
 
     private static func parseConnectionGrant(from url: URL) -> DeepLinkDestination? {
         let pathComponents = url.pathComponents.filter { $0 != "/" }
-        guard pathComponents.first == "connections",
-              pathComponents.count >= 2,
-              pathComponents[1] == "grant" else {
+
+        // Custom scheme: `convos://connections/grant?…` → host="connections", path="/grant"
+        let matchesCustomScheme = url.scheme == ConfigManager.shared.appUrlScheme
+            && url.host == "connections"
+            && pathComponents.first == "grant"
+
+        // Universal link: `https://<domain>/connections/grant?…` → path="/connections/grant"
+        let matchesHttps = url.scheme == "https"
+            && pathComponents.count >= 2
+            && pathComponents[0] == "connections"
+            && pathComponents[1] == "grant"
+
+        guard matchesCustomScheme || matchesHttps else {
             return nil
         }
 

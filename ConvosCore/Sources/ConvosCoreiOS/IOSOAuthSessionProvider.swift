@@ -1,5 +1,5 @@
 #if canImport(UIKit)
-import AuthenticationServices
+@preconcurrency import AuthenticationServices
 import ConvosCore
 import Foundation
 import UIKit
@@ -16,6 +16,20 @@ public final class IOSOAuthSessionProvider: OAuthSessionProvider, @unchecked Sen
     public func authenticate(url: URL, callbackURLScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
             var sessionKey: ObjectIdentifier?
+
+            // Resumption is guarded so neither start()==false nor a late completion
+            // callback can resume twice. NSLock is enough — the state transitions are
+            // trivial and the guard runs off the main thread from the completion path.
+            let resumeLock = NSLock()
+            nonisolated(unsafe) var didResume = false
+            let tryResume: (Result<URL, Error>) -> Void = { result in
+                resumeLock.lock()
+                defer { resumeLock.unlock() }
+                guard !didResume else { return }
+                didResume = true
+                continuation.resume(with: result)
+            }
+
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: callbackURLScheme
@@ -26,27 +40,36 @@ public final class IOSOAuthSessionProvider: OAuthSessionProvider, @unchecked Sen
 
                 if let error {
                     if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        continuation.resume(throwing: OAuthError.cancelled)
+                        tryResume(.failure(OAuthError.cancelled))
                     } else {
-                        continuation.resume(throwing: OAuthError.failed(error))
+                        tryResume(.failure(OAuthError.failed(error)))
                     }
                     return
                 }
 
                 guard let callbackURL else {
-                    continuation.resume(throwing: OAuthError.invalidCallbackURL)
+                    tryResume(.failure(OAuthError.invalidCallbackURL))
                     return
                 }
 
-                continuation.resume(returning: callbackURL)
+                tryResume(.success(callbackURL))
             }
 
             sessionKey = retainSession(session)
             session.prefersEphemeralWebBrowserSession = false
 
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 session.presentationContextProvider = OAuthPresentationContextProvider.shared
-                session.start()
+                let started = session.start()
+                guard !started else { return }
+
+                // start() returns false without invoking the completion handler
+                // (e.g. presentation context unavailable, another session already
+                // running). Clean up and resume explicitly so the caller doesn't hang.
+                if let sessionKey {
+                    self?.releaseSession(key: sessionKey)
+                }
+                tryResume(.failure(OAuthError.failed(OAuthStartError.couldNotStart)))
             }
         }
     }
@@ -63,6 +86,17 @@ public final class IOSOAuthSessionProvider: OAuthSessionProvider, @unchecked Sen
         sessionsLock.lock()
         defer { sessionsLock.unlock() }
         retainedSessions.removeValue(forKey: key)
+    }
+}
+
+enum OAuthStartError: LocalizedError {
+    case couldNotStart
+
+    var errorDescription: String? {
+        switch self {
+        case .couldNotStart:
+            "Could not start the authentication session."
+        }
     }
 }
 
