@@ -82,10 +82,13 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         let iso8601 = ISO8601DateFormatter()
         let entries: [ConnectionGrantEntry] = grants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
+            // Guard against DB rows written before canonical-naming landed: if the
+            // stored serviceId is a Composio toolkit slug, translate back to canonical.
+            let canonicalService = ConnectionServiceNaming.canonicalService(fromComposioSlug: conn.serviceId)
             return ConnectionGrantEntry(
                 id: "grant_\(grant.connectionId)_\(conversationId)",
                 senderId: senderId,
-                service: conn.serviceId,
+                service: canonicalService,
                 provider: conn.provider,
                 scope: "conversation",
                 composioEntityId: conn.composioEntityId,
