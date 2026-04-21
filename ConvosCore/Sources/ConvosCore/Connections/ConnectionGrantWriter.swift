@@ -1,3 +1,4 @@
+import ConvosProfiles
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -11,15 +12,18 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
+    private let myProfileWriter: any MyProfileWriterProtocol
 
     init(
         inboxStateManager: any InboxStateManagerProtocol,
         databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader
+        databaseReader: any DatabaseReader,
+        myProfileWriter: any MyProfileWriterProtocol
     ) {
         self.inboxStateManager = inboxStateManager
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
+        self.myProfileWriter = myProfileWriter
     }
 
     func grantConnection(_ connectionId: String, to conversationId: String) async throws {
@@ -129,25 +133,60 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             )
         }
 
-        if let existingJson = try? group.senderConnections(forInboxId: senderId) {
-            Log.info("[Connections] existing profile.connections for groupId=\(conversationId) senderId=\(senderId):\n\(prettyPrint(existingJson))")
-        } else {
-            Log.info("[Connections] no existing profile.connections for groupId=\(conversationId) senderId=\(senderId)")
-        }
-
         let payload = ConnectionsMetadataPayload(grants: entries)
+        let grantsJson = payload.isEmpty ? nil : try payload.toJsonString()
 
-        if payload.isEmpty {
-            Log.info("[Connections] clearing profile.connections for groupId=\(conversationId) senderId=\(senderId)")
-            try await group.clearSenderConnections(senderInboxId: senderId)
+        if let grantsJson {
+            Log.info("[Connections] writing grants for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(grantsJson.utf8.count)\n\(prettyPrint(grantsJson))")
         } else {
-            let json = try payload.toJsonString()
-            Log.info("[Connections] writing profile.connections for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(json.utf8.count)\n\(prettyPrint(json))")
-            try await group.updateSenderConnections(json, senderInboxId: senderId)
-            if let persisted = try? group.senderConnections(forInboxId: senderId) {
-                Log.info("[Connections] verified persisted profile.connections for groupId=\(conversationId):\n\(prettyPrint(persisted))")
-            }
+            Log.info("[Connections] clearing grants for groupId=\(conversationId) senderId=\(senderId)")
         }
+
+        // Best-effort: stash on the sender's ConversationProfile in appData (field 5).
+        // Forward-compat hedge for any CLI reader that looks at appData — failures are logged only.
+        do {
+            if let grantsJson {
+                try await group.updateSenderConnections(grantsJson, senderInboxId: senderId)
+            } else {
+                try await group.clearSenderConnections(senderInboxId: senderId)
+            }
+        } catch {
+            Log.warning("[Connections] appData write failed (best-effort), continuing: \(error.localizedDescription)")
+        }
+
+        // Primary: send a ProfileUpdate message with metadata["connections"]. This is
+        // the CLI's (and therefore the agent's) current read path — throws on failure
+        // so the caller rolls the DB grant back.
+        try await sendProfileUpdateWithConnections(
+            conversationId: conversationId,
+            senderId: senderId,
+            grantsJson: grantsJson
+        )
+    }
+
+    private func sendProfileUpdateWithConnections(
+        conversationId: String,
+        senderId: String,
+        grantsJson: String?
+    ) async throws {
+        let existingMetadata = try await databaseReader.read { db in
+            try DBMemberProfile.fetchOne(
+                db,
+                conversationId: conversationId,
+                inboxId: senderId
+            )?.metadata
+        }
+        var merged: ProfileMetadata = existingMetadata ?? [:]
+        if let grantsJson {
+            merged[Constant.connectionsKey] = .string(grantsJson)
+        } else {
+            merged.removeValue(forKey: Constant.connectionsKey)
+        }
+
+        try await myProfileWriter.update(
+            metadata: merged.isEmpty ? nil : merged,
+            conversationId: conversationId
+        )
     }
 
     private func prettyPrint(_ json: String) -> String {
@@ -158,6 +197,10 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             return json
         }
         return string
+    }
+
+    private enum Constant {
+        static let connectionsKey: String = "connections"
     }
 }
 

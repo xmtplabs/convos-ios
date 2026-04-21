@@ -206,7 +206,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         ConnectionGrantWriter(
             inboxStateManager: inboxStateManager,
             databaseWriter: databaseWriter,
-            databaseReader: databaseReader
+            databaseReader: databaseReader,
+            myProfileWriter: myProfileWriter()
         )
     }
 
