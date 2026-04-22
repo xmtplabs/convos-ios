@@ -11,6 +11,46 @@ public struct MessageInvite: Sendable, Hashable, Codable {
     public let emoji: String?
     public let expiresAt: Date?
     public let conversationExpiresAt: Date?
+    /// Reflects the linked side conversation's live `expiresAt` state. Populated at
+    /// message-composition time by joining with the local `DBInvite`/`DBConversation`
+    /// tables — it is not serialized into the invite URL. Receivers only know the
+    /// side convo exploded once they process the creator's `ExplodeSettings` message
+    /// (which flips the linked `DBConversation.expiresAt` into the past), so this
+    /// flag is what the UI uses to swap the inline invite row from "Tap to join"
+    /// into an "Exploded" affordance that opens the Explode Info sheet.
+    public let isConversationExpired: Bool
+
+    public init(
+        inviteSlug: String,
+        conversationName: String?,
+        conversationDescription: String?,
+        imageURL: URL?,
+        emoji: String?,
+        expiresAt: Date?,
+        conversationExpiresAt: Date?,
+        isConversationExpired: Bool = false
+    ) {
+        self.inviteSlug = inviteSlug
+        self.conversationName = conversationName
+        self.conversationDescription = conversationDescription
+        self.imageURL = imageURL
+        self.emoji = emoji
+        self.expiresAt = expiresAt
+        self.conversationExpiresAt = conversationExpiresAt
+        self.isConversationExpired = isConversationExpired
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inviteSlug = try container.decode(String.self, forKey: .inviteSlug)
+        conversationName = try container.decodeIfPresent(String.self, forKey: .conversationName)
+        conversationDescription = try container.decodeIfPresent(String.self, forKey: .conversationDescription)
+        imageURL = try container.decodeIfPresent(URL.self, forKey: .imageURL)
+        emoji = try container.decodeIfPresent(String.self, forKey: .emoji)
+        expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+        conversationExpiresAt = try container.decodeIfPresent(Date.self, forKey: .conversationExpiresAt)
+        isConversationExpired = try container.decodeIfPresent(Bool.self, forKey: .isConversationExpired) ?? false
+    }
 }
 
 public extension MessageInvite {
@@ -37,6 +77,20 @@ public extension MessageInvite {
         )
     }
 
+    /// Returns a copy of the invite with `isConversationExpired` replaced.
+    func with(isConversationExpired: Bool) -> MessageInvite {
+        MessageInvite(
+            inviteSlug: inviteSlug,
+            conversationName: conversationName,
+            conversationDescription: conversationDescription,
+            imageURL: imageURL,
+            emoji: emoji,
+            expiresAt: expiresAt,
+            conversationExpiresAt: conversationExpiresAt,
+            isConversationExpired: isConversationExpired
+        )
+    }
+
     static var empty: MessageInvite {
         .init(
             inviteSlug: "message-invite-slug",
@@ -57,6 +111,18 @@ public extension MessageInvite {
             emoji: "🦊",
             expiresAt: nil,
             conversationExpiresAt: nil
+        )
+    }
+    static var mockExploded: MessageInvite {
+        .init(
+            inviteSlug: "message-invite-slug",
+            conversationName: "Untitled",
+            conversationDescription: "A place to chat",
+            imageURL: nil,
+            emoji: "🦊",
+            expiresAt: nil,
+            conversationExpiresAt: nil,
+            isConversationExpired: true
         )
     }
 }

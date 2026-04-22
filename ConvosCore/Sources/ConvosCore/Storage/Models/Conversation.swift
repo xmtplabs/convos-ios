@@ -194,4 +194,9 @@ public extension Conversation {
         guard expiresAt < oneYearFromNow else { return nil }
         return expiresAt
     }
+
+    var isExpired: Bool {
+        guard let expiresAt else { return false }
+        return expiresAt < Date()
+    }
 }
