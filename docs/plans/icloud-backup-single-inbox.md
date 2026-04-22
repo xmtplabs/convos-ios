@@ -1,20 +1,20 @@
 # iCloud Backup — Port to Single-Inbox Identity
 
-> **Status**: Draft (rev 2 after architect review)
-> **Created**: 2026-04-21
+> **Status**: Draft (rev 3 — XMTP archive re-added to bundle for device-loss restore)
+> **Created**: 2026-04-21 (rev 3: 2026-04-22)
 > **Supersedes**: [docs/plans/icloud-backup.md](./icloud-backup.md) (vault-centric design, never merged)
 > **Related**: [ADR 011 — Single-Inbox Identity Model](../adr/011-single-inbox-identity-model.md), [docs/plans/single-inbox-identity-refactor.md](./single-inbox-identity-refactor.md)
 > **Prior work**: PRs [#591](https://github.com/xmtplabs/convos-ios/pull/591), [#596](https://github.com/xmtplabs/convos-ios/pull/596), [#602](https://github.com/xmtplabs/convos-ios/pull/602), [#603](https://github.com/xmtplabs/convos-ios/pull/603), [#618](https://github.com/xmtplabs/convos-ios/pull/618), [#626](https://github.com/xmtplabs/convos-ios/pull/626) on `louis/icloud-backup` + `louis/backup-scheduler`
 
 ## TL;DR
 
-The old backup design was vault-centric because each conversation had its own XMTP inbox and we needed a way to move N keys across devices. The single-inbox refactor eliminated that problem. Backup now has a much smaller job — and per the architect review, a smaller one than the first draft of this plan assumed:
+The old backup design was vault-centric because each conversation had its own XMTP inbox and we needed a way to move N keys across devices. The single-inbox refactor eliminated that problem. Backup has a much smaller job — but not quite as small as rev 2 of this plan assumed:
 
 - **Identity keys** → already sync via iCloud Keychain (`KeychainIdentityStore` uses `kSecAttrSynchronizable = true` + `kSecAttrAccessibleAfterFirstUnlock` per ADR 011 §1). No bundle carries them.
-- **Group memberships + message history** → XMTP Device Sync (`deviceSyncEnabled: true` per ADR 011 §2) replays from the XMTP history server on a second device. **The bundle does not duplicate this.**
-- **Local GRDB state** (conversation local flags, pending invites, unread cursors, pinned/muted, cached profiles, invite tag ledger, asset renewal bookkeeping) → **only we can back this up**. This is the bundle's entire job.
+- **Group memberships + message history** → XMTP Device Sync (`deviceSyncEnabled: true` per ADR 011 §2) replays from the XMTP history server **only when a pre-existing installation is online** to upload the archive. In device-loss / single-device-reinstall scenarios there is no such installation, and Device Sync produces an empty history. The bundle therefore carries a **single-inbox XMTP archive** (`client.createArchive`) to cover that path.
+- **Local GRDB state** (conversation local flags, pending invites, unread cursors, pinned/muted, cached profiles, invite tag ledger, asset renewal bookkeeping) → **only we can back this up**.
 
-Net result: the port is a ~60% deletion of the old stack. No vault, no per-conversation archives, no `ICloudIdentityStore`, no partial-stale state, **no in-bundle XMTP archive, no HKDF salt dance, no `RestoreLifecycleControlling` protocol**. The core infrastructure (bundle tar format, `replaceDatabase` with rollback, inactive-conversation UX, stale-device UX surfaced via `SessionStateMachine`, background scheduler, restore-prompt card) ports over much simpler.
+Net result: still a large deletion of the old stack. No vault, no per-conversation archives, no `ICloudIdentityStore`, no partial-stale state, no HKDF salt dance, no `RestoreLifecycleControlling` protocol. The in-bundle XMTP archive returns, but as a *single archive* covering the single inbox — not N per-conversation archives. The core infrastructure (bundle tar format, `replaceDatabase` with rollback, inactive-conversation UX, stale-device UX surfaced via `SessionStateMachine`, background scheduler, restore-prompt card) ports over much simpler.
 
 ---
 
@@ -40,10 +40,13 @@ With iCloud Keychain handling identity and XMTP Device Sync handling groups + me
 
 | Scenario | Identity | XMTP groups + history | GRDB local state |
 |---|---|---|---|
-| Same Apple ID, new device | iCloud Keychain ✓ | Device Sync replays ✓ | **Bundle restores it** |
-| App reinstall, same device | iCloud Keychain ✓ | Device Sync replays ✓ | **Bundle restores it** |
-| All devices lost (same Apple ID later) | iCloud Keychain ✓ | Device Sync replays ✓ | **Bundle restores it** |
+| Same Apple ID, new device, **prior install still online** | iCloud Keychain ✓ | Device Sync replays ✓ | **Bundle restores it** |
+| Same Apple ID, new device, **prior install offline / gone** | iCloud Keychain ✓ | **Bundle archive restores it** (inactive/read-only) | **Bundle restores it** |
+| App reinstall, same device (no other install) | iCloud Keychain ✓ | **Bundle archive restores it** | **Bundle restores it** |
+| All devices lost (same Apple ID later) | iCloud Keychain ✓ | **Bundle archive restores it** | **Bundle restores it** |
 | New Apple ID | ✗ — no path | ✗ — no path | ✗ — no path |
+
+Per XMTP's own docs: History Sync requires a *pre-existing installation to be online* to receive the sync request, build the archive, and upload it to the history server. Without one, a newly-registered installation sees welcomes but no message history. This is the exact scenario archive-based backups exist to cover — XMTP's guidance is explicit that History Sync and archive-based backup serve the "multiple devices used at the same time" and "upgrade or replace their device" cases respectively. Convos backup is the second case.
 
 Only GRDB holds:
 
@@ -57,15 +60,26 @@ Only GRDB holds:
 
 Without the bundle, a restored user sees a correctly-populated conversation list (via Device Sync) but loses personalization and secondary state. **The bundle's job is to close that gap — nothing more.**
 
-### Why no XMTP archive in the bundle
+### Why the bundle carries a single-inbox XMTP archive
 
-An earlier draft of this plan included `xmtp-archive.encrypted` alongside the GRDB snapshot "as cheap insurance against history-server gaps." Architect review killed this. Reasoning:
+Rev 2 of this plan omitted the XMTP archive, reasoning that Device Sync was the architectural contract and the archive would just hedge against our own architecture. That reasoning only holds for the multi-device-still-active path. Rev 3 adds a single-inbox XMTP archive back after confirming the gap against XMTP's own docs.
 
-- Device Sync is the architectural contract (ADR 011 §2). Writing a parallel, eagerly-bundled copy of what the history server already provides means we're hedging against our own architecture.
-- It introduces a real correctness hazard — `importArchive` racing against Device Sync on first boot of a restored device has undefined behavior per the XMTPiOS SDK's current shape. Verifying that behavior is a research task the bundle shouldn't be blocking on.
-- It doubles the restore test matrix (consent-reset pass, failure modes for archive-missing vs archive-corrupt).
+**Terminology check, since it matters here:** in XMTP, an *inbox* is the permanent user identity (one `inboxId` per Convos user under ADR 011). An *installation* is a device-level MLS client — one per device, per inbox. Groups contain installations as members, but installations are not per-group. The old "per-conversation archive" pattern was an artifact of the pre-refactor "one inbox per conversation" model; with single-inbox, `client.createArchive` on the sole installation produces **one archive covering the one inbox** — not N.
 
-If measurement later reveals Device Sync gaps that matter, we add the archive as a v2 bundle feature with eyes open. For v1, **the bundle is GRDB + metadata.**
+XMTP's own FAQ on the sync gap:
+
+> *"Ensure... the pre-existing app installation is online to receive the sync request, process and encrypt the archive, upload it to the history server, and send a sync reply message to the new app installation."*
+
+In the device-loss / single-device-reinstall cases, there is no pre-existing installation online; Device Sync produces an empty history. Since Convos backup's entire reason for existing is the "upgrade or replace their device" path, shipping without a history-recovery mechanism for that path is a silent-data-loss bug.
+
+The shape this time is very different from the vault era:
+
+- **One archive, not N.** A single `client.createArchive` per bundle — not one archive per conversation.
+- **No race.** `importArchive` runs on the restored device *before* `SessionManager.resumeAfterRestore()`. If Device Sync later layers on top (when/if a peer installation comes online), it merges with the already-imported history per MLS semantics. Conversations imported from an archive are **inactive / read-only** per XMTP's own spec (`Group is inactive` on write) — which is exactly the UX state the `InactiveConversationBanner` was built for. They transition to active as peers re-engage via `StreamProcessor.reactivateIfNeeded`.
+- **No consent duplication.** Archive element set is `{conversations, messages}` only; consent is reflected by the restored GRDB state and separately synced via XMTP's consent stream.
+- **Bounded test matrix.** Three meaningful cases: archive present + peer online (redundant, both resolve to same state), archive present + no peer (archive is the ground truth), archive missing + peer online (degraded to rev-2 behavior — conversation list only).
+
+The old concern about `importArchive` racing Device Sync "has undefined behavior per the XMTPiOS SDK's current shape" — that's a research task, not a blocker. The archive is written to a deterministic path in the bundle tar and imported on an empty SQLCipher DB immediately after `replaceDatabase`, before any streams are opened. That's the ordering XMTP's archive docs describe.
 
 ---
 
@@ -81,12 +95,12 @@ Each row is tagged as:
 | `BackupBundle` (tar format + path-traversal hardening) | **Salvage** | Add magic bytes + 1-byte format version at the head of the tar. No other changes. |
 | `BackupBundleCrypto` (AES-256-GCM) | **Salvage** | Use the identity's raw `databaseKey` directly as the `SymmetricKey`. **No HKDF, no salt.** See §HKDF below. |
 | `BackupBundleMetadata` | **Salvage** | Drop `inboxCount`. Add `conversationCount`, `schemaGeneration`, `appVersion`. No `hkdfSalt`. |
-| `BackupManager` | **Simplify** | Delete: vault archive creation, per-conversation archive loop, `broadcastKeysToVault`, `nonVaultUsedInboxes` iteration, XMTP archive creation. Keep: staging dir, iCloud-or-local path resolution, atomic write with temp file, metadata sidecar. |
-| `RestoreManager` | **Simplify** | Delete: vault archive import, `reCreateVault`, `saveKeysToKeychain` loop, per-conversation-archive import loop, archive-importer protocol, `revokeStaleInstallationsForRestoredInboxes` loop (collapses to one call). Keep: rollback harness (XMTP file stash + pre-restore keychain snapshot + `committed` boundary), `findAvailableBackup`, `markAllConversationsInactive`, progress `RestoreState` enum. |
+| `BackupManager` | **Simplify** | Delete: vault archive creation, per-conversation archive loop, `broadcastKeysToVault`, `nonVaultUsedInboxes` iteration. Keep: staging dir, iCloud-or-local path resolution, atomic write with temp file, metadata sidecar. **Keep** single-inbox XMTP archive creation via `client.createArchive(elements: [.conversations, .messages])`. |
+| `RestoreManager` | **Simplify** | Delete: vault archive import, `reCreateVault`, `saveKeysToKeychain` loop, per-conversation-archive import loop, archive-importer protocol, `revokeStaleInstallationsForRestoredInboxes` loop (collapses to one call). Keep: rollback harness (XMTP file stash + pre-restore keychain snapshot + `committed` boundary), `findAvailableBackup`, `markAllConversationsInactive`, progress `RestoreState` enum. **Add** single `client.importArchive` call after `replaceDatabase` and before `resumeAfterRestore`. |
 | `RestoreLifecycleControlling` protocol | **Delete** | One state machine, one cache slot. `RestoreManager` calls package-internal `SessionManager` methods directly. See §Restore integration below. |
 | `DatabaseManager.replaceDatabase` | **Salvage + harden** | Pool-to-pool copy with rollback snapshot. Update filename target to `convos-single-inbox.sqlite`. Require explicit WAL checkpoint before swap. Run the whole swap under `NSFileCoordinator`'s write barrier so the NSE coordinates. Preserve `DatabaseManagerError.rollbackFailed`. |
-| `ConvosBackupArchiveProvider` | **Delete** | No XMTP archive in the bundle. |
-| `ConvosRestoreArchiveImporter` | **Delete** | Same. |
+| `ConvosBackupArchiveProvider` | **Simplify** | Collapse from per-conversation-loop to a single `client.createArchive` call on the singleton inbox. Output path: `staging/xmtp-archive.bin` (archive is already encrypted by XMTP with a 32-byte key we generate per-bundle; that key is carried inside the GRDB-sidecar metadata tar entry so decryption needs only the bundle's own AES-GCM key). |
+| `ConvosRestoreArchiveImporter` | **Simplify** | Collapse from per-conversation-loop to a single `client.importArchive` call. Invoked after `replaceDatabase`, before `resumeAfterRestore`. Non-fatal on failure — the GRDB restore is the primary contract; archive failure degrades to conversation-list-only. |
 | `ConvosVaultArchiveImporter` | **Delete** | Vault is gone. |
 | `VaultManager`, `VaultKeyStore`, `VaultKeyCoordinator`, `VaultManager+Archive`, `VaultHealthCheck`, vault sub-actors | **Delete** | Already gone on `single-inbox-refactor`. |
 | `ICloudIdentityStore` (dual-write local + iCloud keychain) | **Delete** | The new `KeychainIdentityStore` is single-store-with-sync. |
@@ -224,7 +238,8 @@ No new publisher, no new state enum, no new DB column. The check is one network 
 │      backup-latest.encrypted                     │
 │        └─ AES-GCM(identity.databaseKey)          │
 │             └─ tar: convos-single-inbox.sqlite   │
-│                     metadata.json                │
+│                     xmtp-archive.bin             │  ← single-inbox archive
+│                     metadata.json                │     (XMTP createArchive)
 ├──────────────────────────────────────────────────┤
 │  XMTP History Server                             │  ← deviceSyncEnabled = true
 │    group memberships, message history            │     (Apple/XMTP handle it)
@@ -241,11 +256,12 @@ No new publisher, no new state enum, no new DB column. The check is one network 
 1. Early-exit if `RestoreInProgressFlag.isSet`.
 2. Load identity from keychain (`loadSync`). Skip if `nil` (no identity yet → nothing to back up).
 3. GRDB: `dbPool.backup(to: DatabaseQueue(path: staging/convos-single-inbox.sqlite))`.
-4. Write `metadata.json` (version, createdAt, deviceId, deviceName, osString, conversationCount, schemaGeneration, appVersion).
-5. Tar the staging dir (with 4-byte magic + 1-byte version header prepended).
-6. `AES.GCM.seal(tar, using: SymmetricKey(data: identity.keys.databaseKey))` → `backup-latest.encrypted`.
-7. Atomic write to iCloud Drive (`replaceItemAt`); write sidecar `metadata.json` next to it.
-8. Cleanup staging dir.
+4. XMTP: `client.createArchive(path: staging/xmtp-archive.bin, encryptionKey: archiveKey, elements: [.conversations, .messages])`. `archiveKey` is 32 bytes of fresh CSPRNG per bundle.
+5. Write `metadata.json` (version, createdAt, deviceId, deviceName, osString, conversationCount, schemaGeneration, appVersion, archiveKey, archiveMetadata {startNs, endNs}).
+6. Tar the staging dir (with 4-byte magic + 1-byte version header prepended).
+7. `AES.GCM.seal(tar, using: SymmetricKey(data: identity.keys.databaseKey))` → `backup-latest.encrypted`. The inner `archiveKey` is now protected by the same AES-GCM layer, so bundle decryption remains a single-key operation.
+8. Atomic write to iCloud Drive (`replaceItemAt`); write sidecar `metadata.json` next to it (sidecar omits `archiveKey` — discovery doesn't need it).
+9. Cleanup staging dir.
 
 ### Restore flow (new)
 
@@ -253,15 +269,17 @@ No new publisher, no new state enum, no new DB column. The check is one network 
 2. User confirms restore on `BackupRestoreSettingsView` (or fresh-install card).
 3. `awaitIdentityWithTimeout(30s)` — blocks until `loadSync()` succeeds. On timeout, surface "iCloud Keychain still syncing, try again shortly."
 4. Read sealed bundle → `AES.GCM.open(...)` with `identity.keys.databaseKey` → untar to staging.
-5. Validate staging metadata version + presence of `convos-single-inbox.sqlite`.
+5. Validate staging metadata version + presence of `convos-single-inbox.sqlite` + `xmtp-archive.bin` + inner `archiveKey`.
 6. `SessionManager.pauseForRestore()` — sets `restoreInProgress`, cancels `UnusedConversationCache`, stops the state machine, clears the cached service.
-7. Stage aside: move `xmtp-*.db3` family to a temp stash, snapshot the current keychain identity (for rollback). (The keychain snapshot exists because `replaceDatabase` failures could leave us in a state where rolling the DB back is better than losing the XMTP files entirely.)
+7. Stage aside: move `xmtp-*.db3` family to a temp stash, snapshot the current keychain identity (for rollback).
 8. `DatabaseManager.replaceDatabase(with: staging/convos-single-inbox.sqlite)` — WAL checkpoint, `NSFileCoordinator` write barrier, pool-to-pool copy, rollback snapshot.
-9. Commit point reached. Discard the XMTP stash.
-10. `ConversationLocalStateWriter.markAllConversationsInactive()`.
-11. `XMTPInstallationRevoker.revokeOtherInstallations(inboxId:, signingKey: identity.keys.signingKey, keepInstallationId: current)` — single call, non-fatal on failure.
-12. `SessionManager.resumeAfterRestore()` — clears `restoreInProgress`, rebuilds the messaging service. `SessionStateMachine.authorize(inboxId:)` runs; Device Sync replays groups and message history from the XMTP history server; `StreamProcessor.reactivateIfNeeded` flips `isActive = true` on each conversation as peers issue MLS commits or send messages.
-13. (No post-restore snapshot. The bundle is still valid — same identity, same `databaseKey`. Next scheduled daily backup handles the refresh.)
+9. Rebuild XMTP client on the restored identity against a fresh empty XMTP DB file (the stashed ones are discarded on commit).
+10. `client.importArchive(path: staging/xmtp-archive.bin, encryptionKey: archiveKey)`. Imported conversations are inactive/read-only per XMTP's own semantics. Non-fatal on failure — log via `Logger.error` and continue; the GRDB restore is still useful on its own.
+11. Commit point reached. Discard the XMTP stash.
+12. `ConversationLocalStateWriter.markAllConversationsInactive()` — redundant with step 10 for archived conversations, but covers conversations present in GRDB but absent from the archive (edge case).
+13. `XMTPInstallationRevoker.revokeOtherInstallations(inboxId:, signingKey: identity.keys.signingKey, keepInstallationId: current)` — single call, non-fatal on failure.
+14. `SessionManager.resumeAfterRestore()` — clears `restoreInProgress`, rebuilds the messaging service. `SessionStateMachine.authorize(inboxId:)` runs on the already-populated XMTP DB. Device Sync, if another installation is online, layers on top and merges per MLS. `StreamProcessor.reactivateIfNeeded` flips `isActive = true` on each conversation as peers issue MLS commits or send messages.
+15. (No post-restore snapshot. The bundle is still valid — same identity, same `databaseKey`. Next scheduled daily backup handles the refresh.)
 
 ### Rollback harness (preserved)
 
@@ -276,19 +294,18 @@ All of that survives the port unchanged. One of the strongest parts of the old s
 
 ---
 
-## PR stack
+## Ship plan (3 PRs)
 
-Target: a `dev`-based branch `backup-single-inbox-plan` with this document as PR 1. Land only after `single-inbox-refactor` (#713) merges.
+Rev 2 proposed a 7-PR stack. Rev 3 collapses it: almost everything in the stack is tightly coupled (restore needs `replaceDatabase`; `replaceDatabase` needs NSE coordination; NSE coordination needs the flag that only the restore flow sets; the UI exists to drive the restore flow), so splitting it buys little and costs real review-coordination overhead. #713 shipped 197 files as one PR and that was the right call for coherent work — same pattern here.
 
-Architect review collapsed 13 PRs to ~7. Each is standalone, compiles, passes `swift test --package-path ConvosCore`, independently reviewable.
+Target: `dev`-based branch `backup-single-inbox-plan`. Land only after `single-inbox-refactor` (#713) merges (already the case).
 
 ### PR 1 — This plan
-`docs/plans/icloud-backup-single-inbox.md`.
-Blocker: `single-inbox-refactor` (#713) merged to `dev`.
+`docs/plans/icloud-backup-single-inbox.md`. What #724 already is.
 
-### PR 2 — Inactive-conversation mode (floats ahead of the backup stack)
+### PR 2 — Inactive-conversation mode (floats ahead)
 
-Lands on `dev` independently because it's useful on its own for network-recovery UX and de-risks the restore stack.
+Lands on `dev` independently because it's useful on its own for network-recovery UX and de-risks the restore path.
 
 - Add `ConversationLocalState.isActive` column + migration step `v2-inactive-conversations`.
 - Add `setActive`, `markAllConversationsInactive` to `ConversationLocalStateWriter`.
@@ -299,62 +316,52 @@ Lands on `dev` independently because it's useful on its own for network-recovery
 - `ConversationsListItem` subtitle: add inactive indicator next to the existing `isPendingInvite` branch.
 - Tests: reactivation on incoming message, reactivation on successful `syncAllConversations`, no reactivation on failed sync, `isReconnection` flag set on 5 most recent updates, UI state transitions.
 
-### PR 3 — Bundle format + crypto
+### PR 3 — Backup + restore (everything else)
 
-- Port `BackupBundle` (tar + path-traversal hardening) with 4-byte magic (`"CVBD"`) + 1-byte format version at head.
-- Port `BackupBundleCrypto`: direct `SymmetricKey(data: databaseKey)` + `AES.GCM.seal` / `open`. **No HKDF, no salt.**
-- Port `BackupBundleMetadata` with `schemaGeneration`, `conversationCount`, `appVersion`. No `hkdfSalt`.
-- Tests: round-trip, path-traversal (salvaged from `BackupBundleTests`), magic-byte rejection on unknown format/version.
+One feature branch, organized via commits rather than PR boundaries. Every commit compiles and passes `swift test --package-path ConvosCore` — the checkpoint discipline from #713 carries over.
 
-### PR 4 — `DatabaseManager.replaceDatabase` + NSE coordination
+**Bundle format + crypto**
+- `BackupBundle` (tar + path-traversal hardening) with 4-byte magic (`"CVBD"`) + 1-byte format version at head.
+- `BackupBundleCrypto`: direct `SymmetricKey(data: databaseKey)` + `AES.GCM.seal` / `open`. **No HKDF.**
+- `BackupBundleMetadata` with `schemaGeneration`, `conversationCount`, `appVersion`, `archiveKey` (inner/encrypted only).
 
-- Add `replaceDatabase(with backupPath: URL) throws` to `DatabaseManagerProtocol`.
-- Port pool-to-pool implementation. Target `convos-single-inbox.sqlite`.
-- WAL checkpoint before swap.
-- Wrap swap in `NSFileCoordinator.coordinate(writingItemAt:)` against the DB URL.
-- Add `RestoreInProgressFlag` helper (app-group UserDefaults key, set/get/clear API).
-- Modify NSE entry point to early-exit when `RestoreInProgressFlag.isSet` (empty content delivery, push loss is acceptable for the narrow window).
-- Preserve `DatabaseManagerError.rollbackFailed`.
-- Tests: successful replace + migration, rollback-on-failure, double-fault produces `rollbackFailed`, NSE bail on flag set.
+**`DatabaseManager.replaceDatabase` + NSE coordination**
+- `replaceDatabase(with backupPath: URL) throws` on `DatabaseManagerProtocol`. Pool-to-pool, WAL checkpoint before swap, `NSFileCoordinator.coordinate(writingItemAt:)` around the swap. Target `convos-single-inbox.sqlite`. Preserve `DatabaseManagerError.rollbackFailed`.
+- `RestoreInProgressFlag` helper (app-group UserDefaults).
+- NSE entry point early-exits on `RestoreInProgressFlag.isSet` (empty content delivery — push loss in a user-initiated restore window is acceptable).
 
-### PR 5 — `BackupManager` + `RestoreManager` + installation revocation (combined)
+**`BackupManager` + `RestoreManager` + XMTP archive + revocation**
+- `BackupManager`: GRDB snapshot → `client.createArchive(elements: [.conversations, .messages])` with fresh 32-byte `archiveKey` → metadata → tar → seal → atomic iCloud/local write. Skip-if-no-identity, skip-if-restore-in-progress.
+- `RestoreManager`: `findAvailableBackup` (rejects schemaGeneration mismatch), `awaitIdentityWithTimeout`, decrypt → untar → validate → `pauseForRestore` → stash XMTP + snapshot identity → `replaceDatabase` → rebuild client on fresh XMTP DB → `client.importArchive` (non-fatal) → commit → `markAllConversationsInactive` → `XMTPInstallationRevoker` (non-fatal) → `resumeAfterRestore`.
+- `ConvosBackupArchiveProvider` / `ConvosRestoreArchiveImporter` in simplified single-call form.
+- `pauseForRestore()` / `resumeAfterRestore()` as package-internal methods on `SessionManager`.
+- Rollback harness: pre-restore keychain snapshot, XMTP stash, `committed` boundary. Rollback path restores XMTP stash and exits before `importArchive` runs — no half-imported state to unwind.
 
-With the XMTP archive gone and `RestoreLifecycleControlling` deleted, this collapses from 3 PRs to 1.
+**`DeviceReplacedError` + banner**
+- `DeviceReplacedError: Error` in `ConvosCore/Inboxes/`.
+- `SessionStateMachine` installation-active check on `authenticatingBackend → ready` and on foreground retry; transitions to `.error(DeviceReplacedError())` on detection.
+- `StaleDeviceBanner` single-variant ("This device has been replaced"), observes `SessionStateObserver`. Reset action = `SessionManager.deleteAllInboxes()`.
+- Delete any leftover `staleInboxIdsPublisher` / per-inbox `isStale` scaffolding.
 
-- Port `BackupManager` in single-inbox form: GRDB snapshot + metadata → tar → seal → atomic iCloud/local write. Skip-if-no-identity, skip-if-restore-in-progress.
-- Port `RestoreManager` in single-inbox form: `findAvailableBackup` (rejects schemaGeneration mismatch), `awaitIdentityWithTimeout`, decrypt → untar → validate → `pauseForRestore` → stash XMTP + snapshot identity → `replaceDatabase` → commit → `markAllConversationsInactive` → single `XMTPInstallationRevoker` call → `resumeAfterRestore`.
-- Port `XMTPInstallationRevoker` (tiny file).
-- Add `pauseForRestore()` / `resumeAfterRestore()` package-internal methods on `SessionManager` (cancels `UnusedConversationCache`, stops state machine, clears cache slot, sets/clears `RestoreInProgressFlag`).
-- Rollback harness preserved (pre-restore keychain snapshot, XMTP stash, `committed` boundary).
-- Tests: happy path, iCloud-unavailable → local fallback, rollback on replace failure, schemaGeneration mismatch refused, identity-timeout surfaces clean error, revocation failure is non-fatal, `RestoreState` progression, re-entrancy (second restore call while first is running is blocked).
-
-### PR 6 — `SessionStateMachine` surfaces `.error(DeviceReplacedError)` + banner
-
-- Define `DeviceReplacedError`.
-- Add installation-active check to `SessionStateMachine` on `authenticatingBackend → ready` and on foreground retry. On detection, transition to `.error(DeviceReplacedError())`.
-- `StaleDeviceBanner` single-variant ("This device has been replaced"). Observes `SessionStateObserver`. Reset action = `SessionManager.deleteAllInboxes()`.
-- Delete any leftover `InboxesRepository.staleInboxIdsPublisher` / per-inbox `isStale` scaffolding if it survived the refactor.
-- Tests: state transition on revocation, banner visibility driven by state, reset triggers teardown.
-
-### PR 7 — Settings + scheduler + restore prompt + docs
-
-Consolidation PR. Scheduler gets its own commit-level seam but ships in the same PR since the xcconfig change is small.
-
-- Port `BackupRestoreSettingsView` + `BackupRestoreViewModel` in single-inbox form. Strip vault-specific UI.
-- Port `BackupDebugView` (drop vault-sync debug).
-- Port `BackupScheduler` (main-app target). `org.convos.backup.daily` task id. Register + schedule from `ConvosApp.init`. Honor `RestoreInProgressFlag` (skip with reschedule on conflict). Skip-if-no-identity.
-- `INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers` in Dev/Local/Prod xcconfigs. Verify emitted Info.plist per old plan's caution about array-typed keys from `INFOPLIST_KEY_*`.
-- Port fresh-install restore prompt card (empty conversations view). Trigger: no inbox row in GRDB + `findAvailableBackup` returns a bundle + `loadSync()` succeeds. Re-check on `sceneDidBecomeActive`. Skip-persistence per `deviceId + createdAt`.
-- New `docs/adr/012-icloud-backup-single-inbox.md` documenting ported design.
-- Remove or annotate-as-superseded: `docs/plans/icloud-backup.md`, `docs/plans/stale-device-detection.md`, `docs/plans/icloud-backup-inactive-conversation-mode.md`, `docs/plans/vault-re-creation-on-restore.md`, `docs/plans/backup-restore-followups.md`.
+**Settings + scheduler + restore prompt + docs**
+- `BackupRestoreSettingsView` + `BackupRestoreViewModel` (strip vault-specific UI).
+- `BackupDebugView` (drop vault-sync debug).
+- `BackupScheduler` (main-app target, `org.convos.backup.daily`, register + schedule from `ConvosApp.init`, honor `RestoreInProgressFlag`). `INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers` in xcconfigs.
+- Fresh-install restore prompt card (empty conversations view, re-check on `sceneDidBecomeActive`, gates Restore on `loadSync()` success).
+- New `docs/adr/012-icloud-backup-single-inbox.md`.
+- Supersede/remove: `docs/plans/icloud-backup.md`, `stale-device-detection.md`, `icloud-backup-inactive-conversation-mode.md`, `vault-re-creation-on-restore.md`, `backup-restore-followups.md`.
 - Release-notes snippet.
+
+**Test coverage** (not a commit, but the bar for merge)
+- Happy paths: archive + peer online, archive only, no archive + peer online (degraded), no backup available.
+- Failure modes: iCloud-unavailable → local fallback, rollback on `replaceDatabase` failure, double-fault → `rollbackFailed`, schemaGeneration mismatch refused, identity-timeout clean error, `importArchive` failure non-fatal and surfaces as `RestoreState.archiveImportFailed`, revocation failure non-fatal, NSE bail on flag set, scheduler reschedules on flag set.
+- Integration: full `swift test --package-path ConvosCore` green; QA regression against the `single-inbox-refactor` baseline is zero regressions.
 
 ---
 
 ## What we're explicitly not doing in this port
 
 - **Media in the bundle.** Deferred to a later bundle version. The 1-byte format version at the tar head supports discrimination.
-- **XMTP archive in the bundle.** Device Sync is the contract. Revisit only if measurement shows gaps.
 - **HKDF on the bundle key.** Not buying anything under the actual threat model.
 - **Compression.** `Compression` framework DEFLATE is a natural v3 if bundle sizes grow. Measure first.
 - **Disk-space preflight.** Today's bundles are well under 1MB. Revisit if users with very large GRDBs start seeing failures.
@@ -366,13 +373,11 @@ Consolidation PR. Scheduler gets its own commit-level seam but ships in the same
 
 ## Resolved questions (with reasoning)
 
-From the first draft of this plan, with architect review calls:
-
-1. **XMTP archive in bundle?** **No.** Device Sync is the contract; including it creates a race and doubles the test matrix for zero benefit under the happy path.
+1. **XMTP archive in bundle?** **Yes — one archive per bundle (the single-inbox archive).** Rev 2 said no on the grounds that Device Sync was the contract; that's true for the multi-device-still-active path but wrong for device-loss / single-device-reinstall, which is the primary reason backup exists. XMTP's own docs recommend archive-based backups for exactly this case. The archive is scoped to the single inbox (not N per-conversation archives), so the footprint cost is bounded.
 2. **HKDF salt cadence?** **Moot — no HKDF.** Raw `databaseKey` as `SymmetricKey` is the correct ceremony level.
 3. **Stale-device cadence?** **Foreground + on `authenticatingBackend → ready`.** One network call, driven from the existing `SessionStateMachine`.
 4. **Wipe bundle on reset?** **No.** Leave it. Surviving same-Apple-ID devices can still decrypt. Destructive moves on user confusion are bad policy.
-5. **Device Sync + importArchive overlap?** **Eliminated** by answer to #1.
+5. **Device Sync + importArchive overlap?** **Ordered, not raced.** `importArchive` runs inside `pauseForRestore`, on a fresh empty XMTP DB, before streams open. Device Sync — if a peer later comes online — merges per MLS semantics with already-imported conversations. The imported conversations are MLS-inactive until reactivated by the peer, so there is no writable-state collision.
 6. **`databaseFilename` in metadata?** **No — `schemaGeneration` instead.** That's the thing that actually governs restore correctness.
 
 ---
@@ -381,12 +386,14 @@ From the first draft of this plan, with architect review calls:
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| NSE opens DB mid-swap | **Critical** | `RestoreInProgressFlag` + `NSFileCoordinator` write barrier in `replaceDatabase` (PR 4). |
-| iCloud Keychain sync lag → new-identity fork | **Critical** | `awaitIdentityWithTimeout` gate in `RestoreManager` + fresh-install card gates Restore button on `loadSync()` success (PR 5). |
-| `LegacyDataWipe` generation drift wipes restorable bundle | **High** | `metadata.schemaGeneration` + refusal on mismatch (PRs 3 + 5). |
-| `BackupScheduler` fires during restore | **Medium** | Scheduler honors `RestoreInProgressFlag` and reschedules (PR 7). |
-| `UnusedConversationCache` prewarm mid-restore poisons restored DB | **Medium** | `pauseForRestore` cancels and awaits unwind before swap (PR 5). |
-| `SessionManager.cachedMessagingService` race with restore | **Medium** | `pauseForRestore` clears slot under lock; `resumeAfterRestore` lets `loadOrCreateService` naturally repopulate (PR 5). |
+| NSE opens DB mid-swap | **Critical** | `RestoreInProgressFlag` + `NSFileCoordinator` write barrier in `replaceDatabase`. |
+| iCloud Keychain sync lag → new-identity fork | **Critical** | `awaitIdentityWithTimeout` gate in `RestoreManager` + fresh-install card gates Restore button on `loadSync()` success. |
+| `LegacyDataWipe` generation drift wipes restorable bundle | **High** | `metadata.schemaGeneration` + refusal on mismatch. |
+| Device Sync race with `importArchive` on fresh boot | **Medium** | `importArchive` runs inside the `pauseForRestore` window, on a fresh XMTP DB, before streams open. Device Sync, if a peer comes online later, merges per MLS semantics. |
+| `BackupScheduler` fires during restore | **Medium** | Scheduler honors `RestoreInProgressFlag` and reschedules. |
+| `UnusedConversationCache` prewarm mid-restore poisons restored DB | **Medium** | `pauseForRestore` cancels and awaits unwind before swap. |
+| `SessionManager.cachedMessagingService` race with restore | **Medium** | `pauseForRestore` clears slot under lock; `resumeAfterRestore` lets `loadOrCreateService` naturally repopulate. |
+| `importArchive` failure leaves GRDB restored but no message history | **Medium** | Non-fatal; surfaced via `RestoreState.archiveImportFailed(Error)`. User sees conversation list + inactive banners; Device Sync may later populate if a peer comes online. |
 | `replaceDatabase` rollback fails (double-fault) | **Critical but rare** | `DatabaseManagerError.rollbackFailed`; UI must treat as fatal and surface reinstall path. Already covered in port. |
 | Inactive conversation never reactivates (quiet conversation) | **Medium** | Banner persists — same limitation as old plan. Revisit with periodic `isActive()` probe in a follow-up if users report it. |
 | Bundle decryption fails because identity rotated | **Low** | Only rotates on delete-all-data or on successful restore. Both are explicit user actions. |
@@ -397,11 +404,14 @@ From the first draft of this plan, with architect review calls:
 
 Phase complete when:
 
-- [ ] Fresh install on Device B with the same Apple ID as Device A finds Device A's backup, restores it, and lands in a conversations list matching Device A's view (minus messages that reactivation clears as peers re-engage).
-- [ ] App reinstall on the same device produces the same result.
+- [ ] Fresh install on Device B with the same Apple ID as Device A finds Device A's backup and restores it, with both the conversation list **and** message history present (conversations inactive until peers re-engage, per the MLS archive contract).
+- [ ] App reinstall on the same device (no other installations) restores conversation list + message history from the bundle alone.
+- [ ] "All devices lost, then restore later" walks back to the same end state.
+- [ ] Multi-device happy path (Device A still online when Device B installs): Device Sync merges cleanly with the imported archive; no duplicate conversations, no lost messages.
 - [ ] `DeviceReplacedError` surfaces within one foreground cycle of a second device taking over.
 - [ ] Background backup runs daily on a real device without user action.
 - [ ] NSE and `BackupScheduler` both drop work cleanly during a restore window.
+- [ ] `importArchive` failure is non-fatal and surfaces as `RestoreState.archiveImportFailed`; restored user sees conversation list with inactive banners.
 - [ ] All `RestoreManagerTests`, `BackupBundleTests`, `ConversationLocalStateWriterTests` pass. No `StaleDeviceStateTests` (deleted with the state enum).
 - [ ] `swift test --package-path ConvosCore` green with zero new flakes. QA regression suite is zero regressions against the `single-inbox-refactor` baseline.
 
