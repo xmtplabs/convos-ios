@@ -175,7 +175,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     if viewModel.isInactive {
                         InactiveConversationBanner {
-                            if let url = URL(string: "https://learn.convos.org/") {
+                            if let url = Constant.reconnectionLearnMoreURL {
                                 openURL(url)
                             }
                         }
@@ -371,6 +371,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
+    }
+
+    private enum Constant {
+        static let reconnectionLearnMoreURL: URL? = URL(string: "https://learn.convos.org/")
     }
 }
 

@@ -93,11 +93,11 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
     /// in a single write transaction. Used by `RestoreManager` after an iCloud
     /// restore so the whole list enters "Awaiting reconnection" at once.
     func markAllConversationsInactive() async throws {
-        _ = try await databaseWriter.write { db in
+        let count = try await databaseWriter.write { db in
             try ConversationLocalState
                 .updateAll(db, ConversationLocalState.Columns.isActive.set(to: false))
         }
-        QAEvent.emit(.conversation, "marked_all_inactive")
+        QAEvent.emit(.conversation, "marked_all_inactive", ["count": String(count)])
     }
 
     private func updateLocalState(

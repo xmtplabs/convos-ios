@@ -70,6 +70,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
+    private let reactivator: InactiveConversationReactivator
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
@@ -96,10 +97,16 @@ actor StreamProcessor: StreamProcessorProtocol {
             messageWriter: messageWriter
         )
         self.messageWriter = messageWriter
-        self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        self.localStateWriter = localStateWriter
         self.joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,
             databaseWriter: databaseWriter
+        )
+        self.reactivator = InactiveConversationReactivator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            localStateWriter: localStateWriter
         )
     }
 
@@ -240,7 +247,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     // can't participate yet — the message landed on the
                     // stream but the MLS state is still stale.
                     if !conversationSyncFailed {
-                        await markReconnectionIfNeeded(
+                        await reactivator.markReconnectionIfNeeded(
                             messageId: message.id,
                             conversationId: conversation.id
                         )
@@ -314,70 +321,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                 throw error
             }
             return ConversationStoreResult(conversation: existing, syncFailed: true)
-        }
-    }
-
-    // MARK: - Reactivation
-
-    /// Called from `processMessage` once the MLS sync for the group has
-    /// succeeded. If the conversation is currently marked inactive (post-
-    /// restore), flip `isActive` back to true, tag the arriving message's
-    /// update (if any) as a reconnection, and back-fill up to five recent
-    /// update rows so the UI can style the reconnection point. If the
-    /// conversation is already active, this is a no-op.
-    private func markReconnectionIfNeeded(messageId: String, conversationId: String) async {
-        do {
-            let isInactive = try await databaseReader.read { db in
-                try ConversationLocalState
-                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
-                    .filter(ConversationLocalState.Columns.isActive == false)
-                    .fetchOne(db) != nil
-            }
-            guard isInactive else { return }
-
-            try await databaseWriter.write { db in
-                if var dbMessage = try DBMessage.fetchOne(db, key: messageId),
-                   var update = dbMessage.update {
-                    update.isReconnection = true
-                    dbMessage = dbMessage.with(update: update)
-                    try dbMessage.save(db)
-                }
-            }
-
-            try await markRecentUpdatesAsReconnection(conversationId: conversationId)
-            try await localStateWriter.setActive(true, for: conversationId)
-            Log.info("Reactivated conversation \(conversationId) after receiving message")
-        } catch {
-            Log.warning("markReconnectionIfNeeded failed for \(conversationId): \(error)")
-        }
-    }
-
-    /// Back-fill `isReconnection = true` on the five most recent
-    /// `contentType == .update` rows so the UI renders the reconnection
-    /// boundary as a visible event rather than a cliff.
-    private func markRecentUpdatesAsReconnection(conversationId: String) async throws {
-        try await databaseWriter.write { db in
-            let sql = """
-                SELECT id FROM message
-                WHERE conversationId = ?
-                  AND contentType = ?
-                ORDER BY date DESC
-                LIMIT 5
-                """
-            let messageIds = try String.fetchAll(
-                db,
-                sql: sql,
-                arguments: [conversationId, MessageContentType.update.rawValue]
-            )
-            for messageId in messageIds {
-                guard var dbMessage = try DBMessage.fetchOne(db, key: messageId),
-                      var update = dbMessage.update else { continue }
-                if !update.isReconnection {
-                    update.isReconnection = true
-                    dbMessage = dbMessage.with(update: update)
-                    try dbMessage.save(db)
-                }
-            }
         }
     }
 
