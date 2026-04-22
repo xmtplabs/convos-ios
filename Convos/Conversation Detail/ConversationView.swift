@@ -52,7 +52,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             pendingInviteImage: $viewModel.pendingInviteImage,
             pendingInviteExplodeDuration: viewModel.pendingInvite?.explodeDuration,
             onSetInviteExplodeDuration: { duration in viewModel.setInviteExplodeDuration(duration) },
-            onInviteConvoNameEditingEnded: { name in viewModel.updateLinkedConversationName(name) },
+            onInviteConvoNameEditingEnded: { name in
+                viewModel.updateLinkedConversationName(name)
+                focusCoordinator.endEditing(for: .editingSideConvoName, context: .quickEditor)
+            },
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
