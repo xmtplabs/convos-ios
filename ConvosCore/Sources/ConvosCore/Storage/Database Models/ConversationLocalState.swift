@@ -13,6 +13,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let isUnreadUpdatedAt: Column = Column(CodingKeys.isUnreadUpdatedAt)
         static let isMuted: Column = Column(CodingKeys.isMuted)
         static let pinnedOrder: Column = Column(CodingKeys.pinnedOrder)
+        static let isActive: Column = Column(CodingKeys.isActive)
     }
 
     let conversationId: String
@@ -21,6 +22,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     let isUnreadUpdatedAt: Date
     let isMuted: Bool
     let pinnedOrder: Int?
+    let isActive: Bool
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
@@ -38,7 +40,8 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: !isUnread ? Date() : (isUnread != self.isUnread ? Date() : isUnreadUpdatedAt),
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            isActive: isActive
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -48,7 +51,8 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            isActive: isActive
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -58,7 +62,8 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            isActive: isActive
         )
     }
     func with(pinnedOrder: Int?) -> Self {
@@ -68,7 +73,19 @@ extension ConversationLocalState {
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
             isMuted: isMuted,
-            pinnedOrder: pinnedOrder
+            pinnedOrder: pinnedOrder,
+            isActive: isActive
+        )
+    }
+    func with(isActive: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            isActive: isActive
         )
     }
 }
