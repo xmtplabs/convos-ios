@@ -75,6 +75,8 @@ final class ConversationsViewModel {
                 userInfo: userInfo
             )
         }
+
+        updateListVisibility()
     }
 
     var newConversationViewModel: NewConversationViewModel? {
@@ -87,6 +89,7 @@ final class ConversationsViewModel {
                     userInfo: [:]
                 )
             }
+            updateListVisibility()
         }
     }
     var presentingExplodeInfo: Bool = false
@@ -219,6 +222,26 @@ final class ConversationsViewModel {
         guard horizontalSizeClass != sizeClass else { return }
         horizontalSizeClass = sizeClass
         focusCoordinator.horizontalSizeClass = sizeClass
+    }
+
+    func onAppear() {
+        isVisible = true
+        updateListVisibility()
+    }
+
+    func onDisappear() {
+        isVisible = false
+        updateListVisibility()
+    }
+
+    @ObservationIgnored
+    private var isVisible: Bool = false
+
+    private func updateListVisibility() {
+        let isFocusedOnList = isVisible
+            && selectedConversationViewModel == nil
+            && newConversationViewModel == nil
+        session.setIsOnConversationsList(isFocusedOnList)
     }
 
     deinit {

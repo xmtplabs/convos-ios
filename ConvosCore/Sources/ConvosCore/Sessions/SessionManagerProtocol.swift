@@ -58,6 +58,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func notifyChangesInDatabase()
     func shouldDisplayNotification(for conversationId: String) async -> Bool
 
+    /// Tells the session manager whether the conversations list is currently
+    /// on-screen. Used to suppress in-app notification banners — the list
+    /// already surfaces the new-message indicator, so a banner would be
+    /// redundant.
+    func setIsOnConversationsList(_ isOn: Bool)
+
     /// Ensures the messaging service is ready before processing a notification
     /// for the given conversation. Safe to call from the NSE.
     func wakeInboxForNotification(conversationId: String)

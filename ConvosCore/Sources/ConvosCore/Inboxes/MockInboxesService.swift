@@ -129,6 +129,8 @@ public final class MockInboxesService: SessionManagerProtocol {
         true
     }
 
+    public func setIsOnConversationsList(_ isOn: Bool) {}
+
     public func wakeInboxForNotification(conversationId: String) {}
 
     // MARK: - Helpers

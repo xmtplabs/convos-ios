@@ -212,6 +212,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.shouldDisplayNotification(for: conversationId)
     }
 
+    func setIsOnConversationsList(_ isOn: Bool) {
+        base.setIsOnConversationsList(isOn)
+    }
+
     func wakeInboxForNotification(conversationId: String) {
         base.wakeInboxForNotification(conversationId: conversationId)
     }
