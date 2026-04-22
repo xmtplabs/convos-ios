@@ -11,14 +11,20 @@ public struct MessageInvite: Sendable, Hashable, Codable {
     public let emoji: String?
     public let expiresAt: Date?
     public let conversationExpiresAt: Date?
-    /// Reflects the linked side conversation's live `expiresAt` state. Populated at
-    /// message-composition time by joining with the local `DBInvite`/`DBConversation`
-    /// tables — it is not serialized into the invite URL. Receivers only know the
-    /// side convo exploded once they process the creator's `ExplodeSettings` message
-    /// (which flips the linked `DBConversation.expiresAt` into the past), so this
-    /// flag is what the UI uses to swap the inline invite row from "Tap to join"
-    /// into an "Exploded" affordance that opens the Explode Info sheet.
+    /// View-only flag populated at message-composition time by joining with the
+    /// local `DBInvite`/`DBConversation` tables. Deliberately excluded from
+    /// `CodingKeys` so it never lands in the persisted invite jsonText column.
     public let isConversationExpired: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case inviteSlug
+        case conversationName
+        case conversationDescription
+        case imageURL
+        case emoji
+        case expiresAt
+        case conversationExpiresAt
+    }
 
     public init(
         inviteSlug: String,
@@ -49,7 +55,7 @@ public struct MessageInvite: Sendable, Hashable, Codable {
         emoji = try container.decodeIfPresent(String.self, forKey: .emoji)
         expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
         conversationExpiresAt = try container.decodeIfPresent(Date.self, forKey: .conversationExpiresAt)
-        isConversationExpired = try container.decodeIfPresent(Bool.self, forKey: .isConversationExpired) ?? false
+        isConversationExpired = false
     }
 }
 

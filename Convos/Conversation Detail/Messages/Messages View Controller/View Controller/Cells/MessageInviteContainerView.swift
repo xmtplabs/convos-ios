@@ -69,6 +69,14 @@ struct MessageInviteContainerView: View {
                 onTapInvite: { _ in
                 },
                 onTapAvatar: {})
+            MessageInviteContainerView(
+                invite: .mockExploded,
+                style: .tailed,
+                isOutgoing: true,
+                profile: .mock(),
+                onTapInvite: { _ in
+                },
+                onTapAvatar: {})
         }
         .padding(.horizontal, DesignConstants.Spacing.step2x)
     }

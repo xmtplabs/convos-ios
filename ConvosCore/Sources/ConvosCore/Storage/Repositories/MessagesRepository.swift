@@ -532,7 +532,6 @@ extension Array where Element == DBMessage {
                     sourceMessage: sourceMessage, dbMessage: dbMessage,
                     memberProfileCache: memberProfileCache,
                     attachmentLocalStates: attachmentLocalStates,
-                    expiredInviteSlugs: expiredInviteSlugs,
                     sender: sender, source: source, reactions: reactions, origin: origin
                 )
             case .reaction:
@@ -549,7 +548,6 @@ extension Array where Element == DBMessage {
         dbMessage: DBMessage,
         memberProfileCache: MemberProfileCache,
         attachmentLocalStates: [String: AttachmentLocalState],
-        expiredInviteSlugs: Set<String>,
         sender: ConversationMember,
         source: MessageSource,
         reactions: [MessageReaction],
@@ -567,10 +565,7 @@ extension Array where Element == DBMessage {
             })
         case .invite:
             if let invite = dbMessage.invite {
-                let resolvedInvite = expiredInviteSlugs.contains(invite.inviteSlug)
-                    ? invite.with(isConversationExpired: true)
-                    : invite
-                replyContent = .invite(resolvedInvite)
+                replyContent = .invite(invite)
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
@@ -607,10 +602,7 @@ extension Array where Element == DBMessage {
             })
         case .invite:
             if let invite = sourceDBMessage.invite {
-                let resolvedInvite = expiredInviteSlugs.contains(invite.inviteSlug)
-                    ? invite.with(isConversationExpired: true)
-                    : invite
-                parentContent = .invite(resolvedInvite)
+                parentContent = .invite(invite)
             } else {
                 parentContent = .text("[Invite]")
             }
@@ -915,10 +907,7 @@ fileprivate extension Database {
         }
         let attachmentLocalStates = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
 
-        let inviteSlugs = Set(
-            rawMessages.compactMap { $0.invite?.inviteSlug }
-                + sourceMessagesById.values.compactMap { $0.invite?.inviteSlug }
-        )
+        let inviteSlugs = Set(rawMessages.compactMap { $0.invite?.inviteSlug })
         let expiredInviteSlugs = try fetchExpiredInviteSlugs(from: inviteSlugs)
 
         let chronologicalMessages = rawMessages.reversed()

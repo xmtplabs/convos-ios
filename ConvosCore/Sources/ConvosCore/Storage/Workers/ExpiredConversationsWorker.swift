@@ -15,6 +15,7 @@ public protocol ExpiredConversationsWorkerProtocol {}
 final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unchecked Sendable {
     private let sessionManager: any SessionManagerProtocol
     private let databaseReader: any DatabaseReader
+    private let databaseWriter: any DatabaseWriter
     private let appLifecycle: any AppLifecycleProviding
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private let taskLock: NSLock = NSLock()
@@ -22,10 +23,12 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
 
     init(
         databaseReader: any DatabaseReader,
+        databaseWriter: any DatabaseWriter,
         sessionManager: any SessionManagerProtocol,
         appLifecycle: any AppLifecycleProviding
     ) {
         self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
         self.sessionManager = sessionManager
         self.appLifecycle = appLifecycle
         setupObservers()
@@ -207,12 +210,37 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             await executeExplodeIfCreator(conversation: conversation, context: context)
         }
 
+        await pruneExpiredSideConversationStorage(conversationId: conversation.conversationId)
+
         await MainActor.run {
             NotificationCenter.default.post(
                 name: .leftConversationNotification,
                 object: nil,
                 userInfo: ["conversationId": conversation.conversationId]
             )
+        }
+    }
+
+    /// Deletes the cached messages of an exploded side convo to free storage.
+    /// The `DBConversation` shell is intentionally left behind so the parent
+    /// convo's inline invite row can still render as "Exploded" via the
+    /// `DBInvite → DBConversation.expiresAt` join at fetch time.
+    private func pruneExpiredSideConversationStorage(conversationId: String) async {
+        do {
+            let deletedCount = try await databaseWriter.write { db -> Int in
+                let isSideConvo = try DBInvite
+                    .filter(DBInvite.Columns.conversationId == conversationId)
+                    .fetchCount(db) > 0
+                guard isSideConvo else { return 0 }
+                return try DBMessage
+                    .filter(DBMessage.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+            }
+            if deletedCount > 0 {
+                Log.info("Pruned \(deletedCount) message(s) from expired side convo \(conversationId)")
+            }
+        } catch {
+            Log.error("Failed to prune messages for expired side convo \(conversationId): \(error)")
         }
     }
 
