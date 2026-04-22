@@ -20,6 +20,38 @@ final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
         try SharedDatabaseMigrator.shared.migrate(database: dbPool)
     }
 
+    /// Mirror of `DatabaseManager.replaceDatabase` for test fixtures.
+    /// Skips `NSFileCoordinator` (single-process) and the WAL checkpoint
+    /// (in-memory queues don't use WAL), but preserves the same
+    /// rollback-snapshot + migration semantics so tests exercise the
+    /// contract rather than the transport.
+    func replaceDatabase(with backupPath: URL) throws {
+        guard FileManager.default.fileExists(atPath: backupPath.path) else {
+            throw DatabaseManagerError.backupFileMissing(backupPath)
+        }
+        let rollbackQueue = try DatabaseQueue()
+        try dbPool.backup(to: rollbackQueue)
+
+        let backupQueue = try DatabaseQueue(path: backupPath.path)
+        do {
+            try backupQueue.backup(to: dbPool)
+            try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+        // swiftlint:disable:next untyped_error_in_catch
+        } catch let copyError {
+            do {
+                try rollbackQueue.backup(to: dbPool)
+                try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+            // swiftlint:disable:next untyped_error_in_catch
+            } catch let rollbackError {
+                throw DatabaseManagerError.rollbackFailed(
+                    original: copyError,
+                    rollback: rollbackError
+                )
+            }
+            throw copyError
+        }
+    }
+
     private init(migrate: Bool = true) {
         do {
             dbPool = try DatabaseQueue(named: "MockDatabase")

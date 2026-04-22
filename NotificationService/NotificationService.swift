@@ -61,6 +61,18 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
 
         Log.info("[PID: \(processId)] [Instance: \(instanceId)] [Request: \(requestId)] Starting notification processing")
 
+        // Bail immediately if the main app is mid-restore. Opening the
+        // shared GRDB during `DatabaseManager.replaceDatabase` risks a
+        // torn read against the database currently being rewritten
+        // page-by-page. Push loss within that narrow user-initiated
+        // window is an acceptable trade for data integrity.
+        if let env = try? NotificationExtensionEnvironment.getEnvironment(),
+           RestoreInProgressFlag.isSet(environment: env) {
+            Log.info("Restore in progress — suppressing notification")
+            deliverNotification(UNMutableNotificationContent())
+            return
+        }
+
         guard let pushHandler = globalPushHandler else {
             Log.error("No global push handler available - suppressing notification")
             deliverNotification(UNMutableNotificationContent())
