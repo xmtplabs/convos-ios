@@ -202,10 +202,12 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    let dbConversation = try await conversationWriter.store(
+                    let storeResult = try await storeConversationWithFallback(
                         conversation: conversation,
                         inboxId: params.client.inboxId
                     )
+                    let dbConversation = storeResult.conversation
+                    let conversationSyncFailed = storeResult.syncFailed
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
                     let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
@@ -232,6 +234,17 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
+
+                    // Reactivation check runs only when the conversation sync
+                    // above succeeded. A failed sync means the installation
+                    // can't participate yet — the message landed on the
+                    // stream but the MLS state is still stale.
+                    if !conversationSyncFailed {
+                        await markReconnectionIfNeeded(
+                            messageId: message.id,
+                            conversationId: conversation.id
+                        )
+                    }
 
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
@@ -266,6 +279,106 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
+
+    // MARK: - Conversation store (with sync-failure fallback)
+
+    private struct ConversationStoreResult {
+        let conversation: DBConversation
+        let syncFailed: Bool
+    }
+
+    /// Stores the conversation via `ConversationWriter.store`, and on failure
+    /// falls back to the existing `DBConversation` row so the caller can still
+    /// persist the message. `syncFailed == true` signals that the MLS group
+    /// is still inactive (e.g. post-restore, installation not yet re-admitted),
+    /// so reactivation must be skipped for this event.
+    private func storeConversationWithFallback(
+        conversation: XMTPiOS.Group,
+        inboxId: String
+    ) async throws -> ConversationStoreResult {
+        do {
+            let dbConversation = try await conversationWriter.store(
+                conversation: conversation,
+                inboxId: inboxId
+            )
+            return ConversationStoreResult(conversation: dbConversation, syncFailed: false)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            Log.warning("conversationWriter.store failed, falling back to existing DBConversation: \(error)")
+            let conversationId = conversation.id
+            guard let existing = try await databaseReader.read({ db in
+                try DBConversation.fetchOne(db, id: conversationId)
+            }) else {
+                throw error
+            }
+            return ConversationStoreResult(conversation: existing, syncFailed: true)
+        }
+    }
+
+    // MARK: - Reactivation
+
+    /// Called from `processMessage` once the MLS sync for the group has
+    /// succeeded. If the conversation is currently marked inactive (post-
+    /// restore), flip `isActive` back to true, tag the arriving message's
+    /// update (if any) as a reconnection, and back-fill up to five recent
+    /// update rows so the UI can style the reconnection point. If the
+    /// conversation is already active, this is a no-op.
+    private func markReconnectionIfNeeded(messageId: String, conversationId: String) async {
+        do {
+            let isInactive = try await databaseReader.read { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .filter(ConversationLocalState.Columns.isActive == false)
+                    .fetchOne(db) != nil
+            }
+            guard isInactive else { return }
+
+            try await databaseWriter.write { db in
+                if var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                   var update = dbMessage.update {
+                    update.isReconnection = true
+                    dbMessage = dbMessage.with(update: update)
+                    try dbMessage.save(db)
+                }
+            }
+
+            try await markRecentUpdatesAsReconnection(conversationId: conversationId)
+            try await localStateWriter.setActive(true, for: conversationId)
+            Log.info("Reactivated conversation \(conversationId) after receiving message")
+        } catch {
+            Log.warning("markReconnectionIfNeeded failed for \(conversationId): \(error)")
+        }
+    }
+
+    /// Back-fill `isReconnection = true` on the five most recent
+    /// `contentType == .update` rows so the UI renders the reconnection
+    /// boundary as a visible event rather than a cliff.
+    private func markRecentUpdatesAsReconnection(conversationId: String) async throws {
+        try await databaseWriter.write { db in
+            let sql = """
+                SELECT id FROM message
+                WHERE conversationId = ?
+                  AND contentType = ?
+                ORDER BY date DESC
+                LIMIT 5
+                """
+            let messageIds = try String.fetchAll(
+                db,
+                sql: sql,
+                arguments: [conversationId, MessageContentType.update.rawValue]
+            )
+            for messageId in messageIds {
+                guard var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                      var update = dbMessage.update else { continue }
+                if !update.isReconnection {
+                    update.isReconnection = true
+                    dbMessage = dbMessage.with(update: update)
+                    try dbMessage.save(db)
+                }
+            }
+        }
     }
 
     // MARK: - Read Receipts

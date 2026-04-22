@@ -18,9 +18,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAssistantsInfo: Bool = false
+    @State private var showingReconnectionAlert: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
 
     private var showPullToAddAssistant: Bool {
         !viewModel.conversation.hasAgent
@@ -68,18 +70,38 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
             },
             onSendMessage: {
-                viewModel.onSendMessage(focusCoordinator: focusCoordinator)
+                if viewModel.isInactive {
+                    showingReconnectionAlert = true
+                } else {
+                    viewModel.onSendMessage(focusCoordinator: focusCoordinator)
+                }
             },
             onClearInvite: viewModel.clearPendingInvite,
             onClearLinkPreview: { viewModel.pastedLinkPreview = nil },
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
-            onReaction: viewModel.onReaction(emoji:messageId:),
-            onToggleReaction: viewModel.onReaction(emoji:messageId:),
+            onReaction: { emoji, messageId in
+                if viewModel.isInactive {
+                    showingReconnectionAlert = true
+                } else {
+                    viewModel.onReaction(emoji: emoji, messageId: messageId)
+                }
+            },
+            onToggleReaction: { emoji, messageId in
+                if viewModel.isInactive {
+                    showingReconnectionAlert = true
+                } else {
+                    viewModel.onReaction(emoji: emoji, messageId: messageId)
+                }
+            },
             onTapReactions: viewModel.onTapReactions(_:),
             onReply: { message in
-                viewModel.onReply(message)
-                focusCoordinator.moveFocus(to: .message)
+                if viewModel.isInactive {
+                    showingReconnectionAlert = true
+                } else {
+                    viewModel.onReply(message)
+                    focusCoordinator.moveFocus(to: .message)
+                }
             },
             replyingToMessage: viewModel.replyingToMessage,
             replyingToAudioTranscriptText: viewModel.replyingToAudioTranscriptText,
@@ -148,6 +170,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     bottomBarContent()
 
+                    if viewModel.isInactive {
+                        InactiveConversationBanner {
+                            if let url = URL(string: "https://learn.convos.org/") {
+                                openURL(url)
+                            }
+                        }
+                    }
+
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
@@ -203,6 +233,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             .onDisappear {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
             }
+        }
+        .alert(
+            "Awaiting reconnection",
+            isPresented: $showingReconnectionAlert
+        ) {
+            Button("Got it", role: .cancel) {}
+        } message: {
+            Text("You can see and send new messages, reactions and more after another member sends a message.")
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

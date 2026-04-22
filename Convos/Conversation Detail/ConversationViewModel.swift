@@ -299,6 +299,14 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         conversation.isFull
     }
 
+    /// True when the conversation's MLS group hasn't yet re-admitted the
+    /// current installation after an iCloud restore. Drives the "History
+    /// restored" banner, the muted composer, and the "Awaiting
+    /// reconnection" alert that intercepts send/reply/reaction taps.
+    var isInactive: Bool {
+        !conversation.isActive
+    }
+
     var currentUserMember: ConversationMember? {
         conversation.members.first(where: { $0.isCurrentUser })
     }
