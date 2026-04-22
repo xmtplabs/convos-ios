@@ -510,7 +510,7 @@ private struct ComposerSideConvoCard: View {
     @ViewBuilder
     private var nameField: some View {
         TextField("Convo name", text: $convoName)
-            .focused($focusState, equals: .editingSideConvoName)
+            .focused($focusState, equals: .sideConvoName)
             .font(.callout)
             .foregroundStyle(.colorTextPrimary)
             .padding(.horizontal, DesignConstants.Spacing.step3x)

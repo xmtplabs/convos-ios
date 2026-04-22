@@ -54,7 +54,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSetInviteExplodeDuration: { duration in viewModel.setInviteExplodeDuration(duration) },
             onInviteConvoNameEditingEnded: { name in
                 viewModel.updateLinkedConversationName(name)
-                focusCoordinator.endEditing(for: .editingSideConvoName, context: .quickEditor)
+                focusCoordinator.endEditing(for: .sideConvoName, context: .quickEditor)
             },
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,

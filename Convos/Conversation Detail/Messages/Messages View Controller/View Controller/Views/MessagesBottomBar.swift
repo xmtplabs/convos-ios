@@ -4,7 +4,7 @@ import PhotosUI
 import SwiftUI
 
 enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName, voiceMemoRecording, editingSideConvoName
+    case message, displayName, conversationName, voiceMemoRecording, sideConvoName
 }
 
 struct MessagesBottomBar<BottomBarContent: View>: View {
@@ -93,7 +93,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 isExpanded = newValue == .displayName
                 isMessageInputFocused = newValue == .message
                     || newValue == .voiceMemoRecording
-                    || newValue == .editingSideConvoName
+                    || newValue == .sideConvoName
             }
         }
         .onChange(of: messageText) { _, _ in
