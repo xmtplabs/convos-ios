@@ -192,7 +192,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 onPhotoHidden: onPhotoHidden
             )
         }
-        .onAppear {
+        .onChange(of: conversation.id, initial: true) { _, _ in
             contextMenuState.onReaction = onReaction
             contextMenuState.onToggleReaction = onToggleReaction
         }
