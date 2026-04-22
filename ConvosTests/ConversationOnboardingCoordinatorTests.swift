@@ -238,6 +238,37 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(testConversationId)"))
     }
 
+    // MARK: - Completed Onboarding Tests
+
+    func testStart_HasCompletedOnboarding_SkipsQuicknameForNewConversation() async {
+        mockNotificationCenter.authStatus = .authorized
+        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+
+        let newConversationId = "side-convo-opened-for-first-time"
+        await coordinator.start(for: newConversationId)
+
+        XCTAssertEqual(coordinator.state, .idle)
+        // The guard returns before `setHasSetQuickname(true, for:)` would
+        // normally run, so a regression that drops the guard flips this flag.
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+        )
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+    }
+
+    func testStart_HasCompletedOnboarding_NotificationsDenied_StillNudges() async {
+        mockNotificationCenter.authStatus = .denied
+        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+
+        let newConversationId = "side-convo-opened-for-first-time"
+        await coordinator.start(for: newConversationId)
+
+        XCTAssertEqual(coordinator.state, .notificationsDenied)
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+    }
+
     // MARK: - App Lifecycle Tests
 
     func testAppBecomesActive_CompletedState_NotificationsDenied_ShowsDeniedState() async {
