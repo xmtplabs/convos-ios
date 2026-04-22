@@ -119,8 +119,15 @@ public struct BackupBundleMetadata: Codable, Sendable, Equatable {
     }
 
     /// Read the sidecar-shaped metadata. Works on either the sidecar
-    /// file next to the bundle or the inside-tar file (decoder ignores
-    /// the extra `archiveKey` key).
+    /// file next to the bundle or the inside-tar file.
+    ///
+    /// Load-bearing detail: the `Sidecar` decoder relies on
+    /// `JSONDecoder`'s default "ignore unknown keys" behavior to
+    /// accept full-form input (where `archiveKey` is also present).
+    /// Do not switch this decoder to a strict mode without adding an
+    /// explicit "project to sidecar" step — callers that hand a
+    /// full-form file to this function expect success, not a decode
+    /// error on the extra key.
     public static func readSidecar(from directory: URL) throws -> Sidecar {
         let data = try Data(contentsOf: directory.appendingPathComponent(Constant.filename))
         return try jsonDecoder().decode(Sidecar.self, from: data)

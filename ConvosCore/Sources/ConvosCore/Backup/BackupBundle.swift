@@ -53,7 +53,10 @@ public enum BackupBundle {
     static let currentFormatVersion: UInt8 = 1
 
     public enum Component {
-        public static let database: String = "convos-single-inbox.sqlite"
+        /// Must match `DatabaseManager.databaseFilename` — the live DB
+        /// file is handed to the bundle unchanged, then read back
+        /// under the same name by `RestoreManager.replaceDatabase`.
+        public static let database: String = DatabaseManager.databaseFilename
         public static let xmtpArchive: String = "xmtp-archive.bin"
         public static let metadata: String = "metadata.json"
     }
@@ -154,6 +157,15 @@ public enum BackupBundle {
                 .subdata(in: offset ..< offset + 4)
                 .withUnsafeBytes { $0.load(as: UInt32.self).bigEndian })
             offset += 4
+
+            // A zero-length path would decode to the empty string and
+            // resolve via `appendingPathComponent("")` to the staging
+            // directory URL itself — the containment check would reject
+            // it for not having the trailing-slash prefix, but costs
+            // nothing to bail early with a clearer error.
+            guard pathLength > 0 else {
+                throw BundleError.unpackingFailed("empty entry path")
+            }
 
             guard offset + pathLength <= data.count else {
                 throw BundleError.unpackingFailed("truncated path data")

@@ -45,6 +45,12 @@ public enum DatabaseManagerError: Error, LocalizedError {
 /// Configures connection pooling, busy timeouts, and persistent WAL mode for
 /// read-only processes.
 public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
+    /// Canonical filename for the single-inbox GRDB database. Shared
+    /// between the pool setup here and the bundle format (see
+    /// `BackupBundle.Component.database`) so the two sites can't
+    /// drift apart.
+    public static let databaseFilename: String = "convos-single-inbox.sqlite"
+
     let environment: AppEnvironment
 
     public let dbPool: DatabasePool
@@ -156,7 +162,7 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
         let fileManager = FileManager.default
         // Shared App Group container so the main app and NSE share the same DB.
         let groupDirURL = environment.defaultDatabasesDirectoryURL
-        let dbURL = groupDirURL.appendingPathComponent("convos-single-inbox.sqlite")
+        let dbURL = groupDirURL.appendingPathComponent(databaseFilename)
 
         // Ensure the App Group directory exists
         try fileManager.createDirectory(at: groupDirURL, withIntermediateDirectories: true)

@@ -18,27 +18,61 @@ import Foundation
 ///   is an acceptable trade for not risking a torn read.
 /// - `BackupScheduler` skips + reschedules while the flag is set.
 public enum RestoreInProgressFlag {
-    private static let suiteName: String = "convos.restore-in-progress"
     private static let key: String = "convos.restore-in-progress.flag"
+
+    public enum FlagError: Error, LocalizedError {
+        case appGroupUnavailable(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .appGroupUnavailable(groupId):
+                return "App-group UserDefaults (\(groupId)) unavailable; cannot signal restore-in-progress to the NSE"
+            }
+        }
+    }
 
     /// The in-process-only flag — guarded separately by
     /// `SessionManager` inside its `cachedMessagingService` lock.
     /// See `docs/plans/icloud-backup-single-inbox.md`
     /// §"Throwaway XMTP client for archive import" for why the
     /// app-group flag alone doesn't close the in-process race.
+    ///
+    /// Read path is lenient: "container unavailable" degrades to
+    /// `false`, which matches the pre-flag NSE behavior of
+    /// attempting delivery. This is safe because the coordinator +
+    /// in-process gate close the same race even if this flag
+    /// silently fails to read.
     public static func isSet(environment: AppEnvironment) -> Bool {
         defaults(environment: environment)?.bool(forKey: key) ?? false
     }
 
-    public static func set(_ value: Bool, environment: AppEnvironment) {
+    /// Strict: throws if the app-group container is unavailable.
+    /// `SessionManager.pauseForRestore` must abort the restore on
+    /// throw rather than proceeding into destructive ops with an
+    /// un-signaled NSE.
+    public static func set(_ value: Bool, environment: AppEnvironment) throws {
         guard let defaults = defaults(environment: environment) else {
-            Log.warning("RestoreInProgressFlag: app-group defaults unavailable; flag not written")
-            return
+            throw FlagError.appGroupUnavailable(environment.appGroupIdentifier)
         }
         defaults.set(value, forKey: key)
     }
 
     private static func defaults(environment: AppEnvironment) -> UserDefaults? {
         UserDefaults(suiteName: environment.appGroupIdentifier)
+    }
+}
+
+/// Error surfaced by `SessionManager.loadOrCreateService()` while a
+/// restore is actively in-process. Observers see
+/// `SessionStateMachine.State.error(RestoreInProgressError)` and can
+/// render a "Restoring…" banner instead of attempting recovery.
+///
+/// Not a `TerminalSessionError` — the state clears by design when
+/// `SessionManager.resumeAfterRestore()` nilpotently cleans up.
+public struct RestoreInProgressError: Error, LocalizedError {
+    public init() {}
+
+    public var errorDescription: String? {
+        "Restore in progress"
     }
 }
