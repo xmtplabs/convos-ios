@@ -47,6 +47,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
     private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
 
+    /// In-process counterpart to `RestoreInProgressFlag` (which covers
+    /// the NSE via app-group UserDefaults). Set inside the same lock
+    /// block as `cachedMessagingService` so a concurrent push
+    /// delivery in the main-app process can't race a second XMTP
+    /// client against `RestoreManager`'s throwaway client while a
+    /// restore is rewriting the shared SQLCipher DB. `loadOrCreateService`
+    /// short-circuits to a `RestoreInProgressError` placeholder while
+    /// set. See `docs/plans/icloud-backup-single-inbox.md` §"Throwaway
+    /// XMTP client for archive import".
+    private var isRestoringInProcess: Bool = false
+
     /// Wall-clock of the last `identityStore.loadSync()` failure, lock-
     /// protected via the same lock as `cachedMessagingService` (both live
     /// inside the same `withLock` block). Used together with
@@ -198,6 +209,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     ///   fix collapses the pre-refactor thrash where every call rebuilt).
     private func loadOrCreateService() -> MessagingService {
         cachedMessagingService.withLock { cached in
+            // Restore short-circuit. Building a real service now would
+            // open a second SQLCipher pool against the same xmtp-*.db3
+            // that `RestoreManager`'s throwaway client holds open.
+            // Return (or build-and-cache) a frozen placeholder whose
+            // state is `.error(RestoreInProgressError)`. Observers
+            // render that as "Restoring…"; next access after
+            // `resumeAfterRestore` clears both the flag and the slot,
+            // and the real service builds on the following call.
+            if isRestoringInProcess {
+                if let existing = cached,
+                   case let .error(error) = existing.sessionStateManager.currentState,
+                   error is RestoreInProgressError {
+                    return existing
+                }
+                let placeholder = MessagingService(
+                    identityReadFailure: RestoreInProgressError(),
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    identityStore: identityStore,
+                    environment: environment,
+                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                )
+                cached = placeholder
+                return placeholder
+            }
+
             let previousWasErrored: Bool
             if let existing = cached {
                 if case .error = existing.sessionStateManager.currentState {
@@ -382,6 +419,79 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await wipeResidualInboxRows()
 
         cachedMessagingService.withLock { $0 = nil }
+    }
+
+    // MARK: - Restore Lifecycle (package-internal, for RestoreManager)
+
+    /// Signal that a restore is about to rewrite the shared GRDB and
+    /// the XMTP local DB. Callable only from `RestoreManager`.
+    ///
+    /// Four things happen atomically from the perspective of anyone
+    /// reading the cached service:
+    /// 1. `RestoreInProgressFlag` (app-group UserDefaults) is set so
+    ///    the NSE bails on incoming pushes.
+    /// 2. `isRestoringInProcess` flips to `true` inside the cache
+    ///    lock, so the main-app process short-circuits
+    ///    `loadOrCreateService()` to a frozen `RestoreInProgressError`
+    ///    placeholder for the duration.
+    /// 3. The cached `MessagingService` (if any) is stopped — NOT
+    ///    deleted; identity + DBInbox rows are preserved.
+    /// 4. The in-flight `UnusedConversationCache` prewarm is
+    ///    cancelled and awaited.
+    ///
+    /// Throws if the app-group flag can't be written. `RestoreManager`
+    /// must abort the restore before any destructive op on throw — a
+    /// silent "flag not set" would let the NSE proceed into a torn
+    /// read of the DB being rewritten page-by-page.
+    func pauseForRestore() async throws {
+        try RestoreInProgressFlag.set(true, environment: environment)
+
+        let existing = cachedMessagingService.withLock { slot -> MessagingService? in
+            isRestoringInProcess = true
+            return slot
+        }
+
+        await unusedConversationCache.cancel()
+
+        if let existing {
+            Log.info("pauseForRestore: stopping cached messaging service")
+            await existing.stop()
+        }
+
+        // Clear the slot only after `stop()` so a concurrent
+        // `loadOrCreateService()` sees the being-stopped service
+        // (while also observing `isRestoringInProcess` and falling
+        // through to the placeholder path). The slot will be
+        // repopulated with a `RestoreInProgressError` placeholder on
+        // the next call.
+        cachedMessagingService.withLock { $0 = nil }
+
+        Log.info("pauseForRestore: session paused")
+    }
+
+    /// Counterpart to `pauseForRestore`. Clears the flags and lets
+    /// the next `loadOrCreateService()` build the real service
+    /// against the restored DB. Never throws — `pauseForRestore`
+    /// already committed, and the flag-clear path must complete
+    /// even on partial failure.
+    func resumeAfterRestore() async {
+        cachedMessagingService.withLock { slot in
+            isRestoringInProcess = false
+            slot = nil
+        }
+
+        do {
+            try RestoreInProgressFlag.set(false, environment: environment)
+        } catch {
+            Log.error("resumeAfterRestore: failed to clear app-group flag (\(error)); NSE will see stale 'restoring' until app-group becomes available")
+        }
+
+        // Trigger a rebuild. `loadOrCreateService()` is no longer
+        // short-circuited by `isRestoringInProcess`, so this restarts
+        // the state machine against the restored identity + DB.
+        _ = loadOrCreateService()
+
+        Log.info("resumeAfterRestore: session resumed")
     }
 
     private func wipeResidualInboxRows() async throws {
