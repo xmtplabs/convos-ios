@@ -21,12 +21,6 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
         self.createdAt = createdAt
     }
 
-    static let conversations: HasManyAssociation<DBInbox, DBConversation> = hasMany(
-        DBConversation.self,
-        key: "conversations",
-        using: ForeignKey([Columns.inboxId], to: [DBConversation.Columns.inboxId])
-    )
-
     static let member: HasOneAssociation<DBInbox, DBMember> = hasOne(
         DBMember.self,
         key: "inboxMember",

@@ -1,6 +1,25 @@
 # ADR 001: Decentralized Invite System with Cryptographic Tokens
 
-> **Status**: Accepted
+> **Status**: Accepted, with substantial redesign tracked in
+> [`docs/plans/invite-system-single-inbox.md`](../plans/invite-system-single-inbox.md).
+>
+> The single-inbox identity refactor (`docs/plans/single-inbox-identity-refactor.md`)
+> retired the per-conversation inbox model that this ADR's threat analysis
+> assumed. C10 of that refactor (commit on `single-inbox-refactor` branch)
+> made the **minimum viable changes** required for the invite flow to work
+> against a single shared inbox: the join flow now reuses the singleton
+> inbox instead of provisioning a fresh per-conversation inbox, and the
+> pending-invite storage drops the multi-inbox `clientId`-scoped query
+> methods (they only existed for `InboxLifecycleManager`'s capacity tier,
+> deleted in C4a). **The invite token format itself is unchanged at C10.**
+> Cryptographic redesign of the token payload, the join-request DM, and
+> the privacy posture of the invite system is tracked in the linked
+> follow-up plan and is not part of the single-inbox refactor PR.
+>
+> The sections below describe the original mechanism. They remain accurate
+> for the wire format, the cryptographic verification, and the per-conversation
+> identity context they were designed against. Edits required by single-inbox
+> are tracked in the C10 amendment at the bottom of this file.
 
 ## Context
 
@@ -52,7 +71,15 @@ The creator's XMTP inbox ID is embedded in every invite as raw bytes (hex-decode
 Cryptographically binds the encrypted conversation token to the creator's identity, preventing token transplant attacks where an attacker might try to use a valid token with a different creator.
 
 **Privacy Note:**
-Exposing the creator's inbox ID in the invite is acceptable in Convos' architecture because every conversation uses a single-purpose identity. Each identity is only ever tied to one conversation, so revealing the inbox ID doesn't expose any information beyond what the invite already contains (the conversation itself).
+Under the pre-refactor per-conversation identity model (ADR 002, now
+superseded) exposing the creator's inbox ID in the invite was acceptable
+because every conversation used a single-purpose identity. Under ADR 011
+(single-inbox) the inbox ID is 1:1 with the user across all conversations,
+so an invite slug reveals the inviter's global inbox ID to anyone who
+decodes it. That privacy regression is a known consequence of the
+single-inbox refactor and is tracked for follow-up in
+[`docs/plans/invite-system-single-inbox.md`](../plans/invite-system-single-inbox.md);
+the invite wire format is unchanged at C10.
 
 **Location:** `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/invite.proto:8-9`
 
@@ -182,7 +209,14 @@ Key design decisions:
 - **Revocation Lag:** Updating invite tag only affects future joins, can't force-expire already-shared invites
 
 **Note on Creator Inbox ID Exposure:**
-While the creator's inbox ID is visible in invites, this is not a privacy concern in Convos' architecture. Every conversation uses a single-purpose identity, and each identity is only ever tied to one conversation. Therefore, revealing the inbox ID doesn't expose any information beyond what the invite already conveys (the conversation itself).
+The creator's inbox ID is embedded in every invite. Under ADR 002 this was
+not a privacy concern because each identity was scoped to a single
+conversation. Under ADR 011 (single-inbox) the inbox ID identifies the
+user across every conversation they create, so an invite recipient who
+decodes the slug learns the inviter's global identifier. Addressing this
+privacy regression is tracked in the
+[invite-system-single-inbox plan](../plans/invite-system-single-inbox.md);
+the C10 wire format is unchanged.
 
 ### Security Model
 
@@ -222,10 +256,17 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 
 ## Related ADRs
 
-- ADR 002: Per-Conversation Identity Model (explains the per-conversation inbox architecture used for invite creators)
-- ADR 003: Inbox Lifecycle Management (explains how pre-created inboxes optimize the join flow)
-- ADR 004: Conversation Explode Feature (join error feedback follows the same custom content type codec pattern)
-- ADR 005: Member Profile System (profiles moved to XMTP messages; appData no longer shared with profiles)
+- ADR 002: Per-Conversation Identity Model (superseded — described the
+  per-conversation inbox architecture the original invite threat model
+  assumed)
+- ADR 003: Inbox Lifecycle Management (superseded — described the
+  pre-created inbox pool the pre-refactor join flow consumed from)
+- ADR 004: Conversation Explode Feature (join error feedback follows the
+  same custom content type codec pattern)
+- ADR 005: Member Profile System (profiles moved to XMTP messages;
+  appData no longer shared with profiles)
+- ADR 011: Single-Inbox Identity Model (governs how joins bind to the
+  user's singleton inbox — see the C10 amendment below)
 
 ## References
 
@@ -234,3 +275,71 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 - HKDF: RFC 5869
 - secp256k1 ECDSA: https://www.secg.org/sec2-v2.pdf
 - Protocol Buffers: https://protobuf.dev
+
+---
+
+## Single-Inbox Amendment (C10, 2026-04-16)
+
+The single-inbox refactor leaves the invite **wire protocol unchanged**:
+the URL slug format, the signed `InvitePayload` proto, the invite-tag
+`appData`-side stash, the join-request DM containing the slug, and the
+inviter-side verification flow all behave exactly as documented above.
+Anyone reading the ADR for the cryptographic mechanics — slug
+construction, signing key derivation, tag verification — can treat the
+existing sections as authoritative.
+
+### What changed in C10
+
+- **Accept-invite no longer creates a per-conversation inbox.**
+  Pre-refactor, joining an invite consumed the next pre-created XMTP
+  inbox from `UnusedInboxCache` and bound it to the new conversation.
+  Post-C4a (commit `ad42e4b6`) there is only one inbox. The join flow
+  in `ConversationStateMachine.handleJoin` now reuses the singleton
+  `MessagingService` for the join DM and the eventual conversation
+  membership. No `addInbox()` / `addInboxOnly()` call happens during a
+  join. The `reauthorize(inboxId:clientId:)` parameters are retained
+  on the protocol for backwards compatibility through C11 but resolve
+  against the singleton regardless of the values passed in.
+
+- **Pending-invite storage drops `clientId` scoping.**
+  `PendingInviteRepositoryProtocol` collapses to two no-arg methods —
+  `allPendingInvites()` and `allPendingInviteDetails()`. The retired
+  methods (`pendingInvites(for:)`, `hasPendingInvites(clientId:)`,
+  `clientIdsWithPendingInvites`, `stalePendingInviteClientIds`) only
+  existed to feed the multi-inbox capacity tier in
+  `InboxLifecycleManager` (deleted in C4a). With one inbox per user the
+  question "which inboxes have pending invites" trivially collapses to
+  "the user has some, or doesn't" — the no-arg methods cover that.
+  `PendingInviteRepositoryTests` was rewritten against the new surface.
+
+- **`PendingInviteInfo` removed, `PendingInviteDetail` dropped its
+  `clientId` / `inboxId` fields.** The separate `-Info` type existed
+  to serve the multi-inbox summary query that's now deleted; the
+  detail struct now carries just the fields the debug view actually
+  reads (`conversationId`, `inviteTag`, `conversationName`,
+  `createdAt`, `memberCount`). The repository SQL no longer selects
+  `c.clientId` — every row carried the same singleton value so the
+  column was informational-only, and the C11 column drop retired it.
+  Net: cleaner than originally planned. The `c.clientId` drop landed
+  in C11 as scheduled; this amendment was written before C11's rewire
+  pass replaced the types in place.
+
+### What's deferred to the linked follow-up plan
+
+The cryptographic and privacy redesign — including any change to the
+invite token payload, the join-request DM transport, the inviter-side
+acceptance UX, or the threat model around the join handshake — is **not**
+part of C10. That work is captured in
+[`docs/plans/invite-system-single-inbox.md`](../plans/invite-system-single-inbox.md)
+and will land as its own follow-up effort outside the single-inbox
+refactor PR. C10 is intentionally scoped to "minimum viable changes for
+the invite flow to compile and behave correctly against the singleton
+inbox" — the rest is on its own track.
+
+### Code locations touched by C10
+
+- `ConvosCore/Sources/ConvosCore/Storage/Repositories/PendingInviteRepository.swift`
+  — protocol surface trimmed; `MockPendingInviteRepository` simplified.
+- `ConvosCore/Tests/ConvosCoreTests/PendingInviteRepositoryTests.swift`
+  — rewritten against the trimmed surface (5 tests; previously 5 tests
+  exercising the retired methods).

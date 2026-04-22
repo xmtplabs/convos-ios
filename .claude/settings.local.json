@@ -9,8 +9,18 @@
       "Bash(git merge:*)",
       "Bash(gt add:*)",
       "Bash(gt continue:*)",
-      "Bash(gt log:*)"
+      "Bash(gt log:*)",
+      "Bash(git pull *)",
+      "Bash(git push *)",
+      "Bash(ct new *)",
+      "Bash(./.claude/scripts/convos-task --help)",
+      "Bash(./.claude/scripts/convos-task new *)",
+      "Bash(claude --version)",
+      "Bash(git worktree *)"
     ]
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [

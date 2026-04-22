@@ -13,7 +13,6 @@ final class SharedDatabaseMigrator: Sendable {
 }
 
 extension SharedDatabaseMigrator {
-    // swiftlint:disable:next function_body_length
     private func createMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
@@ -21,471 +20,317 @@ extension SharedDatabaseMigrator {
         migrator.eraseDatabaseOnSchemaChange = true
 #endif
 
-        migrator.registerMigration("createSchema") { db in
-            try db.create(table: "inbox") { t in
-                t.column("inboxId", .text)
-                    .notNull()
-                    .primaryKey()
-                t.column("clientId", .text)
-                    .notNull()
-                    .unique()
-                t.column("createdAt", .datetime)
-                    .notNull()
-            }
-
-            try db.create(table: "member") { t in
-                t.column("inboxId", .text)
-                    .unique()
-                    .notNull()
-                    .primaryKey()
-            }
-
-            try db.create(table: "conversation") { t in
-                t.column("id", .text)
-                    .notNull()
-                    .primaryKey()
-                t.column("inboxId", .text)
-                    .notNull()
-                t.column("clientId", .text)
-                    .notNull()
-                t.column("clientConversationId", .text)
-                    .notNull()
-                    .unique(onConflict: .replace)
-                t.column("inviteTag", .text)
-                    .notNull()
-                    .unique()
-                t.column("creatorId", .text)
-                    .notNull()
-                t.column("kind", .text).notNull()
-                t.column("consent", .text).notNull()
-                t.column("createdAt", .datetime).notNull()
-                t.column("name", .text)
-                t.column("description", .text)
-                t.column("imageURLString", .text)
-                t.column("expiresAt", .datetime)
-                t.column("debugInfo", .jsonText)
-                t.uniqueKey(["id", "inboxId", "clientId"])
-            }
-
-            try db.create(table: "memberProfile") { t in
-                t.column("conversationId", .text)
-                    .notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("inboxId", .text)
-                    .notNull()
-                    .references("member", onDelete: .cascade)
-                t.column("name", .text)
-                t.column("avatar", .text)
-                t.primaryKey(["conversationId", "inboxId"])
-            }
-
-            try db.create(table: "invite") { t in
-                t.column("urlSlug", .text)
-                    .notNull()
-                    .primaryKey()
-                t.column("creatorInboxId", .text)
-                    .notNull()
-                t.column("conversationId", .text)
-                    .notNull()
-                t.column("expiresAt", .datetime)
-                t.column("expiresAfterUse", .boolean)
-                    .defaults(to: false)
-
-                // Foreign key to the conversation member who created this invite
-                t.foreignKey(
-                    ["creatorInboxId", "conversationId"],
-                    references: "conversation_members",
-                    columns: ["inboxId", "conversationId"],
-                    onDelete: .cascade
-                )
-
-                // Unique constraint to prevent duplicate invites per member per conversation
-                t.uniqueKey(["creatorInboxId", "conversationId"], onConflict: .replace)
-            }
-
-            try db.create(table: "conversation_members") { t in
-                t.column("conversationId", .text)
-                    .notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("inboxId", .text)
-                    .notNull()
-                    .references("member", onDelete: .cascade)
-                t.column("role", .text).notNull()
-                t.column("consent", .text).notNull()
-                t.column("createdAt", .datetime).notNull()
-                t.primaryKey(["conversationId", "inboxId"])
-            }
-
-            try db.create(table: "conversationLocalState") { t in
-                t.column("conversationId", .text)
-                    .notNull()
-                    .unique()
-                    .primaryKey()
-                    .references("conversation", onDelete: .cascade)
-                t.column("isPinned", .boolean).notNull().defaults(to: false)
-                t.column("isUnread", .boolean).notNull().defaults(to: false)
-                t.column("isUnreadUpdatedAt", .datetime)
-                    .notNull()
-                    .defaults(to: Date.distantPast)
-                t.column("isMuted", .boolean).notNull().defaults(to: false)
-            }
-
-            try db.create(table: "message") { t in
-                t.column("id", .text)
-                    .notNull()
-                    .primaryKey()
-                    .unique(onConflict: .replace)
-                t.column("clientMessageId", .text)
-                    .notNull()
-                    .unique(onConflict: .replace)
-                t.column("conversationId", .text)
-                    .notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("senderId", .text)
-                    .notNull()
-                    .references("member", onDelete: .none)
-                t.column("date", .datetime).notNull()
-                t.column("dateNs", .integer).notNull()
-                t.column("status", .text).notNull()
-                t.column("messageType", .text).notNull()
-                t.column("contentType", .text).notNull()
-                t.column("text", .text)
-                t.column("emoji", .text)
-                t.column("sourceMessageId", .text)
-                t.column("attachmentUrls", .text)
-                t.column("update", .jsonText)
-            }
-        }
-
-        migrator.registerMigration("addInviteToMessage") { db in
-            try db.alter(table: "message") { t in
-                t.add(column: "invite", .jsonText)
-            }
-        }
-
-        migrator.registerMigration("addPinnedOrderToConversationLocalState") { db in
-            try db.alter(table: "conversationLocalState") { t in
-                t.add(column: "pinnedOrder", .integer)
-            }
-        }
-
-        migrator.registerMigration("addPublicImagePreview") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "publicImageURLString", .text)
-                t.add(column: "includeImageInPublicPreview", .boolean).defaults(to: false)
-            }
-        }
-
-        migrator.registerMigration("renameIncludeImageToIncludeInfo") { db in
-            try db.alter(table: "conversation") { t in
-                t.rename(column: "includeImageInPublicPreview", to: "includeInfoInPublicPreview")
-            }
-        }
-
-        migrator.registerMigration("addEncryptedAvatarColumns") { db in
-            try db.alter(table: "memberProfile") { t in
-                t.add(column: "avatarSalt", .blob)
-                t.add(column: "avatarNonce", .blob)
-            }
-        }
-
-        migrator.registerMigration("addIsLockedToConversation") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "isLocked", .boolean).notNull().defaults(to: false)
-            }
-        }
-
-        migrator.registerMigration("addAvatarKeyToMemberProfile") { db in
-            try db.alter(table: "memberProfile") { t in
-                t.add(column: "avatarKey", .blob)
-            }
-        }
-
-        migrator.registerMigration("addGroupImageEncryptionToConversation") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "imageSalt", .blob)
-                t.add(column: "imageNonce", .blob)
-                t.add(column: "imageEncryptionKey", .blob)
-            }
-        }
-
-        migrator.registerMigration("deduplicateReactions") { db in
-            try db.execute(sql: """
-                DELETE FROM message
-                WHERE messageType = 'reaction'
-                AND sourceMessageId IS NOT NULL
-                AND rowid NOT IN (
-                    SELECT MIN(rowid)
-                    FROM message
-                    WHERE messageType = 'reaction'
-                    AND sourceMessageId IS NOT NULL
-                    GROUP BY sourceMessageId, senderId, emoji
-                )
-                """)
-        }
-
-        migrator.registerMigration("createPhotoPreferences") { db in
-            try db.create(table: "photoPreferences") { t in
-                t.column("conversationId", .text)
-                    .notNull()
-                    .primaryKey()
-                    .references("conversation", onDelete: .cascade)
-                t.column("autoReveal", .boolean)
-                    .notNull()
-                    .defaults(to: false)
-                t.column("hasRevealedFirst", .boolean)
-                    .notNull()
-                    .defaults(to: false)
-                t.column("updatedAt", .datetime)
-                    .notNull()
-            }
-        }
-
-        migrator.registerMigration("createAttachmentLocalState") { db in
-            try db.create(table: "attachmentLocalState") { t in
-                t.column("attachmentKey", .text)
-                    .notNull()
-                    .primaryKey()
-                t.column("conversationId", .text)
-                    .notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("isRevealed", .boolean)
-                    .notNull()
-                    .defaults(to: false)
-                t.column("revealedAt", .datetime)
-            }
-
-            try db.create(index: "attachmentLocalState_conversationId", on: "attachmentLocalState", columns: ["conversationId"])
-        }
-
-        migrator.registerMigration("createPendingPhotoUpload") { db in
-            try db.create(table: "pendingPhotoUpload") { t in
-                t.column("id", .text).primaryKey()
-                t.column("clientMessageId", .text).notNull()
-                t.column("conversationId", .text)
-                    .notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("localCacheURL", .text).notNull()
-                t.column("state", .text).notNull()
-                t.column("errorMessage", .text)
-                t.column("createdAt", .datetime).notNull()
-                t.column("updatedAt", .datetime).notNull()
-            }
-
-            try db.create(index: "pendingPhotoUpload_state", on: "pendingPhotoUpload", columns: ["state"])
-            try db.create(index: "pendingPhotoUpload_clientMessageId", on: "pendingPhotoUpload", columns: ["clientMessageId"])
-            try db.create(index: "pendingPhotoUpload_conversationId", on: "pendingPhotoUpload", columns: ["conversationId"])
-        }
-
-        migrator.registerMigration("addDimensionsToAttachmentLocalState") { db in
-            try db.alter(table: "attachmentLocalState") { t in
-                t.add(column: "width", .integer)
-                t.add(column: "height", .integer)
-            }
-        }
-
-        migrator.registerMigration("addIsHiddenByOwnerToAttachmentLocalState") { db in
-            try db.alter(table: "attachmentLocalState") { t in
-                t.add(column: "isHiddenByOwner", .boolean).notNull().defaults(to: false)
-            }
-        }
-
-        migrator.registerMigration("addSortIdToMessage") { db in
-            try db.alter(table: "message") { t in
-                t.add(column: "sortId", .integer)
-            }
-
-            try db.execute(sql: """
-                UPDATE message SET sortId = (
-                    SELECT COUNT(*) FROM message m2
-                    WHERE m2.conversationId = message.conversationId
-                    AND m2.dateNs <= message.dateNs
-                    AND m2.id <= message.id
-                )
-            """)
-
-            try db.create(index: "message_sortId", on: "message", columns: ["conversationId", "sortId"])
-        }
-
-        migrator.registerMigration("addPerformanceIndexes") { db in
-            try db.create(
-                index: "message_on_conversationId_dateNs",
-                on: "message",
-                columns: ["conversationId", "dateNs"]
-            )
-
-            try db.create(
-                index: "message_on_sourceMessageId_messageType",
-                on: "message",
-                columns: ["sourceMessageId", "messageType"]
-            )
-
-            try db.create(
-                index: "message_on_conversationId_contentType_dateNs",
-                on: "message",
-                columns: ["conversationId", "contentType", "dateNs"]
-            )
-
-            try db.create(
-                index: "message_on_sourceMessageId_senderId_emoji_messageType",
-                on: "message",
-                columns: ["sourceMessageId", "senderId", "emoji", "messageType"]
-            )
-
-            try db.create(
-                index: "conversation_members_on_inboxId_conversationId",
-                on: "conversation_members",
-                columns: ["inboxId", "conversationId"]
-            )
-
-            try db.create(
-                index: "memberProfile_on_conversationId_inboxId",
-                on: "memberProfile",
-                columns: ["conversationId", "inboxId"]
-            )
-        }
-
-        migrator.registerMigration("addIsUnusedToConversation") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "isUnused", .boolean).notNull().defaults(to: false)
-            }
-        }
-
-        migrator.registerMigration("addHasHadVerifiedAssistantToConversation") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "hasHadVerifiedAssistant", .boolean).notNull().defaults(to: false)
-            }
-        }
-
-        migrator.registerMigration("addAssetRenewalColumns") { db in
-            try db.alter(table: "memberProfile") { t in
-                t.add(column: "avatarLastRenewed", .datetime)
-            }
-            try db.alter(table: "conversation") { t in
-                t.add(column: "imageLastRenewed", .datetime)
-            }
-        }
-
-        migrator.registerMigration("addMemberKindToProfile") { db in
-            try db.alter(table: "memberProfile") { t in
-                t.add(column: "memberKind", .text)
-            }
-        }
-
-        migrator.registerMigration("addMetadataToProfile") { db in
-            try db.alter(table: "memberProfile") { t in
-                t.add(column: "metadata", .jsonText)
-            }
-        }
-
-        migrator.registerMigration("addAssistantJoinRequestIndex") { db in
-            try db.create(
-                index: "message_assistantJoinRequest_conversationId",
-                on: "message",
-                columns: ["conversationId", "contentType", "dateNs"],
-                condition: Column("contentType") == MessageContentType.assistantJoinRequest.rawValue
-            )
-        }
-
-        migrator.registerMigration("addInvitedByToConversationMember") { db in
-            try db.alter(table: "conversation_members") { t in
-                t.add(column: "invitedByInboxId", .text)
-            }
-        }
-
-        migrator.registerMigration("addLinkPreviewToMessage") { db in
-            try db.alter(table: "message") { t in
-                t.add(column: "linkPreview", .jsonText)
-            }
-        }
-
-        migrator.registerMigration("addMimeTypeToAttachmentLocalState") { db in
-            try db.alter(table: "attachmentLocalState") { t in
-                t.add(column: "mimeType", .text)
-            }
-        }
-
-        migrator.registerMigration("addWaveformLevelsToAttachmentLocalState") { db in
-            try db.alter(table: "attachmentLocalState") { t in
-                t.add(column: "waveformLevels", .text)
-            }
-        }
-
-        migrator.registerMigration("addDurationToAttachmentLocalState") { db in
-            try db.alter(table: "attachmentLocalState") { t in
-                t.add(column: "duration", .double)
-            }
-        }
-
-        migrator.registerMigration("createVoiceMemoTranscript") { db in
-            try db.create(table: "voiceMemoTranscript") { t in
-                t.column("messageId", .text).notNull().primaryKey()
-                t.column("conversationId", .text).notNull().references("conversation", onDelete: .cascade)
-                t.column("attachmentKey", .text).notNull()
-                t.column("status", .text).notNull()
-                t.column("text", .text)
-                t.column("errorDescription", .text)
-                t.column("createdAt", .datetime).notNull()
-                t.column("updatedAt", .datetime).notNull()
-            }
-            try db.create(index: "voiceMemoTranscript_conversationId", on: "voiceMemoTranscript", columns: ["conversationId"])
-            try db.create(index: "voiceMemoTranscript_attachmentKey", on: "voiceMemoTranscript", columns: ["attachmentKey"])
-        }
-
-        migrator.registerMigration("createConversationReadReceipts") { db in
-            try db.create(table: "conversation_read_receipts") { t in
-                t.column("conversationId", .text).notNull()
-                t.column("inboxId", .text).notNull()
-                t.column("readAtNs", .integer).notNull()
-                t.primaryKey(["conversationId", "inboxId"])
-            }
-            try db.create(
-                index: "idx_read_receipts_conversation",
-                on: "conversation_read_receipts",
-                columns: ["conversationId"]
-            )
-        }
-
-        migrator.registerMigration("addSendReadReceiptsToPhotoPreferences") { db in
-            try db.alter(table: "photoPreferences") { t in
-                t.add(column: "sendReadReceipts", .boolean)
-            }
-        }
-
-        migrator.registerMigration("addReadReceiptsCascadeDelete") { db in
-            try db.create(table: "conversation_read_receipts_new") { t in
-                t.column("conversationId", .text).notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("inboxId", .text).notNull()
-                    .references("member", onDelete: .cascade)
-                t.column("readAtNs", .integer).notNull()
-                t.primaryKey(["conversationId", "inboxId"])
-            }
-            try db.execute(sql: """
-                INSERT INTO conversation_read_receipts_new
-                SELECT r.* FROM conversation_read_receipts r
-                INNER JOIN conversation c ON r.conversationId = c.id
-                INNER JOIN member m ON r.inboxId = m.inboxId
-            """)
-            try db.drop(table: "conversation_read_receipts")
-            try db.rename(table: "conversation_read_receipts_new", to: "conversation_read_receipts")
-            try db.create(
-                index: "idx_read_receipts_conversation",
-                on: "conversation_read_receipts",
-                columns: ["conversationId"]
-            )
-        }
-
-        migrator.registerMigration("addConversationEmoji") { db in
-            let columns = try db.columns(in: "conversation")
-            let hasConversationEmoji = columns.contains(where: { $0.name == "conversationEmoji" })
-            guard !hasConversationEmoji else { return }
-
-            try db.alter(table: "conversation") { t in
-                t.add(column: "conversationEmoji", .text)
-            }
+        // Single-inbox baseline. The refactor ships without a data-migration
+        // path (see docs/plans/single-inbox-identity-refactor.md) and writes
+        // to a new database filename (`convos-single-inbox.sqlite`), so any
+        // install that reaches this migrator is either brand new or a
+        // post-`LegacyDataWipe` upgrade — either way, starting at a single
+        // baseline is correct. Historical v1/v2 migrations from earlier
+        // commits on this branch were collapsed into this baseline; no
+        // on-disk v0 database in the single-inbox file path exists.
+        migrator.registerMigration("v1-single-inbox") { db in
+            try SharedDatabaseMigrator.createSingleInboxSchema(db)
         }
 
         return migrator
+    }
+
+    // swiftlint:disable:next function_body_length
+    private static func createSingleInboxSchema(_ db: Database) throws {
+        // Singleton inbox table. The refactor allows only one inbox per user;
+        // writer-layer enforcement lives in `SessionManager`/`InboxWriter`.
+        try db.create(table: "inbox") { t in
+            t.column("inboxId", .text)
+                .notNull()
+                .primaryKey()
+            t.column("clientId", .text)
+                .notNull()
+                .unique()
+            t.column("createdAt", .datetime)
+                .notNull()
+        }
+
+        try db.create(table: "member") { t in
+            t.column("inboxId", .text)
+                .unique()
+                .notNull()
+                .primaryKey()
+        }
+
+        try db.create(table: "conversation") { t in
+            t.column("id", .text)
+                .notNull()
+                .primaryKey()
+            t.column("clientConversationId", .text)
+                .notNull()
+                .unique(onConflict: .replace)
+            t.column("inviteTag", .text)
+                .notNull()
+                .unique()
+            t.column("creatorId", .text)
+                .notNull()
+            t.column("kind", .text).notNull()
+            t.column("consent", .text).notNull()
+            t.column("createdAt", .datetime).notNull()
+            t.column("name", .text)
+            t.column("description", .text)
+            t.column("imageURLString", .text)
+            t.column("publicImageURLString", .text)
+            t.column("includeInfoInPublicPreview", .boolean).defaults(to: false)
+            t.column("expiresAt", .datetime)
+            t.column("debugInfo", .jsonText)
+            t.column("isLocked", .boolean).notNull().defaults(to: false)
+            t.column("imageSalt", .blob)
+            t.column("imageNonce", .blob)
+            t.column("imageEncryptionKey", .blob)
+            t.column("imageLastRenewed", .datetime)
+            t.column("isUnused", .boolean).notNull().defaults(to: false)
+            t.column("hasHadVerifiedAssistant", .boolean).notNull().defaults(to: false)
+            t.column("conversationEmoji", .text)
+        }
+
+        try db.create(table: "memberProfile") { t in
+            t.column("conversationId", .text)
+                .notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("inboxId", .text)
+                .notNull()
+                .references("member", onDelete: .cascade)
+            t.column("name", .text)
+            t.column("avatar", .text)
+            t.column("avatarSalt", .blob)
+            t.column("avatarNonce", .blob)
+            t.column("avatarKey", .blob)
+            t.column("avatarLastRenewed", .datetime)
+            t.column("memberKind", .text)
+            t.column("metadata", .jsonText)
+            t.primaryKey(["conversationId", "inboxId"])
+        }
+
+        try db.create(table: "conversation_members") { t in
+            t.column("conversationId", .text)
+                .notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("inboxId", .text)
+                .notNull()
+                .references("member", onDelete: .cascade)
+            t.column("role", .text).notNull()
+            t.column("consent", .text).notNull()
+            t.column("createdAt", .datetime).notNull()
+            t.column("invitedByInboxId", .text)
+            t.primaryKey(["conversationId", "inboxId"])
+        }
+
+        try db.create(table: "invite") { t in
+            t.column("urlSlug", .text)
+                .notNull()
+                .primaryKey()
+            t.column("creatorInboxId", .text)
+                .notNull()
+            t.column("conversationId", .text)
+                .notNull()
+            t.column("expiresAt", .datetime)
+            t.column("expiresAfterUse", .boolean)
+                .defaults(to: false)
+
+            t.foreignKey(
+                ["creatorInboxId", "conversationId"],
+                references: "conversation_members",
+                columns: ["inboxId", "conversationId"],
+                onDelete: .cascade
+            )
+
+            t.uniqueKey(["creatorInboxId", "conversationId"], onConflict: .replace)
+        }
+
+        try db.create(table: "conversationLocalState") { t in
+            t.column("conversationId", .text)
+                .notNull()
+                .unique()
+                .primaryKey()
+                .references("conversation", onDelete: .cascade)
+            t.column("isPinned", .boolean).notNull().defaults(to: false)
+            t.column("isUnread", .boolean).notNull().defaults(to: false)
+            t.column("isUnreadUpdatedAt", .datetime)
+                .notNull()
+                .defaults(to: Date.distantPast)
+            t.column("isMuted", .boolean).notNull().defaults(to: false)
+            t.column("pinnedOrder", .integer)
+        }
+
+        try db.create(table: "message") { t in
+            t.column("id", .text)
+                .notNull()
+                .primaryKey()
+                .unique(onConflict: .replace)
+            t.column("clientMessageId", .text)
+                .notNull()
+                .unique(onConflict: .replace)
+            t.column("conversationId", .text)
+                .notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("senderId", .text)
+                .notNull()
+                .references("member", onDelete: .none)
+            t.column("date", .datetime).notNull()
+            t.column("dateNs", .integer).notNull()
+            t.column("status", .text).notNull()
+            t.column("messageType", .text).notNull()
+            t.column("contentType", .text).notNull()
+            t.column("text", .text)
+            t.column("emoji", .text)
+            t.column("sourceMessageId", .text)
+            t.column("attachmentUrls", .text)
+            t.column("update", .jsonText)
+            t.column("invite", .jsonText)
+            t.column("sortId", .integer)
+            t.column("linkPreview", .jsonText)
+        }
+
+        try db.create(table: "photoPreferences") { t in
+            t.column("conversationId", .text)
+                .notNull()
+                .primaryKey()
+                .references("conversation", onDelete: .cascade)
+            t.column("autoReveal", .boolean)
+                .notNull()
+                .defaults(to: false)
+            t.column("hasRevealedFirst", .boolean)
+                .notNull()
+                .defaults(to: false)
+            t.column("updatedAt", .datetime)
+                .notNull()
+            t.column("sendReadReceipts", .boolean)
+        }
+
+        try db.create(table: "attachmentLocalState") { t in
+            t.column("attachmentKey", .text)
+                .notNull()
+                .primaryKey()
+            t.column("conversationId", .text)
+                .notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("isRevealed", .boolean)
+                .notNull()
+                .defaults(to: false)
+            t.column("revealedAt", .datetime)
+            t.column("width", .integer)
+            t.column("height", .integer)
+            t.column("isHiddenByOwner", .boolean).notNull().defaults(to: false)
+            t.column("mimeType", .text)
+            t.column("waveformLevels", .text)
+            t.column("duration", .double)
+        }
+
+        try db.create(table: "pendingPhotoUpload") { t in
+            t.column("id", .text).primaryKey()
+            t.column("clientMessageId", .text).notNull()
+            t.column("conversationId", .text)
+                .notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("localCacheURL", .text).notNull()
+            t.column("state", .text).notNull()
+            t.column("errorMessage", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "voiceMemoTranscript") { t in
+            t.column("messageId", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull().references("conversation", onDelete: .cascade)
+            t.column("attachmentKey", .text).notNull()
+            t.column("status", .text).notNull()
+            t.column("text", .text)
+            t.column("errorDescription", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "conversation_read_receipts") { t in
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("inboxId", .text).notNull()
+                .references("member", onDelete: .cascade)
+            t.column("readAtNs", .integer).notNull()
+            t.primaryKey(["conversationId", "inboxId"])
+        }
+
+        // Indexes
+        try db.create(
+            index: "attachmentLocalState_conversationId",
+            on: "attachmentLocalState",
+            columns: ["conversationId"]
+        )
+        try db.create(
+            index: "pendingPhotoUpload_state",
+            on: "pendingPhotoUpload",
+            columns: ["state"]
+        )
+        try db.create(
+            index: "pendingPhotoUpload_clientMessageId",
+            on: "pendingPhotoUpload",
+            columns: ["clientMessageId"]
+        )
+        try db.create(
+            index: "pendingPhotoUpload_conversationId",
+            on: "pendingPhotoUpload",
+            columns: ["conversationId"]
+        )
+        try db.create(
+            index: "message_sortId",
+            on: "message",
+            columns: ["conversationId", "sortId"]
+        )
+        try db.create(
+            index: "message_on_conversationId_dateNs",
+            on: "message",
+            columns: ["conversationId", "dateNs"]
+        )
+        try db.create(
+            index: "message_on_sourceMessageId_messageType",
+            on: "message",
+            columns: ["sourceMessageId", "messageType"]
+        )
+        try db.create(
+            index: "message_on_conversationId_contentType_dateNs",
+            on: "message",
+            columns: ["conversationId", "contentType", "dateNs"]
+        )
+        try db.create(
+            index: "message_on_sourceMessageId_senderId_emoji_messageType",
+            on: "message",
+            columns: ["sourceMessageId", "senderId", "emoji", "messageType"]
+        )
+        try db.create(
+            index: "conversation_members_on_inboxId_conversationId",
+            on: "conversation_members",
+            columns: ["inboxId", "conversationId"]
+        )
+        try db.create(
+            index: "memberProfile_on_conversationId_inboxId",
+            on: "memberProfile",
+            columns: ["conversationId", "inboxId"]
+        )
+        try db.create(
+            index: "message_assistantJoinRequest_conversationId",
+            on: "message",
+            columns: ["conversationId", "contentType", "dateNs"],
+            condition: Column("contentType") == MessageContentType.assistantJoinRequest.rawValue
+        )
+        try db.create(
+            index: "voiceMemoTranscript_conversationId",
+            on: "voiceMemoTranscript",
+            columns: ["conversationId"]
+        )
+        try db.create(
+            index: "voiceMemoTranscript_attachmentKey",
+            on: "voiceMemoTranscript",
+            columns: ["attachmentKey"]
+        )
+        try db.create(
+            index: "idx_read_receipts_conversation",
+            on: "conversation_read_receipts",
+            columns: ["conversationId"]
+        )
     }
 }

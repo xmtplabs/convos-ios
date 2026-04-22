@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 
 /// Mock implementation of MyProfileWriterProtocol for testing

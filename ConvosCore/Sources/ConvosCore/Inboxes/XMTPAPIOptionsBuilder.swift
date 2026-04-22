@@ -3,7 +3,7 @@ import Foundation
 
 /// Builds XMTP API options for the given environment
 ///
-/// This extracts the API options construction from InboxStateMachine for reuse
+/// This extracts the API options construction from SessionStateMachine for reuse
 /// in static XMTP operations like `getNewestMessageMetadata`.
 public struct XMTPAPIOptionsBuilder {
     /// Builds ClientOptions.Api for the given environment

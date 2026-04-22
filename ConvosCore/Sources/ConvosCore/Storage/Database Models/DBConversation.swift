@@ -29,8 +29,6 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
 
     enum Columns {
         static let id: Column = Column(CodingKeys.id)
-        static let inboxId: Column = Column(CodingKeys.inboxId)
-        static let clientId: Column = Column(CodingKeys.clientId)
         static let clientConversationId: Column = Column(CodingKeys.clientConversationId)
         static let inviteTag: Column = Column(CodingKeys.inviteTag)
         static let creatorId: Column = Column(CodingKeys.creatorId)
@@ -55,8 +53,6 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     }
 
     let id: String
-    let inboxId: String
-    let clientId: String
     let clientConversationId: String // used for conversation drafts
     let inviteTag: String
     let creatorId: String
@@ -83,19 +79,16 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         [Columns.creatorId, Columns.id],
         to: [DBConversationMember.Columns.inboxId, DBConversationMember.Columns.conversationId]
     )
-    static let inboxMemberKey: ForeignKey = ForeignKey(
-        [Columns.inboxId, Columns.id],
-        to: [DBConversationMember.Columns.inboxId, DBConversationMember.Columns.conversationId]
-    )
     static let localStateForeignKey: ForeignKey = ForeignKey([ConversationLocalState.Columns.conversationId], to: [Columns.id])
     static let inviteForeignKey: ForeignKey = ForeignKey([DBInvite.Columns.conversationId], to: [Columns.id])
 
-    // The invite created by the current inbox member (the user viewing this conversation)
-    static let invite: HasOneThroughAssociation<DBConversation, DBInvite> = hasOne(
+    /// All invites associated with this conversation. Callers that want the
+    /// current user's invite filter by `creatorInboxId` at hydration time
+    /// (see `DBConversationDetails+Conversation.hydrateConversation`).
+    static let invites: HasManyAssociation<DBConversation, DBInvite> = hasMany(
         DBInvite.self,
-        through: inboxMember,
-        using: DBConversationMember.invite,
-        key: "conversationInvite"
+        key: "conversationInvites",
+        using: ForeignKey([DBInvite.Columns.conversationId], to: [Columns.id])
     )
 
     // The invite created by the conversation creator
@@ -110,13 +103,6 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         DBConversationMember.self,
         key: "conversationCreator",
         using: creatorForeignKey
-    )
-
-    // the member whose conversation this is
-    static let inboxMember: BelongsToAssociation<DBConversation, DBConversationMember> = belongsTo(
-        DBConversationMember.self,
-        key: "conversationInboxMember",
-        using: inboxMemberKey
     )
 
     static let creatorProfile: HasOneThroughAssociation<DBConversation, DBMemberProfile> = hasOne(
@@ -241,8 +227,6 @@ extension DBConversation {
     func with(id: String) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -270,8 +254,6 @@ extension DBConversation {
     func with(clientConversationId: String) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -299,8 +281,6 @@ extension DBConversation {
     func with(creatorId: String) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -328,8 +308,6 @@ extension DBConversation {
     func with(kind: ConversationKind) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -357,8 +335,6 @@ extension DBConversation {
     func with(consent: Consent) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -388,8 +364,6 @@ extension DBConversation {
     func with(name: String?) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -417,8 +391,6 @@ extension DBConversation {
     func with(description: String?) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -446,8 +418,6 @@ extension DBConversation {
     func with(createdAt: Date) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -475,8 +445,6 @@ extension DBConversation {
     func with(expiresAt: Date) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -504,8 +472,6 @@ extension DBConversation {
     func with(imageURLString: String?) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -533,8 +499,6 @@ extension DBConversation {
     func with(imageURLString: String?, imageSalt: Data?, imageNonce: Data?, imageEncryptionKey: Data?) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -562,8 +526,6 @@ extension DBConversation {
     func with(publicImageURLString: String?) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -591,8 +553,6 @@ extension DBConversation {
     func with(includeInfoInPublicPreview: Bool) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -620,8 +580,6 @@ extension DBConversation {
     func with(isLocked: Bool) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -649,8 +607,6 @@ extension DBConversation {
     func with(isUnused: Bool) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -678,8 +634,6 @@ extension DBConversation {
     func with(inviteTag: String) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -707,8 +661,6 @@ extension DBConversation {
     func with(imageLastRenewed: Date?) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -736,8 +688,6 @@ extension DBConversation {
     func with(hasHadVerifiedAssistant: Bool) -> Self {
         .init(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId,
             inviteTag: inviteTag,
             creatorId: creatorId,
@@ -766,11 +716,7 @@ extension DBConversation {
         NotificationCenter.default.post(
             name: .leftConversationNotification,
             object: nil,
-            userInfo: [
-                "clientId": clientId,
-                "inboxId": inboxId,
-                "conversationId": id
-            ]
+            userInfo: ["conversationId": id]
         )
     }
 }

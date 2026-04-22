@@ -8,19 +8,16 @@ enum InboxWriterError: Error, LocalizedError {
         switch self {
         case let .clientIdMismatch(inboxId, existingClientId, newClientId):
             return """
-            INVARIANT VIOLATION: Attempted to save inbox with mismatched clientId.
-            InboxId: \(inboxId)
-            Existing clientId: \(existingClientId)
-            New clientId: \(newClientId)
-
-            This indicates data corruption or a bug in the inbox management flow.
-            For a given inboxId, the clientId should never change.
+            Attempted to save inbox with mismatched clientId. \
+            inboxId=\(inboxId) existingClientId=\(existingClientId) newClientId=\(newClientId). \
+            For a given inboxId, the clientId is expected to be stable — a mismatch indicates \
+            data corruption or a bug in the inbox management flow.
             """
         }
     }
 }
 
-/// Writes inbox data to the database
+/// Writes inbox data to the database.
 struct InboxWriter {
     private let dbWriter: any DatabaseWriter
 
@@ -31,17 +28,12 @@ struct InboxWriter {
     @discardableResult
     func save(inboxId: String, clientId: String) async throws -> DBInbox {
         try await dbWriter.write { db in
-            // Check if inbox already exists
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
-                // INVARIANT: For a given inboxId, the clientId must never change
-                // If they don't match, this is a data corruption bug that must be caught
+                // For a given inboxId, the clientId is expected to be stable; a
+                // mismatch here means either a data corruption bug or a stale DB
+                // row from a previous identity that wasn't cleaned up.
                 if existingInbox.clientId != clientId {
-                    Log.error("""
-                        ClientId mismatch detected!
-                        InboxId: \(inboxId)
-                        Existing clientId: \(existingInbox.clientId)
-                        Attempted clientId: \(clientId)
-                        """)
+                    Log.error("ClientId mismatch: inboxId=\(inboxId) existingClientId=\(existingInbox.clientId) attemptedClientId=\(clientId)")
                     throw InboxWriterError.clientIdMismatch(
                         inboxId: inboxId,
                         existingClientId: existingInbox.clientId,

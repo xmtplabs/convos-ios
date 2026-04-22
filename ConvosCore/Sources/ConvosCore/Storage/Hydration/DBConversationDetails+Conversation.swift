@@ -1,14 +1,14 @@
 import Foundation
 
 extension DBConversationDetails {
-    func hydrateConversation() -> Conversation {
+    func hydrateConversation(currentInboxId: String) -> Conversation {
         let lastMessage: MessagePreview? = conversationLastMessageWithSource?.hydrateMessagePreview(
             conversationKind: conversation.kind,
-            currentInboxId: conversation.inboxId,
+            currentInboxId: currentInboxId,
             members: conversationMembers
         )
-        let members = hydrateConversationMembers(currentInboxId: conversation.inboxId)
-        let creator = conversationCreator.hydrateConversationMember(currentInboxId: conversation.inboxId)
+        let members = hydrateConversationMembers(currentInboxId: currentInboxId)
+        let creator = conversationCreator.hydrateConversationMember(currentInboxId: currentInboxId)
 
         let otherMember: ConversationMember?
         if conversation.kind == .dm,
@@ -38,11 +38,13 @@ extension DBConversationDetails {
             assistantJoinStatus = nil
         }
 
+        let invite = conversationInvites
+            .first { $0.creatorInboxId == currentInboxId }?
+            .hydrateInvite()
+
         return Conversation(
             id: conversation.id,
             clientConversationId: conversation.clientConversationId,
-            inboxId: conversation.inboxId,
-            clientId: conversation.clientId,
             creator: creator,
             createdAt: conversation.createdAt,
             consent: conversation.consent,
@@ -64,7 +66,7 @@ extension DBConversationDetails {
             conversationEmoji: conversation.conversationEmoji,
             includeInfoInPublicPreview: conversation.includeInfoInPublicPreview,
             isDraft: conversation.isDraft,
-            invite: conversationInvite?.hydrateInvite(),
+            invite: invite,
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,

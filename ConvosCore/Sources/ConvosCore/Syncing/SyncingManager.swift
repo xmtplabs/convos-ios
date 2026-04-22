@@ -98,7 +98,6 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private let identityStore: any KeychainIdentityStoreProtocol
     private let streamProcessor: any StreamProcessorProtocol
-    private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     // Maximum consecutive stream failures before giving up. Prevents FD exhaustion when
     // XMTP service is unavailable (each failed connection attempt can leak file descriptors).
     private let maxStreamRetries: Int = 10
@@ -147,10 +146,6 @@ actor SyncingManager: SyncingManagerProtocol {
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager,
             notificationCenter: notificationCenter
-        )
-        self.joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: identityStore,
-            databaseWriter: databaseWriter
         )
     }
 
@@ -399,18 +394,6 @@ actor SyncingManager: SyncingManagerProtocol {
             // This handles cases where the joiner was added to a group while
             // the inbox was paused, stopped, or the stream had a timeout.
             await discoverNewConversations(params: params)
-
-            // Process any join requests that may have been missed during stream startup.
-            // This handles the race condition where a joiner sends a DM before the message
-            // stream has fully subscribed to the XMTP network.
-            await processJoinRequestsAfterSync(params: params)
-        }
-    }
-
-    private func processJoinRequestsAfterSync(params: SyncClientParams) async {
-        let results = await joinRequestsManager.processJoinRequests(since: nil, client: params.client)
-        if !results.isEmpty {
-            Log.info("Processed \(results.count) join requests after sync complete")
         }
     }
 
@@ -616,7 +599,6 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.info("Sync resumed")
 
         await discoverNewConversations(params: params)
-        await processJoinRequestsAfterSync(params: params)
     }
 
     func requestDiscovery() async {
@@ -685,11 +667,6 @@ actor SyncingManager: SyncingManagerProtocol {
 
                 Log.debug("Starting message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
 
-                // Signal that we're about to subscribe to the stream (only on first attempt)
-                if retryCount == 0 {
-                    signalMessageStreamReady()
-                }
-
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
                 var isFirstMessage = true
                 let stream = params.client.conversationsProvider.streamAllMessages(
@@ -699,6 +676,14 @@ actor SyncingManager: SyncingManagerProtocol {
                         Log.debug("Message stream closed via onClose callback")
                     }
                 )
+
+                // Signal readiness once the SDK call has returned so the
+                // channel is established by the time anyone observing
+                // `isSyncReady` sees true.
+                if retryCount == 0 {
+                    signalMessageStreamReady()
+                }
+
                 for try await message in stream {
                     // Check cancellation
                     try Task.checkCancellation()

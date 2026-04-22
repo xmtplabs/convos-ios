@@ -104,5 +104,6 @@ struct ConversationInfoEditView: View {
 
 #Preview {
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    ConversationInfoEditView(viewModel: .mock, focusCoordinator: focusCoordinator)
+    let viewModel: ConversationViewModel = ConversationViewModel.mock
+    ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
 }

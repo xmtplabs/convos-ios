@@ -83,8 +83,12 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             let message = try message.dbRepresentation()
 
             let messageExistsInDB = try DBMessage.exists(db, key: message.id)
-            // @jarodl temporary, this should happen somewhere else more explicitly
-            let wasRemovedFromConversation = message.update?.removedInboxIds.contains(conversation.inboxId) ?? false
+            // @jarodl temporary, this should happen somewhere else more explicitly.
+            let localInboxId = try DBInbox.fetchAll(db).first?.inboxId
+            let wasRemovedFromConversation: Bool = {
+                guard let localInboxId, let removed = message.update?.removedInboxIds else { return false }
+                return removed.contains(localInboxId)
+            }()
 
             Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
             if !message.attachmentUrls.isEmpty {

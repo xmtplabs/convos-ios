@@ -2,6 +2,8 @@
 
 Verify that a conversation created on one device can be joined from a second device via invite deep link, including when the inviter is offline.
 
+> **Single-inbox model (C10).** Joining no longer creates a per-conversation inbox on the joiner's device — the join reuses the singleton `MessagingService`. The user-facing flow is unchanged. There should be **no** "creating new inbox" UI indicator, no spinner explicitly tied to inbox provisioning, and no copy referencing a freshly-created identity. Flag any element that still announces inbox creation as an accessibility-text bug.
+
 ## Requirements
 
 - **Two simulators required.** This test uses Device A (inviter) and Device B (joiner) — both running the Convos app. The CLI must not be used as a substitute for either device.

@@ -230,7 +230,12 @@ public final class MessagesListProcessor: Sendable {
 
                 let resolveProfile: (String) -> Profile? = { inboxId in
                     if let info = memberProfiles[inboxId] {
-                        return Profile(inboxId: info.inboxId, name: info.name, avatar: info.avatar)
+                        return Profile(
+                            inboxId: info.inboxId,
+                            conversationId: info.conversationId,
+                            name: info.name,
+                            avatar: info.avatar
+                        )
                     }
                     return messages.lazy
                         .compactMap { $0.sender.profile.inboxId == inboxId ? $0.sender.profile : nil }

@@ -15,7 +15,6 @@ final class ConversationsViewModel {
 
     // MARK: - Selection State
 
-    // Single source of truth for selection
     @ObservationIgnored
     private var _selectedConversationId: String? {
         didSet {
@@ -23,7 +22,6 @@ final class ConversationsViewModel {
         }
     }
 
-    // for selection binding
     var selectedConversationId: Conversation.ID? {
         get { _selectedConversationId }
         set {
@@ -32,7 +30,6 @@ final class ConversationsViewModel {
         }
     }
 
-    // Computed property derived from selectedConversationId
     private(set) var selectedConversation: Conversation? {
         get {
             guard let id = _selectedConversationId else { return nil }
@@ -48,7 +45,6 @@ final class ConversationsViewModel {
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
 
-    // Called whenever _selectedConversationId changes
     private func updateSelectionState() {
         let conversation = selectedConversation
         let previousViewModelId = selectedConversationViewModel?.conversation.id
@@ -71,21 +67,13 @@ final class ConversationsViewModel {
             selectedConversationViewModel = nil
         }
 
-        // Only update if the selection actually changed
         if previousViewModelId != _selectedConversationId {
-            // Post notification for other observers (e.g., SyncingManager)
             let userInfo: [AnyHashable: Any] = _selectedConversationId.map { ["conversationId": $0] } ?? [:]
             NotificationCenter.default.post(
                 name: .activeConversationChanged,
                 object: nil,
                 userInfo: userInfo
             )
-
-            // Set the active client ID to protect this inbox from being put to sleep
-            Task { [weak self] in
-                guard let self else { return }
-                await session.setActiveClientId(self.selectedConversation?.clientId)
-            }
         }
     }
 
@@ -93,16 +81,11 @@ final class ConversationsViewModel {
         didSet {
             oldValue?.cleanUpIfNeeded()
             if newConversationViewModel == nil {
-                // New conversation dismissed - notify observers and reset active client ID
                 NotificationCenter.default.post(
                     name: .activeConversationChanged,
                     object: nil,
-                    userInfo: [:] // no active conversation
+                    userInfo: [:]
                 )
-                Task { [weak self] in
-                    guard let self else { return }
-                    await session.setActiveClientId(selectedConversation?.clientId)
-                }
             }
         }
     }
@@ -155,7 +138,7 @@ final class ConversationsViewModel {
     }
 
     var unpinnedConversations: [Conversation] {
-        let baseConversations = conversations.filter { !$0.isPinned }.filter { $0.kind == .group } // @jarodl temporarily filtering out dms
+        let baseConversations = conversations.filter { !$0.isPinned }.filter { $0.kind == .group }
         switch activeFilter {
         case .all:
             return baseConversations
@@ -232,12 +215,9 @@ final class ConversationsViewModel {
         observe()
     }
 
-    /// Update the horizontal size class when it changes (call from view)
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
         guard horizontalSizeClass != sizeClass else { return }
         horizontalSizeClass = sizeClass
-
-        // Update the focus coordinator's size class - it will react to the change
         focusCoordinator.horizontalSizeClass = sizeClass
     }
 
@@ -283,21 +263,18 @@ final class ConversationsViewModel {
     }
 
     func leave(conversation: Conversation) {
+        // Hide the row so the next conversationsPublisher emit doesn't re-add
+        // it (see sink at `conversationsRepository.conversationsPublisher`,
+        // which filters on hiddenConversationIds). A proper group-leave path
+        // via group.leaveGroup() is tracked as a follow-up to C11 — until
+        // then the user remains a group member on the protocol side, but the
+        // row stays hidden locally.
+        hiddenConversationIds.insert(conversation.id)
         if let index = conversations.firstIndex(of: conversation) {
             conversations.remove(at: index)
         }
-
         if selectedConversation == conversation {
             selectedConversation = nil
-        }
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
-            } catch {
-                Log.error("Error leaving convo: \(error.localizedDescription)")
-            }
         }
     }
 
@@ -310,6 +287,9 @@ final class ConversationsViewModel {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
+                    // Keep hiding on re-emits — see `leave(conversation:)` and
+                    // ConversationViewModel.leaveConvo for the same pattern.
+                    hiddenConversationIds.insert(conversationId)
                     conversations.removeAll { $0.id == conversationId }
                     if _selectedConversationId == conversationId {
                         _selectedConversationId = nil
@@ -321,7 +301,6 @@ final class ConversationsViewModel {
                 }
             }
 
-        // Observe explosion notification taps
         NotificationCenter.default
             .publisher(for: .explosionNotificationTapped)
             .receive(on: DispatchQueue.main)
@@ -331,7 +310,6 @@ final class ConversationsViewModel {
             }
             .store(in: &cancellables)
 
-        // Observe conversation notification taps
         NotificationCenter.default
             .publisher(for: .conversationNotificationTapped)
             .receive(on: DispatchQueue.main)
@@ -354,20 +332,17 @@ final class ConversationsViewModel {
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
-                // Clear selection if selected conversation no longer exists
                 if let selectedId = _selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
                 }
 
-                // Reset filter only when base conversations list is empty (not when filtered list is empty)
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
                 }
             }
             .store(in: &cancellables)
 
-        // Mark active conversation as read when app becomes active
         NotificationCenter.default
             .publisher(for: UIApplication.didBecomeActiveNotification)
             .receive(on: DispatchQueue.main)
@@ -404,17 +379,12 @@ final class ConversationsViewModel {
 
     func toggleMute(conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let currentlyMuted = conversation.isMuted
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = session.messagingService()
                 let shouldEnableNotifications = currentlyMuted
                 try await messagingService.setConversationNotificationsEnabled(shouldEnableNotifications, for: conversationId)
             } catch {
@@ -425,17 +395,12 @@ final class ConversationsViewModel {
 
     func toggleReadState(conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let currentlyUnread = conversation.isUnread
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setUnread(!currentlyUnread, for: conversationId)
             } catch {
@@ -446,17 +411,12 @@ final class ConversationsViewModel {
 
     func togglePin(conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let currentlyPinned = conversation.isPinned
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
             } catch ConversationLocalStateWriterError.pinLimitReached {
@@ -471,16 +431,11 @@ final class ConversationsViewModel {
 
     private func markConversationAsRead(_ conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(
-                    for: clientId,
-                    inboxId: inboxId
-                )
+                let messagingService = session.messagingService()
                 let writer = messagingService.conversationLocalStateWriter()
                 try await writer.setUnread(false, for: conversationId)
             } catch {
@@ -491,8 +446,6 @@ final class ConversationsViewModel {
 
     func explodeConversation(_ conversation: Conversation) {
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
         let memberInboxIds = conversation.members.map { $0.profile.inboxId }
 
         hiddenConversationIds.insert(conversationId)
@@ -504,7 +457,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let messagingService = session.messagingService()
                 let explosionWriter = messagingService.conversationExplosionWriter()
                 try await explosionWriter.explodeConversation(
                     conversationId: conversationId,
@@ -543,13 +496,11 @@ final class ConversationsViewModel {
         }
 
         let conversationId = conversation.id
-        let clientId = conversation.clientId
-        let inboxId = conversation.inboxId
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let messagingService = session.messagingService()
                 let explosionWriter = messagingService.conversationExplosionWriter()
                 try await explosionWriter.scheduleExplosion(
                     conversationId: conversationId,

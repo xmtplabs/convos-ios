@@ -15,11 +15,14 @@ struct ConvosApp: App {
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
 
+        ConfigManager.configure(overrides: ConvosSecretOverrides(
+            apiBaseURL: Secrets.CONVOS_API_BASE_URL,
+            xmtpCustomHost: Secrets.XMTP_CUSTOM_HOST,
+            gatewayURL: Secrets.GATEWAY_URL
+        ))
         let environment = ConfigManager.shared.currentEnvironment
-        // Configure logging (automatically disabled in production)
         ConvosLog.configure(environment: environment)
 
-        // only enable LibXMTP logging in non-production environments
         if !environment.isProduction {
             Log.info("Activating LibXMTP Log Writer...")
             Client.activatePersistentLibXMTPLogWriter(
@@ -33,14 +36,12 @@ struct ConvosApp: App {
         Log.info("App starting with environment: \(environment)")
         QAEvent.emit(.app, "launched", ["environment": environment.name])
 
-        // Configure Firebase before creating ConvosClient
-        // This prevents SessionManager trying to use AppCheck before it's configured
+        // Firebase must be configured before ConvosClient is created so AppCheck is ready when auth begins
         switch environment {
         case .tests:
             Log.info("Running in test environment, skipping Firebase config...")
         default:
             if let url = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
-                // Only pass debug token for non-production environments (safety check)
                 let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
                 FirebaseHelperCore.configure(with: url, debugToken: debugToken)
             } else {

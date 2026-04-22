@@ -398,9 +398,7 @@ struct ChronologicalSortIdTests {
 
         try DBConversation(
             id: conversationId,
-            inboxId: currentInboxId,
-            clientId: "client-1",
-            clientConversationId: clientConversationId,
+                        clientConversationId: clientConversationId,
             inviteTag: "tag-\(conversationId)",
             creatorId: currentInboxId,
             kind: .group,

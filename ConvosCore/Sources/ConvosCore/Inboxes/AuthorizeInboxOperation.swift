@@ -14,7 +14,7 @@ protocol AuthorizeInboxOperationProtocol {
 /// Set is only modified during initialization. All task operations use `cancelAndReplaceTask`
 /// which acquires the lock before any mutation.
 final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked Sendable {
-    let stateMachine: InboxStateMachine
+    let stateMachine: SessionStateMachine
     private var cancellables: Set<AnyCancellable> = []
     private let taskLock: NSLock = NSLock()
     private var _task: Task<Void, Never>?
@@ -60,7 +60,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient
         )
-        operation.authorize(inboxId: inboxId, clientId: clientId)
+        operation.authorize(inboxId: inboxId)
         return operation
     }
 
@@ -88,7 +88,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient
         )
-        operation.register(clientId: clientId)
+        operation.register()
         return operation
     }
 
@@ -113,7 +113,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             notificationCenter: platformProviders.notificationCenter
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
-        stateMachine = InboxStateMachine(
+        stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: identityStore,
             invitesRepository: invitesRepository,
@@ -139,18 +139,18 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         _task = newTask
     }
 
-    private func authorize(inboxId: String, clientId: String) {
+    private func authorize(inboxId: String) {
         let newTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await stateMachine.authorize(inboxId: inboxId, clientId: clientId)
+            await stateMachine.authorize(inboxId: inboxId)
         }
         cancelAndReplaceTask(with: newTask)
     }
 
-    private func register(clientId: String) {
+    private func register() {
         let newTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await stateMachine.register(clientId: clientId)
+            await stateMachine.register()
         }
         cancelAndReplaceTask(with: newTask)
     }

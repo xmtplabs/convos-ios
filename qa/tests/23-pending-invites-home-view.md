@@ -2,6 +2,8 @@
 
 Verify that pending invite conversations (accepted but not yet approved) appear in the home view conversations list, show "Verifying" status, and can be tapped to see the verifying state.
 
+> **Single-inbox model (C10).** Pending-invite enumeration in the home view is now backed by `PendingInviteRepository.allPendingInvites()` (no clientId argument) rather than a multi-inbox aware enumeration. With one inbox per user the result is a single grouping. The home-view UX is unchanged.
+
 ## Prerequisites
 
 - The app is running and past onboarding.

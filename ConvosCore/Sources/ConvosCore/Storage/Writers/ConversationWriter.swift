@@ -1,5 +1,4 @@
 import ConvosInvites
-import ConvosProfiles
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -127,15 +126,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         let conversation = try await databaseWriter.write { db in
-            // Look up clientId from inbox
-            guard let inbox = try DBInbox.fetchOne(db, id: inboxId) else {
+            // Downstream foreign-key lookups (push topic subscriptions,
+            // etc.) expect the inbox row to exist.
+            guard (try DBInbox.fetchOne(db, id: inboxId)) != nil else {
                 throw ConversationWriterError.inboxNotFound(inboxId)
             }
 
             let conversation = DBConversation(
                 id: draftConversationId,
-                inboxId: inboxId,
-                clientId: inbox.clientId,
                 clientConversationId: draftConversationId,
                 inviteTag: signedInvite.invitePayload.tag,
                 creatorId: creatorInboxId,
@@ -264,7 +262,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Fetch and store latest messages if requested
         if withLatestMessages {
-            try await fetchAndStoreLatestMessages(for: conversation, dbConversation: dbConversation)
+            try await fetchAndStoreLatestMessages(
+                for: conversation,
+                dbConversation: dbConversation,
+                currentInboxId: inboxId
+            )
         }
 
         // Store last message (skip profile messages and read receipts which aren't stored as DB messages)
@@ -333,8 +335,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         clientConversationId: String? = nil,
         imageLastRenewed: Date? = nil
     ) async throws -> DBConversation {
-        // Look up clientId from inbox
-        let clientId = try await databaseWriter.read { db in
+        // Assert the inbox exists locally even though the column no longer
+        // lives on the conversation row — readers expect an inbox row for the
+        // identity and downstream foreign keys still reference it.
+        _ = try await databaseWriter.read { db in
             guard let inbox = try DBInbox.fetchOne(db, id: inboxId) else {
                 throw ConversationWriterError.inboxNotFound(inboxId)
             }
@@ -343,8 +347,6 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         return DBConversation(
             id: conversation.id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: clientConversationId ?? conversation.id,
             inviteTag: try conversation.inviteTag,
             creatorId: try await conversation.creatorInboxId(),
@@ -614,7 +616,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
     private func fetchAndStoreLatestMessages(
         for conversation: XMTPiOS.Group,
-        dbConversation: DBConversation
+        dbConversation: DBConversation,
+        currentInboxId: String
     ) async throws {
         Log.debug("Attempting to fetch latest messages...")
 
@@ -629,7 +632,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
-        let myInboxId = dbConversation.inboxId
+        let myInboxId = currentInboxId
         for message in messages {
             guard !message.isProfileMessage, !message.isTypingIndicator else { continue }
             if message.isReadReceipt {

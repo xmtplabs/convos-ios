@@ -1,5 +1,4 @@
 import Combine
-import ConvosProfiles
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
@@ -15,7 +14,7 @@ extension MessagingService {
         payload: PushNotificationPayload
     ) async throws -> DecodedNotificationContent? {
         Log.debug("processPushNotification called")
-        let inboxReadyResult = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReadyResult = try await sessionStateManager.waitForInboxReadyResult()
 
         return try await self.handlePushNotification(
             inboxReadyResult: inboxReadyResult,

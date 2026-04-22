@@ -7,10 +7,9 @@ This document contains project-specific conventions and best practices for the C
 ## Architecture & Organization
 
 ### Project Structure
-- **ConvosCore**: Swift Package containing app-specific business logic, models, services, repositories, writers, GRDB database, and XMTP client
+- **ConvosCore**: Swift Package containing app-specific business logic, models, services, repositories, writers, GRDB database, XMTP client, and the profile system (`Sources/ConvosCore/Profiles/` — AES-256-GCM image encryption, encrypted image loading, ProfileUpdate/ProfileSnapshot codecs)
 - **ConvosAppData**: Shared foundation package — protobuf types (ConversationCustomMetadata, ConversationProfile, EncryptedImageRef), serialization (Base64URL, DEFLATE), profile helpers
 - **ConvosInvites**: Reusable invite system package — cryptographic tokens, join request processing, invite tag storage (120 tests)
-- **ConvosProfiles**: Reusable profile system package — AES-256-GCM image encryption, encrypted image loading (25 tests)
 - **ConvosCoreiOS**: iOS-specific implementations needed by ConvosCore (e.g., `UIImage` handling, push notification registration)
 - **Main App (Convos)**: Views and ViewModels only (SwiftUI with UIKit integration where needed)
 - **App Clips**: Separate target for lightweight experiences

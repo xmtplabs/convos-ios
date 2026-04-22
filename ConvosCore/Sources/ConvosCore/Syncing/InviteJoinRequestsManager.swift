@@ -1,5 +1,4 @@
 import ConvosInvites
-import ConvosProfiles
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -38,7 +37,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         self.databaseWriter = databaseWriter
         self.coordinator = InviteCoordinator(
             privateKeyProvider: { inboxId in
-                let identity = try await identityStore.identity(for: inboxId)
+                guard let identity = try await identityStore.load(), identity.inboxId == inboxId else {
+                    throw KeychainIdentityStoreError.identityNotFound("No singleton identity matching inbox \(inboxId)")
+                }
                 return identity.keys.privateKey.secp256K1.bytes
             },
             tagStorage: tagStorage
@@ -105,6 +106,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         if baseMemberKind != nil, let profileMetadata {
             let tempProfile = Profile(
                 inboxId: result.joinerInboxId,
+                conversationId: result.conversationId,
                 name: profile?.name,
                 avatar: profile?.imageURL,
                 isAgent: true,

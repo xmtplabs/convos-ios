@@ -2,8 +2,11 @@ import ConvosInvites
 import Foundation
 
 extension SignedInvite {
+    /// Signs an invite slug for a DB conversation. The caller supplies
+    /// `creatorInboxId` from the identity it's signing with.
     static func slug(
         for conversation: DBConversation,
+        creatorInboxId: String,
         expiresAt: Date?,
         expiresAfterUse: Bool,
         privateKey: Data
@@ -12,7 +15,7 @@ extension SignedInvite {
             ?? EmojiSelector.emoji(for: conversation.clientConversationId)
         return try createSlug(
             conversationId: conversation.id,
-            creatorInboxId: conversation.inboxId,
+            creatorInboxId: creatorInboxId,
             privateKey: privateKey,
             tag: conversation.inviteTag,
             options: InviteSlugOptions(

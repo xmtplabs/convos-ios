@@ -262,8 +262,6 @@ struct DefaultConversationDisplayTests {
         let conversation = Conversation(
             id: "test",
             clientConversationId: "client-test",
-            inboxId: "inbox",
-            clientId: "client",
             creator: .mock(isCurrentUser: true),
             createdAt: Date(),
             consent: .allowed,
@@ -305,8 +303,6 @@ struct DefaultConversationDisplayTests {
         let conversation = Conversation(
             id: "test",
             clientConversationId: "client-test",
-            inboxId: "inbox",
-            clientId: "client",
             creator: .mock(isCurrentUser: true),
             createdAt: Date(),
             consent: .allowed,
@@ -405,12 +401,12 @@ struct DefaultConversationDisplayTests {
         let members = [
             ConversationMember.mock(isCurrentUser: true, name: "You"),
             ConversationMember(
-                profile: Profile(inboxId: "other1", name: "Alice", avatar: nil),
+                profile: Profile(inboxId: "other1", conversationId: "test-conv", name: "Alice", avatar: nil),
                 role: .member,
                 isCurrentUser: false
             ),
             ConversationMember(
-                profile: Profile(inboxId: "other2", name: "Bob", avatar: nil),
+                profile: Profile(inboxId: "other2", conversationId: "test-conv", name: "Bob", avatar: nil),
                 role: .member,
                 isCurrentUser: false
             )
@@ -430,6 +426,7 @@ struct DefaultConversationDisplayTests {
             ConversationMember(
                 profile: Profile(
                     inboxId: "other1",
+                    conversationId: "test-conv",
                     name: "Alice",
                     avatar: nil,
                     metadata: ["emoji": .string("🦊")]
@@ -438,7 +435,7 @@ struct DefaultConversationDisplayTests {
                 isCurrentUser: false
             ),
             ConversationMember(
-                profile: Profile(inboxId: "other2", name: "Bob", avatar: nil),
+                profile: Profile(inboxId: "other2", conversationId: "test-conv", name: "Bob", avatar: nil),
                 role: .member,
                 isCurrentUser: false
             )

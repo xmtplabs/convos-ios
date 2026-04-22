@@ -12,16 +12,19 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
-    func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
-    func addInboxOnly() async -> AnyMessagingService
-    func deleteInbox(clientId: String, inboxId: String) async throws
+    /// Returns the shared messaging service and an optional conversation id
+    /// for a group pre-prepared by `UnusedConversationCache`. A background
+    /// prewarm is kicked off for the next caller. `conversationId` is nil
+    /// if no prepared group was available and the caller should create one
+    /// on demand.
+    func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
     // MARK: Messaging Services
 
-    func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
-    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService
+    func messagingService() -> AnyMessagingService
+    func messagingServiceSync() -> AnyMessagingService
 
     // MARK: Factory methods for repositories
 
@@ -30,11 +33,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
 
-    func conversationRepository(
-        for conversationId: String,
-        inboxId: String,
-        clientId: String
-    ) async throws -> any ConversationRepositoryProtocol
+    func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
@@ -59,16 +58,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func notifyChangesInDatabase()
     func shouldDisplayNotification(for conversationId: String) async -> Bool
 
-    // MARK: - Lifecycle Management
-
-    /// Sets the currently active client ID. This protects the inbox from being put to sleep during rebalancing.
-    /// Pass nil when no conversation is active (e.g., user is on conversation list).
-    func setActiveClientId(_ clientId: String?) async
-
-    func wakeInboxForNotification(clientId: String, inboxId: String) async
-    func wakeInboxForNotification(conversationId: String) async
-    func isInboxAwake(clientId: String) async -> Bool
-    func isInboxSleeping(clientId: String) async -> Bool
+    /// Ensures the messaging service is ready before processing a notification
+    /// for the given conversation. Safe to call from the NSE.
+    func wakeInboxForNotification(conversationId: String)
 
     // MARK: Helpers
 
@@ -78,8 +70,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func pendingInviteDetails() throws -> [PendingInviteDetail]
     func deleteExpiredPendingInvites() async throws -> Int
-    func orphanedInboxDetails() throws -> [OrphanedInboxDetail]
-    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws
+    func isAccountOrphaned() throws -> Bool
 
     // MARK: Asset Renewal
 

@@ -536,8 +536,11 @@ extension MessagesViewController {
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
                 if let agent = conversation.members.first(where: \.isAgent) {
-                    let inviterName: String? = agent.invitedBy.map {
-                        $0.inboxId == conversation.inboxId ? "You" : $0.displayName
+                    let inviterName: String? = agent.invitedBy.map { inviter in
+                        let inviterIsMe = conversation.members.contains {
+                            $0.isCurrentUser && $0.profile.inboxId == inviter.inboxId
+                        }
+                        return inviterIsMe ? "You" : inviter.displayName
                     }
                     cells.insert(.assistantPresentInfo(agent: agent, inviterName: inviterName), at: 1)
                 }
