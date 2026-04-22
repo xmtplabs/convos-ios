@@ -1,7 +1,7 @@
 # iCloud Backup — Port to Single-Inbox Identity
 
-> **Status**: Draft (rev 3 — XMTP archive re-added to bundle for device-loss restore)
-> **Created**: 2026-04-21 (rev 3: 2026-04-22)
+> **Status**: Draft (rev 4 — tightens restore lifecycle and terminal-error semantics after a second architect pass)
+> **Created**: 2026-04-21 (rev 3: 2026-04-22, rev 4: 2026-04-22)
 > **Supersedes**: [docs/plans/icloud-backup.md](./icloud-backup.md) (vault-centric design, never merged)
 > **Related**: [ADR 011 — Single-Inbox Identity Model](../adr/011-single-inbox-identity-model.md), [docs/plans/single-inbox-identity-refactor.md](./single-inbox-identity-refactor.md)
 > **Prior work**: PRs [#591](https://github.com/xmtplabs/convos-ios/pull/591), [#596](https://github.com/xmtplabs/convos-ios/pull/596), [#602](https://github.com/xmtplabs/convos-ios/pull/602), [#603](https://github.com/xmtplabs/convos-ios/pull/603), [#618](https://github.com/xmtplabs/convos-ios/pull/618), [#626](https://github.com/xmtplabs/convos-ios/pull/626) on `louis/icloud-backup` + `louis/backup-scheduler`
@@ -76,6 +76,7 @@ The shape this time is very different from the vault era:
 
 - **One archive, not N.** A single `client.createArchive` per bundle — not one archive per conversation.
 - **No race.** `importArchive` runs on the restored device *before* `SessionManager.resumeAfterRestore()`. If Device Sync later layers on top (when/if a peer installation comes online), it merges with the already-imported history per MLS semantics. Conversations imported from an archive are **inactive / read-only** per XMTP's own spec (`Group is inactive` on write) — which is exactly the UX state the `InactiveConversationBanner` was built for. They transition to active as peers re-engage via `StreamProcessor.reactivateIfNeeded`.
+- **Authoritative only for the bundle's point-in-time.** A conversation the user has since left on another device may be re-inserted by import; an MLS leave committed on a peer is not necessarily replayed with the same authority as a welcome. Divergence is reconciled on the next MLS sync pass — which is exactly what `InactiveConversationReactivator` (shipped in PR #725) is built to handle: imported conversations start inactive, peers eventually issue commits that activate or remove them, the reactivator flips state accordingly. This is why PR #725 lands ahead of this plan rather than alongside it.
 - **No consent duplication.** Archive element set is `{conversations, messages}` only; consent is reflected by the restored GRDB state and separately synced via XMTP's consent stream.
 - **Bounded test matrix.** Three meaningful cases: archive present + peer online (redundant, both resolve to same state), archive present + no peer (archive is the ground truth), archive missing + peer online (degraded to rev-2 behavior — conversation list only).
 
@@ -141,11 +142,31 @@ return try AES.GCM.open(sealed, using: key)
 
 That's it. No salt, no info string, no sidecar derivation parameter. The nonce is AES-GCM's built-in 96-bit random.
 
+### Two keys, two roles — don't collapse them
+
+The bundle's outer AES-GCM seal uses `identity.databaseKey` as just described. The inner XMTP archive (`xmtp-archive.bin`) uses a **separate** 32-byte `archiveKey` generated fresh per bundle via `SecRandomCopyBytes`, stored inside the GRDB-sidecar metadata tar entry. The outer seal therefore protects `archiveKey` along with everything else — decryption remains a single-key operation from the caller's perspective.
+
+| Key | Role | Lifetime | Source |
+|---|---|---|---|
+| Outer-seal key | Decrypts the bundle tar | Identity lifetime (same as XMTP local DB key) | `identity.databaseKey` from keychain |
+| `archiveKey` | Decrypts only `xmtp-archive.bin` | Per-bundle, ephemeral | Fresh CSPRNG at backup time |
+
+**Why not derive `archiveKey = HKDF(identity.databaseKey)`?** That collapses the two into one long-lived secret: every archive ever made becomes decryptable with the same key. If a pre-iCloud-Keychain leak ever occurs, every historical archive is exposed. Per-bundle fresh `archiveKey` keeps each snapshot's ciphertext cryptographically isolated, at the cost of 32 bytes in the bundle metadata. Trivial overhead.
+
+**Why not put `archiveKey` in the sidecar `metadata.json`?** The sidecar is unencrypted (it has to be — it's what `findAvailableBackup` reads without the bundle key). Exposing `archiveKey` there would make the XMTP archive decryptable by anyone with read access to the iCloud container. The sidecar carries `deviceId`, `deviceName`, `createdAt`, `schemaGeneration`, `appVersion`, `conversationCount`. It does **not** carry `archiveKey` or any other secret.
+
 ### `schemaGeneration` in metadata (not `databaseFilename`)
 
 The bundle's real version-skew risk is not the filename — it's the GRDB schema. `LegacyDataWipe` is gated on a `convos.schemaGeneration` marker in app-group UserDefaults; the current tag is `single-inbox-v2`. If we ever bump the generation, the wipe runs *before* `DatabaseManager` opens the DB, which is before restore runs. A bundle built at generation N, restored on a device running generation N+1, would be wiped by the wipe pass and silently lost.
 
-Mitigation: `metadata.json` carries `schemaGeneration: String`. `RestoreManager.findAvailableBackup` compares against `LegacyDataWipe.currentGeneration` and refuses mismatches with a clear error. Same-generation bundles restore as today; cross-generation bundles surface a "this backup was made on an older version of Convos and can't be restored" message.
+Mitigation: `metadata.json` carries `schemaGeneration: String`. `RestoreManager.findAvailableBackup` compares against `LegacyDataWipe.currentGeneration` and refuses mismatches.
+
+The mismatch case needs its own failure shape, not a generic "decryption failed":
+- `RestoreError.schemaGenerationMismatch(bundleGeneration: String, currentGeneration: String)` — distinct from `.decryptionFailed`, `.bundleCorrupt`, `.identityNotAvailable`.
+- User-facing copy: **"This backup was made on an older version of Convos and can't be restored. Try a newer backup, or start fresh."** — explicit about what happened and what the user can do, avoids blaming the user's data.
+- Telemetry event on encounter: `QAEvent.emit(.backup, "schema_generation_mismatch", ["bundle": bundleGen, "current": currentGen])`. If this turns out to be common in practice, we revisit before v2 — per-bundle migration SQL is rejected (attack surface, every reader has to verify every migration), but a forward-compatible bundle format might be worth considering.
+
+Reject the per-bundle migration-declaration alternative: bundles are produced continuously by `BackupScheduler`, so in the normal case a user on generation N+1 has a fresh bundle within hours of a schema bump. The population affected by "tried to restore a stale pre-bump bundle" is the intersection of "device-loss survivors" with "last backup predates schema bump and I uninstalled before BackupScheduler could refresh" — small. The error above is the right answer for the small population; don't let them block the design of the common path.
 
 ### Restore integration with `SessionManager` directly
 
@@ -178,6 +199,60 @@ func resumeAfterRestore() async {
 ```
 
 `RestoreManager` takes a `SessionManager` directly. No protocol, no registration, no mocking surface. Tests inject a `SessionManager` built against an in-memory keychain store.
+
+### Throwaway XMTP client for archive import
+
+`importArchive` needs an `XMTPiOS.Client`, but routing it through `SessionStateMachine` would require a new state (`.importing`), a new action (`.importArchive`), a branch in `handleAuthorize` that skips `authenticateBackend` + `syncingManager.start`, and teaching `SessionManager.loadOrCreateService()` not to cache this transient service. Four coupling points for a one-shot operation.
+
+Instead: `RestoreManager` constructs a throwaway `Client.build(publicIdentity:options:inboxId:)` directly against the freshly-empty `xmtp-*.db3`, calls `importArchive`, and releases. The real client gets built the normal way by `loadOrCreateService()` on `resumeAfterRestore`.
+
+This only works if three invariants hold:
+
+1. **The throwaway client fully releases its SQLCipher pool before the real client tries to open the same DB.** LibXMTP's SQLCipher connections are **not** ARC-managed — dropping the Swift reference does not release the pool. Call `try? client.dropLocalDatabaseConnection()` explicitly in a `defer` before letting the throwaway go out of scope.
+
+2. **`pauseForRestore` must also gate the in-process `loadOrCreateService()` path, not only the NSE.** The `RestoreInProgressFlag` in app-group UserDefaults stops the NSE, but a push arriving in the main app process mid-restore would still hit `wakeInboxForNotification → loadOrCreateService()` and race a second client against the throwaway on the same `xmtp-*.db3`. `SessionManager` needs a lock-guarded "restoring" flag alongside the cache-slot clear. `loadOrCreateService()` short-circuits while the flag is set (returns the cached errored-placeholder, same shape as the `FailedIdentityLoadOperation` path).
+
+3. **`resumeAfterRestore` must await the throwaway's teardown before unblocking.** Because `importArchive` is `async`, awaiting it before `resumeAfterRestore()` is called already gives the pool time to drop — but the contract should be explicit so a future refactor doesn't introduce a `Task.detached { import… }` shape that bypasses the barrier.
+
+Concretely, the updated seam:
+
+```swift
+// SessionManager
+private var isRestoringInProcess: Bool = false  // lock-guarded with cachedMessagingService
+
+func pauseForRestore() async {
+    RestoreInProgressFlag.set(true)
+    cachedMessagingService.withLock { slot in
+        isRestoringInProcess = true
+        slot = nil
+    }
+    await unusedConversationCache.cancel()
+    // stop previously-cached state machine if any; see below
+}
+
+func resumeAfterRestore() async {
+    RestoreInProgressFlag.set(false)
+    cachedMessagingService.withLock { _ in
+        isRestoringInProcess = false
+    }
+    _ = loadOrCreateService()
+}
+
+private func loadOrCreateService() -> MessagingService {
+    cachedMessagingService.withLock { slot in
+        if isRestoringInProcess {
+            // Placeholder: returning a service now would race against
+            // RestoreManager's throwaway client on the same xmtp-*.db3.
+            // Caller's next access after resumeAfterRestore() will rebuild.
+            return makeRestoringPlaceholder()
+        }
+        // existing logic unchanged from here
+        ...
+    }
+}
+```
+
+`RestoreManager` still owns its own throwaway-client construction and teardown — it doesn't go through `SessionManager` for that step. The only coupling is `pauseForRestore` / `resumeAfterRestore` on either side.
 
 ### NSE coordination during DB swap
 
@@ -216,12 +291,54 @@ The fresh-install restore prompt also uses `loadSync()` success as an additional
 Architect call: collapse `StaleDeviceState` (and the `InboxesRepository.staleInboxIdsPublisher` + per-inbox `isStale` plumbing) into a `SessionStateMachine.State.error(DeviceReplacedError)` case.
 
 Implementation:
-- Define `DeviceReplacedError: Error` in `ConvosCore/Inboxes/`.
+- Define `DeviceReplacedError: Error, TerminalSessionError` in `ConvosCore/Inboxes/`.
 - `SessionStateMachine`'s existing foreground-retry path (which already calls `inboxState(refreshFromNetwork: true)`-style network checks) throws `DeviceReplacedError` when `client.installationId` is not in the active installations list.
 - `State.error` already exists and is already observed by `SessionStateObserver`. `StaleDeviceBanner` observes and renders on a `DeviceReplacedError` match.
 - Reset action = `SessionManager.deleteAllInboxes()`, same as today.
 
 No new publisher, no new state enum, no new DB column. The check is one network call on foreground + on `authenticatingBackend → ready`.
+
+### Terminal errors: `handleRetryFromError` must not retry them
+
+`SessionStateMachine.handleRetryFromError` currently treats any `.error(Error)` as retryable on foreground, up to `maxForegroundRetries = 2`. That's correct for transient errors (network hiccup, keychain daemon stall, XMTP node blip). It's **wrong** for `DeviceReplacedError`: the retry re-runs `handleAuthorize`, encounters the same revoked installation, re-throws — burning a retry counter silently. Worse, if one of the retries succeeds by happenstance (e.g., a background sync refreshed the keychain between attempts), the session transitions to `.ready` without the reset banner ever appearing.
+
+Fix: marker protocol.
+
+```swift
+// ConvosCore/Inboxes/TerminalSessionError.swift
+/// Errors that terminate the session and cannot be recovered by retry.
+/// The observer layer (banners, reset UI) is the only path out.
+protocol TerminalSessionError: Error {}
+
+struct DeviceReplacedError: TerminalSessionError {}
+```
+
+```swift
+// SessionStateMachine.handleRetryFromError
+private func handleRetryFromError(_ error: any Error) async {
+    if error is TerminalSessionError {
+        Log.info("Not retrying terminal error: \(error)")
+        return
+    }
+    // existing retry logic
+}
+```
+
+The marker pattern means future terminal errors (hypothetical `BackupRestoreCorruptedError`, etc.) can opt in with one-line conformance declarations. No changes to the `.error(Error)` state enum. No observer-side coordination.
+
+**This is the one Rev 4 change that touches already-shipped surface** — `SessionStateMachine.handleRetryFromError` was refactored during the single-inbox refactor, and this plan's implementation PR amends it. The amendment is a single `if` at the top of the function plus the new marker-protocol file. Does not touch PR #725's `InactiveConversationReactivator` or the banner.
+
+### `archiveImportFailed` is retryable, not terminal
+
+`importArchive` can fail mid-restore (corrupt archive bytes, XMTP SDK version skew, disk I/O glitch). The plan's call is non-fatal: the GRDB restore is the primary contract, archive failure degrades to conversation-list-only. But degraded != gone — the failure should be **retryable**, not a one-shot abandonment.
+
+Contract:
+- `RestoreState.archiveImportFailed(Error)` is sticky across app launches (persisted via a flag in app-group UserDefaults alongside a copy of the archive bytes).
+- Archive bytes are retained at `<sharedContainer>/pending-archive-import.bin` until either a retry succeeds or the user explicitly dismisses.
+- `BackupRestoreSettingsView` surfaces a "Retry history import" button when the flag is set. Tapping runs `client.importArchive` against the persisted bytes on the current (already-restored) XMTP client — **not** a throwaway, and **not** inside a `pauseForRestore` window; the DB is already the restored DB, we're just layering archive content onto it.
+- Dismissing the flag deletes the archive bytes and the flag.
+
+Why not discard archive bytes on first failure? Because the user just consented to a destructive restore. "History import failed, want to try again without starting over?" is a much better experience than "History is gone, too bad" — and the archive bytes are already on disk, unpacked from the bundle. Retaining them is free.
 
 ---
 
@@ -332,19 +449,23 @@ One feature branch, organized via commits rather than PR boundaries. Every commi
 
 **`BackupManager` + `RestoreManager` + XMTP archive + revocation**
 - `BackupManager`: GRDB snapshot → `client.createArchive(elements: [.conversations, .messages])` with fresh 32-byte `archiveKey` → metadata → tar → seal → atomic iCloud/local write. Skip-if-no-identity, skip-if-restore-in-progress.
-- `RestoreManager`: `findAvailableBackup` (rejects schemaGeneration mismatch), `awaitIdentityWithTimeout`, decrypt → untar → validate → `pauseForRestore` → stash XMTP + snapshot identity → `replaceDatabase` → rebuild client on fresh XMTP DB → `client.importArchive` (non-fatal) → commit → `markAllConversationsInactive` → `XMTPInstallationRevoker` (non-fatal) → `resumeAfterRestore`.
+- `RestoreManager`: `findAvailableBackup` (rejects schemaGeneration mismatch), `awaitIdentityWithTimeout`, decrypt → untar → validate → `pauseForRestore` → stash XMTP + snapshot identity → `replaceDatabase` → construct throwaway `Client.build` against fresh empty XMTP DB → `client.importArchive` (non-fatal, retry path persists archive bytes) → `dropLocalDatabaseConnection` on throwaway → commit → `markAllConversationsInactive` → `XMTPInstallationRevoker` (non-fatal) → `resumeAfterRestore`.
 - `ConvosBackupArchiveProvider` / `ConvosRestoreArchiveImporter` in simplified single-call form.
-- `pauseForRestore()` / `resumeAfterRestore()` as package-internal methods on `SessionManager`.
-- Rollback harness: pre-restore keychain snapshot, XMTP stash, `committed` boundary. Rollback path restores XMTP stash and exits before `importArchive` runs — no half-imported state to unwind.
+- `pauseForRestore()` / `resumeAfterRestore()` as package-internal methods on `SessionManager`, gating both the `RestoreInProgressFlag` in app-group UserDefaults **and** an in-process `isRestoringInProcess` flag inside the `cachedMessagingService` lock. `loadOrCreateService()` short-circuits while in-process flag is set so a concurrent push delivery can't race a second client against the throwaway.
+- Rollback harness: pre-restore keychain snapshot, XMTP stash, `committed` boundary. Rollback path restores XMTP stash and exits before the throwaway client is constructed — no half-imported state to unwind.
+- `RestoreError.schemaGenerationMismatch(bundleGeneration:currentGeneration:)` distinct from generic decryption failure, wired to a specific user-facing message and a `QAEvent.emit(.backup, "schema_generation_mismatch", …)` telemetry hit.
+- `RestoreState.archiveImportFailed(Error)` + persisted `pending-archive-import.bin` in shared container. `BackupRestoreSettingsView` surfaces a "Retry history import" row when set; dismiss deletes the file and flag.
 
-**`DeviceReplacedError` + banner**
-- `DeviceReplacedError: Error` in `ConvosCore/Inboxes/`.
+**`DeviceReplacedError` + `TerminalSessionError` marker + banner**
+- `TerminalSessionError` marker protocol in `ConvosCore/Inboxes/`.
+- `DeviceReplacedError: TerminalSessionError` in `ConvosCore/Inboxes/`.
 - `SessionStateMachine` installation-active check on `authenticatingBackend → ready` and on foreground retry; transitions to `.error(DeviceReplacedError())` on detection.
+- `SessionStateMachine.handleRetryFromError` short-circuits when `error is TerminalSessionError` — prevents silent retry-counter burn on a replaced device.
 - `StaleDeviceBanner` single-variant ("This device has been replaced"), observes `SessionStateObserver`. Reset action = `SessionManager.deleteAllInboxes()`.
 - Delete any leftover `staleInboxIdsPublisher` / per-inbox `isStale` scaffolding.
 
 **Settings + scheduler + restore prompt + docs**
-- `BackupRestoreSettingsView` + `BackupRestoreViewModel` (strip vault-specific UI).
+- `BackupRestoreSettingsView` + `BackupRestoreViewModel` (strip vault-specific UI; add "Retry history import" row gated on `archiveImportFailed` flag).
 - `BackupDebugView` (drop vault-sync debug).
 - `BackupScheduler` (main-app target, `org.convos.backup.daily`, register + schedule from `ConvosApp.init`, honor `RestoreInProgressFlag`). `INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers` in xcconfigs.
 - Fresh-install restore prompt card (empty conversations view, re-check on `sceneDidBecomeActive`, gates Restore on `loadSync()` success).
@@ -379,6 +500,9 @@ One feature branch, organized via commits rather than PR boundaries. Every commi
 4. **Wipe bundle on reset?** **No.** Leave it. Surviving same-Apple-ID devices can still decrypt. Destructive moves on user confusion are bad policy.
 5. **Device Sync + importArchive overlap?** **Ordered, not raced.** `importArchive` runs inside `pauseForRestore`, on a fresh empty XMTP DB, before streams open. Device Sync — if a peer later comes online — merges per MLS semantics with already-imported conversations. The imported conversations are MLS-inactive until reactivated by the peer, so there is no writable-state collision.
 6. **`databaseFilename` in metadata?** **No — `schemaGeneration` instead.** That's the thing that actually governs restore correctness.
+7. **Retry vs terminate on `DeviceReplacedError`?** **Terminate.** `SessionStateMachine.handleRetryFromError` short-circuits on `TerminalSessionError` conformance. Retrying a revoked installation accomplishes nothing and — if a retry happens to coincide with a background keychain refresh — can silently land the session in `.ready` without surfacing the reset banner.
+8. **Should `importArchive` failure be retryable, fatal, or abandon silently?** **Retryable.** The user consented to a destructive restore; "history import failed, try again" is strictly better than "history is gone, start over." Archive bytes persist at `<sharedContainer>/pending-archive-import.bin` until success or explicit dismiss. `BackupRestoreSettingsView` surfaces the retry affordance.
+9. **Route `importArchive` through `SessionStateMachine`, or construct a throwaway client?** **Throwaway client, owned by `RestoreManager`.** State-machine routing would require a new `.importing` state, a new action, and a `SessionManager` cache-don't-cache branch — four coupling points for a one-shot operation. Throwaway: explicit `Client.build` → `importArchive` → `dropLocalDatabaseConnection` in a `defer`. In-process `isRestoringInProcess` flag on `SessionManager` gates `loadOrCreateService()` so a concurrent push can't race a second client against the same SQLCipher pool.
 
 ---
 
@@ -393,7 +517,11 @@ One feature branch, organized via commits rather than PR boundaries. Every commi
 | `BackupScheduler` fires during restore | **Medium** | Scheduler honors `RestoreInProgressFlag` and reschedules. |
 | `UnusedConversationCache` prewarm mid-restore poisons restored DB | **Medium** | `pauseForRestore` cancels and awaits unwind before swap. |
 | `SessionManager.cachedMessagingService` race with restore | **Medium** | `pauseForRestore` clears slot under lock; `resumeAfterRestore` lets `loadOrCreateService` naturally repopulate. |
-| `importArchive` failure leaves GRDB restored but no message history | **Medium** | Non-fatal; surfaced via `RestoreState.archiveImportFailed(Error)`. User sees conversation list + inactive banners; Device Sync may later populate if a peer comes online. |
+| In-process push arrives mid-restore, races throwaway XMTP client | **High** | `pauseForRestore` sets an in-process `isRestoringInProcess` flag inside the `cachedMessagingService` lock; `loadOrCreateService()` short-circuits while set. App-group `RestoreInProgressFlag` handles the NSE side; in-process flag handles the main-app side. |
+| Throwaway XMTP client leaks SQLCipher pool, real client can't open DB | **High** | `RestoreManager` calls `client.dropLocalDatabaseConnection()` in a `defer` before the throwaway goes out of scope. LibXMTP pools are not ARC-managed. |
+| `handleRetryFromError` retries `DeviceReplacedError`, burns counter silently | **Medium** | `TerminalSessionError` marker + short-circuit in `handleRetryFromError`. Reset banner is the only path out of terminal errors. |
+| `importArchive` failure leaves GRDB restored but no message history | **Medium** | Non-fatal and **retryable**; surfaced via `RestoreState.archiveImportFailed(Error)` with archive bytes persisted at `<sharedContainer>/pending-archive-import.bin` + Settings-visible "Retry history import" row. Dismiss clears both. Device Sync may also populate later if a peer comes online. |
+| Retained archive bytes forgotten → permanent ~few-MB leak per failed restore | **Low** | Flag + file deleted on successful retry or explicit dismiss. `LegacyDataWipe` sweeps the file on its next generation bump as a belt-and-suspenders. |
 | `replaceDatabase` rollback fails (double-fault) | **Critical but rare** | `DatabaseManagerError.rollbackFailed`; UI must treat as fatal and surface reinstall path. Already covered in port. |
 | Inactive conversation never reactivates (quiet conversation) | **Medium** | Banner persists — same limitation as old plan. Revisit with periodic `isActive()` probe in a follow-up if users report it. |
 | Bundle decryption fails because identity rotated | **Low** | Only rotates on delete-all-data or on successful restore. Both are explicit user actions. |
@@ -412,6 +540,9 @@ Phase complete when:
 - [ ] Background backup runs daily on a real device without user action.
 - [ ] NSE and `BackupScheduler` both drop work cleanly during a restore window.
 - [ ] `importArchive` failure is non-fatal and surfaces as `RestoreState.archiveImportFailed`; restored user sees conversation list with inactive banners.
+- [ ] "Retry history import" in Settings successfully re-runs `importArchive` against persisted bytes after a transient failure; dismiss deletes both the flag and the bytes.
+- [ ] `DeviceReplacedError` does **not** trigger foreground retry (verified by observing the retry counter stays at 0 after the error surfaces).
+- [ ] Concurrent push delivery during a restore window does not spawn a second XMTP client against the same SQLCipher DB (verified by injecting a synthetic push mid-`pauseForRestore`).
 - [ ] All `RestoreManagerTests`, `BackupBundleTests`, `ConversationLocalStateWriterTests` pass. No `StaleDeviceStateTests` (deleted with the state enum).
 - [ ] `swift test --package-path ConvosCore` green with zero new flakes. QA regression suite is zero regressions against the `single-inbox-refactor` baseline.
 
