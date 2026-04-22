@@ -10,7 +10,7 @@ import Testing
 ///   id matches, fed via `.activeConversationChanged`).
 /// - The user is on the conversations list, where the new-message indicator
 ///   already surfaces the update (fed via `setIsOnConversationsList`).
-@Suite("SessionManager notification banner suppression")
+@Suite("SessionManager notification banner suppression", .serialized)
 struct SessionManagerNotificationSuppressionTests {
     @Test("Displays banner when user is on an unrelated screen")
     func displaysWhenIdle() async throws {
