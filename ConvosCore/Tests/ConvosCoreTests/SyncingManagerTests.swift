@@ -82,6 +82,16 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 
+    func inboxState(refreshFromNetwork: Bool) async throws -> XMTPiOS.InboxState {
+        fatalError("TestableMockClient.inboxState unused by tests in this suite")
+    }
+
+    func createArchive(path: String, encryptionKey: Data) async throws {
+    }
+
+    func importArchive(path: String, encryptionKey: Data) async throws {
+    }
+
     func deleteLocalDatabase() throws {
     }
 

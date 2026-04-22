@@ -67,6 +67,44 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
 
     public func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
         // No-op for mock
+        revokeCalls.append((signingKey, installationIds))
+    }
+
+    public var revokeCalls: [(signingKey: any SigningKey, installationIds: [String])] = []
+    public var stubInboxState: XMTPiOS.InboxState?
+    public var inboxStateError: (any Error)?
+
+    public func inboxState(refreshFromNetwork: Bool) async throws -> XMTPiOS.InboxState {
+        if let error = inboxStateError {
+            throw error
+        }
+        guard let state = stubInboxState else {
+            fatalError("MockXMTPClientProvider.inboxState called without stubInboxState set")
+        }
+        return state
+    }
+
+    public var createArchiveCalls: [(path: String, encryptionKey: Data)] = []
+    public var createArchiveError: (any Error)?
+
+    public func createArchive(path: String, encryptionKey: Data) async throws {
+        createArchiveCalls.append((path, encryptionKey))
+        if let error = createArchiveError {
+            throw error
+        }
+        // Produce a placeholder file at the path so callers that stat
+        // the result see it exists.
+        try? Data("mock-archive".utf8).write(to: URL(fileURLWithPath: path))
+    }
+
+    public var importArchiveCalls: [(path: String, encryptionKey: Data)] = []
+    public var importArchiveError: (any Error)?
+
+    public func importArchive(path: String, encryptionKey: Data) async throws {
+        importArchiveCalls.append((path, encryptionKey))
+        if let error = importArchiveError {
+            throw error
+        }
     }
 
     public func deleteLocalDatabase() throws {

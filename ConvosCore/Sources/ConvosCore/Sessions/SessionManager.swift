@@ -451,20 +451,33 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             return slot
         }
 
-        await unusedConversationCache.cancel()
+        // Defensive: `cancel()` and `stop()` are non-throwing today,
+        // but if either grows a throw site in the future the caller
+        // would see a half-paused session (flag set, cache not
+        // cleared) with no cleanup. The `Task.checkCancellation()`
+        // below also lets a cancelled restore unwind cleanly — the
+        // catch re-runs `resumeAfterRestore` so the flags come off
+        // before we rethrow.
+        do {
+            try Task.checkCancellation()
+            await unusedConversationCache.cancel()
 
-        if let existing {
-            Log.info("pauseForRestore: stopping cached messaging service")
-            await existing.stop()
+            if let existing {
+                Log.info("pauseForRestore: stopping cached messaging service")
+                await existing.stop()
+            }
+
+            // Clear the slot only after `stop()` so a concurrent
+            // `loadOrCreateService()` sees the being-stopped service
+            // (while also observing `isRestoringInProcess` and falling
+            // through to the placeholder path). The slot will be
+            // repopulated with a `RestoreInProgressError` placeholder on
+            // the next call.
+            cachedMessagingService.withLock { $0 = nil }
+        } catch {
+            await resumeAfterRestore()
+            throw error
         }
-
-        // Clear the slot only after `stop()` so a concurrent
-        // `loadOrCreateService()` sees the being-stopped service
-        // (while also observing `isRestoringInProcess` and falling
-        // through to the placeholder path). The slot will be
-        // repopulated with a `RestoreInProgressError` placeholder on
-        // the next call.
-        cachedMessagingService.withLock { $0 = nil }
 
         Log.info("pauseForRestore: session paused")
     }
@@ -486,11 +499,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             Log.error("resumeAfterRestore: failed to clear app-group flag (\(error)); NSE will see stale 'restoring' until app-group becomes available")
         }
 
-        // Trigger a rebuild. `loadOrCreateService()` is no longer
-        // short-circuited by `isRestoringInProcess`, so this restarts
-        // the state machine against the restored identity + DB.
-        _ = loadOrCreateService()
-
+        // Lazy rebuild — next `messagingService()` caller builds the
+        // real service against the restored identity + DB. Mirrors
+        // `tearDownInbox`'s pattern (nil the slot, don't prewarm);
+        // eagerly rebuilding here would swallow keychain-unreadable
+        // errors into a silently-errored cached service.
         Log.info("resumeAfterRestore: session resumed")
     }
 

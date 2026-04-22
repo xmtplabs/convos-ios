@@ -143,6 +143,27 @@ public protocol XMTPClientProvider: AnyObject {
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+
+    /// Fetch this inbox's current MLS state. Used by the revoker to
+    /// enumerate live installations before deciding which to revoke.
+    /// `refreshFromNetwork: true` forces a fresh read; with `false`
+    /// the SDK returns its cached view which may be stale.
+    func inboxState(refreshFromNetwork: Bool) async throws -> XMTPiOS.InboxState
+
+    /// Write an encrypted XMTP archive of this client's conversations
+    /// and messages to `path`. Key must be 32 bytes. The archive is
+    /// AES-256-GCM-encrypted by the SDK; we carry the same key inside
+    /// the backup bundle's full-form metadata so `importArchive` can
+    /// read it back.
+    func createArchive(path: String, encryptionKey: Data) async throws
+
+    /// Read an encrypted XMTP archive at `path` and apply it to this
+    /// client's local MLS state. Caller must have constructed the
+    /// client against an empty XMTP DB file — importing onto a
+    /// populated DB has undefined behavior per the SDK's archive
+    /// contract.
+    func importArchive(path: String, encryptionKey: Data) async throws
+
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -187,6 +208,15 @@ extension XMTPiOS.Client: XMTPClientProvider {
 
     public var inboxId: String {
         inboxID
+    }
+
+    // Forwarding wrappers for the backup/restore archive APIs.
+    // XMTPiOS.Client's `createArchive(path:encryptionKey:opts:)` takes
+    // an `opts: ArchiveOptions = .init()` third arg; the protocol
+    // requirement takes only path + encryptionKey, so an explicit
+    // pass-through is needed for the witness to resolve.
+    public func createArchive(path: String, encryptionKey: Data) async throws {
+        try await self.createArchive(path: path, encryptionKey: encryptionKey, opts: ArchiveOptions())
     }
 
     public func canMessage(identity: String) async throws -> Bool {
