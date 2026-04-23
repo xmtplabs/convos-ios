@@ -1,1 +1,0 @@
-../../../qa/skills/qa-writer/SKILL.md
