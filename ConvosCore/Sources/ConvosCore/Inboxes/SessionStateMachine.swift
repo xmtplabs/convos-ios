@@ -617,6 +617,21 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
+        // Installation-active check. If a peer device ran restore and
+        // revoked this installation in the tail of its flow, we need to
+        // surface the replacement rather than quietly hand the user a
+        // session whose inbox writes will all bounce. DeviceReplacedError
+        // is a TerminalSessionError so the foreground-retry path won't
+        // silently cycle out of it.
+        if try await !Self.isInstallationActive(
+            inboxId: client.inboxId,
+            installationId: client.installationId,
+            environment: environment
+        ) {
+            Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
+            throw DeviceReplacedError()
+        }
+
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
 
@@ -773,6 +788,17 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleRetryFromError() async throws {
         try Task.checkCancellation()
+
+        // Terminal errors cannot be recovered by retry — the observer
+        // layer (banners, reset UI) is the only path out. Retrying here
+        // burns the counter silently and, if a retry happens to succeed
+        // by coincidence (e.g. a background refresh updated the keychain
+        // between attempts), lands the session in .ready without the
+        // reset banner ever appearing.
+        if case let .error(error) = _state, error is TerminalSessionError {
+            Log.info("Not retrying terminal error: \(type(of: error))")
+            return
+        }
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
             Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
@@ -1008,6 +1034,36 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private static let backendAuthMaxRetries: Int = 3
     private static let backendAuthBaseDelay: UInt64 = 2_000_000_000
+
+    /// Returns `true` if `installationId` is in the inbox's active
+    /// installations list, per the XMTP identity API. Swallowed into `true`
+    /// if the network check fails — a transient API error should not
+    /// spuriously lock the user out. Genuine revocations return a clean
+    /// "not in list" answer that this method surfaces as `false`.
+    /// Skipped in the testing environment (`.tests`) because the XMTP
+    /// local-node endpoint doesn't stabilize within unit-test timing.
+    private static func isInstallationActive(
+        inboxId: String,
+        installationId: String,
+        environment: AppEnvironment
+    ) async throws -> Bool {
+        if environment.isTestingEnvironment {
+            return true
+        }
+        let api = XMTPAPIOptionsBuilder.build(environment: environment)
+        let states: [XMTPiOS.InboxState]
+        do {
+            states = try await Client.inboxStatesForInboxIds(inboxIds: [inboxId], api: api)
+        } catch {
+            Log.warning("SessionStateMachine: inbox-state check failed, treating as active: \(error)")
+            return true
+        }
+        guard let state = states.first else {
+            Log.warning("SessionStateMachine: empty inbox state, treating as active")
+            return true
+        }
+        return state.installations.contains { $0.id == installationId }
+    }
 
     private func authenticateBackend() async throws {
         try Task.checkCancellation()
