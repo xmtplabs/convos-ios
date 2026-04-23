@@ -145,15 +145,16 @@ echo "✅ All dependencies are properly installed"
 # Firebase App Check Debug Token                                                #
 ################################################################################
 
-if [ ! "${CI}" = true ]; then
+if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
     ENV_FILE="${DIRNAME}/../.env"
     if [ ! -f "$ENV_FILE" ]; then
         echo ""
-        echo "⚠️  No .env file found"
-        echo "   Copy the template to get started:"
+        echo "⚠️  No .env file found at ${ENV_FILE}"
+        echo "   If this is a worktree, symlink the parent's .env:"
+        echo "     ln -s ../.env .env"
+        echo "   Otherwise copy the template and add a FIREBASE_APP_CHECK_DEBUG_TOKEN from"
+        echo "   https://console.firebase.google.com/project/convos-otr/appcheck :"
         echo "     cp .env.example .env"
-        echo "   Then (optionally) add a FIREBASE_APP_CHECK_DEBUG_TOKEN from:"
-        echo "     https://console.firebase.google.com/project/convos-otr/appcheck"
     elif ! grep -q "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" || \
          [ -z "$(grep "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" | cut -d'=' -f2-)" ]; then
         echo ""
