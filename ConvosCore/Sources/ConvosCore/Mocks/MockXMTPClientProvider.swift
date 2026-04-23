@@ -80,6 +80,14 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
     public func dropLocalDatabaseConnection() throws {
         // No-op for mock
     }
+
+    public func createArchive(atPath path: String, encryptionKey: Data) async throws {
+        try Data("mock-archive".utf8).write(to: URL(fileURLWithPath: path))
+    }
+
+    public func importArchive(fromPath path: String, encryptionKey: Data) async throws {
+        // No-op for mock
+    }
 }
 
 /// Mock implementation of ConversationsProvider for testing
