@@ -59,7 +59,7 @@ If the accessibility-tree tap fails, fall through to these coords. Re-verify per
 | pi action | Primary (Bash+idb) | MCP fallback |
 |-----------|---------------------|--------------|
 | `sim_type_in_field(id="X", text="Y")` | tap field (see above) → `$IDB ui text "Y" --udid $UDID` | `mcp__XcodeBuildMCP__tap` + `type_text` |
-| clear first | after tap: `$IDB ui key 42 --udid $UDID` (backspace) in a loop, or long-press to select-all then backspace | MCP `key_sequence` with `[226, 4]` (cmd+A) + `key_press(42)` |
+| clear first | after tap: `$IDB ui key 42 --udid $UDID` (backspace) in a loop, or long-press to select-all then backspace | MCP `key_sequence` with `[227, 4]` (cmd+A — USB HID 227=Left GUI, 4=A) + `key_press(42)` |
 | `sim_ui_type(text)` | `$IDB ui text "text" --udid $UDID` | `mcp__XcodeBuildMCP__type_text({ text })` |
 | `sim_ui_key(40)` — Return | `$IDB ui key 40 --udid $UDID` | `mcp__XcodeBuildMCP__key_press({ keycode: 40 })` |
 | `sim_ui_key(42)` — Backspace | `$IDB ui key 42 --udid $UDID` | `key_press({ keycode: 42 })` |
@@ -148,7 +148,14 @@ tail -c +$((LOG_MARKER_BYTES + 1)) "$APP_GROUP" | grep -F '[EVENT]'
 tail -c +$((LOG_MARKER_BYTES + 1)) "$APP_GROUP" | grep -F '[EVENT] message.sent'
 ```
 
-If the app is relaunched mid-test, the log file resets — re-read `APP_GROUP` and reset `LOG_MARKER_BYTES` to 0.
+If the app is relaunched mid-test, the log file is truncated and rewritten — re-read `APP_GROUP` and reset `LOG_MARKER_BYTES` to 0. You can detect this cheaply before any read:
+
+```bash
+CURRENT_SIZE=$(wc -c < "$APP_GROUP")
+if [ "$CURRENT_SIZE" -lt "$LOG_MARKER_BYTES" ]; then
+    LOG_MARKER_BYTES=0   # log rotated / app relaunched
+fi
+```
 
 **`xcrun simctl spawn <udid> log show` is a fallback only** and is unreliable with ISO timestamps — if you use it, pass a relative time like `--last 2m`.
 
