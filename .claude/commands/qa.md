@@ -18,6 +18,7 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
 | `/qa report` | Render the latest run to `qa/reports/run-<id>.md` and print the summary. |
 | `/qa list` | List available tests with their current status in the active run. |
 | `/qa --sequential` | Disable parallel fanout (run everything on the primary simulator). Default is to fan out migration onto its own simulator in parallel with the main sequence. |
+| `/qa --dry-run` | Verify preconditions (simulator, idb, convos CLI, cxdb.sh, built app, available YAMLs) and print what the run would do. No dispatches, no CXDB writes. |
 
 ## Before dispatching
 
@@ -26,6 +27,22 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
    - `qa/TOOLS-CLAUDE.md` — pi `sim_*` vocabulary → Claude MCP / Bash mapping. **Always use this when translating YAML actions.**
    - `qa/tests/structured/README.md` — action/verify/criteria semantics.
 2. **Resolve the primary simulator UDID.** Read `.claude/.simulator_id`. If missing, fall back to `.convos-task` `SIMULATOR_NAME` or derive from `git branch --show-current` per `qa/RULES.md` "Simulator Selection", then resolve via `xcrun simctl list devices -j`. If the simulator doesn't exist, run `/setup` first and abort.
+2a. **Verify prerequisites.** The runner needs all of these — abort with clear install instructions if any are missing:
+   ```bash
+   # idb — the primary UI-automation tool. Check common install locations.
+   IDB=""
+   for p in "$IDB_OVERRIDE" "/Users/$(whoami)/Library/Python/3.9/bin/idb" "$HOME/Library/Python/3.9/bin/idb" "/opt/homebrew/bin/idb" "/usr/local/bin/idb" "$(command -v idb 2>/dev/null)"; do
+     [ -n "$p" ] && [ -x "$p" ] && IDB="$p" && break
+   done
+   [ -z "$IDB" ] && { echo "❌ idb not found. Install: python3 -m pip install --user fb-idb. Or set IDB_OVERRIDE to the binary path."; exit 1; }
+
+   # convos CLI
+   command -v convos >/dev/null || { echo "❌ convos CLI not on PATH. Install per ~/.convos setup docs."; exit 1; }
+   convos identity list >/dev/null 2>&1 || convos init --env dev --force
+
+   # cxdb.sh — exec bit can be dropped by git on some checkouts
+   [ -x qa/cxdb/cxdb.sh ] || chmod +x qa/cxdb/cxdb.sh
+   ```
 3. **Verify the app is running.** Take a quick screenshot. If it isn't, run `/run` to build + install + launch. This may take a few minutes; report progress.
 4. **Prepare the simulator once** per session (idempotent — safe to re-run):
    ```bash
@@ -45,6 +62,32 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
      RUN=$($CXDB new-run "$UDID" "$(git rev-parse --short HEAD)" "iPhone")
      ```
 6. **Verify `convos` CLI.** `convos identity list`. If it errors, `convos init --env dev --force`.
+
+## `/qa --dry-run`
+
+Do every step in "Before dispatching" 1-4 and 2a (simulator resolve, prerequisite check, sim prep) but **skip 5, 6, and the actual dispatch**. Instead, print a readiness report and exit.
+
+```bash
+# Readiness report
+echo "=== /qa --dry-run ==="
+echo "Simulator:     <SIMULATOR_NAME> ($UDID)"
+echo "idb:           $IDB"
+echo "convos CLI:    $(command -v convos) ($(convos --version 2>/dev/null | head -1))"
+echo "cxdb.sh:       qa/cxdb/cxdb.sh ($([ -x qa/cxdb/cxdb.sh ] && echo ok || echo FIXED))"
+echo "App bundle:    $(find .derivedData/Build/Products -name 'Convos.app' -type d | head -1 || echo 'NOT BUILT — run /run first')"
+echo ""
+echo "Tests found:   $(ls qa/tests/structured/*.yaml | wc -l) YAMLs in qa/tests/structured/"
+echo "Budget:        ~$(grep -h '^estimated_duration_s:' qa/tests/structured/*.yaml | awk '{s+=$2} END{print int(s/60)}') min estimated, ~$(grep -h '^estimated_duration_s:' qa/tests/structured/*.yaml | awk '{s+=$2} END{print int(s*2/60)}') min watchdog budget (2× safety)"
+echo ""
+echo "Would dispatch (default fanout):"
+echo "  [A] test 13 (migration) on an isolated simulator"
+echo "  [B] main sequence on $UDID (skip 13)"
+echo ""
+echo "Active CXDB run: $($CXDB active-run || echo none)"
+echo "Pending in that run: $(ALL=$(ls qa/tests/structured/ | grep -oE '^[0-9]+[a-z]?' | sort -u | paste -sd,); [ -n \"$($CXDB active-run)\" ] && $CXDB pending-tests $($CXDB active-run) \"$ALL\" | wc -l || echo n/a)"
+```
+
+If any prerequisite check in step 2a failed, the dry-run surfaces exactly what's missing and exits non-zero without starting anything.
 
 ## Ordering and parallelism
 
@@ -71,6 +114,18 @@ plus secondary tests `14, 22, 23, 23b, 24, 25, 26, 28b, 29, 30, 31, 32, 33` slot
 Do not spawn more than this — additional agents will fight over the primary simulator and CXDB rows.
 
 For `/qa <id>` with a single id: just dispatch one agent — no parallelism needed.
+
+## Expected durations
+
+Per-test budgets come from each YAML's `estimated_duration_s`. The real-world factor tends to be 1.5–1.6× the estimate (based on run `b552ccce49c3`: 115 min estimated, 185 min actual including all chunks + migration). The watchdog's 2× safety factor accounts for this.
+
+**Full suite:** ~2 hours estimated, **2.5–3 hours actual** wall-clock (including build, install, per-test setup/teardown, CLI sync, and inter-test navigation).
+
+**Quickest tests** (< 2 min): 15-performance, 17-swipe-actions, 18-delete, 22-rejoin, 25-baseline, 25b-defaults, 26-failed-send, 29-typing, 31-convos-button.
+
+**Slowest tests** (≥ 5 min estimated): 13-migration (10m — runs on isolated sim, parallelizable), 27-video, 03-invite-deep-link, 05-reactions, 15-performance, 20-photos, 21-gestures, 28-files, 35-identity.
+
+If a single chunk's runner exceeds `sum(estimated_duration_s) × 2` minutes with no CXDB progress (see **Watchdogging runners** below), treat it as hung.
 
 ## Dispatching a qa-runner
 
