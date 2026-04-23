@@ -115,10 +115,88 @@ struct RestoreManagerTests {
         }
     }
 
+    @Test("state transitions to .failed when an early throw escapes (not stuck at .decrypting)")
+    func testEarlyThrowLandsAtFailedState() async throws {
+        clearRestoreFlag()
+        let ctx = try await TestContext.make()
+        defer { ctx.cleanup() }
+
+        // schemaGeneration mismatch throws from readAndValidateMetadata
+        // BEFORE performRestore's own catch runs — the old implementation
+        // left state at `.validating`, the new one transitions to
+        // `.failed(...)` via the outer guard in `restoreFromBackup`.
+        let bundleURL = try await ctx.makeBundle()
+        let mismatchManager = RestoreManager(
+            databaseManager: ctx.databaseManager,
+            identityStore: ctx.identityStore,
+            sessionManager: ctx.sessionManager,
+            environment: .tests,
+            clientBuilder: ctx.clientBuilder,
+            currentSchemaGeneration: "single-inbox-v999",
+            identityPollInterval: .milliseconds(5),
+            identityTimeout: .milliseconds(200)
+        )
+
+        do {
+            try await mismatchManager.restoreFromBackup(bundleURL: bundleURL)
+            Issue.record("expected restoreFromBackup to throw")
+        } catch {
+            // expected
+        }
+
+        let state = await mismatchManager.state
+        if case .failed = state {
+            // expected — observers get a terminal signal instead of
+            // a wedged intermediate one.
+        } else {
+            Issue.record("expected .failed(...) after schemaGeneration mismatch throw, got \(state)")
+        }
+    }
+
+    @Test("awaitIdentity propagates non-notFound keychain errors instead of timing out")
+    func testAwaitIdentityPropagatesKeychainError() async throws {
+        clearRestoreFlag()
+        let ctx = try await TestContext.make()
+        defer { ctx.cleanup() }
+        let bundleURL = try await ctx.makeBundle()
+
+        // Force the keychain to throw on every loadSync. Previously
+        // awaitIdentity's `try?` swallowed this and burned the full
+        // timeout before surfacing `.identityTimeout`. Now the real
+        // error propagates immediately.
+        ctx.identityStore._setLoadError(StubKeychainError.daemonUnavailable)
+
+        let fastTimeoutManager = RestoreManager(
+            databaseManager: ctx.databaseManager,
+            identityStore: ctx.identityStore,
+            sessionManager: ctx.sessionManager,
+            environment: .tests,
+            clientBuilder: ctx.clientBuilder,
+            currentSchemaGeneration: LegacyDataWipe.currentGeneration,
+            identityPollInterval: .milliseconds(5),
+            // 5 seconds — test should return fast via propagation,
+            // not wait out the timeout. If it waits, we fail loud.
+            identityTimeout: .seconds(5)
+        )
+
+        let start = ContinuousClock.now
+        await #expect(throws: StubKeychainError.self) {
+            try await fastTimeoutManager.restoreFromBackup(bundleURL: bundleURL)
+        }
+        let elapsed = ContinuousClock.now - start
+        // Well under the 5s timeout — the error should surface on the
+        // first `loadSync` attempt, not after polling exhausts.
+        #expect(elapsed < .milliseconds(500))
+    }
+
     // MARK: - Helpers
 
     private enum StubArchiveError: Error {
         case simulated
+    }
+
+    private enum StubKeychainError: Error {
+        case daemonUnavailable
     }
 
     private enum StubInboxStateError: Error {

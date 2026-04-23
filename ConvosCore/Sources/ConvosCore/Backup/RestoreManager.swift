@@ -174,6 +174,21 @@ public actor RestoreManager {
     // MARK: - Main flow
 
     public func restoreFromBackup(bundleURL: URL) async throws {
+        // Outer guard: any throw escaping the flow lands in
+        // `.failed(...)` before re-propagating, so observers watching
+        // `state` never see a stuck intermediate value (previously,
+        // throws from `awaitIdentity` / `unpack` / `pauseForRestore`
+        // / `stageXMTPFiles` left the caller at `.decrypting` or
+        // `.preparingSession` indefinitely).
+        do {
+            try await runRestore(bundleURL: bundleURL)
+        } catch {
+            state = .failed(error.localizedDescription)
+            throw error
+        }
+    }
+
+    private func runRestore(bundleURL: URL) async throws {
         state = .decrypting
 
         let bundleData = try readBundle(at: bundleURL)
@@ -230,11 +245,12 @@ public actor RestoreManager {
             committed = true
         } catch {
             // Pre-commit failure: restore the stash, then rethrow.
+            // The outer `restoreFromBackup` catch sets state = .failed;
+            // this branch only needs to unwind the session + files.
             if let stash = xmtpStashDir {
                 restoreXMTPStash(from: stash)
             }
             await sessionManager.resumeAfterRestore()
-            state = .failed(error.localizedDescription)
             throw error
         }
 
@@ -271,16 +287,22 @@ public actor RestoreManager {
     }
 
     private func awaitIdentity() async throws -> KeychainIdentity {
+        // `loadSync` returns `nil` for the "not found" case and throws
+        // for anything else (access denied, corrupt JSON, daemon
+        // unavailable). We only want to retry the "not found" case —
+        // an access-denied error polled 60 times over 30 seconds and
+        // then surfaced as `.identityTimeout` is a worse diagnostic
+        // than surfacing the real keychain error immediately.
         let deadline = ContinuousClock.now.advanced(by: identityTimeout)
         while ContinuousClock.now < deadline {
-            if let identity = try? identityStore.loadSync() {
+            if let identity = try identityStore.loadSync() {
                 return identity
             }
             try await Task.sleep(for: identityPollInterval)
         }
         // One final attempt after deadline so a just-synced identity
-        // isn't missed by a hair.
-        if let identity = try? identityStore.loadSync() {
+        // isn't missed by a hair. Errors here propagate too.
+        if let identity = try identityStore.loadSync() {
             return identity
         }
         throw RestoreError.identityTimeout

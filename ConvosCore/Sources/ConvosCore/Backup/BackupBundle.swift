@@ -150,12 +150,19 @@ public enum BackupBundle {
         try validateHeader(data, offset: &offset)
 
         while offset < data.count {
-            guard offset + 4 <= data.count else {
+            // Overflow-safe bounds: `data.count - offset >= N` instead
+            // of `offset + N <= data.count`. With the offset advancing
+            // through the buffer, a crafted length field could drive
+            // the addition past Int.max and trap; the subtraction form
+            // stays in range. The 1-byte format header skips us to
+            // offset = 5, which is not 4-byte-aligned — the UInt32
+            // read below must be `loadUnaligned`.
+            guard data.count - offset >= 4 else {
                 throw BundleError.unpackingFailed("truncated path length")
             }
             let pathLength = Int(data
                 .subdata(in: offset ..< offset + 4)
-                .withUnsafeBytes { $0.load(as: UInt32.self).bigEndian })
+                .withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).bigEndian })
             offset += 4
 
             // A zero-length path would decode to the empty string and
@@ -167,7 +174,7 @@ public enum BackupBundle {
                 throw BundleError.unpackingFailed("empty entry path")
             }
 
-            guard offset + pathLength <= data.count else {
+            guard data.count - offset >= pathLength else {
                 throw BundleError.unpackingFailed("truncated path data")
             }
             guard let relativePath = String(
@@ -178,18 +185,18 @@ public enum BackupBundle {
             }
             offset += pathLength
 
-            guard offset + 8 <= data.count else {
+            guard data.count - offset >= 8 else {
                 throw BundleError.unpackingFailed("truncated file length")
             }
             let fileLengthU64 = data.subdata(in: offset ..< offset + 8)
-                .withUnsafeBytes { $0.load(as: UInt64.self).bigEndian }
+                .withUnsafeBytes { $0.loadUnaligned(as: UInt64.self).bigEndian }
             guard fileLengthU64 <= UInt64(Int.max) else {
                 throw BundleError.unpackingFailed("file length exceeds maximum: \(fileLengthU64)")
             }
             let fileLength = Int(fileLengthU64)
             offset += 8
 
-            guard offset + fileLength <= data.count else {
+            guard data.count - offset >= fileLength else {
                 throw BundleError.unpackingFailed("truncated file data")
             }
             let fileData = data.subdata(in: offset ..< offset + fileLength)

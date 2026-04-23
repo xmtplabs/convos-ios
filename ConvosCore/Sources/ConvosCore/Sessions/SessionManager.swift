@@ -456,8 +456,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         // would see a half-paused session (flag set, cache not
         // cleared) with no cleanup. The `Task.checkCancellation()`
         // below also lets a cancelled restore unwind cleanly — the
-        // catch re-runs `resumeAfterRestore` so the flags come off
-        // before we rethrow.
+        // catch stops the cached service (if any) and runs
+        // `resumeAfterRestore` so the flags come off before we
+        // rethrow. Stopping before resume is load-bearing: resume
+        // nils the slot, so if we didn't stop first the service
+        // would outlive the reference with its SQLCipher pool still
+        // holding `xmtp-*.db3` open — the next `loadOrCreateService`
+        // would then try to open the same files from a new service.
         do {
             try Task.checkCancellation()
             await unusedConversationCache.cancel()
@@ -475,6 +480,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // the next call.
             cachedMessagingService.withLock { $0 = nil }
         } catch {
+            if let existing {
+                Log.info("pauseForRestore: error path — stopping cached service before resume")
+                await existing.stop()
+            }
             await resumeAfterRestore()
             throw error
         }
