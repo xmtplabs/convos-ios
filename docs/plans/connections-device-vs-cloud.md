@@ -75,7 +75,7 @@ Keep **"Connections"** as the user-facing umbrella term. Both bodies live under 
 - **Same axis**: both labels describe location. Symmetric pairs read more clearly than mixed pairs (e.g. `Local` / `ThirdParty` mixes location with relationship).
 - **What users already say**: "on my device" is normal English; "in the cloud" is normal English. If either label ever leaks into UI copy ("Apple Calendar — on device"), it reads naturally.
 - **Aligns with Apple's house style**: iOS Settings uses "Device" framing (Privacy report, on-device storage, Device Management).
-- **Reads cleanly in code**: `DeviceProvider` / `CloudProvider`, `device.calendar` / `cloud.google_calendar`. No name collisions with the `ConvosConnections` package or `ConnectionsManager`.
+- **Reads cleanly in code**: `DeviceProvider` / `CloudProvider`, with provider IDs scoped by *implementation source* (e.g. `device.calendar`, `composio.google_calendar`) so future aggregators or first-party OAuth get their own prefix instead of being conflated under `cloud.*`. No name collisions with the `ConvosConnections` package or `ConnectionsManager`.
 
 ### Why rename Body B (not A)
 

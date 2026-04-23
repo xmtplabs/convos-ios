@@ -55,9 +55,9 @@ device.contacts
 device.photos
 device.health
 ...
-cloud.google_calendar
-cloud.google_drive
-cloud.microsoft_outlook
+composio.google_calendar
+composio.google_drive
+composio.microsoft_outlook
 ...
 ```
 
@@ -113,7 +113,7 @@ A runtime in-memory registry the resolver reads from. Both bodies of work popula
 
 ```swift
 public struct ProviderID: Hashable, Sendable, Codable {
-    public let rawValue: String  // "device.calendar" | "cloud.google_calendar"
+    public let rawValue: String  // "device.calendar" | "composio.google_calendar"
 }
 
 public enum CapabilitySubject: String, Hashable, Sendable, Codable, CaseIterable {
@@ -201,7 +201,7 @@ Router:
 1. Look up resolution for `(calendar, conversationId, .writeCreate)`.
 2. If none → return `ConnectionInvocationResult(status: .capabilityNotEnabled)` with an error hint suggesting the agent first send a `capability_request`.
 3. If resolution resolves to `device.calendar` → route to `ConnectionsManager.handleInvocation` (existing path).
-4. If resolution resolves to `cloud.google_calendar` → hand off to the cloud-connections execution path.
+4. If resolution resolves to `composio.google_calendar` → hand off to the cloud-connections execution path.
 5. For `.read` reads across a set of providers → fan out, aggregate results, return a single federated payload.
 
 ### Cross-cutting: user changes providers
@@ -308,7 +308,7 @@ The client publishes a unified per-sender manifest in conversation metadata so t
       }
     },
     {
-      "id": "cloud.google_calendar",
+      "id": "composio.google_calendar",
       "subject": "calendar",
       "displayName": "Google Calendar",
       "available": true,
