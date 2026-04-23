@@ -103,7 +103,7 @@ struct MessageInviteView: View {
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
                     if invite.isConversationExpired {
-                        Image(systemName: "sparkles")
+                        Image(systemName: "burst")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(height: 76.0)
