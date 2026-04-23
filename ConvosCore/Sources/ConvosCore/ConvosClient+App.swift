@@ -32,6 +32,7 @@ extension ConvosClient {
             sessionManager: sessionManager,
             databaseManager: databaseManager,
             environment: environment,
+            identityStore: identityStore,
             expiredConversationsWorker: expiredConversationsWorker,
             scheduledExplosionManager: scheduledExplosionManager,
             platformProviders: platformProviders

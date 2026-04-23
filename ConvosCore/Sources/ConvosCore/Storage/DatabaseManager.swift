@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 import SQLite3
 
-public protocol DatabaseManagerProtocol {
+public protocol DatabaseManagerProtocol: Sendable {
     var dbWriter: DatabaseWriter { get }
     var dbReader: DatabaseReader { get }
     func replaceDatabase(with backupPath: URL) throws
@@ -15,7 +15,7 @@ public protocol DatabaseManagerProtocol {
 /// is stored in the shared App Group container to enable multi-process access.
 /// Configures connection pooling, busy timeouts, and persistent WAL mode for
 /// read-only processes.
-public final class DatabaseManager: DatabaseManagerProtocol {
+public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
     static let databaseFilename: String = "convos-single-inbox.sqlite"
 
     let environment: AppEnvironment

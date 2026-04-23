@@ -57,10 +57,27 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
+        // Register BGProcessingTask for daily backups. Must happen
+        // during app init per BGTaskScheduler's contract. Factory
+        // returns a fresh BackupManager each call so a restore that
+        // rebuilds the cached service doesn't leave the scheduler
+        // holding a stale client.
+        let convosRef = convos
+        BackupScheduler.shared.register(
+            environment: { convosRef.environment },
+            factory: { convosRef.makeBackupManager() }
+        )
+
         let dbWriter = convos.databaseWriter
         Task {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
+        }
+        Task { @MainActor in
+            // Foreground catch-up: if the last successful backup is older
+            // than 24 hours, run one now so the "daily backup" product
+            // contract holds despite iOS's best-effort scheduler.
+            await BackupScheduler.shared.runForegroundCatchUpIfNeeded()
         }
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session
