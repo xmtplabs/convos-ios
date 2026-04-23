@@ -177,7 +177,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         activeConversationObserver = NotificationCenter.default.addObserver(
             forName: .activeConversationChanged,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
