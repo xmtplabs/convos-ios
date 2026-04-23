@@ -2,7 +2,7 @@
 
 **Status**: Design locked; ready for implementation
 **Owner**: @yewreeka
-**Depends on**: [`connections-vs-integrations.md`](./connections-vs-integrations.md)
+**Depends on**: [`connections-device-vs-cloud.md`](./connections-device-vs-cloud.md)
 **Blocks**: `capability_request` content type, ConvosConnections main-app integration, any cross-provider agent tool call
 
 ## Problem
@@ -10,7 +10,7 @@
 Convos has (or will have) two parallel systems that let agents access user resources:
 
 - **ConvosConnections** — native iOS APIs (Calendar via EventKit, Contacts via CNContactStore, Photos via PhotoKit, …)
-- **Integrations** — OAuth-linked cloud services (Google Calendar, Google Drive, … via Composio)
+- **CloudConnections** — OAuth-linked services (Google Calendar, Google Drive, … via Composio in v1)
 
 A single agent intent like "I'd like to access your calendar" can map to either one, both, or neither. Today neither system knows about the other. The client has no principled way to decide which one to use when an agent requests a capability.
 
@@ -18,7 +18,7 @@ This PRD defines how the client resolves agent capability requests to concrete p
 
 ## Non-Goals
 
-- Re-unifying ConvosConnections and Integrations under a single `DataSource`/`DataSink` abstraction. The [comparison doc](./connections-vs-integrations.md) already argued against that.
+- Re-unifying device and cloud connections under a single `DataSource`/`DataSink` abstraction. The [comparison doc](./connections-device-vs-cloud.md) already argued against that.
 - Runtime / backend *implementation* — this PRD defines the `profile.metadata["capabilities"]` contract the runtime reads, but the runtime-side reader is someone else's PR.
 - Provider *discovery* — what providers to offer. That's a product decision we make per-subject; this PRD is about routing once providers exist.
 - Cross-user federation. A resolution is always scoped to one user's account + one conversation.
@@ -55,13 +55,13 @@ device.contacts
 device.photos
 device.health
 ...
-composio.google_calendar
-composio.google_drive
-composio.microsoft_outlook
+cloud.google_calendar
+cloud.google_drive
+cloud.microsoft_outlook
 ...
 ```
 
-One user can have N providers linked for a subject. Provider registration is the responsibility of each underlying system — ConvosConnections registers device providers at startup, the Integrations system registers OAuth providers as users link services.
+One user can have N providers linked for a subject. Provider registration is the responsibility of each underlying system — `ConvosConnections` registers device providers at startup, the cloud-connections subsystem registers OAuth providers as users link services.
 
 ### Resolution
 
@@ -113,7 +113,7 @@ A runtime in-memory registry the resolver reads from. Both bodies of work popula
 
 ```swift
 public struct ProviderID: Hashable, Sendable, Codable {
-    public let rawValue: String  // "device.calendar" | "composio.google_calendar"
+    public let rawValue: String  // "device.calendar" | "cloud.google_calendar"
 }
 
 public enum CapabilitySubject: String, Hashable, Sendable, Codable, CaseIterable {
@@ -149,7 +149,7 @@ public protocol CapabilityProviderRegistry: Sendable {
 }
 ```
 
-ConvosConnections registers one provider per `ConnectionKind` at manager init. The Integrations system registers one provider per OAuth connection on link + removes on unlink.
+`ConvosConnections` registers one provider per `ConnectionKind` at manager init. The cloud-connections subsystem registers one provider per OAuth connection on link + removes on unlink.
 
 ## UX flow
 
@@ -173,11 +173,11 @@ ConvosConnections registers one provider per `ConnectionKind` at manager init. T
 Rules:
 - **Multi-select** if capability is `.read`
 - **Single-select** if capability is `.writeCreate` / `.writeUpdate` / `.writeDelete`
-- Unlinked providers show a "tap to connect" affordance; tapping kicks off the OAuth flow (for Integrations) or the iOS permission flow (for ConvosConnections) inline
+- Unlinked providers show a "tap to connect" affordance; tapping kicks off the OAuth flow (for cloud providers) or the iOS permission flow (for device providers) inline
 - If only **one** provider exists for the subject, skip the picker; render a simpler consent card with a single Approve/Deny
 - If **zero** providers exist, surface "no calendar providers available; connect one" — effectively the same picker but with only "connect" rows
 
-3. User approves → resolver stores the resolution → `ConvosConnections` or Integrations flips the underlying enablement/grant → client publishes an updated [capabilities manifest](#runtime-capabilities-manifest) on the next `ProfileUpdate` → client posts a `capability_request_result(status: .approved, providers: [...])` reply to the conversation.
+3. User approves → resolver stores the resolution → the device or cloud subsystem flips the underlying enablement/grant → client publishes an updated [capabilities manifest](#runtime-capabilities-manifest) on the next `ProfileUpdate` → client posts a `capability_request_result(status: .approved, providers: [...])` reply to the conversation.
 
 ### Agent-provided provider hint (`preferredProviders`)
 
@@ -201,14 +201,14 @@ Router:
 1. Look up resolution for `(calendar, conversationId, .writeCreate)`.
 2. If none → return `ConnectionInvocationResult(status: .capabilityNotEnabled)` with an error hint suggesting the agent first send a `capability_request`.
 3. If resolution resolves to `device.calendar` → route to `ConnectionsManager.handleInvocation` (existing path).
-4. If resolution resolves to `composio.google_calendar` → hand off to the Integrations execution path.
+4. If resolution resolves to `cloud.google_calendar` → hand off to the cloud-connections execution path.
 5. For `.read` reads across a set of providers → fan out, aggregate results, return a single federated payload.
 
 ### Cross-cutting: user changes providers
 
 Three events can invalidate a resolution:
 
-- User unlinks an OAuth integration ⇒ clear every resolution that pointed at that provider; next invocation re-prompts.
+- User unlinks a cloud connection ⇒ clear every resolution that pointed at that provider; next invocation re-prompts.
 - User revokes iOS permission in Settings ⇒ next invocation returns `authorizationDenied` (existing behavior); no resolution change (they may grant again without wanting re-prompting).
 - User toggles off a capability from Conversation Info ⇒ clear resolution for that `(subject, conversation, capability)`.
 
@@ -233,7 +233,7 @@ public struct ConnectionInvocation {
 }
 ```
 
-During a transition period, `ConnectionInvocation.kind == .calendar` implies `subject == .calendar`. Once the Integrations side adopts `ConnectionInvocation` for writes, the `kind` field becomes device-specific and `subject` becomes the routing key.
+During a transition period, `ConnectionInvocation.kind == .calendar` implies `subject == .calendar`. Once the cloud-connections side adopts `ConnectionInvocation` for writes, the `kind` field becomes device-specific and `subject` becomes the routing key.
 
 ### New content type: `convos.org/capability_request/1.0`
 
@@ -277,15 +277,15 @@ capabilityResolution(
 )
 ```
 
-Resolutions are the **source of truth** for routing. The existing `Enablement` table (ConvosConnections) and `DBConnectionGrant` table (Integrations) remain the source of truth for the underlying system's own state. When a resolution is created, the resolver calls into the matching system to flip its state; when state is cleared in the underlying system, the resolver cleans up the corresponding resolution.
+Resolutions are the **source of truth** for routing. The existing `Enablement` table (device side, in `ConvosConnections`) and `DBCloudGrant` table (cloud side, in `ConvosCore/CloudConnections/`) remain the source of truth for the underlying system's own state. When a resolution is created, the resolver calls into the matching system to flip its state; when state is cleared in the underlying system, the resolver cleans up the corresponding resolution.
 
 ## Runtime capabilities manifest
 
-The client publishes a unified per-sender manifest in conversation metadata so the agent's runtime knows what subjects/providers are available and what's currently granted. This **replaces** the standalone `connections` metadata entry that PR #719 (Integrations) was going to publish — the unified shape covers both bodies of work.
+The client publishes a unified per-sender manifest in conversation metadata so the agent's runtime knows what subjects/providers are available and what's currently granted. This **replaces** the standalone `connections` metadata entry that PR #719 (`CloudConnections`) was going to publish — the unified shape covers both bodies of work.
 
 ### Location
 
-`profile.metadata["capabilities"]` on each sender's own `ProfileUpdate` message. Same delivery pattern Integrations was using for its `connections` entry, just under a different key with a unified shape.
+`profile.metadata["capabilities"]` on each sender's own `ProfileUpdate` message. Same delivery pattern `CloudConnections` was using for its `connections` entry, just under a different key with a unified shape.
 
 ### Shape
 
@@ -308,7 +308,7 @@ The client publishes a unified per-sender manifest in conversation metadata so t
       }
     },
     {
-      "id": "composio.google_calendar",
+      "id": "cloud.google_calendar",
       "subject": "calendar",
       "displayName": "Google Calendar",
       "available": true,
@@ -356,9 +356,9 @@ The `preferredProviders` hint in subsequent `capability_request` messages lets t
 
 ### Relationship to PR #719's `connections` metadata
 
-PR #719 (Integrations) was going to publish its own `profile.metadata["connections"]` payload listing OAuth grants. That key becomes redundant — Integrations grants now appear as `providers[].granted` entries inside the unified `capabilities` manifest.
+PR #719 (`CloudConnections`) was going to publish its own `profile.metadata["connections"]` payload listing OAuth grants. That key becomes redundant — cloud grants now appear as `providers[].granted` entries inside the unified `capabilities` manifest.
 
-**Decision**: Integrations skips publishing the `connections` key from day one. Neither side has shipped to the wire yet, so the coordination cost is zero. The runtime reader is built once, against `capabilities`.
+**Decision**: `CloudConnections` skips publishing the `connections` key from day one. Neither side has shipped to the wire yet, so the coordination cost is zero. The runtime reader is built once, against `capabilities`.
 
 ### Concerns
 
@@ -371,7 +371,7 @@ PR #719 (Integrations) was going to publish its own `profile.metadata["connectio
 | System | Registers providers | Handles invocations |
 |---|---|---|
 | `ConvosConnections` | One per `ConnectionKind` on `ConnectionsManager` init | Existing `handleInvocation` path |
-| Integrations (PR #719 → rename to Integrations) | One per `Connection` row on `ConnectionManager` bootstrap; adds/removes on link/unlink | Routes to Composio tool call (runtime handles this; client just forwards) |
+| `CloudConnections` (PR #719 — to be renamed) | One per `CloudConnection` row on `CloudConnectionManager` bootstrap; adds/removes on link/unlink | Routes to Composio tool call (runtime handles this; client just forwards) |
 
 Resolver lives in `ConvosCore/Sources/ConvosCore/CapabilityResolution/` (new directory, no suffix) — belongs to neither package.
 
@@ -391,7 +391,7 @@ Resolver lives in `ConvosCore/Sources/ConvosCore/CapabilityResolution/` (new dir
 - [ ] `CapabilitySubject`, `ProviderID`, `CapabilityProvider`, `CapabilityProviderRegistry`, `CapabilityResolver` types defined in `ConvosCore/Sources/ConvosCore/CapabilityResolution/`
 - [ ] `ProviderChange` enum + `providerChanges: AsyncStream<ProviderChange>` on the registry
 - [ ] GRDB migration adding `capabilityResolution` table
-- [ ] Both ConvosConnections and Integrations register providers at their respective bootstrap points
+- [ ] Both `ConvosConnections` (device) and `CloudConnections` register providers at their respective bootstrap points
 - [ ] `capability_request` and `capability_request_result` content codecs added (`convos.org/capability_request/1.0`, `.../capability_request_result/1.0`)
 - [ ] Picker card renders with single-select / multi-select behavior driven by capability verb
 - [ ] Picker card refreshes reactively when a new provider is linked mid-display (subscribes to `providerChanges`)
@@ -401,7 +401,7 @@ Resolver lives in `ConvosCore/Sources/ConvosCore/CapabilityResolution/` (new dir
 - [ ] Reads federate across a set of providers; writes target a single provider
 - [ ] If only one provider exists, picker is replaced by a simpler single-choice consent
 - [ ] Client publishes `profile.metadata["capabilities"]` manifest on every relevant state change
-- [ ] Integrations stops publishing `profile.metadata["connections"]` (subsumed by `capabilities`)
+- [ ] `CloudConnections` stops publishing `profile.metadata["connections"]` (subsumed by `capabilities`)
 - [ ] Tests covering: first-time request → picker → approve → invocation routes correctly; provider unlink clears resolution; read fan-out aggregates; write with no resolution returns `capabilityNotEnabled`; `preferredProviders` hint short-circuit; manifest republishes after resolution changes; reactive picker refresh on `providerChanges`
 
 ## Out of scope for v1
@@ -432,7 +432,7 @@ All five questions raised during design have been resolved:
 
 ## Migration / ordering
 
-1. **PR #719 renames** "Connections" → "Integrations" (see the comparison doc). Prerequisite so "Connections" can unambiguously refer to the device path.
+1. **PR #719 renames** symbols/directory from `Connection*` → `CloudConnection*` (see the comparison doc). Prerequisite to avoid colliding with `ConvosConnections` symbols.
 2. **Capability resolution PR** — this document's v1:
    - Core types (`CapabilitySubject`, `ProviderID`, registry with `providerChanges` stream, resolver)
    - GRDB migration adding `capabilityResolution`
@@ -440,7 +440,7 @@ All five questions raised during design have been resolved:
    - Router with subject-keyed dispatch
    - Capabilities manifest writer (publishes `profile.metadata["capabilities"]` on resolution/registry changes)
 3. **ConvosConnections provider registration** — small patch on top of #718 to register providers at `ConnectionsManager` init.
-4. **Integrations provider registration + manifest cutover** — small patch on the renamed Integrations branch:
+4. **`CloudConnections` provider registration + manifest cutover** — small patch on the renamed branch:
    - Register providers at link time
    - Stop publishing `profile.metadata["connections"]`; rely on the unified `capabilities` manifest
 5. **Picker card UI** — main-app SwiftUI view that observes the resolver, registry, and `providerChanges` stream. Includes the `preferredProviders` confirmation-card variant.
