@@ -27,6 +27,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    private var activeConversationObserver: NSObjectProtocol?
+
+    /// Tracks the user's current screen context. Used by
+    /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
+    /// would be redundant — either because the user is already viewing the
+    /// target conversation, or because they're on the list where the new-
+    /// message indicator already surfaces the update.
+    private let screenStateLock: OSAllocatedUnfairLock<ScreenState> = .init(initialState: ScreenState())
+
+    private struct ScreenState {
+        var activeConversationId: String?
+        var isOnConversationsList: Bool = false
+    }
 
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -142,6 +155,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        if let activeConversationObserver {
+            NotificationCenter.default.removeObserver(activeConversationObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -156,6 +172,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
             }
+        }
+
+        activeConversationObserver = NotificationCenter.default.addObserver(
+            forName: .activeConversationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            self?.updateActiveConversation(conversationId)
+        }
+    }
+
+    private func updateActiveConversation(_ conversationId: String?) {
+        screenStateLock.withLock { state in
+            state.activeConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
         }
     }
 
@@ -505,12 +536,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: Notifications
 
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        // Always returns true today. The hook exists so the NSE has a
-        // well-defined place to suppress notifications when the target
-        // conversation is already on-screen; until that signal is plumbed
-        // through, erring on the side of over-notification is safer than
-        // silently swallowing a legitimate notification.
-        true
+        let state = screenStateLock.withLock { $0 }
+        if state.isOnConversationsList { return false }
+        if state.activeConversationId == conversationId { return false }
+        return true
+    }
+
+    public func setIsOnConversationsList(_ isOn: Bool) {
+        screenStateLock.withLock { state in
+            state.isOnConversationsList = isOn
+        }
     }
 
     public func notifyChangesInDatabase() {
