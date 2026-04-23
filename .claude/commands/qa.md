@@ -26,7 +26,7 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
    - `qa/TOOLS-CLAUDE.md` — pi `sim_*` vocabulary → Claude MCP / Bash mapping. **Always use this when translating YAML actions.**
    - `qa/tests/structured/README.md` — action/verify/criteria semantics.
 2. **Resolve the primary simulator UDID.** Read `.claude/.simulator_id`. If missing, fall back to `.convos-task` `SIMULATOR_NAME` or derive from `git branch --show-current` per `qa/RULES.md` "Simulator Selection", then resolve via `xcrun simctl list devices -j`. If the simulator doesn't exist, run `/setup` first and abort.
-3. **Verify the app is running.** Take a quick screenshot. If it isn't, build + install + launch via `.pi/skills/run/SKILL.md` (use `xcodebuild` via Bash — never `mcp__XcodeBuildMCP__build_sim`). This may take a few minutes; report progress.
+3. **Verify the app is running.** Take a quick screenshot. If it isn't, run `/run` to build + install + launch. This may take a few minutes; report progress.
 4. **Prepare the simulator once** per session (idempotent — safe to re-run):
    ```bash
    xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ReduceMotionEnabled -bool true
