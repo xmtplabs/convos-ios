@@ -65,6 +65,18 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
 
         Log.info("[PID: \(processId)] [Instance: \(instanceId)] [Request: \(requestId)] Starting notification processing")
 
+        // Bail with an empty delivery while a restore transaction is active.
+        // The main app's DatabaseManager.replaceDatabase runs under an
+        // NSFileCoordinator write barrier; opening the shared DB concurrently
+        // from the NSE mid-swap risks WAL corruption. Losing one push in the
+        // narrow user-initiated restore window is the accepted tradeoff.
+        if let environment = try? NotificationExtensionEnvironment.getEnvironment(),
+           RestoreInProgressFlag.isSet(environment: environment) {
+            Log.info("[Request: \(requestId)] Restore in progress, suppressing notification")
+            deliverNotification(UNMutableNotificationContent())
+            return
+        }
+
         guard let pushHandler = globalPushHandler else {
             Log.error("No global push handler available - suppressing notification")
             deliverNotification(UNMutableNotificationContent())
