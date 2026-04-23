@@ -37,19 +37,23 @@ public actor BackupManager {
     private let databaseReader: any DatabaseReader
     private let deviceInfo: any DeviceInfoProviding
     private let environment: AppEnvironment
+    private let restoreFlagDefaults: UserDefaults
 
     public init(
         identityStore: any KeychainIdentityStoreProtocol,
         archiveProvider: any BackupArchiveProviding,
         databaseReader: any DatabaseReader,
         deviceInfo: any DeviceInfoProviding,
-        environment: AppEnvironment
+        environment: AppEnvironment,
+        restoreFlagSuiteName: String? = nil
     ) {
         self.identityStore = identityStore
         self.archiveProvider = archiveProvider
         self.databaseReader = databaseReader
         self.deviceInfo = deviceInfo
         self.environment = environment
+        let suite = restoreFlagSuiteName ?? environment.appGroupIdentifier
+        self.restoreFlagDefaults = UserDefaults(suiteName: suite) ?? .standard
     }
 
     /// Produces a fresh encrypted backup bundle and writes it to the backup
@@ -58,7 +62,7 @@ public actor BackupManager {
     /// previous `backup-latest.encrypted`.
     @discardableResult
     public func createBackup() async throws -> URL {
-        guard !RestoreInProgressFlag.isSet(environment: environment) else {
+        guard !RestoreInProgressFlag.isSet(defaults: restoreFlagDefaults) else {
             Log.info("BackupManager: restore in progress, skipping")
             throw BackupError.restoreInProgress
         }

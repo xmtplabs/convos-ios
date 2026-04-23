@@ -68,6 +68,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var lastKeychainReadFailure: Date?
     private var consecutiveKeychainReadFailures: Int = 0
 
+    /// Guarded by the same `cachedMessagingService` lock. Set by
+    /// `pauseForRestore()` before the destructive DB swap and cleared by
+    /// `resumeAfterRestore()`. While set, `loadOrCreateService()`
+    /// short-circuits so an in-process push delivery can't race a second
+    /// XMTP client against the throwaway `RestoreManager` uses.
+    private var isRestoringInProcess: Bool = false
+
+    /// Gates whether prewarm and the `.register` branch of
+    /// `loadOrCreateService()` may run. Lock-guarded alongside the cache.
+    /// The app-layer restore prompt card is responsible for advancing
+    /// this to a terminal state via `setRestoreBootstrapDecision(_:)`.
+    /// Default `.unknown` keeps the gate closed until the app explicitly
+    /// opens it — tests and the clip entry point advance it on their own.
+    private var restoreBootstrapDecision: RestoreBootstrapDecision = .unknown
+
     /// How long `loadOrCreateService` holds off re-calling
     /// `identityStore.loadSync()` once we've seen two consecutive failures.
     /// The first retry after any failure is always free so transient
@@ -95,12 +110,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          identityStore: any KeychainIdentityStoreProtocol,
          unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
          platformProviders: PlatformProviders,
+         initialBootstrapDecision: RestoreBootstrapDecision = .noRestoreAvailable,
          mode: Mode = .fullApp) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
         self.platformProviders = platformProviders
+        self.restoreBootstrapDecision = initialBootstrapDecision
         self.deviceRegistrationManager = DeviceRegistrationManager(
             environment: environment,
             platformProviders: platformProviders
@@ -191,6 +208,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func prewarmUnusedConversation() async {
+        // Skip prewarm while the bootstrap gate is closed. Registering a
+        // fresh identity here would invalidate the backup the user hasn't
+        // decided on yet. Skip while a restore is mid-flight for the same
+        // "don't spawn a second XMTP client" reason as loadOrCreateService.
+        let shouldSkip = cachedMessagingService.withLock { _ -> Bool in
+            restoreBootstrapDecision.blocksRegistration || isRestoringInProcess
+        }
+        guard !shouldSkip else {
+            Log.info("SessionManager: skipping prewarm (bootstrap gate closed or restore in progress)")
+            return
+        }
         let service = loadOrCreateService()
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
@@ -229,6 +257,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     ///   fix collapses the pre-refactor thrash where every call rebuilt).
     private func loadOrCreateService() -> MessagingService {
         cachedMessagingService.withLock { cached in
+            // Short-circuit while a restore is in flight. RestoreManager's
+            // throwaway XMTP client holds the SQLCipher pool open for the
+            // archive-import window; any other accessor must wait out the
+            // pause rather than building a second client on the same DB.
+            if isRestoringInProcess, let existing = cached {
+                return existing
+            }
+
             let previousWasErrored: Bool
             if let existing = cached {
                 if case .error = existing.sessionStateManager.currentState {
@@ -281,6 +317,30 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 )
                 cached = errored
                 return errored
+            }
+
+            // Bootstrap gate: if we'd take the .register branch (no
+            // identity present) and the restore decision hasn't been
+            // resolved yet, refuse to register. Minting a new identity
+            // now would invalidate the user's backup before they got to
+            // see the restore card. Cache a frozen placeholder backed by
+            // RestoreDecisionPendingError so subsequent accessors don't
+            // thrash; the next call after the decision resolves rebuilds.
+            if identity == nil, restoreBootstrapDecision.blocksRegistration {
+                if let existing = cached {
+                    return existing
+                }
+                Log.info("SessionManager: registration blocked by bootstrap gate (\(restoreBootstrapDecision))")
+                let placeholder = MessagingService(
+                    identityReadFailure: RestoreDecisionPendingError(),
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    identityStore: identityStore,
+                    environment: environment,
+                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                )
+                cached = placeholder
+                return placeholder
             }
 
             let service = buildMessagingService(for: identity)
@@ -439,6 +499,58 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // entity ids aren't reachable from any new identity anyway.
             try DBConnection.deleteAll(db)
         }
+    }
+
+    // MARK: - Restore lifecycle
+
+    /// Advance the bootstrap gate state. The app-layer restore prompt card
+    /// calls this once it has resolved whether a backup is available and
+    /// what the user chose to do about it.
+    public func setRestoreBootstrapDecision(_ decision: RestoreBootstrapDecision) {
+        let wasBlocked = cachedMessagingService.withLock { _ -> Bool in
+            let wasBlocked = restoreBootstrapDecision.blocksRegistration
+            restoreBootstrapDecision = decision
+            return wasBlocked
+        }
+        Log.info("SessionManager: bootstrap decision → \(decision)")
+        // If we were blocked and are now open, kick prewarm so the app
+        // actually comes alive. No-op if the gate is still closed or if
+        // the cache already holds a live service.
+        if wasBlocked, !decision.blocksRegistration {
+            Task { [weak self] in
+                await self?.prewarmUnusedConversation()
+            }
+        }
+    }
+
+    /// Called by `RestoreManager` before destructive ops. Sets the
+    /// app-group `RestoreInProgressFlag` (NSE gate + scheduler gate),
+    /// marks the in-process flag under the cache lock, drops the cached
+    /// messaging service so the next accessor rebuilds on the restored
+    /// identity, cancels the prewarm, and stops the active state machine.
+    public func pauseForRestore() async {
+        RestoreInProgressFlag.set(true, environment: environment)
+        let existing = cachedMessagingService.withLock { slot -> MessagingService? in
+            isRestoringInProcess = true
+            let previous = slot
+            slot = nil
+            return previous
+        }
+        await unusedConversationCache.cancel()
+        if let existing {
+            await existing.stop()
+        }
+    }
+
+    /// Called by `RestoreManager` after `importArchive` completes (or
+    /// fails non-fatally). Clears both flags and re-runs prewarm so the
+    /// app rebuilds its cached service against the restored identity.
+    public func resumeAfterRestore() async {
+        cachedMessagingService.withLock { _ in
+            isRestoringInProcess = false
+        }
+        RestoreInProgressFlag.set(false, environment: environment)
+        await prewarmUnusedConversation()
     }
 
     // MARK: - Messaging Services
@@ -670,3 +782,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ConnectionRepository(databaseReader: databaseReader)
     }
 }
+
+// Conformance so `RestoreManager` can drive the session lifecycle through
+// the protocol without creating a dependency on the concrete SessionManager.
+extension SessionManager: RestoreLifecycleControlling {}

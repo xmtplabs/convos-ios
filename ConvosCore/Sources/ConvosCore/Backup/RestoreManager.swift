@@ -27,6 +27,7 @@ public actor RestoreManager {
     private let lifecycleController: (any RestoreLifecycleControlling)?
     private let installationRevoker: RestoreInstallationRevoker?
     private let environment: AppEnvironment
+    private let restoreFlagDefaults: UserDefaults
     private let fileManager: FileManager
 
     public private(set) var state: RestoreState = .idle
@@ -38,6 +39,7 @@ public actor RestoreManager {
         lifecycleController: (any RestoreLifecycleControlling)? = nil,
         installationRevoker: RestoreInstallationRevoker? = nil,
         environment: AppEnvironment,
+        restoreFlagSuiteName: String? = nil,
         fileManager: FileManager = .default
     ) {
         self.identityStore = identityStore
@@ -46,6 +48,8 @@ public actor RestoreManager {
         self.lifecycleController = lifecycleController
         self.installationRevoker = installationRevoker
         self.environment = environment
+        let suite = restoreFlagSuiteName ?? environment.appGroupIdentifier
+        self.restoreFlagDefaults = UserDefaults(suiteName: suite) ?? .standard
         self.fileManager = fileManager
     }
 
@@ -93,7 +97,7 @@ public actor RestoreManager {
     /// `docs/plans/icloud-backup-single-inbox.md` — "Restore flow (new)"
     /// for the step-by-step contract.
     public func restoreFromBackup(bundleURL: URL) async throws {
-        guard !RestoreInProgressFlag.isSet(environment: environment) else {
+        guard !RestoreInProgressFlag.isSet(defaults: restoreFlagDefaults) else {
             throw RestoreError.restoreAlreadyInProgress
         }
 
@@ -112,8 +116,8 @@ public actor RestoreManager {
         // Begin transaction. Pre-commit artifacts live in the shared container
         // so crash recovery on next launch can find them.
         var transaction = RestoreTransaction(phase: .paused)
-        RestoreTransactionStore.save(transaction, environment: environment)
-        RestoreInProgressFlag.set(true, environment: environment)
+        RestoreTransactionStore.save(transaction, defaults: restoreFlagDefaults)
+        RestoreInProgressFlag.set(true, defaults: restoreFlagDefaults)
         let transactionDir = RestoreArtifactLayout.transactionDirectory(
             for: transaction.id,
             environment: environment
@@ -154,7 +158,7 @@ public actor RestoreManager {
             }
 
             transaction.phase = .databaseReplaced
-            RestoreTransactionStore.save(transaction, environment: environment)
+            RestoreTransactionStore.save(transaction, defaults: restoreFlagDefaults)
 
             // Archive import — non-fatal per the plan. Failure surfaces as
             // `RestoreState.archiveImportFailed` + a persisted summary; the
@@ -189,13 +193,13 @@ public actor RestoreManager {
 
             // Commit. Past this point we do not roll back.
             transaction.phase = .committed
-            RestoreTransactionStore.save(transaction, environment: environment)
+            RestoreTransactionStore.save(transaction, defaults: restoreFlagDefaults)
 
             await lifecycleController?.resumeAfterRestore()
 
             cleanupTransaction(id: transaction.id)
-            RestoreTransactionStore.clear(environment: environment)
-            RestoreInProgressFlag.set(false, environment: environment)
+            RestoreTransactionStore.clear(defaults: restoreFlagDefaults)
+            RestoreInProgressFlag.set(false, defaults: restoreFlagDefaults)
 
             // Preserve `archiveImportFailed` if it was set — the caller's
             // observer needs to see the partial-success outcome.
@@ -361,7 +365,7 @@ public actor RestoreManager {
         } catch {
             Log.error("RestoreManager: archive import failed: \(error)")
             let failure = PendingArchiveImportFailure(reason: error.localizedDescription)
-            PendingArchiveImportFailureStorage.save(failure, environment: environment)
+            PendingArchiveImportFailureStorage.save(failure, defaults: restoreFlagDefaults)
             state = .archiveImportFailed(reason: error.localizedDescription)
         }
     }
@@ -394,8 +398,8 @@ public actor RestoreManager {
         }
 
         cleanupTransaction(id: transaction.id)
-        RestoreTransactionStore.clear(environment: environment)
-        RestoreInProgressFlag.set(false, environment: environment)
+        RestoreTransactionStore.clear(defaults: restoreFlagDefaults)
+        RestoreInProgressFlag.set(false, defaults: restoreFlagDefaults)
 
         // Resume the session — the caller still needs a working app.
         await lifecycleController?.resumeAfterRestore()
