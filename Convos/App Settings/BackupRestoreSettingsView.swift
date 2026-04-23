@@ -69,8 +69,7 @@ final class BackupRestoreViewModel {
         defer { isBackingUp = false }
 
         do {
-            let manager = try makeBackupManager()
-            _ = try await manager.createBackup()
+            _ = try await BackupScheduler.shared.runManualBackup()
             await refresh()
         } catch {
             alertMessage = error.localizedDescription
@@ -91,6 +90,7 @@ final class BackupRestoreViewModel {
             try await manager.restoreFromBackup(bundleURL: bundleURL)
             restoreState = await manager.state
             isRestoring = false
+            BackupScheduler.shared.scheduleNextBackup()
             onRestoreComplete?()
         } catch {
             isRestoring = false
@@ -108,30 +108,9 @@ final class BackupRestoreViewModel {
         case let .savingKeys(completed, total): return "Restoring keys (\(completed)/\(total))…"
         case .replacingDatabase: return "Replacing database…"
         case let .importingConversations(completed, total): return "Importing conversations (\(completed)/\(total))…"
-        case let .completed(inboxCount, _): return "Restored \(inboxCount) conversation\(inboxCount == 1 ? "" : "s")"
+        case let .completed(inboxCount, _): return "Restored \(inboxCount) convo\(inboxCount == 1 ? "" : "s")"
         case let .failed(message): return "Failed: \(message)"
         }
-    }
-
-    private func makeBackupManager() throws -> BackupManager {
-        guard let vaultManager = session.vaultService as? VaultManager else {
-            throw BackupRestoreError.vaultUnavailable
-        }
-        let accessGroup = environment.keychainAccessGroup
-        let identityStore = KeychainIdentityStore(accessGroup: accessGroup)
-        let vaultKeyStore = makeVaultKeyStore()
-        let archiveProvider = ConvosBackupArchiveProvider(
-            vaultService: vaultManager,
-            identityStore: identityStore,
-            environment: environment
-        )
-        return BackupManager(
-            vaultKeyStore: vaultKeyStore,
-            archiveProvider: archiveProvider,
-            identityStore: identityStore,
-            databaseReader: session.databaseReader,
-            environment: environment
-        )
     }
 
     private func makeRestoreManager() throws -> RestoreManager {
@@ -140,7 +119,7 @@ final class BackupRestoreViewModel {
         }
         let accessGroup = environment.keychainAccessGroup
         let identityStore = KeychainIdentityStore(accessGroup: accessGroup)
-        let vaultKeyStore = makeVaultKeyStore()
+        let vaultKeyStore = BackupManagerFactory.makeVaultKeyStore(environment: environment)
         let archiveImporter = ConvosRestoreArchiveImporter(
             identityStore: identityStore,
             environment: environment
@@ -163,30 +142,14 @@ final class BackupRestoreViewModel {
             restoreLifecycleController: session as? any RestoreLifecycleControlling,
             vaultManager: vaultManager,
             installationRevoker: revoker,
-            backupCreator: { @MainActor [weak self] in
-                guard let self else { throw BackupRestoreError.vaultUnavailable }
-                let manager = try self.makeBackupManager()
-                return try await manager.createBackup()
+            backupCreator: { @MainActor in
+                guard let url = try await BackupScheduler.shared.runManualBackup() else {
+                    throw BackupRestoreError.vaultUnavailable
+                }
+                return url
             },
             environment: environment
         )
-    }
-
-    private func makeVaultKeyStore() -> VaultKeyStore {
-        let accessGroup = environment.keychainAccessGroup
-        let localStore = KeychainIdentityStore(
-            accessGroup: accessGroup,
-            service: "org.convos.vault-identity",
-            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        )
-        let iCloudStore = KeychainIdentityStore(
-            accessGroup: accessGroup,
-            service: "org.convos.vault-identity.icloud",
-            accessibility: kSecAttrAccessibleAfterFirstUnlock,
-            synchronizable: true
-        )
-        let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
-        return VaultKeyStore(store: dualStore)
     }
 
     private enum BackupRestoreError: LocalizedError {
@@ -226,6 +189,7 @@ private struct RestoreConfirmationModifier: ViewModifier {
 }
 
 struct BackupRestoreSettingsView: View {
+    @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var viewModel: BackupRestoreViewModel
 
     init(
@@ -251,6 +215,10 @@ struct BackupRestoreSettingsView: View {
             }
 
             statusSection
+
+            if !ConfigManager.shared.currentEnvironment.isProduction {
+                debugSection
+            }
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
@@ -342,8 +310,45 @@ struct BackupRestoreSettingsView: View {
             Text("Restore")
         } footer: {
             if let metadata = viewModel.availableRestoreMetadata {
-                Text("From \(metadata.deviceName) · \(metadata.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(metadata.inboxCount) conversation\(metadata.inboxCount == 1 ? "" : "s")")
+                Text("From \(metadata.deviceName) · \(metadata.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(metadata.inboxCount) convo\(metadata.inboxCount == 1 ? "" : "s")")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var debugSection: some View {
+        Section {
+            let runAction: () -> Void = {
+                Task { await BackupScheduler.shared.simulateBackgroundRunForDebug() }
+            }
+            Button(action: runAction) {
+                HStack {
+                    Text("Run background backup now")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "ladybug")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+
+            let showPromptAction: () -> Void = {
+                UserDefaults.standard.removeObject(forKey: ConversationsViewModel.skippedRestoreBackupDateKey)
+                NotificationCenter.default.post(name: ConversationsViewModel.debugShowRestorePromptNotification, object: nil)
+                dismiss()
+            }
+            Button(action: showPromptAction) {
+                HStack {
+                    Text("Show fresh-install restore prompt")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "arrow.counterclockwise.icloud")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+        } header: {
+            Text("Debug")
+        } footer: {
+            Text("Run BGTask handler path locally. Show prompt only renders on the empty conversations screen — delete all data first if you have conversations.")
         }
     }
 

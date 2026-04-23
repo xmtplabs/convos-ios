@@ -1,0 +1,96 @@
+import ConvosCore
+import Foundation
+
+extension ConversationsViewModel {
+    /// Stores the `createdAt` of the most recently skipped backup. If a
+    /// newer backup becomes available, the prompt reappears — skipping
+    /// today's backup doesn't hide tomorrow's. Persisted in UserDefaults
+    /// so the skip survives app updates; wiped on delete-all-data via
+    /// `resetUserDefaults()` and on reinstall (the app container is
+    /// cleared, which is the correct behaviour for a "fresh install"
+    /// prompt).
+    static let skippedRestoreBackupDateKey: String = "skippedRestoreBackupDate"
+
+    /// Debug-only notification. Posted from settings to force the restore
+    /// card to appear, even when `findAvailableBackup` returns nil. The
+    /// card still only renders when the conversations list is empty.
+    static let debugShowRestorePromptNotification: Notification.Name = Notification.Name("debugShowRestorePrompt")
+
+    /// Called by the view when it subscribes to `debugShowRestorePromptNotification`.
+    func handleDebugShowRestorePrompt() {
+        if let real = RestoreManager.findAvailableBackup(environment: environment) {
+            availableRestorePrompt = real.metadata
+            return
+        }
+        availableRestorePrompt = BackupBundleMetadata(
+            createdAt: Date(),
+            deviceId: "debug-device",
+            deviceName: "Debug iPhone",
+            osString: "iOS 26.0",
+            inboxCount: 3
+        )
+    }
+
+    /// Probes for a restorable backup. Called from `.onAppear` and on
+    /// `didBecomeActive` (to handle iCloud Keychain sync lag on fresh
+    /// install). Populates `availableRestorePrompt` on the main actor;
+    /// FileManager work runs in a detached `Task` so a slow ubiquity
+    /// container lookup doesn't block the UI.
+    func checkForAvailableBackup() {
+        guard availableRestorePrompt == nil else { return }
+        guard !hasAnyUsedNonVaultInbox() else { return }
+
+        let environment = self.environment
+        let skippedDate = Self.skippedRestoreDate()
+        Task.detached(priority: .utility) { [weak self] in
+            let result = RestoreManager.findAvailableBackup(environment: environment)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.availableRestorePrompt == nil else { return }
+                guard !self.hasAnyUsedNonVaultInbox() else { return }
+                guard let metadata = result?.metadata else { return }
+                if let skipped = skippedDate, metadata.createdAt <= skipped { return }
+                self.availableRestorePrompt = metadata
+                QAEvent.emit(.backup, "restore_prompt_shown", [
+                    "device": metadata.deviceName,
+                    "inbox_count": String(metadata.inboxCount)
+                ])
+            }
+        }
+    }
+
+    func onRestorePromptTapped() {
+        presentingRestoreSheet = true
+        QAEvent.emit(.backup, "restore_prompt_tapped")
+    }
+
+    func skipRestorePrompt() {
+        guard let metadata = availableRestorePrompt else { return }
+        Self.persistSkippedRestoreDate(metadata.createdAt)
+        availableRestorePrompt = nil
+        QAEvent.emit(.backup, "restore_prompt_skipped")
+    }
+
+    func clearRestorePromptAfterRestore() {
+        availableRestorePrompt = nil
+        presentingRestoreSheet = false
+    }
+
+    private func hasAnyUsedNonVaultInbox() -> Bool {
+        let repo = InboxesRepository(databaseReader: session.databaseReader)
+        return ((try? repo.nonVaultUsedInboxes().count) ?? 0) > 0
+    }
+
+    static func skippedRestoreDate() -> Date? {
+        guard let value = UserDefaults.standard.string(forKey: skippedRestoreBackupDateKey) else {
+            return nil
+        }
+        let formatter = ISO8601DateFormatter()
+        return formatter.date(from: value)
+    }
+
+    static func persistSkippedRestoreDate(_ date: Date) {
+        let formatter = ISO8601DateFormatter()
+        UserDefaults.standard.set(formatter.string(from: date), forKey: skippedRestoreBackupDateKey)
+    }
+}

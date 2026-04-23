@@ -53,14 +53,29 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
+        // Register the background task handler before anything else can call
+        // into BGTaskScheduler. iOS asserts if submit runs without a registered
+        // handler, and ConversationsViewModel.init below can trigger a schedule
+        // through its conversationsCount didSet.
+        let sessionForBackup = convos.session
+        BackupScheduler.shared.register { @MainActor in
+            BackupManagerFactory.make(session: sessionForBackup, environment: environment)
+        }
+
         let dbWriter = convos.databaseWriter
         Task {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
-        self.conversationsViewModel = .init(session: convos.session, databaseManager: convos.databaseManager)
+        self.conversationsViewModel = .init(
+            session: convos.session,
+            databaseManager: convos.databaseManager,
+            environment: environment
+        )
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
+
+        BackupScheduler.shared.scheduleNextBackup()
     }
 
     var body: some Scene {
