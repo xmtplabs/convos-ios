@@ -9,8 +9,6 @@ class MessageContextMenuState: @unchecked Sendable {
     var bubbleStyle: MessageBubbleType = .normal
     var isReplyParent: Bool = false
     var sourceID: UUID?
-    var onReaction: ((String, String) -> Void)?
-    var onToggleReaction: ((String, String) -> Void)?
 
     var currentSourceFrame: CGRect = .zero
 
