@@ -357,6 +357,16 @@ final class ConversationOnboardingCoordinator {
 
     /// Start or continue the quickname onboarding flow
     private func startQuicknameFlow(for clientId: String) async {
+        // Once the user finishes onboarding, the quickname prompts stop running
+        // in subsequent conversations. Notification nudges still run via the
+        // shared path below, but no setupQuickname or addQuickname state is
+        // surfaced per new conversation.
+        guard !hasCompletedOnboarding else {
+            QAEvent.emit(.onboarding, "quickname_skipped", ["reason": "already_completed"])
+            await transitionAfterQuickname()
+            return
+        }
+
         let hasSetQuicknameForConversation = hasSetQuickname(for: clientId)
         setHasSetQuickname(true, for: clientId)
 
