@@ -109,6 +109,22 @@ public enum AppEnvironment: Sendable {
         }
     }
 
+    /// iCloud container identifier for the backup bundle. Derived from
+    /// the app-group identifier so it tracks per-environment naming
+    /// (dev / prod / local) without a second source of truth. The
+    /// entitlement must declare this container for the ubiquity URL
+    /// lookup to succeed; in tests the value is a valid-looking
+    /// placeholder that will resolve to `nil` at runtime (no account).
+    public var iCloudContainerIdentifier: String {
+        switch self {
+        case .local(config: let config), .dev(config: let config), .production(config: let config):
+            let bundleId = config.appGroupIdentifier.replacingOccurrences(of: "group.", with: "")
+            return "iCloud.\(bundleId)"
+        case .tests:
+            return "iCloud.org.convos.ios-local"
+        }
+    }
+
     public var keychainAccessGroup: String {
         // Use the app group identifier with team prefix for keychain sharing
         // This matches $(AppIdentifierPrefix)$(APP_GROUP_IDENTIFIER) in entitlements
