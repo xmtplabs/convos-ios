@@ -13,6 +13,38 @@ final class ConversationsViewModel {
 
     private(set) var focusCoordinator: FocusCoordinator
 
+    // MARK: - Device Replaced
+
+    private func observeSessionState() {
+        let messagingService = session.messagingService()
+        let manager = messagingService.sessionStateManager
+        sessionStateHandle = manager.observeState { [weak self] state in
+            let replaced: Bool
+            if case let .error(error) = state, error is DeviceReplacedError {
+                replaced = true
+            } else {
+                replaced = false
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.isDeviceReplaced != replaced {
+                    self.isDeviceReplaced = replaced
+                }
+            }
+        }
+    }
+
+    func resetDevice() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.session.deleteAllInboxes()
+            } catch {
+                Log.error("resetDevice: deleteAllInboxes failed: \(error)")
+            }
+        }
+    }
+
     // MARK: - Selection State
 
     @ObservationIgnored
@@ -180,6 +212,16 @@ final class ConversationsViewModel {
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
     private var leftConversationObserver: Any?
+    @ObservationIgnored
+    private var sessionStateHandle: StateObserverHandle?
+
+    /// True when `SessionStateMachine` has transitioned to
+    /// `.error(DeviceReplacedError)` — the sole XMTP installation
+    /// for this inbox was revoked, almost always because the user
+    /// restored on another device. Drives the `StaleDeviceBanner`
+    /// at the top of the conversations list; the banner's "Reset
+    /// device" action runs `session.deleteAllInboxes()`.
+    var isDeviceReplaced: Bool = false
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -279,6 +321,7 @@ final class ConversationsViewModel {
     }
 
     private func observe() {
+        observeSessionState()
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
                 guard let conversationId = notification.userInfo?["conversationId"] as? String else {

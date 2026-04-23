@@ -124,14 +124,27 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private var sidebarContent: some View {
-        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
-            emptyConversationsViewScrollable
-        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
-            ScrollView {
-                filteredEmptyStateView
+        VStack(spacing: 0) {
+            if viewModel.isDeviceReplaced {
+                StaleDeviceBanner(
+                    onResetDevice: { viewModel.resetDevice() },
+                    onLearnMore: {
+                        if let url = URL(string: "https://learn.convos.org/") {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                )
+                .padding(.top, 8)
             }
-        } else {
-            conversationsCollectionView
+            if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
+                emptyConversationsViewScrollable
+            } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                ScrollView {
+                    filteredEmptyStateView
+                }
+            } else {
+                conversationsCollectionView
+            }
         }
     }
 
