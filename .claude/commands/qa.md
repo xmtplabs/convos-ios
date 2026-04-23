@@ -65,15 +65,17 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
 
 ## `/qa --dry-run`
 
-Do every step in "Before dispatching" 1-4 and 2a (simulator resolve, prerequisite check, sim prep) but **skip 5, 6, and the actual dispatch**. Instead, print a readiness report and exit.
+Do every step in "Before dispatching" 1-4 and 2a (simulator resolve, prerequisite check, sim prep) but **skip the actual dispatch in step 5/6**. Inspect CXDB read-only (no `new-run` write) and print a readiness report:
 
 ```bash
+CXDB=qa/cxdb/cxdb.sh   # assigned here too, since step 5 is skipped
+
 # Readiness report
 echo "=== /qa --dry-run ==="
 echo "Simulator:     <SIMULATOR_NAME> ($UDID)"
 echo "idb:           $IDB"
 echo "convos CLI:    $(command -v convos) ($(convos --version 2>/dev/null | head -1))"
-echo "cxdb.sh:       qa/cxdb/cxdb.sh ($([ -x qa/cxdb/cxdb.sh ] && echo ok || echo FIXED))"
+echo "cxdb.sh:       $CXDB ($([ -x $CXDB ] && echo ok || echo FIXED))"
 echo "App bundle:    $(find .derivedData/Build/Products -name 'Convos.app' -type d | head -1 || echo 'NOT BUILT — run /run first')"
 echo ""
 echo "Tests found:   $(ls qa/tests/structured/*.yaml | wc -l) YAMLs in qa/tests/structured/"
@@ -83,8 +85,13 @@ echo "Would dispatch (default fanout):"
 echo "  [A] test 13 (migration) on an isolated simulator"
 echo "  [B] main sequence on $UDID (skip 13)"
 echo ""
-echo "Active CXDB run: $($CXDB active-run || echo none)"
-echo "Pending in that run: $(ALL=$(ls qa/tests/structured/ | grep -oE '^[0-9]+[a-z]?' | sort -u | paste -sd,); [ -n \"$($CXDB active-run)\" ] && $CXDB pending-tests $($CXDB active-run) \"$ALL\" | wc -l || echo n/a)"
+ACTIVE=$($CXDB active-run 2>/dev/null)
+echo "Active CXDB run: ${ACTIVE:-none}"
+if [ -n "$ACTIVE" ]; then
+    ALL=$(ls qa/tests/structured/ | grep -oE '^[0-9]+[a-z]?' | sort -u | paste -sd,)
+    PENDING_COUNT=$($CXDB pending-tests "$ACTIVE" "$ALL" | wc -l | tr -d ' ')
+    echo "Pending in that run: $PENDING_COUNT"
+fi
 ```
 
 If any prerequisite check in step 2a failed, the dry-run surfaces exactly what's missing and exits non-zero without starting anything.
