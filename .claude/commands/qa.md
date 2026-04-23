@@ -65,7 +65,15 @@ Orchestrate a QA run. This command is the **Claude Code** entry point to the QA 
 
 ## `/qa --dry-run`
 
-Do every step in "Before dispatching" 1-4 and 2a (simulator resolve, prerequisite check, sim prep) but **skip the actual dispatch in step 5/6**. Inspect CXDB read-only (no `new-run` write) and print a readiness report:
+Do steps 1, 2, and 2a (playbook read, simulator resolve, prerequisite check). **Skip** step 3 (`/run`), step 4 (writing Reduce Motion defaults), and steps 5/6 (CXDB init + dispatch) — those either modify state or kick off a build. For step 3, just probe whether the app is running and record a boolean; don't launch it.
+
+```bash
+# Lightweight app-running probe — no side effects
+xcrun simctl listapps "$UDID" 2>/dev/null | grep -q "org.convos.ios-preview" && APP_INSTALLED=1 || APP_INSTALLED=0
+xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "UIKitApplication:org.convos.ios-preview" && APP_RUNNING=1 || APP_RUNNING=0
+```
+
+Then inspect CXDB read-only (no `new-run` write) and print a readiness report:
 
 ```bash
 CXDB=qa/cxdb/cxdb.sh   # assigned here too, since step 5 is skipped
@@ -77,6 +85,8 @@ echo "idb:           $IDB"
 echo "convos CLI:    $(command -v convos) ($(convos --version 2>/dev/null | head -1))"
 echo "cxdb.sh:       $CXDB ($([ -x $CXDB ] && echo ok || echo FIXED))"
 echo "App bundle:    $(find .derivedData/Build/Products -name 'Convos.app' -type d | head -1 || echo 'NOT BUILT — run /run first')"
+echo "App installed: $([ "$APP_INSTALLED" = 1 ] && echo yes || echo 'no — /run will install it')"
+echo "App running:   $([ "$APP_RUNNING" = 1 ] && echo yes || echo 'no — /run will launch it')"
 echo ""
 echo "Tests found:   $(ls qa/tests/structured/*.yaml | wc -l) YAMLs in qa/tests/structured/"
 echo "Budget:        ~$(grep -h '^estimated_duration_s:' qa/tests/structured/*.yaml | awk '{s+=$2} END{print int(s/60)}') min estimated, ~$(grep -h '^estimated_duration_s:' qa/tests/structured/*.yaml | awk '{s+=$2} END{print int(s*2/60)}') min watchdog budget (2× safety)"
