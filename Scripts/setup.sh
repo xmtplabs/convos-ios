@@ -145,27 +145,40 @@ echo "✅ All dependencies are properly installed"
 # Firebase App Check Debug Token                                                #
 ################################################################################
 
-if [ ! "${CI}" = true ]; then
+if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
     ENV_FILE="${DIRNAME}/../.env"
+    FIREBASE_CONSOLE_URL="https://console.firebase.google.com/u/1/project/convos-otr/appcheck/apps"
     if [ ! -f "$ENV_FILE" ]; then
         echo ""
-        echo "⚠️  No .env file found"
-        echo "   Copy the template to get started:"
+        echo "⚠️  No .env file found at ${ENV_FILE}"
+        echo "   If this is a worktree, symlink the parent's .env:"
+        echo "     ln -s ../.env .env"
+        echo "   Otherwise, set a FIREBASE_APP_CHECK_DEBUG_TOKEN so Firebase App Check works:"
         echo "     cp .env.example .env"
-        echo "   Then (optionally) add a FIREBASE_APP_CHECK_DEBUG_TOKEN from:"
-        echo "     https://console.firebase.google.com/project/convos-otr/appcheck"
+        echo "     echo \"FIREBASE_APP_CHECK_DEBUG_TOKEN=\$(uuidgen)\" >> .env"
+        echo "   Then register the UUID at ${FIREBASE_CONSOLE_URL}"
+        echo "     → pick the iOS app for your scheme (Dev: org.convos.ios-preview,"
+        echo "       Local: org.convos.ios-local, Prod: org.convos.ios)"
+        echo "     → overflow menu (⋮) → Manage debug tokens → Add debug token"
+        echo "   Alternative: launch the app first, then run /firebase-token to grab the"
+        echo "   auto-generated token from simulator logs and register that instead."
     elif ! grep -q "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" || \
          [ -z "$(grep "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" | cut -d'=' -f2-)" ]; then
         echo ""
         echo "⚠️  FIREBASE_APP_CHECK_DEBUG_TOKEN is not set in .env"
-        echo "   Without this, you'll need to register a new debug token in Firebase Console"
-        echo "   each time the simulator changes."
+        echo "   Without it, you need to register a new debug token in Firebase each time"
+        echo "   the simulator changes."
         echo ""
-        echo "   To fix:"
-        echo "   1. Run: uuidgen"
-        echo "   2. Go to Firebase Console → App Check → Manage debug tokens"
-        echo "   3. Add the generated UUID as a debug token"
-        echo "   4. Add to .env: FIREBASE_APP_CHECK_DEBUG_TOKEN=<your-uuid>"
+        echo "   Two ways to fix:"
+        echo "   (a) Generate and pin a stable UUID:"
+        echo "       echo \"FIREBASE_APP_CHECK_DEBUG_TOKEN=\$(uuidgen)\" >> .env"
+        echo "   (b) Launch the app, then run /firebase-token to extract the token the app"
+        echo "       generated, and paste that into .env."
+        echo ""
+        echo "   Register the token at ${FIREBASE_CONSOLE_URL}"
+        echo "     → iOS app for your scheme (Dev: org.convos.ios-preview,"
+        echo "       Local: org.convos.ios-local, Prod: org.convos.ios)"
+        echo "     → overflow menu (⋮) → Manage debug tokens → Add debug token"
     else
         echo "✅ Firebase App Check debug token is configured"
     fi

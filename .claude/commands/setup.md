@@ -31,13 +31,13 @@ Check for configuration in this order:
 
 ### Step 2: Run Project Setup
 
-Run `Scripts/setup.sh` with `CI=true` to install dependencies without modifying git hooks or Xcode defaults:
+Run `Scripts/setup.sh` with `CI=true CLAUDE_SETUP=1` — `CI` skips one-time machine setup (git hooks, Xcode defaults, brew installs of the GitHub CLI) and `CLAUDE_SETUP=1` re-enables the `.env` / Firebase debug token check so missing `.env` symlinks in worktrees surface as warnings:
 
 ```bash
-CI=true Scripts/setup.sh
+CI=true CLAUDE_SETUP=1 Scripts/setup.sh
 ```
 
-This ensures SwiftLint, SwiftFormat, and other dependencies are installed.
+This ensures SwiftLint, SwiftFormat, and other dependencies are installed, and surfaces any `.env` gap that would otherwise cause Firebase App Check failures at runtime.
 
 ### Step 3: Create Simulator if Needed
 

@@ -1,542 +1,229 @@
 ---
-description: Create and manage Convos QA stress test conversations
+description: Run the Convos iOS QA suite (structured tests in qa/tests/structured/*.yaml). Results are persisted to CXDB so runs resume across context resets.
 ---
 
-# QA
+# /qa
 
-Create and manage stress test conversations for Convos QA testing.
+Orchestrate a QA run. This command is the **Claude Code** entry point to the QA corpus defined in `qa/` — the same corpus pi uses via `.pi/skills/qa`. The heavy lifting of each individual test happens in the `qa-runner` subagent; this command plans the run and aggregates results.
 
-## Usage
+## Arguments
 
-Use natural language. Examples:
+| Usage | Meaning |
+|-------|---------|
+| `/qa` | Run the full suite in the recommended order. Resumes the active run if one exists in CXDB. |
+| `/qa <id>` | Run a single test, e.g. `/qa 05`, `/qa 23b`. |
+| `/qa <id> <id> ...` | Run just these tests, in the given order. |
+| `/qa resume` | Explicitly resume the active run. |
+| `/qa new` | Start a new run even if an active one exists. |
+| `/qa report` | Render the latest run to `qa/reports/run-<id>.md` and print the summary. |
+| `/qa list` | List available tests with their current status in the active run. |
+| `/qa --sequential` | Disable parallel fanout (run everything on the primary simulator). Default is to fan out migration onto its own simulator in parallel with the main sequence. |
+| `/qa --dry-run` | Verify preconditions (simulator, idb, convos CLI, cxdb.sh, built app, available YAMLs) and print what the run would do. No dispatches, no CXDB writes. |
 
-```
-/qa create a convo with 5 members
-/qa make a conversation about travel with 10 members and join it in the simulator
-/qa join in the simulator a convo with 8 members
-/qa 5 members talking about coffee, join in sim
-/qa add 3 fake members to https://convos.app/v2?i=abc123
-/qa what's running?
-/qa stop stress-test-abc123
-/qa restart in prod
-/qa switch to dev
-/qa update
-```
+## Before dispatching
 
-## When to Use
+1. **Read the playbook** if this is the first `/qa` call in the session:
+   - `qa/RULES.md` — the contract (Read-Only Policy, log monitoring, ephemeral UI, multi-simulator, pasteboard safety, no-sleep, etc.).
+   - `qa/TOOLS-CLAUDE.md` — pi `sim_*` vocabulary → Claude MCP / Bash mapping. **Always use this when translating YAML actions.**
+   - `qa/tests/structured/README.md` — action/verify/criteria semantics.
+2. **Resolve the primary simulator UDID.** Read `.claude/.simulator_id`. If missing, fall back to `.convos-task` `SIMULATOR_NAME` or derive from `git branch --show-current` per `qa/RULES.md` "Simulator Selection", then resolve via `xcrun simctl list devices -j`. If the simulator doesn't exist, run `/setup` first and abort.
+2a. **Verify prerequisites.** The runner needs all of these — abort with clear install instructions if any are missing:
+   ```bash
+   # idb — the primary UI-automation tool. Check common install locations.
+   IDB=""
+   for p in "$IDB_OVERRIDE" "/Users/$(whoami)/Library/Python/3.9/bin/idb" "$HOME/Library/Python/3.9/bin/idb" "/opt/homebrew/bin/idb" "/usr/local/bin/idb" "$(command -v idb 2>/dev/null)"; do
+     [ -n "$p" ] && [ -x "$p" ] && IDB="$p" && break
+   done
+   [ -z "$IDB" ] && { echo "❌ idb not found. Install: python3 -m pip install --user fb-idb. Or set IDB_OVERRIDE to the binary path."; exit 1; }
 
-- Creating test conversations with fake AI-generated members
-- Stress testing the messaging system
-- Testing invite flows in the iOS simulator
-- Adding fake members to existing conversations
+   # convos CLI
+   command -v convos >/dev/null || { echo "❌ convos CLI not on PATH. Install per ~/.convos setup docs."; exit 1; }
+   convos identity list >/dev/null 2>&1 || convos init --env dev --force
 
-## Instructions
+   # cxdb.sh — exec bit can be dropped by git on some checkouts
+   [ -x qa/cxdb/cxdb.sh ] || chmod +x qa/cxdb/cxdb.sh
+   ```
+3. **Verify the app is running.** Take a quick screenshot. If it isn't, run `/run` to build + install + launch. This may take a few minutes; report progress.
+4. **Prepare the simulator once** per session (idempotent — safe to re-run):
+   ```bash
+   xcrun simctl spawn "$UDID" defaults write com.apple.Accessibility ReduceMotionEnabled -bool true
+   xcrun simctl spawn "$UDID" defaults write -g UIAnimationDragCoefficient -int 0
+   ```
+   Then relaunch the app so it picks up Reduce Motion.
+5. **Initialize CXDB.**
+   ```bash
+   CXDB=qa/cxdb/cxdb.sh
+   ACTIVE=$($CXDB active-run)
+   ```
+   - With no args or `resume`: if `$ACTIVE` is non-empty, reuse it. Otherwise start a new one.
+   - With `new`: start a new run regardless.
+   - Starting fresh:
+     ```bash
+     RUN=$($CXDB new-run "$UDID" "$(git rev-parse --short HEAD)" "iPhone")
+     ```
+6. **Verify `convos` CLI.** `convos identity list`. If it errors, `convos init --env dev --force`.
 
-### Step 0: Bootstrap (Run Every Time)
+## `/qa --dry-run`
 
-Before executing any QA command, ensure the convos-agents service is running.
-
-#### 0.1: Check if Service is Already Running
-
-```bash
-curl -s http://localhost:3000/health 2>/dev/null | grep -q '"status":"ok"'
-```
-
-If health check passes, skip to Step 1 (Execute Command).
-
-If service is NOT running, continue with bootstrap steps 0.2-0.5.
-
-#### 0.2: Check GitHub CLI Authentication
-
-```bash
-gh auth status
-```
-
-If not authenticated:
-```
-❌ Not logged into GitHub CLI.
-
-Run: gh auth login
-```
-Stop and wait for user to authenticate.
-
-#### 0.3: Clone or Update the Repository
-
-Check if the repo exists:
-
-```bash
-ls ~/.convos-qa/convos-ai/package.json 2>/dev/null
-```
-
-If repo doesn't exist, clone it:
-```bash
-mkdir -p ~/.convos-qa
-gh repo clone xmtplabs/convos-ai ~/.convos-qa/convos-ai
-```
-
-If repo exists, pull latest:
-```bash
-cd ~/.convos-qa/convos-ai && git pull
-```
-
-#### 0.4: Check for OPENAI_API_KEY
-
-Check if `~/.convos-qa/.env` exists and contains `OPENAI_API_KEY`:
+Do steps 1, 2, and 2a (playbook read, simulator resolve, prerequisite check). **Skip** step 3 (`/run`), step 4 (writing Reduce Motion defaults), and steps 5/6 (CXDB init + dispatch) — those either modify state or kick off a build. For step 3, just probe whether the app is running and record a boolean; don't launch it.
 
 ```bash
-grep -s "^OPENAI_API_KEY=" ~/.convos-qa/.env | cut -d'=' -f2
+# Lightweight app-running probe — no side effects
+xcrun simctl listapps "$UDID" 2>/dev/null | grep -q "org.convos.ios-preview" && APP_INSTALLED=1 || APP_INSTALLED=0
+xcrun simctl spawn "$UDID" launchctl list 2>/dev/null | grep -q "UIKitApplication:org.convos.ios-preview" && APP_RUNNING=1 || APP_RUNNING=0
 ```
 
-If empty or file doesn't exist, ask the user:
-```
-🔑 OpenAI API key required for AI-generated conversations.
-
-Enter your OpenAI API key (starts with sk-):
-```
-
-Save the key:
-```bash
-mkdir -p ~/.convos-qa
-echo "OPENAI_API_KEY=<user-provided-key>" > ~/.convos-qa/.env
-```
-
-#### 0.5: Install Dependencies, Build, and Start the Service
-
-Install dependencies, build TypeScript, and start the service:
+Then inspect CXDB read-only (no `new-run` write) and print a readiness report:
 
 ```bash
-cd ~/.convos-qa/convos-ai
+CXDB=qa/cxdb/cxdb.sh   # assigned here too, since step 5 is skipped
 
-# Install dependencies if node_modules doesn't exist or package.json changed
-if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
-  npm install
+# Readiness report
+echo "=== /qa --dry-run ==="
+echo "Simulator:     <SIMULATOR_NAME> ($UDID)"
+echo "idb:           $IDB"
+echo "convos CLI:    $(command -v convos) ($(convos --version 2>/dev/null | head -1))"
+echo "cxdb.sh:       $CXDB ($([ -x $CXDB ] && echo ok || echo FIXED))"
+APP_BUNDLE=$(find .derivedData/Build/Products -name 'Convos.app' -type d 2>/dev/null | head -1)
+echo "App bundle:    ${APP_BUNDLE:-NOT BUILT — run /run first}"
+echo "App installed: $([ "$APP_INSTALLED" = 1 ] && echo yes || echo 'no — /run will install it')"
+echo "App running:   $([ "$APP_RUNNING" = 1 ] && echo yes || echo 'no — /run will launch it')"
+echo ""
+echo "Tests found:   $(ls qa/tests/structured/*.yaml | wc -l) YAMLs in qa/tests/structured/"
+echo "Budget:        ~$(grep -h '^estimated_duration_s:' qa/tests/structured/*.yaml | awk '{s+=$2} END{print int(s/60)}') min estimated, ~$(grep -h '^estimated_duration_s:' qa/tests/structured/*.yaml | awk '{s+=$2} END{print int(s*2/60)}') min watchdog budget (2× safety)"
+echo ""
+echo "Would dispatch (default fanout):"
+echo "  [A] test 13 (migration) on an isolated simulator"
+echo "  [B] main sequence on $UDID (skip 13)"
+echo ""
+ACTIVE=$($CXDB active-run 2>/dev/null)
+echo "Active CXDB run: ${ACTIVE:-none}"
+if [ -n "$ACTIVE" ]; then
+    ALL=$(ls qa/tests/structured/ | grep -oE '^[0-9]+[a-z]?' | sort -u | paste -sd,)
+    PENDING_COUNT=$($CXDB pending-tests "$ACTIVE" "$ALL" | wc -l | tr -d ' ')
+    echo "Pending in that run: $PENDING_COUNT"
 fi
-
-# Build TypeScript if dist doesn't exist or src changed
-if [ ! -d "dist" ] || [ -n "$(find src -newer dist -name '*.ts' 2>/dev/null | head -1)" ]; then
-  npm run build
-fi
-
-# Load environment and start service in background
-source ~/.convos-qa/.env
-export OPENAI_API_KEY
-export XMTP_ENV=dev
-echo "dev" > ~/.convos-qa/.xmtp_env
-nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
-echo $! > ~/.convos-qa/convos-agents.pid
 ```
 
-Wait for health check:
-```bash
-for i in {1..30}; do
-  if curl -s http://localhost:3000/health | grep -q '"status":"ok"'; then
-    echo "✅ convos-agents is ready"
-    break
-  fi
-  sleep 1
-done
+If any prerequisite check in step 2a failed, the dry-run surfaces exactly what's missing and exits non-zero without starting anything.
+
+## Ordering and parallelism
+
+The canonical order (from `qa/SKILL.md` "Run all tests") is:
+
+```
+13 → 01 → 12 → 03 → 04 → 02 → 21 → 05 → 06 → 07 → 08 → 09 → 10 → 11
+   → 16 → 17 → 20 → 27 → 28 → 19 → 15 → 34 → 18
 ```
 
-**Note:** First startup may take ~60 seconds while generating DALL-E avatars.
+plus secondary tests `14, 22, 23, 23b, 24, 25, 26, 28b, 29, 30, 31, 32, 33` slotted where they don't conflict with destructive steps (09, 18).
 
-### Step 1: Parse Intent and Execute
+**What can actually run in parallel:**
 
-Parse the user's natural language to determine:
+- **Test 13 (migration)** — creates its own isolated simulator and worktree. Always safe to run alongside the main sequence.
+- **Tests 03 / 04** — clone a second simulator internally during the test; do *not* launch them in parallel with each other or with 13 (risk of resource contention), but they're fine in the main sequence.
+- **Everything else** — shares state (`shared_conversation_id` in CXDB run_state, destructive steps like 09/18) and must stay sequential on the primary simulator.
 
-| Signal | Look for | Default |
-|--------|----------|---------|
-| **Member count** | Numbers like "5 members", "with 10", etc. | 5 |
-| **Topic/theme** | "about X", "talking about X", quoted text | None (AI generates) |
-| **Join in simulator** | "join in simulator", "join in sim", "and join", "open in app" | No |
-| **Invite URL** | URLs containing `convos.app` or invite slugs | None |
-| **Status check** | "status", "what's running", "list", "agents" | - |
-| **Stop agent** | "stop", "kill", "end" + agent ID | - |
-| **Switch to prod** | "restart in prod", "switch to production", "use prod", "prod mode" | - |
-| **Switch to dev** | "restart in dev", "switch to dev", "use dev", "dev mode" | - |
-| **Update** | "update", "upgrade", "pull latest", "get latest" | - |
+**Default fanout** (unless `--sequential`): dispatch **2 concurrent** `qa-runner` subagents:
 
-Then execute the matching action:
+- Agent A: test 13 on its own simulator (the agent creates it per the YAML).
+- Agent B: the main sequence on the primary UDID, in the order above (skipping 13).
 
-#### Intent: Create new conversation
+Do not spawn more than this — additional agents will fight over the primary simulator and CXDB rows.
 
-```bash
-curl -s -X POST http://localhost:3000/api/stress-test \
-  -H "Content-Type: application/json" \
-  -d '{"memberCount": N, "customPrompt": "topic"}'
+For `/qa <id>` with a single id: just dispatch one agent — no parallelism needed.
+
+## Expected durations
+
+Per-test budgets come from each YAML's `estimated_duration_s`. The real-world factor tends to be 1.5–1.6× the estimate (based on run `b552ccce49c3`: 115 min estimated, 185 min actual including all chunks + migration). The watchdog's 2× safety factor accounts for this.
+
+**Full suite:** ~2 hours estimated, **2.5–3 hours actual** wall-clock (including build, install, per-test setup/teardown, CLI sync, and inter-test navigation).
+
+**Quickest tests** (< 2 min): 15-performance, 17-swipe-actions, 18-delete, 22-rejoin, 25-baseline, 25b-defaults, 26-failed-send, 29-typing, 31-convos-button.
+
+**Slowest tests** (≥ 5 min estimated): 13-migration (10m — runs on isolated sim, parallelizable), 27-video, 03-invite-deep-link, 05-reactions, 15-performance, 20-photos, 21-gestures, 28-files, 35-identity.
+
+If a single chunk's runner exceeds `sum(estimated_duration_s) × 2` minutes with no CXDB progress (see **Watchdogging runners** below), treat it as hung.
+
+## Dispatching a qa-runner
+
+For each chunk, send an `Agent` call with `subagent_type: qa-runner`. The prompt must include `test_ids` (a single id or an ordered list), `run_id`, and the `udid` the runner should target. The runner iterates the list in order, sharing simulator state and CXDB `_run` state across the chunk.
+
+Example prompt shape:
+
+```
+You are executing QA test(s) <ids> for run <run_id>.
+
+Inputs:
+- test_ids: ["<id1>", "<id2>", ...]    # or a single "<id>"
+- run_id: "<run>"
+- udid: "<UDID>"
+- simulator_name: "<name>"
+
+Follow the instructions in your agent definition. For each id, read
+qa/tests/structured/<id>-*.yaml, translate actions via qa/TOOLS-CLAUDE.md,
+record everything to CXDB, then move to the next. Return the compact chunk
+summary when done.
 ```
 
-Response format:
-```
-✅ Created stress test conversation
+Default: one runner instance per contiguous chunk of tests that share simulator state. Migration (test 13) is always its own runner on an isolated simulator.
 
-**Invite URL:** https://convos.app/v2?i=abc123
-**Group Name:** AI-generated name
-**Members:** Alice, Bob, Charlie
+## Watchdogging runners
 
-Paste this URL in the Convos app. Fake members will start messaging automatically.
-```
+The `Agent` tool has no native timeout. You must budget wall-clock time per chunk and intervene if a runner goes dark.
 
-**If user wants to join in simulator:** After creating the conversation, proceed to Step 2.
+1. **Budget** = sum of each test's `estimated_duration_s` (from the YAML) × **2.0** safety factor. A chunk of tests with estimated_duration_s totaling 1500s gets a 3000s (50 min) budget.
+2. **Dispatch in background** — always use `run_in_background: true` on the `Agent` call so the orchestrator can make other decisions while waiting.
+3. **Progress probe** — roughly every 10 minutes of wall-clock, query CXDB for progress:
+   ```bash
+   # What tests have finished in this run recently?
+   $CXDB sql "SELECT test_id, status, finished_at FROM test_results WHERE run_id='$RUN' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 5;"
+   # What's currently running?
+   $CXDB sql "SELECT test_id, started_at FROM test_results WHERE run_id='$RUN' AND status='running';"
+   ```
+   If `finished_at` of the latest completed test is within the last 10 min, the runner is alive — keep waiting.
+4. **On budget exceeded** — check CXDB once more. If there's been no progress (no new `finished_at` rows) for a full budget window, the runner is likely stuck. Cancel it (via the sub-agent management flow), mark any `running` test_results as `error` with note "orchestrator timeout", and decide whether to retry or skip to the next chunk.
+5. **Do not poll more than every ~5 minutes** — each CXDB query is cheap but polling also incurs tokens and you'll get a completion notification when the agent returns naturally.
 
-#### Intent: Add members to existing conversation
+If you kill a runner, the `_run` state in CXDB remains intact. You can re-dispatch a new runner for the remaining `pending-tests` without losing the conversation IDs, identities, or app state the killed runner established.
 
-Extract the invite slug from the URL (the `i=` parameter) and call:
+## After all runners complete
 
-```bash
-curl -s -X POST http://localhost:3000/api/stress-test/join \
-  -H "Content-Type: application/json" \
-  -d '{"inviteSlug": "extracted-slug", "memberCount": N}'
-```
+1. **Finish the run.** `$CXDB finish-run "$RUN"` — derives status from test results.
+2. **Render the report.** `$CXDB report-md "$RUN" > qa/reports/run-$RUN.md`.
+3. **Print the summary to chat.**
+   ```bash
+   $CXDB summary "$RUN"
+   ```
+   Then a short narrative: overall status, headline failures, any new bugs/accessibility findings. Point the user at `qa/reports/run-$RUN.md` for the full report.
 
-Response format:
-```
-✅ Joined conversation with N fake members
-
-**Agent ID:** stress-test-xyz
-**Members added:** Alice, Bob, Charlie
-
-Fake members will start messaging automatically.
-```
-
-#### Intent: Check status
-
-```bash
-# Get current environment
-cat ~/.convos-qa/.xmtp_env 2>/dev/null || echo "dev"
-
-# Get running agents
-curl -s http://localhost:3000/api/agents
-```
-
-Response format:
-```
-**Service Status:**
-- Environment: dev (or production)
-
-**Running Agents (2):**
-
-stress-test-abc123
-  - Status: active
-  - Members: 5
-  - Messages remaining: 15
-  - Created: 2024-01-15 10:30 AM
-
-stress-test-xyz789
-  - Status: paused
-  - Members: 3
-  - Created: 2024-01-15 09:15 AM
-```
-
-If no agents:
-```
-**Service Status:**
-- Environment: dev
-
-No running agents.
-
-Use `/qa new convo with 5 members` to create a test conversation.
-```
-
-#### Intent: Stop agent
+## `/qa list`
 
 ```bash
-curl -s -X POST http://localhost:3000/api/agents/<agent-id>/stop
+CXDB=qa/cxdb/cxdb.sh
+RUN=$($CXDB active-run)
+if [ -z "$RUN" ]; then echo "No active run. Start one with /qa."; exit 0; fi
+
+ALL_IDS=$(ls qa/tests/structured/ | grep -oE '^[0-9]+[a-z]?' | sort -u | paste -sd,)
+$CXDB pending-tests "$RUN" "$ALL_IDS"
 ```
 
-Response format:
-```
-✅ Stopped agent: <agent-id>
-```
+Print the pending list plus a status table pulled from CXDB.
 
-#### Intent: Switch to production mode
-
-Stop the running service and restart with `XMTP_ENV=production`:
+## `/qa report`
 
 ```bash
-# Kill existing process
-kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
-
-# Restart with production environment
-cd ~/.convos-qa/convos-ai
-source ~/.convos-qa/.env
-export OPENAI_API_KEY
-export XMTP_ENV=production
-echo "production" > ~/.convos-qa/.xmtp_env
-nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
-echo $! > ~/.convos-qa/convos-agents.pid
+CXDB=qa/cxdb/cxdb.sh
+RUN=$($CXDB history 1 | awk 'NR==2 {print $1}')
+$CXDB report-md "$RUN" > qa/reports/run-$RUN.md
+$CXDB summary "$RUN"
 ```
 
-Wait for health check (same as bootstrap step 0.5).
+Then show the path to the rendered report.
 
-Response format:
-```
-✅ Restarted convos-agents in production mode
+## Failure modes to handle
 
-The service is now using the XMTP production network.
-```
-
-#### Intent: Switch to dev mode
-
-Stop the running service and restart with `XMTP_ENV=dev`:
-
-```bash
-# Kill existing process
-kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
-
-# Restart with dev environment
-cd ~/.convos-qa/convos-ai
-source ~/.convos-qa/.env
-export OPENAI_API_KEY
-export XMTP_ENV=dev
-echo "dev" > ~/.convos-qa/.xmtp_env
-nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
-echo $! > ~/.convos-qa/convos-agents.pid
-```
-
-Wait for health check (same as bootstrap step 0.5).
-
-Response format:
-```
-✅ Restarted convos-agents in dev mode
-
-The service is now using the XMTP dev network.
-```
-
-#### Intent: Update to latest version
-
-Stop the service, pull latest changes, rebuild, and restart:
-
-```bash
-# Kill existing process
-kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
-
-# Pull latest changes
-cd ~/.convos-qa/convos-ai
-git pull
-
-# Reinstall dependencies if package.json changed
-npm install
-
-# Rebuild TypeScript
-npm run build
-
-# Get current environment (default to dev)
-CURRENT_ENV=$(cat ~/.convos-qa/.xmtp_env 2>/dev/null || echo "dev")
-
-# Restart with same environment
-source ~/.convos-qa/.env
-export OPENAI_API_KEY
-export XMTP_ENV=$CURRENT_ENV
-nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
-echo $! > ~/.convos-qa/convos-agents.pid
-```
-
-Wait for health check (same as bootstrap step 0.5).
-
-Response format:
-```
-✅ Updated convos-agents to latest version
-
-Pulled latest changes, rebuilt, and restarted in <env> mode.
-```
-
-### Step 2: Join in Simulator
-
-If the user wants to join in the simulator (detected phrases like "join in simulator", "join in sim", "and join it", "open in app"), automatically join the conversation after creating it.
-
-#### 2.1: Get Simulator ID
-
-Read the simulator ID from `.claude/.simulator_id`:
-
-```bash
-cat .claude/.simulator_id
-```
-
-If the file doesn't exist, inform the user to run `/build --run` first to launch the app.
-
-#### 2.2: Ensure Simulator is Booted
-
-Use the XcodeBuildMCP tool to boot the simulator:
-
-```
-mcp__XcodeBuildMCP__session-set-defaults with simulatorId from step 2.1
-mcp__XcodeBuildMCP__boot_sim
-```
-
-#### 2.3: Copy Invite URL to Simulator Clipboard
-
-Copy the invite URL to the **simulator's** clipboard (not the Mac clipboard):
-
-```bash
-xcrun simctl pbcopy <SIMULATOR_ID> <<< "<INVITE_URL>"
-```
-
-Example:
-```bash
-xcrun simctl pbcopy 17795D3B-A34E-4FB9-88B4-1F25B7AFA7CD <<< "https://convos.app/v2?i=abc123"
-```
-
-#### 2.4: Navigate to Join Flow
-
-Use `mcp__XcodeBuildMCP__describe_ui` to get the current screen state.
-
-**If on Home screen (shows "New conversation" and "or join one"):**
-1. Find and tap the "or join one" button using `mcp__XcodeBuildMCP__tap`
-
-**If on Join screen (shows "Paste an invite link"):**
-1. Proceed to step 2.5
-
-**If on another screen:**
-1. Look for navigation options to get to the join flow
-2. Or inform the user to navigate to the home screen manually
-
-#### 2.5: Paste the Invite URL
-
-1. Use `describe_ui` to find the clipboard paste button (usually shows a clipboard icon)
-2. Tap the clipboard button to paste the invite URL
-
-#### 2.6: Handle Paste Permission
-
-iOS will show a permission dialog: "Convos would like to paste from CoreSimulatorBridge"
-
-1. Use `describe_ui` to find the "Allow Paste" button
-2. Tap "Allow Paste" to grant permission
-
-#### 2.7: Verify Join Success
-
-1. Wait 1-2 seconds for the join to complete
-2. Use `mcp__XcodeBuildMCP__screenshot` to capture the result
-3. Confirm the conversation was joined successfully
-
-Response format when joining in simulator:
-```
-✅ Created and joined stress test conversation
-
-**Group Name:** AI-generated name
-**Members:** Alice, Bob, Charlie
-
-The conversation is now open in the Simulator. Fake members will start messaging automatically.
-```
-
-## Error Handling
-
-### Service Not Starting
-
-If the service fails to start:
-```
-❌ Failed to start convos-agents service.
-
-Check logs: cat ~/.convos-qa/convos-agents.log
-```
-
-### API Not Responding
-
-If API calls fail after service should be running:
-```
-❌ convos-agents API not responding.
-
-Try restarting:
-1. Kill existing process: kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
-2. Run /qa setup to restart the service
-Check logs: tail -50 ~/.convos-qa/convos-agents.log
-```
-
-### Invalid API Key
-
-If stress test creation fails with auth error:
-```
-❌ OpenAI API key invalid or expired.
-
-Update your key:
-1. Get a new key from https://platform.openai.com/api-keys
-2. Run: echo "OPENAI_API_KEY=sk-..." > ~/.convos-qa/.env
-3. Restart service: kill $(cat ~/.convos-qa/convos-agents.pid) && run /qa setup
-```
-
-## Examples
-
-**Create a basic test conversation:**
-```
-User: /qa give me a convo with 5 members
-Claude: [Checks container, creates stress test]
-        ✅ Created stress test conversation
-        **Invite URL:** https://convos.app/v2?i=abc123
-        ...
-```
-
-**Create a themed conversation:**
-```
-User: /qa 8 people talking about planning a surprise birthday party
-Claude: [Creates stress test with custom prompt]
-        ✅ Created stress test conversation
-        **Invite URL:** https://convos.app/v2?i=xyz789
-        **Group Name:** Birthday Planning Committee
-        ...
-```
-
-**Check running agents:**
-```
-User: /qa what's running?
-Claude: **Running Agents (1):**
-        stress-test-abc123
-          - Status: active
-          - Members: 5
-          ...
-```
-
-**Create and automatically join in simulator:**
-```
-User: /qa join in the simulator a convo with 5 members
-Claude: [Creates stress test, copies invite to simulator clipboard,
-        navigates to join flow, pastes URL, handles permission dialog]
-
-        ✅ Created and joined stress test conversation
-
-        **Group Name:** Weekend Hikers
-        **Members:** Alex, Jordan, Sam, Riley, Morgan
-
-        The conversation is now open in the Simulator.
-```
-
-**Switch to production environment:**
-```
-User: /qa restart in prod
-Claude: [Kills existing process, restarts with XMTP_ENV=production]
-
-        ✅ Restarted convos-agents in production mode
-
-        The service is now using the XMTP production network.
-```
-
-**Switch back to dev environment:**
-```
-User: /qa switch to dev
-Claude: [Kills existing process, restarts with XMTP_ENV=dev]
-
-        ✅ Restarted convos-agents in dev mode
-
-        The service is now using the XMTP dev network.
-```
-
-**Update to latest version:**
-```
-User: /qa update
-Claude: [Stops service, pulls latest, rebuilds, restarts]
-
-        ✅ Updated convos-agents to latest version
-
-        Pulled latest changes, rebuilt, and restarted in dev mode.
-```
-
-## Cleanup
-
-To stop the service:
-```bash
-kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
-```
-
-To completely reset the QA environment:
-```bash
-kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
-rm -rf ~/.convos-qa
-```
+- **Docker not running** → most integration tests are fine (they talk to the `dev` XMTP network, not local Docker), but `convos init` may need it for some commands. Follow `CLAUDE.md` guidance.
+- **App crashes mid-test** → the runner records the failure, finishes the test as `error`, and the orchestrator (this command) continues with the next test. Do not stop the whole run unless 3+ tests error in a row.
+- **Build fails** → do not start any runners. Report the build error and stop.
+- **Simulator unresponsive** → try `xcrun simctl shutdown "$UDID" && xcrun simctl boot "$UDID"` and relaunch once. If that fails, stop.

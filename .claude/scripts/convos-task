@@ -298,6 +298,15 @@ cmd_new() {
     echo -e "${BLUE}📁 Location: $WORKTREE_DIR${NC}"
     echo -e "${BLUE}🌿 Branch: $BRANCH_NAME${NC}"
 
+    # Link the parent's .env into the worktree so Firebase App Check debug token
+    # (and any other shared secrets) are picked up without per-worktree duplication.
+    if [ -f "$BASE_DIR/.env" ] && [ ! -e "$WORKTREE_DIR/.env" ]; then
+        ln -s ../.env "$WORKTREE_DIR/.env"
+        echo -e "${BLUE}🔗 Linked .env → ../.env${NC}"
+    elif [ ! -f "$BASE_DIR/.env" ]; then
+        echo -e "${YELLOW}⚠️  No .env at $BASE_DIR/.env — create one and worktrees will link to it on next 'new'${NC}"
+    fi
+
     # Write task config file (includes simulator name for later use)
     write_task_config "$WORKTREE_DIR" "$TASK_NAME"
 

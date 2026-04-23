@@ -19,9 +19,6 @@
       "Bash(git worktree *)"
     ]
   },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "XcodeBuildMCP",

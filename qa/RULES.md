@@ -37,7 +37,9 @@ When updating QA files, keep changes focused and minimal — fix the specific is
 
 ## Tools
 
-You have two categories of tools for QA testing:
+You have two categories of tools for QA testing.
+
+**Harness note:** the action vocabulary below (`sim_tap_id`, `sim_wait_for_element`, `sim_log_tail`, ...) is the pi-side naming and is the source of truth for the structured YAMLs. When running under **Claude Code**, translate each `sim_*` call into the equivalent MCP tool or Bash command using [`qa/TOOLS-CLAUDE.md`](TOOLS-CLAUDE.md). Keep writing tests against pi vocabulary — it stays stable across harnesses.
 
 ### iOS Simulator Tools
 
@@ -234,7 +236,7 @@ $CXDB record-criterion "$TR" "cli_reaction_text_visible" "pass" "CLI reaction on
 $CXDB set-state "$RUN" "05" "conversation_id" "$CONV_ID"
 $CXDB set-state "$RUN" "_run" "shared_conversation_id" "$CONV_ID"  # run-level state
 
-# Log errors and findings:
+# Log errors and findings (6th arg is_xmtp: 1=xmtp, 0=app-level):
 $CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "0"
 $CXDB log-bug "$RUN" "05" "major" "Title" "Description"
 $CXDB log-a11y "$RUN" "05" "element purpose" "recommendation"
@@ -301,16 +303,16 @@ LOG_MARKER=<marker from sim_log_tail>
 Before calling `$CXDB finish-test`, complete these steps:
 
 1. **Final log check.** Call `sim_log_check_errors` with the test's log marker to catch any errors that occurred during the test but weren't caught by mid-test checks.
-2. **Log every error to CXDB.** For each error found (both from mid-test checks and the final check), call `$CXDB log-error`. Classify as XMTP (`is_app_error=0`) or app-level (`is_app_error=1`). Log every occurrence, even repeats from previous tests.
+2. **Log every error to CXDB.** For each error found (both from mid-test checks and the final check), call `$CXDB log-error`. The 6th arg is `is_xmtp` — pass `1` for XMTP-layer errors, `0` for app-level errors. The script derives `is_app_error` as the inverse. Log every occurrence, even repeats from previous tests.
 3. **Call `$CXDB finish-test`** with the final pass/fail status.
 
 ```bash
 # Final log sweep
 sim_log_check_errors(since_marker=LOG_MARKER)
 
-# Log any errors found (repeat for each error line)
-$CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "1"  # app error
-$CXDB log-error "$RUN" "05" "$TIMESTAMP" "XMTPiOS" "$ERROR_MSG" "0"    # XMTP error
+# Log any errors found (repeat for each error line; 6th arg is_xmtp: 1=xmtp, 0=app)
+$CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "0"  # app error
+$CXDB log-error "$RUN" "05" "$TIMESTAMP" "XMTPiOS" "$ERROR_MSG" "1"    # XMTP error
 
 # Finish
 $CXDB finish-test "$TR" "pass"
@@ -598,7 +600,7 @@ After completing a test, report results clearly:
 - Note any unexpected behavior even if the test passed.
 - If the test failed due to infrastructure issues (simulator crash, network timeout), note that separately from app bugs.
 - Include any warnings from the log monitoring, noting whether they seem expected or concerning.
-- **Log every error to CXDB every time it appears** — even if you've seen the same error in previous runs. Use `$CXDB log-error` for each error line. Recurrence frequency is valuable data; dismissing repeat errors hides patterns. Mark XMTP-layer errors with `is_app_error=0` and app-level errors with `is_app_error=1`.
+- **Log every error to CXDB every time it appears** — even if you've seen the same error in previous runs. Use `$CXDB log-error` for each error line (6th arg is `is_xmtp`: pass `1` for XMTP-layer errors, `0` for app-level errors). Recurrence frequency is valuable data; dismissing repeat errors hides patterns.
 - **XMTP errors:** List all XMTP-layer errors observed during the test in a dedicated section, even if the test passed. Note whether each error appeared to affect the app's behavior or was transient/innocuous. This helps track XMTP SDK issues over time without conflating them with app bugs.
 
 **When a test fails (either from pass/fail criteria or from a log error), include a failure report:**
