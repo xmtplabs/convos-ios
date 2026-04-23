@@ -596,6 +596,28 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     private func handleAuthorized(result: InboxReadyResult) async throws {
+        // Stale-installation check. If the network says our
+        // installation has been revoked (likely because the user
+        // restored on another device), transition to
+        // `.error(DeviceReplacedError())` — a TerminalSessionError
+        // that handleRetryFromError won't retry, so the banner +
+        // reset-device flow is the only path out.
+        do {
+            let state = try await result.client.inboxState(refreshFromNetwork: true)
+            let active = state.installations.map(\.id)
+            if !active.contains(result.client.installationId) {
+                Log.warning("handleAuthorized: local installation \(result.client.installationId) not in active set \(active); treating as device-replaced")
+                throw DeviceReplacedError()
+            }
+        } catch is DeviceReplacedError {
+            throw DeviceReplacedError()
+        } catch {
+            // Network failure on the stale check shouldn't block
+            // session startup — log and proceed as if active. The
+            // next foreground cycle will retry the probe.
+            Log.warning("handleAuthorized: stale-installation probe failed (\(error)); proceeding as active")
+        }
+
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
         emitStateChange(.ready(result))
@@ -736,6 +758,17 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleRetryFromError() async throws {
         try Task.checkCancellation()
+
+        // Terminal errors (e.g. DeviceReplacedError) must not retry —
+        // the observer-side reset flow is the only recovery path.
+        // Retrying re-runs handleAuthorize against the same revoked
+        // identity, burning counters and masking the banner if a
+        // retry happens to land in `.ready` by coincidence.
+        if case let .error(currentError) = currentState,
+           currentError is TerminalSessionError {
+            Log.info("Not retrying terminal session error: \(currentError)")
+            return
+        }
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
             Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
