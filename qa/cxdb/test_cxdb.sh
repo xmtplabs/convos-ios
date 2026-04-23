@@ -85,9 +85,9 @@ check "test-status after finish reads 'fail'" "$STATUS2" "fail"
 echo
 echo "## pending-tests filters out completed ids"
 PENDING=$("$CXDB" pending-tests "$RUN" "99,100,101" 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-check "pending-tests excludes 99 (pass/skip only), includes 100,101" "$PENDING" "99,100,101"
-# Note: pending-tests treats only 'pass' and 'skip' as done, not 'fail'. That's the script's
-# current behavior — failed tests are still "pending" so they can be retried.
+# Fail != done: pending-tests only excludes pass/skip. 99 finished 'fail' above so it
+# stays pending, alongside the untouched 100 and 101. This lets failed tests be retried.
+check "pending-tests treats fail as not-done; all three stay pending" "$PENDING" "99,100,101"
 
 TR2=$("$CXDB" start-test "$RUN" "100" "Smoke Test 100" 2>/dev/null)
 "$CXDB" record-criterion "$TR2" "crit_ok" "pass" "All good" "evidence" >/dev/null 2>&1
