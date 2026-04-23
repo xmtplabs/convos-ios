@@ -1308,7 +1308,7 @@ extension ConversationViewModel {
     }
 
     func onTapInvite(_ invite: MessageInvite) {
-        if invite.isConversationExpired {
+        if invite.isConversationExpired || invite.isInviteExpired {
             presentingExplodedInviteInfo = true
             return
         }

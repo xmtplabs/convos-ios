@@ -385,160 +385,67 @@ struct MessagesRepositoryTests {
         #expect(updatedProfile?.avatar == "new-avatar-url")
     }
 
-    @Test("invite rows flagged as expired when the linked side convo has an expiresAt in the past")
-    func testInviteRowFlaggedWhenSideConvoExploded() throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let parentId = "parent-convo"
-        let sideId = "side-convo"
-        let currentInboxId = "current-user"
-        let otherInboxId = "other-user"
-        let now = Date()
-        let explodedAt = now.addingTimeInterval(-60)
-        let slug = "side-invite-slug"
+    @Test("MessageInvite exposes isConversationExpired from conversationExpiresAt")
+    func testMessageInviteIsConversationExpired() {
+        let expired = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: Date().addingTimeInterval(-60)
+        )
+        #expect(expired.isConversationExpired)
+        #expect(!expired.isInviteExpired)
 
-        try dbManager.dbWriter.write { db in
-            try seedConversation(
-                db: db,
-                conversationId: parentId,
-                currentInboxId: currentInboxId,
-                otherInboxIds: [otherInboxId],
-                now: now
-            )
-            try seedConversation(
-                db: db,
-                conversationId: sideId,
-                currentInboxId: currentInboxId,
-                otherInboxIds: [otherInboxId],
-                now: now
-            )
-            let sideConvo = try DBConversation.fetchOne(db, key: sideId)?.with(expiresAt: explodedAt)
-            try sideConvo?.save(db)
-            try DBInvite(
-                creatorInboxId: currentInboxId,
-                conversationId: sideId,
-                urlSlug: slug,
-                expiresAt: nil,
-                expiresAfterUse: false
-            ).insert(db)
+        let live = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: Date().addingTimeInterval(3_600)
+        )
+        #expect(!live.isConversationExpired)
 
-            let invite = MessageInvite(
-                inviteSlug: slug,
-                conversationName: "Side Chat",
-                conversationDescription: nil,
-                imageURL: nil,
-                emoji: "🦊",
-                expiresAt: nil,
-                conversationExpiresAt: nil
-            )
-            try DBMessage(
-                id: "invite-msg",
-                clientMessageId: "invite-msg",
-                conversationId: parentId,
-                senderId: currentInboxId,
-                dateNs: Int64(now.timeIntervalSince1970 * 1_000_000_000),
-                date: now,
-                sortId: 1,
-                status: .published,
-                messageType: .original,
-                contentType: .invite,
-                text: nil,
-                emoji: nil,
-                invite: invite,
-                linkPreview: nil,
-                sourceMessageId: nil,
-                attachmentUrls: [],
-                update: nil
-            ).insert(db)
-        }
-
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: parentId, currentInboxId: currentInboxId)
-        let messages = try repository.fetchInitial()
-
-        #expect(messages.count == 1)
-        guard case .message(let message, _) = messages[0],
-              case .invite(let invite) = message.content else {
-            Issue.record("Expected an invite message")
-            return
-        }
-        #expect(invite.isConversationExpired)
+        let noExpiry = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: nil
+        )
+        #expect(!noExpiry.isConversationExpired)
     }
 
-    @Test("invite rows stay live when the linked side convo has not expired")
-    func testInviteRowNotFlaggedWhenSideConvoLive() throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let parentId = "parent-convo"
-        let sideId = "side-convo"
-        let currentInboxId = "current-user"
-        let otherInboxId = "other-user"
-        let now = Date()
-        let futureExpiresAt = now.addingTimeInterval(3_600)
-        let slug = "side-invite-slug"
+    @Test("MessageInvite exposes isInviteExpired independently of conversationExpiresAt")
+    func testMessageInviteIsInviteExpired() {
+        let inviteExpired = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: Date().addingTimeInterval(-60),
+            conversationExpiresAt: Date().addingTimeInterval(3_600)
+        )
+        #expect(inviteExpired.isInviteExpired)
+        #expect(!inviteExpired.isConversationExpired)
 
-        try dbManager.dbWriter.write { db in
-            try seedConversation(
-                db: db,
-                conversationId: parentId,
-                currentInboxId: currentInboxId,
-                otherInboxIds: [otherInboxId],
-                now: now
-            )
-            try seedConversation(
-                db: db,
-                conversationId: sideId,
-                currentInboxId: currentInboxId,
-                otherInboxIds: [otherInboxId],
-                now: now
-            )
-            let sideConvo = try DBConversation.fetchOne(db, key: sideId)?.with(expiresAt: futureExpiresAt)
-            try sideConvo?.save(db)
-            try DBInvite(
-                creatorInboxId: currentInboxId,
-                conversationId: sideId,
-                urlSlug: slug,
-                expiresAt: nil,
-                expiresAfterUse: false
-            ).insert(db)
-
-            let invite = MessageInvite(
-                inviteSlug: slug,
-                conversationName: "Side Chat",
-                conversationDescription: nil,
-                imageURL: nil,
-                emoji: "🦊",
-                expiresAt: nil,
-                conversationExpiresAt: nil
-            )
-            try DBMessage(
-                id: "invite-msg",
-                clientMessageId: "invite-msg",
-                conversationId: parentId,
-                senderId: currentInboxId,
-                dateNs: Int64(now.timeIntervalSince1970 * 1_000_000_000),
-                date: now,
-                sortId: 1,
-                status: .published,
-                messageType: .original,
-                contentType: .invite,
-                text: nil,
-                emoji: nil,
-                invite: invite,
-                linkPreview: nil,
-                sourceMessageId: nil,
-                attachmentUrls: [],
-                update: nil
-            ).insert(db)
-        }
-
-        let repository = MessagesRepository(dbReader: dbManager.dbReader, conversationId: parentId, currentInboxId: currentInboxId)
-        let messages = try repository.fetchInitial()
-
-        #expect(messages.count == 1)
-        guard case .message(let message, _) = messages[0],
-              case .invite(let invite) = message.content else {
-            Issue.record("Expected an invite message")
-            return
-        }
-        #expect(!invite.isConversationExpired)
+        let live = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: Date().addingTimeInterval(3_600),
+            conversationExpiresAt: nil
+        )
+        #expect(!live.isInviteExpired)
     }
 
     // MARK: - Helpers

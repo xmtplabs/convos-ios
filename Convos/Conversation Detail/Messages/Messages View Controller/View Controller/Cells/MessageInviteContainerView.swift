@@ -77,6 +77,14 @@ struct MessageInviteContainerView: View {
                 onTapInvite: { _ in
                 },
                 onTapAvatar: {})
+            MessageInviteContainerView(
+                invite: .mockInviteExpired,
+                style: .normal,
+                isOutgoing: false,
+                profile: .mock(),
+                onTapInvite: { _ in
+                },
+                onTapAvatar: {})
         }
         .padding(.horizontal, DesignConstants.Spacing.step2x)
     }
@@ -93,8 +101,20 @@ struct MessageInviteView: View {
         return "New Convo"
     }
 
+    private var isExpired: Bool {
+        invite.isConversationExpired || invite.isInviteExpired
+    }
+
     var description: String {
-        invite.isConversationExpired ? "Exploded" : "Tap to join"
+        if invite.isConversationExpired { return "Exploded" }
+        if invite.isInviteExpired { return "Expired" }
+        return "Tap to join"
+    }
+
+    private var accessibilityDescriptionIdentifier: String {
+        if invite.isConversationExpired { return "invite-preview-exploded-label" }
+        if invite.isInviteExpired { return "invite-preview-expired-label" }
+        return "invite-preview-subtitle"
     }
 
     var body: some View {
@@ -102,7 +122,7 @@ struct MessageInviteView: View {
             Color.colorFillMinimal
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
-                    if invite.isConversationExpired {
+                    if isExpired {
                         Image(systemName: "burst")
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -125,7 +145,7 @@ struct MessageInviteView: View {
                     }
                 }
                 .clipped()
-                .opacity(invite.isConversationExpired ? 0.6 : 1.0)
+                .opacity(isExpired ? 0.6 : 1.0)
                 .accessibilityLabel(invite.imageURL != nil ? "Invite image preview" : (invite.emoji.map { "Invite emoji \($0)" } ?? "Invite placeholder"))
                 .accessibilityIdentifier("invite-preview-avatar")
 
@@ -140,12 +160,12 @@ struct MessageInviteView: View {
                         .truncationMode(.tail)
                     Text(description)
                         .font(.subheadline)
-                        .accessibilityIdentifier(invite.isConversationExpired ? "invite-preview-exploded-label" : "invite-preview-subtitle")
+                        .accessibilityIdentifier(accessibilityDescriptionIdentifier)
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.colorTextSecondary)
                 }
 
-                if !invite.isConversationExpired,
+                if !isExpired,
                    let expiresAt = invite.conversationExpiresAt,
                    expiresAt > Date() {
                     Spacer()

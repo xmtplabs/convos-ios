@@ -416,7 +416,6 @@ extension Array where Element == DBMessage {
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
                          attachmentLocalStates: [String: AttachmentLocalState] = [:],
-                         expiredInviteSlugs: Set<String> = [],
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -452,10 +451,7 @@ extension Array where Element == DBMessage {
                         Log.error("Invite message type is missing invite object")
                         return nil
                     }
-                    let resolvedInvite = expiredInviteSlugs.contains(invite.inviteSlug)
-                        ? invite.with(isConversationExpired: true)
-                        : invite
-                    messageContent = .invite(resolvedInvite)
+                    messageContent = .invite(invite)
                 case .linkPreview:
                     guard let preview = dbMessage.linkPreview else {
                         messageContent = .text(dbMessage.text ?? "")
@@ -907,9 +903,6 @@ fileprivate extension Database {
         }
         let attachmentLocalStates = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
 
-        let inviteSlugs = Set(rawMessages.compactMap { $0.invite?.inviteSlug })
-        let expiredInviteSlugs = try fetchExpiredInviteSlugs(from: inviteSlugs)
-
         let chronologicalMessages = rawMessages.reversed()
         let result = Array(chronologicalMessages).composeMessages(
             in: conversation,
@@ -918,36 +911,11 @@ fileprivate extension Database {
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,
             attachmentLocalStates: attachmentLocalStates,
-            expiredInviteSlugs: expiredInviteSlugs,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating
         )
         return result
-    }
-
-    /// Returns the subset of `slugs` whose linked `DBConversation` has already
-    /// expired. Used to flag inline side-convo invite rows as "Exploded" in the
-    /// parent conversation's message stream. Side convos the local inbox never
-    /// joined (and therefore has no local `DBInvite` for) are absent from the
-    /// result — those invites continue to render as live.
-    func fetchExpiredInviteSlugs(from slugs: Set<String>) throws -> Set<String> {
-        guard !slugs.isEmpty else { return [] }
-        let now = Date()
-        let rows = try DBInvite
-            .filter(slugs.contains(DBInvite.Columns.urlSlug))
-            .fetchAll(self)
-        guard !rows.isEmpty else { return [] }
-
-        let conversationIds = Set(rows.map(\.conversationId))
-        let expiredConversationIds = try DBConversation
-            .filter(conversationIds.contains(DBConversation.Columns.id))
-            .filter(DBConversation.Columns.expiresAt != nil)
-            .filter(DBConversation.Columns.expiresAt < now)
-            .fetchAll(self)
-            .map(\.id)
-        let expiredSet = Set(expiredConversationIds)
-        return Set(rows.filter { expiredSet.contains($0.conversationId) }.map(\.urlSlug))
     }
 }
 
