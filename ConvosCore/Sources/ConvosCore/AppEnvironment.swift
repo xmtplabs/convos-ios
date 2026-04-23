@@ -242,4 +242,30 @@ public extension AppEnvironment {
     var defaultDatabasesDirectory: String {
         defaultDatabasesDirectoryURL.path
     }
+
+    /// Root directory under the app-group container reserved for backup/restore
+    /// bookkeeping (rollback artifacts, staged bundles). Kept inside the shared
+    /// container so the NSE can observe in-flight transactions and so crash
+    /// recovery on next launch can inspect them.
+    var backupBookkeepingDirectoryURL: URL {
+        defaultDatabasesDirectoryURL.appendingPathComponent("backup", isDirectory: true)
+    }
+
+    /// iCloud container identifier used for backup bundle persistence.
+    ///
+    /// Returns `nil` today — the iCloud container is not yet configured in
+    /// entitlements or provisioning. `BackupManager` falls back to the local
+    /// app-group directory when this is nil. When entitlements land, this
+    /// can be wired through `ConvosConfiguration` without touching the
+    /// `BackupManager` call sites.
+    var iCloudContainerIdentifier: String? {
+        nil
+    }
+
+    /// App marketing version read from the host bundle. Defaults to `"0.0.0"`
+    /// when unavailable (e.g. in SPM test runs where `Bundle.main` belongs to
+    /// the XCTest host). Written into backup metadata for diagnostic use.
+    var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
+    }
 }
