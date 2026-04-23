@@ -30,7 +30,7 @@ Pass `$UDID` to every `idb` and `xcrun simctl` command.
 
 | pi action | Primary (Bash+idb) | MCP fallback |
 |-----------|---------------------|--------------|
-| `sim_tap_id(identifier="X")` | `$IDB ui describe-all --udid $UDID \| jq -r 'recurse \| objects \| select(.AXUniqueId == "X") \| .frame' \| ...` → compute center → `$IDB ui tap <cx> <cy> --udid $UDID`. See the `tap_id` helper below. | `mcp__XcodeBuildMCP__tap({ accessibilityId: "X", simulatorUuid: UDID })` |
+| `sim_tap_id(identifier="X")` | `$IDB ui describe-all --udid $UDID \| jq -r 'recurse \| objects \| select(.AXUniqueId == "X") \| .frame' \| ...` → compute center → `$IDB ui tap <cx> <cy> --udid $UDID`. Full recipe under "Known action → recipe map" below. | `mcp__XcodeBuildMCP__tap({ accessibilityId: "X", simulatorUuid: UDID })` |
 | `sim_tap_id(label="X")` — exact | Same, filter on `AXLabel == "X"` | `mcp__XcodeBuildMCP__tap({ accessibilityLabel: "X", simulatorUuid: UDID })` |
 | substring/label-contains | filter `(.AXLabel // "") \| contains("X")` | `mcp__ios-simulator__ui_find_element({ search: ["X"], udid: UDID })` → frame center → idb tap |
 | `sim_ui_tap(x, y)` | `$IDB ui tap <x> <y> --udid $UDID` | `mcp__XcodeBuildMCP__tap({ x, y, simulatorUuid: UDID })` |

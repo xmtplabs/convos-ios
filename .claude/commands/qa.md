@@ -74,29 +74,45 @@ For `/qa <id>` with a single id: just dispatch one agent — no parallelism need
 
 ## Dispatching a qa-runner
 
-For each test slot, send an `Agent` call with `subagent_type: qa-runner`. The prompt must include the `test_id`, `run_id`, and the `udid` the runner should target.
+For each chunk, send an `Agent` call with `subagent_type: qa-runner`. The prompt must include `test_ids` (a single id or an ordered list), `run_id`, and the `udid` the runner should target. The runner iterates the list in order, sharing simulator state and CXDB `_run` state across the chunk.
 
-Example prompt shape (adapt per test):
+Example prompt shape:
 
 ```
-You are executing QA test <test_id> for run <run_id>.
+You are executing QA test(s) <ids> for run <run_id>.
 
 Inputs:
-- test_id: "<id>"
+- test_ids: ["<id1>", "<id2>", ...]    # or a single "<id>"
 - run_id: "<run>"
 - udid: "<UDID>"
-- simulator_name: "<name>"  # for error messages
+- simulator_name: "<name>"
 
-Follow the instructions in your agent definition. Read qa/tests/structured/<id>-*.yaml,
-translate actions via qa/TOOLS-CLAUDE.md, record everything to CXDB, and return the
-compact summary when done.
+Follow the instructions in your agent definition. For each id, read
+qa/tests/structured/<id>-*.yaml, translate actions via qa/TOOLS-CLAUDE.md,
+record everything to CXDB, then move to the next. Return the compact chunk
+summary when done.
 ```
 
-When running the main sequence on one agent, either:
-- pass a list of test IDs in order and let the runner iterate (preferred for long sequences — one agent, one context), or
-- call the runner once per test (cleaner isolation but more context switches).
+Default: one runner instance per contiguous chunk of tests that share simulator state. Migration (test 13) is always its own runner on an isolated simulator.
 
-Default: one runner instance per contiguous chunk of tests that share simulator state. Migration is always its own runner.
+## Watchdogging runners
+
+The `Agent` tool has no native timeout. You must budget wall-clock time per chunk and intervene if a runner goes dark.
+
+1. **Budget** = sum of each test's `estimated_duration_s` (from the YAML) × **2.0** safety factor. A chunk of tests with estimated_duration_s totaling 1500s gets a 3000s (50 min) budget.
+2. **Dispatch in background** — always use `run_in_background: true` on the `Agent` call so the orchestrator can make other decisions while waiting.
+3. **Progress probe** — roughly every 10 minutes of wall-clock, query CXDB for progress:
+   ```bash
+   # What tests have finished in this run recently?
+   $CXDB sql "SELECT test_id, status, finished_at FROM test_results WHERE run_id='$RUN' AND finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 5;"
+   # What's currently running?
+   $CXDB sql "SELECT test_id, started_at FROM test_results WHERE run_id='$RUN' AND status='running';"
+   ```
+   If `finished_at` of the latest completed test is within the last 10 min, the runner is alive — keep waiting.
+4. **On budget exceeded** — check CXDB once more. If there's been no progress (no new `finished_at` rows) for a full budget window, the runner is likely stuck. Cancel it (via the sub-agent management flow), mark any `running` test_results as `error` with note "orchestrator timeout", and decide whether to retry or skip to the next chunk.
+5. **Do not poll more than every ~5 minutes** — each CXDB query is cheap but polling also incurs tokens and you'll get a completion notification when the agent returns naturally.
+
+If you kill a runner, the `_run` state in CXDB remains intact. You can re-dispatch a new runner for the remaining `pending-tests` without losing the conversation IDs, identities, or app state the killed runner established.
 
 ## After all runners complete
 
