@@ -17,6 +17,7 @@ struct MessagesGroupItemView: View {
     var onOpenFile: ((HydratedAttachment) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
+    let onToggleReaction: (String, String) -> Void
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
@@ -110,7 +111,8 @@ struct MessagesGroupItemView: View {
             .messageGesture(
                 message: message,
                 bubbleStyle: message.content.isEmoji ? .none : bubbleType,
-                onReply: onReply
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
             )
             .id("bubble-\(message.messageId)")
             .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -138,7 +140,8 @@ struct MessagesGroupItemView: View {
             .messageGesture(
                 message: message,
                 bubbleStyle: .none,
-                onReply: onReply
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
             )
             .id("emoji-bubble-\(message.messageId)")
             .opacity(isAppearing ? 0.0 : 1.0)
@@ -172,7 +175,8 @@ struct MessagesGroupItemView: View {
                 message: message,
                 bubbleStyle: bubbleType,
                 onSingleTap: { onTapInvite(invite) },
-                onReply: onReply
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
             )
             .id("message-invite-\(message.messageId)")
             .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -207,7 +211,8 @@ struct MessagesGroupItemView: View {
                         UIApplication.shared.open(url)
                     }
                 },
-                onReply: onReply
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
             )
             .id("link-preview-\(message.messageId)")
             .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -267,7 +272,8 @@ struct MessagesGroupItemView: View {
                 message: message,
                 bubbleStyle: bubbleType,
                 onSingleTap: playAction,
-                onReply: onReply
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
         } else if attachment.mediaType == .file {
@@ -282,7 +288,8 @@ struct MessagesGroupItemView: View {
                 message: message,
                 bubbleStyle: bubbleType,
                 onSingleTap: fileTapAction,
-                onReply: onReply
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
         } else {
@@ -297,6 +304,7 @@ struct MessagesGroupItemView: View {
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onReply: onReply,
+                onToggleReaction: onToggleReaction,
                 onTapReactions: { onTapReactions?(message) },
                 onTapAvatar: { onTapAvatar(message) },
                 onDoubleTapReaction: { onReaction?("❤️", message.messageId) }
@@ -319,6 +327,7 @@ private struct MediaAttachmentView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onReply: (AnyMessage) -> Void
+    let onToggleReaction: (String, String) -> Void
     var onTapReactions: () -> Void = {}
     var onTapAvatar: () -> Void = {}
     var onDoubleTapReaction: (() -> Void)?
@@ -418,6 +427,7 @@ private struct MediaAttachmentView: View {
             onSingleTap: singleTapAction,
             onDoubleTap: doubleTapAction,
             onReply: onReply,
+            onToggleReaction: onToggleReaction,
             swipeOffset: $swipeOffset
         )
     }
@@ -1078,7 +1088,8 @@ private struct MediaTopGradient: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1097,7 +1108,8 @@ private struct MediaTopGradient: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1116,7 +1128,8 @@ private struct MediaTopGradient: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1135,7 +1148,8 @@ private struct MediaTopGradient: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1155,7 +1169,8 @@ private struct MediaTopGradient: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1175,7 +1190,8 @@ private struct MediaTopGradient: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1205,7 +1221,8 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1224,7 +1241,8 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }
@@ -1243,7 +1261,8 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onToggleReaction: { _, _ in }
     )
     .padding()
 }

@@ -11,6 +11,7 @@ struct MessagesListView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
@@ -153,6 +154,7 @@ struct MessagesListView: View {
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
             onReaction: onReaction,
+            onToggleReaction: onToggleReaction,
             onReply: onReply,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,

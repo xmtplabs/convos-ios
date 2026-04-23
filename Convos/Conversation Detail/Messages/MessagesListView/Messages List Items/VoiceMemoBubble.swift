@@ -13,6 +13,7 @@ struct VoiceMemoAttachmentView: View {
     let attachment: HydratedAttachment
     let bubbleType: MessageBubbleType
     let onReply: (AnyMessage) -> Void
+    let onToggleReaction: (String, String) -> Void
     var transcript: VoiceMemoTranscriptListItem?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
 
@@ -34,7 +35,8 @@ struct VoiceMemoAttachmentView: View {
         .messageGesture(
             message: message,
             bubbleStyle: bubbleType,
-            onReply: onReply
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
         )
     }
 }
