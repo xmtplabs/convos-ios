@@ -385,6 +385,69 @@ struct MessagesRepositoryTests {
         #expect(updatedProfile?.avatar == "new-avatar-url")
     }
 
+    @Test("MessageInvite exposes isConversationExpired from conversationExpiresAt")
+    func testMessageInviteIsConversationExpired() {
+        let expired = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: Date().addingTimeInterval(-60)
+        )
+        #expect(expired.isConversationExpired)
+        #expect(!expired.isInviteExpired)
+
+        let live = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: Date().addingTimeInterval(3_600)
+        )
+        #expect(!live.isConversationExpired)
+
+        let noExpiry = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: nil
+        )
+        #expect(!noExpiry.isConversationExpired)
+    }
+
+    @Test("MessageInvite exposes isInviteExpired independently of conversationExpiresAt")
+    func testMessageInviteIsInviteExpired() {
+        let inviteExpired = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: Date().addingTimeInterval(-60),
+            conversationExpiresAt: Date().addingTimeInterval(3_600)
+        )
+        #expect(inviteExpired.isInviteExpired)
+        #expect(!inviteExpired.isConversationExpired)
+
+        let live = MessageInvite(
+            inviteSlug: "s",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: Date().addingTimeInterval(3_600),
+            conversationExpiresAt: nil
+        )
+        #expect(!live.isInviteExpired)
+    }
+
     // MARK: - Helpers
 
     private func seedConversation(
@@ -394,15 +457,15 @@ struct MessagesRepositoryTests {
         otherInboxIds: [String],
         now: Date
     ) throws {
-        try DBMember(inboxId: currentInboxId).insert(db)
+        try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
         for inboxId in otherInboxIds {
-            try DBMember(inboxId: inboxId).insert(db)
+            try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
         }
 
         try DBConversation(
             id: conversationId,
-                        clientConversationId: "client-conversation-1",
-            inviteTag: "invite-tag-1",
+                        clientConversationId: "client-\(conversationId)",
+            inviteTag: "invite-tag-\(conversationId)",
             creatorId: currentInboxId,
             kind: .group,
             consent: .allowed,

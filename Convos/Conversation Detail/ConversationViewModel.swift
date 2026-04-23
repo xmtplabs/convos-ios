@@ -333,6 +333,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
     var presentingAssistantConfirmation: Bool = false
+    var presentingExplodedInviteInfo: Bool = false
     var activeToast: IndicatorToastStyle?
 
     var assistantJoinForceErrorCode: Int?
@@ -1307,6 +1308,10 @@ extension ConversationViewModel {
     }
 
     func onTapInvite(_ invite: MessageInvite) {
+        if invite.isConversationExpired || invite.isInviteExpired {
+            presentingExplodedInviteInfo = true
+            return
+        }
         presentingNewConversationForInvite = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: invite.inviteSlug)

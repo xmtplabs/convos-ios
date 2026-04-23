@@ -262,6 +262,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
             .background(.colorBackgroundSurfaceless)
         }
+        .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
+            ExplodeInfoView()
+        }
         .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
             AssistantsInfoView(
                 isConfirmation: true,
