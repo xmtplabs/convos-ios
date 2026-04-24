@@ -51,9 +51,8 @@ final class ConnectionGrantRequestSheetViewModel {
             }
     }
 
-    private func resolveGrantWriter() async throws -> any ConnectionGrantWriterProtocol {
-        let service = try await session.messagingService(forConversation: conversationId)
-        return service.connectionGrantWriter()
+    private func resolveGrantWriter() -> any ConnectionGrantWriterProtocol {
+        session.messagingService().connectionGrantWriter()
     }
 
     var displayName: String {
@@ -70,7 +69,7 @@ final class ConnectionGrantRequestSheetViewModel {
         error = nil
         Task {
             do {
-                let writer = try await resolveGrantWriter()
+                let writer = resolveGrantWriter()
                 try await writer.grantConnection(connection.id, to: conversationId)
                 didComplete = true
             } catch {
@@ -86,7 +85,7 @@ final class ConnectionGrantRequestSheetViewModel {
         Task {
             do {
                 let newConnection = try await connectionManager.connect(serviceId: serviceId)
-                let writer = try await resolveGrantWriter()
+                let writer = resolveGrantWriter()
                 try await writer.grantConnection(newConnection.id, to: conversationId)
                 didComplete = true
             } catch let oauthError as OAuthError {

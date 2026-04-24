@@ -59,8 +59,11 @@ if command -v swiftlint &> /dev/null; then
             # Re-add after auto-fix
             git add "$file"
 
-            # Check for remaining errors
-            if ! swiftlint lint --quiet "$file" 2>/dev/null; then
+            # Check for remaining errors. --strict promotes warnings to
+            # errors so pre-commit matches CI (which runs `swiftlint lint
+            # --strict` full-repo). If this passes and pre-push passes,
+            # CI cannot surprise you with a lint failure.
+            if ! swiftlint lint --strict --quiet "$file" 2>/dev/null; then
                 LINT_ERRORS=$((LINT_ERRORS + 1))
                 echo -e "${RED}✗ Lint errors in: $file${NC}"
             fi

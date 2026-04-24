@@ -216,6 +216,10 @@ struct ConversationsView: View {
                 if viewModel.selectedConversationViewModel != nil {
                     preferredColumn = .detail
                 }
+                viewModel.onAppear()
+            }
+            .onDisappear {
+                viewModel.onDisappear()
             }
             .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
                 preferredColumn = isNil ? .sidebar : .detail

@@ -175,6 +175,7 @@ final class MessagesViewController: UIViewController {
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onLoadPreviousMessages: (() -> Void)?
     var onReaction: ((String, String) -> Void)?
+    var onToggleReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState = .init() {
@@ -343,6 +344,10 @@ final class MessagesViewController: UIViewController {
         dataSource.onReaction = { [weak self] emoji, messageId in
             guard let self = self else { return }
             self.onReaction?(emoji, messageId)
+        }
+        dataSource.onToggleReaction = { [weak self] emoji, messageId in
+            guard let self = self else { return }
+            self.onToggleReaction?(emoji, messageId)
         }
         dataSource.onReply = { [weak self] message in
             guard let self = self else { return }
@@ -537,8 +542,11 @@ extension MessagesViewController {
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
                 if let agent = conversation.members.first(where: \.isAgent) {
-                    let inviterName: String? = agent.invitedBy.map {
-                        $0.inboxId == conversation.inboxId ? "You" : $0.displayName
+                    let inviterName: String? = agent.invitedBy.map { inviter in
+                        let inviterIsMe = conversation.members.contains {
+                            $0.isCurrentUser && $0.profile.inboxId == inviter.inboxId
+                        }
+                        return inviterIsMe ? "You" : inviter.displayName
                     }
                     cells.insert(.assistantPresentInfo(agent: agent, inviterName: inviterName), at: 1)
                 }

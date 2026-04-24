@@ -21,6 +21,7 @@
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E2A888849D41387DB99FBFE5 /* QAAutomationServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */; };
+		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -340,7 +341,6 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				D8A2B6A32DA4BA4C00EF8577 /* Exceptions for "Convos" folder in "Convos" target */,
-				DAE6B1002E70955E0062483A /* Exceptions for "Convos" folder in "ConvosAppClip" target */,
 			);
 			path = Convos;
 			sourceTree = "<group>";
@@ -378,6 +378,7 @@
 				7A5579B22E7B4C1900882661 /* SwiftUIIntrospect in Frameworks */,
 				7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */,
 				7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */,
+							7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -595,6 +596,7 @@
 				7AD545932E4EA8F300500ADF /* ConvosCore */,
 				7A5579AF2E7B4C0800882661 /* DifferenceKit */,
 				7A5579B12E7B4C1900882661 /* SwiftUIIntrospect */,
+							7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */,
 			);
 			productName = ConvosAppClip;
 			productReference = 7ADC0C6E2E2977800053978A /* ConvosAppClip.app */;
@@ -2365,6 +2367,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */;
 			productName = DifferenceKit;
+		};
+		7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosCoreiOS;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -36,9 +36,8 @@ jobs:
             ConvosCore/.build
             ConvosAppData/.build
             ConvosInvites/.build
-            ConvosProfiles/.build
             ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved', 'ConvosProfiles/Package.resolved') }}
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 

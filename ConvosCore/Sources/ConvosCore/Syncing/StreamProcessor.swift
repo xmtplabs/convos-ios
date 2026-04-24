@@ -1,5 +1,4 @@
 import ConvosInvites
-import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
@@ -646,7 +645,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         let conversationTopic = conversationId.xmtpGroupTopicFormat
         let welcomeTopic = params.client.installationId.xmtpWelcomeTopicFormat
 
-        guard let identity = try? await identityStore.identity(for: params.client.inboxId) else {
+        guard let identity = try? await identityStore.load(), identity.inboxId == params.client.inboxId else {
             Log.warning("Identity not found, skipping push notification subscription")
             return
         }

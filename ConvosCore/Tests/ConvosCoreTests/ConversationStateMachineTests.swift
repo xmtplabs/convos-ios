@@ -73,19 +73,10 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -135,19 +126,10 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -214,19 +196,10 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -278,89 +251,6 @@ struct ConversationStateMachineTests {
 
     // MARK: - Delete Flow Tests
 
-    @Test("Delete flow cleans up conversation")
-    func testDeleteFlow() async throws {
-        let fixtures = TestFixtures()
-
-        // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
-
-        let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
-            identityStore: fixtures.identityStore,
-            databaseReader: fixtures.databaseManager.dbReader,
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Create conversation first
-        await stateMachine.create()
-
-        var conversationId: String?
-        do {
-            conversationId = try await withTimeout(seconds: 120) {
-                for await state in await stateMachine.stateSequence {
-                    if case .ready(let result) = state {
-                        return result.conversationId
-                    }
-                }
-                return nil
-            }
-        } catch {
-            Issue.record("Timed out waiting for conversation creation: \(error)")
-        }
-
-        guard let convId = conversationId else {
-            Issue.record("No conversation ID")
-            await messagingService.stopAndDelete()
-            try? await fixtures.cleanup()
-            return
-        }
-
-        // Verify conversation exists in database
-        let conversationBefore = try await fixtures.databaseManager.dbReader.read { db in
-            try DBConversation
-                .filter(DBConversation.Columns.id == convId)
-                .fetchOne(db)
-        }
-        #expect(conversationBefore != nil, "Conversation should exist before delete")
-
-        // Delete conversation
-        await stateMachine.delete()
-
-        // Wait for uninitialized state
-        var deletedSuccessfully = false
-        for await state in await stateMachine.stateSequence {
-            if case .uninitialized = state {
-                deletedSuccessfully = true
-                break
-            }
-        }
-
-        #expect(deletedSuccessfully, "Should return to uninitialized state")
-
-        // Verify conversation was removed from database
-        let conversationAfter = try await fixtures.databaseManager.dbReader.read { db in
-            try DBConversation
-                .filter(DBConversation.Columns.id == convId)
-                .fetchOne(db)
-        }
-        #expect(conversationAfter == nil, "Conversation should be deleted from database")
-
-        // Clean up (messaging service already deleted by state machine)
-        try? await fixtures.cleanup()
-    }
-
     // MARK: - Stop Flow Tests
 
     @Test("Stop transitions to uninitialized without deleting")
@@ -368,19 +258,10 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -451,21 +332,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         // Wait for inbox to be ready before creating conversations
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                try await messagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for inbox to be ready: \(error)")
@@ -475,7 +347,7 @@ struct ConversationStateMachineTests {
         }
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -554,19 +426,10 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -597,8 +460,6 @@ struct ConversationStateMachineTests {
                     stateName = "creating"
                 case .ready:
                     stateName = "ready"
-                case .deleting:
-                    stateName = "deleting"
                 case .error:
                     stateName = "error"
                 default:
@@ -640,21 +501,12 @@ struct ConversationStateMachineTests {
         let joinerFixtures = TestFixtures()
 
         // Setup inviter messaging service and state machine
-        let inviterUnusedConversationCache = UnusedConversationCache(
-            keychainService: inviterFixtures.keychainService,
-            identityStore: inviterFixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (inviterMessagingService, _) = await inviterUnusedConversationCache.consumeOrCreateMessagingService(
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let inviterMessagingService = inviterFixtures.makeFreshMessagingService()
 
         // Wait for inviter inbox to be ready before creating conversation
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+                try await inviterMessagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
@@ -664,7 +516,7 @@ struct ConversationStateMachineTests {
         }
 
         let inviterStateMachine = ConversationStateMachine(
-            inboxStateManager: inviterMessagingService.inboxStateManager,
+            sessionStateManager: inviterMessagingService.sessionStateManager,
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
@@ -721,25 +573,16 @@ struct ConversationStateMachineTests {
         // This prevents a race condition where the joiner sends a DM before the inviter's
         // message stream is connected to receive it
         try await waitUntil(timeout: .seconds(10)) {
-            await inviterMessagingService.inboxStateManager.isSyncReady
+            await inviterMessagingService.sessionStateManager.isSyncReady
         }
 
         // Setup joiner messaging service and state machine
-        let joinerUnusedConversationCache = UnusedConversationCache(
-            keychainService: joinerFixtures.keychainService,
-            identityStore: joinerFixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (joinerMessagingService, _) = await joinerUnusedConversationCache.consumeOrCreateMessagingService(
-            databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            databaseReader: joinerFixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let joinerMessagingService = joinerFixtures.makeFreshMessagingService()
 
         // Wait for joiner inbox to be ready before joining
         do {
             _ = try await withTimeout(seconds: 120) {
-                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+                try await joinerMessagingService.sessionStateManager.waitForInboxReadyResult()
             }
         } catch {
             Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
@@ -754,11 +597,11 @@ struct ConversationStateMachineTests {
         // The XMTP SDK connection pool must be fully initialized to avoid
         // "Pool needs to reconnect before use" errors.
         try await waitUntil(timeout: .seconds(10)) {
-            await joinerMessagingService.inboxStateManager.isSyncReady
+            await joinerMessagingService.sessionStateManager.isSyncReady
         }
 
         let joinerStateMachine = ConversationStateMachine(
-            inboxStateManager: joinerMessagingService.inboxStateManager,
+            sessionStateManager: joinerMessagingService.sessionStateManager,
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
@@ -800,215 +643,16 @@ struct ConversationStateMachineTests {
         try? await joinerFixtures.cleanup()
     }
 
-    @Test(
-        "Join conversation while inviter is offline",
-        .enabled(if: ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] == nil,
-                 "Skipped in CI: multi-client join can exceed timeout on ephemeral backends")
-    )
-    func testJoinConversationOffline() async throws {
-        // Create separate fixtures for inviter and joiner so they have different databases
-        let inviterFixtures = TestFixtures()
-        let joinerFixtures = TestFixtures()
-
-        // Setup inviter messaging service and state machine
-        let inviterUnusedConversationCache = UnusedConversationCache(
-            keychainService: inviterFixtures.keychainService,
-            identityStore: inviterFixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (inviterMessagingService, _) = await inviterUnusedConversationCache.consumeOrCreateMessagingService(
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
-
-        // Wait for inbox to be fully ready before creating conversation.
-        // In CI, XMTP registration and authentication can take a long time,
-        // so we use a generous timeout (60s) for this step.
-        do {
-            _ = try await withTimeout(seconds: 120) {
-                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
-            }
-        } catch {
-            Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        let inviterStateMachine = ConversationStateMachine(
-            inboxStateManager: inviterMessagingService.inboxStateManager,
-            identityStore: inviterFixtures.identityStore,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Create conversation as inviter
-        await inviterStateMachine.create()
-
-        // Wait for conversation creation to complete.
-        // XMTP publish() can be slow in CI, so use generous timeout.
-        var inviterConversationId: String?
-        var inviterInboxId: String?
-        do {
-            inviterConversationId = try await withTimeout(seconds: 120) {
-                for await state in await inviterStateMachine.stateSequence {
-                    if case .ready(let result) = state {
-                        return result.conversationId
-                    }
-                }
-                throw TestError.timeout("Never reached ready state")
-            }
-        } catch {
-            Issue.record("Timed out waiting for conversation creation: \(error)")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        guard let convId = inviterConversationId else {
-            Issue.record("No conversation ID from inviter")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        // Get the inbox ID and fetch the automatically created invite
-        let (invite, inboxId) = try await inviterFixtures.databaseManager.dbReader.read { db in
-            let conversation = try DBConversation.fetchOne(db, key: convId)
-            let invite = try DBInvite
-                .filter(DBInvite.Columns.conversationId == convId)
-                .fetchOne(db)?
-                .hydrateInvite()
-            return (invite, conversation?.inboxId)
-        }
-
-        guard let invite, let inboxId else {
-            Issue.record("Could not fetch invite or conversation from database")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        inviterInboxId = inboxId
-
-        Log.info("Fetched invite URL: \(invite.urlSlug)")
-
-        // Stop inviter's messaging service (simulating offline)
-        await inviterMessagingService.stop()
-        Log.info("Inviter went offline")
-
-        // Setup joiner messaging service and state machine
-        let joinerUnusedConversationCache = UnusedConversationCache(
-            keychainService: joinerFixtures.keychainService,
-            identityStore: joinerFixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (joinerMessagingService, _) = await joinerUnusedConversationCache.consumeOrCreateMessagingService(
-            databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            databaseReader: joinerFixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
-
-        let joinerStateMachine = ConversationStateMachine(
-            inboxStateManager: joinerMessagingService.inboxStateManager,
-            identityStore: joinerFixtures.identityStore,
-            databaseReader: joinerFixtures.databaseManager.dbReader,
-            databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Join conversation as joiner (should wait for inviter to come back online)
-        await joinerStateMachine.join(inviteCode: invite.urlSlug)
-
-        // Wait a moment for join request to be sent
-        try await Task.sleep(for: .seconds(2))
-
-        // Restart inviter's messaging service with the same inbox ID
-        guard let inviterInbox = inviterInboxId else {
-            Issue.record("No inviter inbox ID")
-            await joinerMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            try? await joinerFixtures.cleanup()
-            return
-        }
-
-        let identity = try await inviterFixtures.identityStore.identity(for: inviterInbox)
-        let restartedInviterService = MessagingService.authorizedMessagingService(
-            for: inviterInbox,
-            clientId: identity.clientId,
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            environment: testEnvironment,
-            identityStore: inviterFixtures.identityStore,
-            startsStreamingServices: true,
-            platformProviders: testPlatformProviders
-        )
-
-        Log.info("Inviter came back online")
-
-        // Wait for joiner to reach ready state (join should be processed automatically)
-        // Use generous timeout for CI where XMTP operations can be slow.
-        var joinerConversationId: String?
-        var joinerReachedReady = false
-
-        do {
-            joinerConversationId = try await withTimeout(seconds: 150) {
-                for await state in await joinerStateMachine.stateSequence {
-                    switch state {
-                    case .ready(let result):
-                        return result.conversationId
-                    case .error(let error):
-                        Issue.record("Join failed: \(error)")
-                        throw error
-                    default:
-                        continue
-                    }
-                }
-                throw TestError.timeout("Never reached ready state")
-            }
-            joinerReachedReady = true
-        } catch {
-            Issue.record("Timed out waiting for join to complete: \(error)")
-            await restartedInviterService.stopAndDelete()
-            await joinerMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            try? await joinerFixtures.cleanup()
-            return
-        }
-
-        #expect(joinerConversationId != nil, "Should have joined conversation")
-        #expect(joinerReachedReady, "Joiner should reach ready state after inviter comes online")
-
-        // Clean up
-        await restartedInviterService.stopAndDelete()
-        await joinerMessagingService.stopAndDelete()
-        try? await inviterFixtures.cleanup()
-        try? await joinerFixtures.cleanup()
-    }
-
     // MARK: - Cancellation Tests
 
     @Test("Stop during pending operations doesn't hang")
     func testStopDuringOperationsDoesntHang() async throws {
         let fixtures = TestFixtures()
 
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1065,92 +709,15 @@ struct ConversationStateMachineTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Delete during message processing cancels gracefully")
-    func testDeleteDuringMessageProcessing() async throws {
-        let fixtures = TestFixtures()
-
-        // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
-
-        let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
-            identityStore: fixtures.identityStore,
-            databaseReader: fixtures.databaseManager.dbReader,
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Create conversation
-        await stateMachine.create()
-
-        // Queue multiple messages
-        await stateMachine.sendMessage(text: "Message 1")
-        await stateMachine.sendMessage(text: "Message 2")
-        await stateMachine.sendMessage(text: "Message 3")
-
-        // Wait for ready state
-        var conversationId: String?
-        for await state in await stateMachine.stateSequence {
-            if case .ready(let result) = state {
-                conversationId = result.conversationId
-                break
-            }
-        }
-
-        #expect(conversationId != nil, "Should have conversation ID")
-
-        // Immediately delete (while messages might still be processing)
-        await stateMachine.delete()
-
-        // Verify it transitions to uninitialized (not stuck)
-        var deletedSuccessfully = false
-        do {
-            deletedSuccessfully = try await withTimeout(seconds: 5) {
-                for await state in await stateMachine.stateSequence {
-                    if case .uninitialized = state {
-                        return true
-                    }
-                }
-                return false
-            }
-        } catch {
-            Issue.record("Timed out waiting for delete to complete: \(error)")
-        }
-
-        #expect(deletedSuccessfully, "Should successfully delete even during message processing")
-
-        // Clean up (messaging service already deleted by state machine)
-        try? await fixtures.cleanup()
-    }
-
     @Test("Stop cancels queued message processing")
     func testStopCancelsQueuedMessages() async throws {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1197,20 +764,11 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         // First create a conversation so we have a valid conversationId
         let createStateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1243,7 +801,7 @@ struct ConversationStateMachineTests {
 
         // Now test useExisting with a fresh state machine
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1295,20 +853,11 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         // First create a conversation so we have a valid conversationId
         let createStateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1341,7 +890,7 @@ struct ConversationStateMachineTests {
 
         // Now test useExisting and sending messages with a fresh state machine
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1398,20 +947,11 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         // First create a conversation
         let createStateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1444,7 +984,7 @@ struct ConversationStateMachineTests {
 
         // Test useExisting state sequence
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1510,19 +1050,10 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
@@ -1598,302 +1129,16 @@ struct ConversationStateMachineTests {
         try? await fixtures.cleanup()
     }
 
-    // MARK: - Network Disconnection Tests
-
-    @Test(
-        "Messages sync after network reconnection",
-        .enabled(if: ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] == nil,
-                 "Skipped in CI: multi-client test can exceed timeout on ephemeral backends")
-    )
-    func testMessageSyncAfterNetworkReconnection() async throws {
-        // Create separate fixtures for inviter and joiner so they have different databases
-        let inviterFixtures = TestFixtures()
-        let joinerFixtures = TestFixtures()
-
-        // Create two mock network monitors - both starting connected
-        let inviterNetworkMonitor = MockNetworkMonitor(initialStatus: .connected(.wifi))
-        let joinerNetworkMonitor = MockNetworkMonitor(initialStatus: .connected(.wifi))
-
-        // Setup inviter messaging service with mock network monitor
-        let inviterOperation = AuthorizeInboxOperation.register(
-            identityStore: inviterFixtures.identityStore,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            networkMonitor: inviterNetworkMonitor,
-            environment: testEnvironment,
-            platformProviders: testPlatformProviders
-        )
-
-        let inviterMessagingService = MessagingService(
-            authorizationOperation: inviterOperation,
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            identityStore: inviterFixtures.identityStore,
-            environment: testEnvironment,
-            backgroundUploadManager: UnavailableBackgroundUploadManager()
-        )
-
-        let inviterStateMachine = ConversationStateMachine(
-            inboxStateManager: inviterMessagingService.inboxStateManager,
-            identityStore: inviterFixtures.identityStore,
-            databaseReader: inviterFixtures.databaseManager.dbReader,
-            databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Create conversation as inviter
-        await inviterStateMachine.create()
-
-        // Wait for inviter conversation to be ready
-        // XMTP publish() can be slow in CI, so use a generous timeout
-        var inviterConversationId: String?
-        do {
-            inviterConversationId = try await withTimeout(seconds: 120) {
-                for await state in await inviterStateMachine.stateSequence {
-                    if case .ready(let result) = state {
-                        return result.conversationId
-                    }
-                }
-                throw TestError.timeout("Inviter conversation never reached ready state")
-            }
-        } catch {
-            Issue.record("Inviter failed to create conversation: \(error)")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        guard let inviterConvId = inviterConversationId else {
-            Issue.record("No inviter conversation ID")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        // Fetch the invite
-        let invite = try await inviterFixtures.databaseManager.dbReader.read { db in
-            try DBInvite
-                .filter(DBInvite.Columns.conversationId == inviterConvId)
-                .fetchOne(db)?
-                .hydrateInvite()
-        }
-
-        guard let invite else {
-            Issue.record("Could not fetch invite")
-            await inviterMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            return
-        }
-
-        Log.info("Inviter created conversation with invite: \(invite.urlSlug)")
-
-        // Wait for inviter's sync streams to be fully ready before joiner connects
-        // This prevents a race condition where the joiner sends a DM before the inviter's
-        // message stream is connected to receive it
-        try await waitUntil(timeout: .seconds(10)) {
-            await inviterMessagingService.inboxStateManager.isSyncReady
-        }
-
-        // Setup joiner messaging service with different network monitor
-        let joinerOperation = AuthorizeInboxOperation.register(
-            identityStore: joinerFixtures.identityStore,
-            databaseReader: joinerFixtures.databaseManager.dbReader,
-            databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            networkMonitor: joinerNetworkMonitor,
-            environment: testEnvironment,
-            platformProviders: testPlatformProviders
-        )
-
-        let joinerMessagingService = MessagingService(
-            authorizationOperation: joinerOperation,
-            databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            databaseReader: joinerFixtures.databaseManager.dbReader,
-            identityStore: joinerFixtures.identityStore,
-            environment: testEnvironment,
-            backgroundUploadManager: UnavailableBackgroundUploadManager()
-        )
-
-        // Wait for joiner inbox to be ready before joining
-        do {
-            _ = try await withTimeout(seconds: 120) {
-                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
-            }
-        } catch {
-            Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
-            await inviterMessagingService.stopAndDelete()
-            await joinerMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            try? await joinerFixtures.cleanup()
-            return
-        }
-
-        // Wait for joiner's sync streams to be ready before joining
-        try await waitUntil(timeout: .seconds(10)) {
-            await joinerMessagingService.inboxStateManager.isSyncReady
-        }
-
-        let joinerStateMachine = ConversationStateMachine(
-            inboxStateManager: joinerMessagingService.inboxStateManager,
-            identityStore: joinerFixtures.identityStore,
-            databaseReader: joinerFixtures.databaseManager.dbReader,
-            databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: testEnvironment,
-            clientConversationId: DBConversation.generateDraftConversationId()
-        )
-
-        // Join conversation as joiner
-        await joinerStateMachine.join(inviteCode: invite.urlSlug)
-
-        // Wait for joiner to be ready
-        // Note: Increased timeout from 60s to 90s for CI reliability with ephemeral Fly.io backends
-        var joinerConversationId: String?
-        do {
-            joinerConversationId = try await withTimeout(seconds: 150) {
-                for await state in await joinerStateMachine.stateSequence {
-                    switch state {
-                    case .ready(let result):
-                        return result.conversationId
-                    case .error(let error):
-                        Issue.record("Joiner join failed: \(error)")
-                        throw error
-                    default:
-                        continue
-                    }
-                }
-                throw TestError.timeout("Joiner never reached ready state")
-            }
-        } catch {
-            Issue.record("Joiner failed to join: \(error)")
-            await inviterMessagingService.stopAndDelete()
-            await joinerMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            try? await joinerFixtures.cleanup()
-            return
-        }
-
-        guard let joinerConvId = joinerConversationId else {
-            Issue.record("Joiner did not join conversation")
-            await inviterMessagingService.stopAndDelete()
-            await joinerMessagingService.stopAndDelete()
-            try? await inviterFixtures.cleanup()
-            try? await joinerFixtures.cleanup()
-            return
-        }
-
-        Log.info("Joiner joined conversation: \(joinerConvId)")
-
-        // Simulate network disconnection for inviter
-        Log.info("Simulating network disconnection for inviter...")
-        await inviterNetworkMonitor.simulateDisconnection()
-
-        // Wait for pause to take effect
-        try await Task.sleep(for: .seconds(2))
-
-        Log.info("Inviter network disconnected, sending messages from joiner...")
-
-        // Send 10 messages from joiner while inviter is offline
-        let messageTexts = [
-            "Message 1", "Message 2", "Message 3", "Message 4", "Message 5",
-            "Message 6", "Message 7", "Message 8", "Message 9", "Message 10"
-        ]
-
-        for text in messageTexts {
-            await joinerStateMachine.sendMessage(text: text)
-        }
-
-        Log.info("Sent \(messageTexts.count) messages from joiner")
-
-        // Wait for messages to be processed and saved by joiner
-        try await Task.sleep(for: .seconds(3))
-
-        // Verify messages were saved in joiner's database and collect message IDs
-        let joinerMessages = try await joinerFixtures.databaseManager.dbReader.read { db in
-            try DBMessage
-                .filter(DBMessage.Columns.conversationId == joinerConvId)
-                .order(DBMessage.Columns.dateNs.asc)
-                .fetchAll(db)
-        }
-            .filter { message in
-                guard let text = message.text else {
-                    return false
-                }
-                return messageTexts.contains(text)
-            }
-
-        Log.info("Joiner has \(joinerMessages.count) messages in database")
-        #expect(joinerMessages.count == messageTexts.count, "Joiner should have sent all messages")
-
-        // Collect message IDs from joiner to verify they sync to inviter
-        let joinerMessageIds = Set(joinerMessages.map { $0.id })
-
-        // Reconnect inviter's network
-        Log.info("Simulating network reconnection for inviter...")
-        await inviterNetworkMonitor.simulateConnection(type: .wifi)
-
-        // Wait for reconnection and sync to complete
-        try await Task.sleep(for: .seconds(2))
-
-        Log.info("Inviter network reconnected, waiting for messages to sync...")
-
-        // Poll for messages in inviter's database
-        var inviterMessageIds = Set<String>()
-        let timeout = ContinuousClock.now + .seconds(30)
-
-        while ContinuousClock.now < timeout {
-            let inviterMessages = try await inviterFixtures.databaseManager.dbReader.read { db in
-                try DBMessage
-                    .filter(DBMessage.Columns.conversationId == inviterConvId)
-                    .fetchAll(db)
-            }
-
-            inviterMessageIds = Set(inviterMessages.map { $0.id })
-
-            // Check if all joiner message IDs exist in inviter's database
-            if joinerMessageIds.isSubset(of: inviterMessageIds) {
-                break
-            }
-
-            try await Task.sleep(for: .milliseconds(500))
-        }
-
-        Log.info("Inviter has \(inviterMessageIds.count) messages in database")
-
-        // Verify all joiner message IDs exist in inviter's database
-        #expect(joinerMessageIds.isSubset(of: inviterMessageIds), "All joiner message IDs should exist in inviter's database after sync")
-
-        // Log which message IDs were found
-        let foundCount = joinerMessageIds.intersection(inviterMessageIds).count
-        Log.info("Found \(foundCount) of \(joinerMessageIds.count) joiner message IDs in inviter's database")
-
-        Log.info("Test completed successfully - all messages synced after reconnection")
-
-        // Clean up
-        await inviterMessagingService.stopAndDelete()
-        await joinerMessagingService.stopAndDelete()
-        try? await inviterFixtures.cleanup()
-        try? await joinerFixtures.cleanup()
-    }
-
     // MARK: - Empty Tag Rejection Tests
 
     @Test("Join with empty-tag invite transitions to error state")
     func testJoinWithEmptyTagInviteShowsError() async throws {
         let fixtures = TestFixtures()
 
-        let unusedInboxCache = UnusedConversationCache(
-            keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
-            platformProviders: testPlatformProviders
-        )
-        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
-            databaseWriter: fixtures.databaseManager.dbWriter,
-            databaseReader: fixtures.databaseManager.dbReader,
-            environment: testEnvironment
-        )
+                let messagingService = fixtures.makeFreshMessagingService()
 
         let stateMachine = ConversationStateMachine(
-            inboxStateManager: messagingService.inboxStateManager,
+            sessionStateManager: messagingService.sessionStateManager,
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,

@@ -1,6 +1,5 @@
 import Combine
 import ConvosCore
-import ConvosProfiles
 import SwiftUI
 
 @MainActor

@@ -109,12 +109,6 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
     public func retryFailedMessage(id: String) async throws {}
     public func deleteFailedMessage(id: String) async throws {}
 
-    public func delete() async {
-        setState(.deleting)
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        setState(.uninitialized)
-    }
-
     public func resetFromError() async {
         setState(.uninitialized)
     }

@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import GRDB
+import os
 
 public extension Notification.Name {
     static let leftConversationNotification: Notification.Name = Notification.Name("LeftConversationNotification")
@@ -10,26 +11,35 @@ public extension Notification.Name {
 public typealias AnyMessagingService = any MessagingServiceProtocol
 public typealias AnyClientProvider = any XMTPClientProvider
 
-enum SessionManagerError: Error {
-    case inboxNotFound
-}
-
-/// Manages multiple inbox sessions and their lifecycle
+/// Coordinates the XMTP inbox that backs the app.
 ///
-/// SessionManager coordinates multiple MessagingService instances (one per inbox/identity),
-/// handling their creation, lifecycle, and cleanup. It uses InboxLifecycleManager to enforce
-/// a maximum number of awake (active) inboxes while supporting unlimited total conversations.
-/// The manager also handles inbox deletion, conversation notifications, and manages
-/// the UnusedInboxCache for pre-creating inboxes.
+/// On first access (`prepareNewConversation` / `messagingService`) the
+/// manager either loads the existing identity from the keychain and
+/// authorizes its `MessagingService`, or registers a fresh identity.
+/// Subsequent calls return the same service.
 ///
-/// @unchecked Sendable: All stored protocol dependencies are Sendable. Mutable state
-/// (leftConversationObserver, Tasks) is only modified during init and deinit. The
-/// lifecycleManager actor coordinates all inbox state. NotificationCenter observers
-/// use weak self and main queue dispatch.
+/// @unchecked Sendable: mutable state is protected by `cachedMessagingService`. Long-lived
+/// tasks (initialization, foreground observation, asset renewal) are created
+/// during init and cancelled in deinit.
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
-    private var leftConversationObserver: Any?
+    /// Pending invite drafts older than this are removed during cleanup.
+    public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
+
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    private var activeConversationObserver: NSObjectProtocol?
+
+    /// Tracks the user's current screen context. Used by
+    /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
+    /// would be redundant — either because the user is already viewing the
+    /// target conversation, or because they're on the list where the new-
+    /// message indicator already surfaces the update.
+    private let screenStateLock: OSAllocatedUnfairLock<ScreenState> = .init(initialState: ScreenState())
+
+    private struct ScreenState {
+        var activeConversationId: String?
+        var isOnConversationsList: Bool = false
+    }
 
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -38,21 +48,54 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var initializationTask: Task<Void, Never>?
     private let voiceMemoTranscriptionServiceLock: NSLock = NSLock()
     private var _voiceMemoTranscriptionService: (any VoiceMemoTranscriptionServicing)?
-    private var unusedInboxPrepTask: Task<Void, Never>?
     private let deviceRegistrationManager: any DeviceRegistrationManagerProtocol
     private let notificationChangeReporter: any NotificationChangeReporterType
     private let platformProviders: PlatformProviders
-    private let lifecycleManager: any InboxLifecycleManagerProtocol
-    private let sleepingInboxChecker: SleepingInboxMessageChecker
     private let apiClient: any ConvosAPIClientProtocol
+    private let unusedConversationCache: any UnusedConversationCacheProtocol
+
+    /// Single-inbox means a single cached `MessagingService`. The lock
+    /// serializes every construction path — any sync or async caller that
+    /// hits a cache miss builds the service under this lock, so two
+    /// concurrent callers can never spawn two `AuthorizeInboxOperation`s.
+    private let cachedMessagingService: OSAllocatedUnfairLock<MessagingService?> = .init(initialState: nil)
+
+    /// Wall-clock of the last `identityStore.loadSync()` failure, lock-
+    /// protected via the same lock as `cachedMessagingService` (both live
+    /// inside the same `withLock` block). Used together with
+    /// `consecutiveKeychainReadFailures` to short-circuit `loadSync`
+    /// reads during a persistent keychain error.
+    private var lastKeychainReadFailure: Date?
+    private var consecutiveKeychainReadFailures: Int = 0
+
+    /// How long `loadOrCreateService` holds off re-calling
+    /// `identityStore.loadSync()` once we've seen two consecutive failures.
+    /// The first retry after any failure is always free so transient
+    /// errors (locked keychain at first-unlock, iCloud Keychain not yet
+    /// synced) recover on the very next accessor call. A second failure
+    /// signals "probably persistent" (access-group mismatch, corrupt
+    /// data); the backoff then prevents SwiftUI-driven repeat reads from
+    /// hammering `securityd` at 60fps. 5s is short enough to pick up a
+    /// delayed iCloud sync without noticeable user-facing lag.
+    private static let keychainRetryBackoff: TimeInterval = 5
+
+    /// Runtime context for the owning binary. The main app needs the full
+    /// session machinery (push-token registration, asset renewal, prewarm,
+    /// worker timers); the App Clip just needs to seed the keychain
+    /// identity and hand off. The clip context skips the post-init
+    /// background work — see `ClipIdentityBootstrap`.
+    enum Mode: Sendable {
+        case fullApp
+        case clipBootstrap
+    }
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          environment: AppEnvironment,
          identityStore: any KeychainIdentityStoreProtocol,
-         lifecycleManager: (any InboxLifecycleManagerProtocol)? = nil,
-         sleepingInboxChecker: SleepingInboxMessageChecker? = nil,
-         platformProviders: PlatformProviders) {
+         unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
+         platformProviders: PlatformProviders,
+         mode: Mode = .fullApp) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
@@ -63,28 +106,22 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             platformProviders: platformProviders
         )
         self.apiClient = ConvosAPIClientFactory.client(environment: environment)
-        let resolvedLifecycleManager = lifecycleManager ?? InboxLifecycleManager(
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            identityStore: identityStore,
-            environment: environment,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: self.deviceRegistrationManager,
-            apiClient: self.apiClient
+        self.unusedConversationCache = unusedConversationCache ?? UnusedConversationCache(
+            identityStore: identityStore
         )
-        self.lifecycleManager = resolvedLifecycleManager
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
 
-        // Initialize sleeping inbox checker
-        let activityRepository = InboxActivityRepository(databaseReader: databaseReader)
-        self.sleepingInboxChecker = sleepingInboxChecker ?? SleepingInboxMessageChecker(
-            environment: environment,
-            activityRepository: activityRepository,
-            lifecycleManager: resolvedLifecycleManager,
-            appLifecycle: platformProviders.appLifecycle
-        )
-
         observe()
+
+        guard mode == .fullApp else {
+            // Clip bootstrap: skip everything below. The clip writes the
+            // keychain identity during its one `messagingService()` call
+            // and the main app picks it up via the shared access group —
+            // no push token to register (clip lacks the entitlement), no
+            // prewarm to do, no renewal to run.
+            initializationTask = nil
+            return
+        }
 
         initializationTask = Task { [weak self] in
             guard let self else { return }
@@ -98,18 +135,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await self.deviceRegistrationManager.startObservingPushTokenChanges()
             guard !Task.isCancelled else { return }
 
-            // Initialize inbox lifecycle manager
-            await self.lifecycleManager.initializeOnAppLaunch()
-
-            guard !Task.isCancelled else { return }
-
-            await self.sleepingInboxChecker.startPeriodicChecks()
-
-            guard !Task.isCancelled else { return }
-            self.unusedInboxPrepTask = Task(priority: .utility) { [weak self] in
-                guard let self, !Task.isCancelled else { return }
-                await self.lifecycleManager.prepareUnusedConversationIfNeeded()
-            }
+            await self.prewarmUnusedConversation()
 
             guard !Task.isCancelled else { return }
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
@@ -127,11 +153,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     deinit {
         initializationTask?.cancel()
-        unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
-        if let leftConversationObserver {
-            NotificationCenter.default.removeObserver(leftConversationObserver)
+        if let activeConversationObserver {
+            NotificationCenter.default.removeObserver(activeConversationObserver)
         }
     }
 
@@ -149,50 +174,175 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             }
         }
 
-        // Delete inbox when a conversation is left/exploded
-        leftConversationObserver = NotificationCenter.default
-            .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
-                guard let self else { return }
-                guard let clientId = notification.userInfo?["clientId"] as? String,
-                      let inboxId = notification.userInfo?["inboxId"] as? String else {
-                    return
-                }
+        activeConversationObserver = NotificationCenter.default.addObserver(
+            forName: .activeConversationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            self?.updateActiveConversation(conversationId)
+        }
+    }
 
-                // Delete the inbox (XMTP client and keys)
-                Task { [weak self] in
-                    guard let self else { return }
-                    do {
-                        try await self.deleteInbox(clientId: clientId, inboxId: inboxId)
-                        Log.debug("Deleted inbox after explosion: \(clientId)")
-                    } catch {
-                        Log.error("Failed to delete inbox after explosion: \(error.localizedDescription)")
-                    }
+    private func updateActiveConversation(_ conversationId: String?) {
+        screenStateLock.withLock { state in
+            state.activeConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
+        }
+    }
+
+    private func prewarmUnusedConversation() async {
+        let service = loadOrCreateService()
+        await unusedConversationCache.prepareUnusedConversation(
+            service: service,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+    }
+
+    /// Single entry point for the process-wide `MessagingService`. Every
+    /// public messaging-service accessor — sync or async, from the main app
+    /// or the unused-conversation prewarm — funnels through here. The lock
+    /// guarantees exactly one `AuthorizeInboxOperation` for the process:
+    /// whichever caller takes it first builds + installs, everyone else
+    /// sees the cache hit.
+    ///
+    /// **Cache invariant:** `cached` non-nil means "one service per process",
+    /// *not* "the cached service has a usable identity." During the
+    /// registering window the service exists but its sessionStateManager
+    /// hasn't reached `.ready`; callers needing a ready inbox must
+    /// `await waitForInboxReadyResult()`, never read
+    /// `currentState.inboxId` directly.
+    ///
+    /// Identity disposition is strict:
+    /// - `loadSync` returns `nil` → keychain confirmed empty, safe to `.register`.
+    /// - `loadSync` returns an identity → `.authorize` path.
+    /// - `loadSync` throws → keychain is populated-but-unreadable (daemon
+    ///   error, corrupt JSON, iCloud sync in flight). Registering on top
+    ///   would overwrite a potentially-recoverable identity, so we cache
+    ///   a dedicated `FailedIdentityLoadOperation`-backed service that
+    ///   reports the real error via `sessionStateManager.currentState`.
+    ///   On the next call we retry `loadSync` inside the lock; on success
+    ///   the errored cache is replaced by a real service, on continued
+    ///   failure the cached errored instance is returned unchanged (no
+    ///   fresh allocation, no fresh state machine, no fresh task — this
+    ///   fix collapses the pre-refactor thrash where every call rebuilt).
+    private func loadOrCreateService() -> MessagingService {
+        cachedMessagingService.withLock { cached in
+            let previousWasErrored: Bool
+            if let existing = cached {
+                if case .error = existing.sessionStateManager.currentState {
+                    previousWasErrored = true
+                } else {
+                    return existing
                 }
+            } else {
+                previousWasErrored = false
             }
+
+            // Skip the keychain read entirely if we've seen two or more
+            // consecutive failures within the backoff window. First
+            // retry after any failure is always free, so transient
+            // errors (locked keychain, iCloud Keychain not yet synced)
+            // recover on the very next accessor call without waiting
+            // out the backoff. Subsequent retries within the window
+            // short-circuit to prevent SwiftUI-driven repeat reads
+            // from turning a persistent failure into sustained
+            // `securityd` IPC traffic.
+            if previousWasErrored,
+               let existing = cached,
+               consecutiveKeychainReadFailures >= 2,
+               let lastFailure = lastKeychainReadFailure,
+               Date().timeIntervalSince(lastFailure) < Self.keychainRetryBackoff {
+                return existing
+            }
+
+            let identity: KeychainIdentity?
+            do {
+                identity = try identityStore.loadSync()
+                lastKeychainReadFailure = nil
+                consecutiveKeychainReadFailures = 0
+            } catch {
+                lastKeychainReadFailure = Date()
+                consecutiveKeychainReadFailures += 1
+                if previousWasErrored, let existing = cached {
+                    // Still unhappy; return the frozen errored service we
+                    // cached on the previous call. No rebuild thrash.
+                    return existing
+                }
+                Log.error("Keychain identity read failed (\(error)); caching dedicated error-state service until next successful read.")
+                let errored = MessagingService(
+                    identityReadFailure: error,
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    identityStore: identityStore,
+                    environment: environment,
+                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                )
+                cached = errored
+                return errored
+            }
+
+            let service = buildMessagingService(for: identity)
+            cached = service
+            return service
+        }
+    }
+
+    /// Build a `MessagingService` for the keychain's current identity, or
+    /// register a new one if the keychain is empty. Pure function — no
+    /// caching, no mutation outside of what `AuthorizeInboxOperation`'s
+    /// state machine does on its own.
+    private func buildMessagingService(for identity: KeychainIdentity?) -> MessagingService {
+        let op: AuthorizeInboxOperation
+        if let identity {
+            op = AuthorizeInboxOperation.authorize(
+                inboxId: identity.inboxId,
+                clientId: identity.clientId,
+                identityStore: identityStore,
+                databaseReader: databaseReader,
+                databaseWriter: databaseWriter,
+                environment: environment,
+                startsStreamingServices: true,
+                platformProviders: platformProviders,
+                deviceRegistrationManager: deviceRegistrationManager,
+                apiClient: apiClient
+            )
+        } else {
+            op = AuthorizeInboxOperation.register(
+                identityStore: identityStore,
+                databaseReader: databaseReader,
+                databaseWriter: databaseWriter,
+                environment: environment,
+                platformProviders: platformProviders,
+                deviceRegistrationManager: deviceRegistrationManager,
+                apiClient: apiClient
+            )
+        }
+        return MessagingService(
+            authorizationOperation: op,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            identityStore: identityStore,
+            environment: environment,
+            backgroundUploadManager: platformProviders.backgroundUploadManager
+        )
     }
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
-        await lifecycleManager.createNewInbox()
-    }
-
-    public func addInboxOnly() async -> AnyMessagingService {
-        await lifecycleManager.createNewInboxOnly()
-    }
-
-    public func deleteInbox(clientId: String, inboxId: String) async throws {
-        // Get or create a service for deletion (creates one if not awake, without tracking it)
-        let service = await lifecycleManager.getOrCreateService(clientId: clientId, inboxId: inboxId)
-        Log.info("Deleting inbox for clientId: \(clientId)")
-        await service.stopAndDelete()
-
-        // Force remove from tracking (also clears activeClientId if needed)
-        await lifecycleManager.forceRemove(clientId: clientId)
-
-        // Always delete inbox record from database regardless of in-memory service state
-        let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-        try await inboxWriter.delete(clientId: clientId)
+    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+        let service = loadOrCreateService()
+        let conversationId = await unusedConversationCache.consumeUnusedConversationId(
+            databaseWriter: databaseWriter
+        )
+        await unusedConversationCache.prepareUnusedConversation(
+            service: service,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+        return (service, conversationId)
     }
 
     public func deleteAllInboxes() async throws {
@@ -208,54 +358,30 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
 
                 do {
-                    // Always clear device registration state, even if deletion fails
-                    defer { DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo) }
-
+                    // Yield progress events in lockstep with the work they
+                    // describe: the UI reads the stream in order and expects
+                    // each event to correspond to the phase that is about to
+                    // run (or has just run).
                     continuation.yield(.clearingDeviceRegistration)
+                    DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
 
-                    // Get all inboxes from database
-                    let inboxesRepository = InboxesRepository(databaseReader: self.databaseReader)
-                    let allInboxes = try inboxesRepository.allInboxes()
+                    let hasService = self.cachedMessagingService.withLock { $0 != nil }
+                    continuation.yield(.stoppingServices(completed: 0, total: hasService ? 1 : 0))
 
-                    let totalInboxes = allInboxes.count
-                    var completedInboxes = 0
-
-                    // Delete each inbox with progress reporting
-                    await withTaskGroup(of: Void.self) { [lifecycleManager = self.lifecycleManager] group in
-                        for inbox in allInboxes {
-                            let clientId = inbox.clientId
-                            let inboxId = inbox.inboxId
-                            group.addTask {
-                                let service = await lifecycleManager.getOrCreateService(
-                                    clientId: clientId,
-                                    inboxId: inboxId
-                                )
-                                // Start the deletion
-                                await service.stopAndDelete()
-                                // Wait for the deletion to actually complete
-                                await service.waitForDeletionComplete()
-                            }
-                        }
-
-                        for await _ in group {
-                            completedInboxes += 1
-                            continuation.yield(.stoppingServices(completed: completedInboxes, total: totalInboxes))
-                        }
-                    }
-
-                    // Stop all tracking in lifecycle manager
-                    await self.lifecycleManager.stopAll()
-                    await self.lifecycleManager.clearUnusedConversation()
-
-                    // Delete all from database
                     continuation.yield(.deletingFromDatabase)
-                    let inboxWriter = InboxWriter(dbWriter: self.databaseWriter)
-                    Log.debug("Deleting all inboxes from database")
-                    try await inboxWriter.deleteAll()
+                    try await self.tearDownInbox()
+
+                    if hasService {
+                        continuation.yield(.stoppingServices(completed: 1, total: 1))
+                    }
 
                     continuation.yield(.completed)
                     continuation.finish()
                 } catch {
+                    // Still clear device registration on the failure path so
+                    // we don't leave a dangling APNs record pointed at a
+                    // half-torn-down install.
+                    DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo)
                     continuation.finish(throwing: error)
                 }
             }
@@ -263,48 +389,60 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
+    private func tearDownInbox() async throws {
+        await unusedConversationCache.cancel()
+
+        // Keep the cached service reference live through the entire teardown.
+        // A concurrent `loadOrCreateService()` (push arriving mid-delete,
+        // SwiftUI sync accessor, etc.) will then observe the being-torn-down
+        // service rather than building a second one that would open the same
+        // SQLCipher xmtp-*.db3 files while the first is being deleted. The
+        // cache is cleared only after the XMTP client, keychain, and DBInbox
+        // rows are fully gone — at which point any new caller correctly
+        // builds a fresh registering-state service.
+        let existing = cachedMessagingService.withLock { $0 }
+
+        if let existing {
+            Log.info("Tearing down authorized inbox")
+            await existing.stopAndDelete()
+            await existing.waitForDeletionComplete()
+        }
+
+        try await identityStore.delete()
+
+        try await wipeResidualInboxRows()
+
+        cachedMessagingService.withLock { $0 = nil }
+    }
+
+    private func wipeResidualInboxRows() async throws {
+        try await databaseWriter.write { db in
+            // A prior process may have left `isUnused == true` rows from an
+            // interrupted prewarm. Under a nil cached service the MLS-side
+            // `cleanupInboxData` never runs, so those rows would otherwise
+            // survive into the next session and hand out unusable conversation
+            // ids via `consumeUnusedConversationId`.
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .deleteAll(db)
+            try DBInbox.deleteAll(db)
+        }
+    }
+
     // MARK: - Messaging Services
 
-    public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
-        try await lifecycleManager.getOrWake(clientId: clientId, inboxId: inboxId)
+    public func messagingService() -> AnyMessagingService {
+        loadOrCreateService()
     }
 
-    public func messagingService(forConversation conversationId: String) async throws -> AnyMessagingService {
-        guard let (clientId, inboxId) = try await databaseReader.read({ db in
-            try DBConversation
-                .filter(DBConversation.Columns.id == conversationId)
-                .fetchOne(db)
-                .map { ($0.clientId, $0.inboxId) }
-        }) else {
-            throw SessionManagerError.inboxNotFound
-        }
-        return try await messagingService(for: clientId, inboxId: inboxId)
-    }
-
-    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
-        if let tracked = lifecycleManager.getAwakeService(clientId: clientId) {
-            return tracked
-        }
-        let service = MessagingService.authorizedMessagingService(
-            for: inboxId,
-            clientId: clientId,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment,
-            identityStore: identityStore,
-            startsStreamingServices: true,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
-        )
-        Task { [lifecycleManager] in
-            let registered = await lifecycleManager.registerExternalService(service, clientId: clientId)
-            if !registered {
-                Log.warning("Stopping duplicate MessagingService for \(clientId)")
-                await service.stop()
-            }
-        }
-        return service
+    /// Synchronous accessor for SwiftUI code paths that can't suspend (e.g.
+    /// `ConversationsViewModel.updateSelectionState`). Cache hits are free;
+    /// cache misses do a keychain `loadSync` plus `AuthorizeInboxOperation`
+    /// construction under the service-state lock — typically a few ms, with
+    /// worst-case keychain IPC in the tens of ms range. Called once per
+    /// process in practice, since the cache fills on first use.
+    public func messagingServiceSync() -> AnyMessagingService {
+        loadOrCreateService()
     }
 
     // MARK: - Factory methods for repositories
@@ -329,19 +467,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.fetchInviteCodeStatus(code)
     }
 
-    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
-        let messagingService = try await messagingService(for: clientId, inboxId: inboxId)
-        return ConversationRepository(
+    public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
+        ConversationRepository(
             conversationId: conversationId,
             dbReader: databaseReader,
-            inboxStateManager: messagingService.inboxStateManager
+            sessionStateManager: messagingService().sessionStateManager
         )
     }
 
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
         MessagesRepository(
             dbReader: databaseReader,
-            conversationId: conversationId
+            conversationId: conversationId,
+            currentInboxId: MessagesRepository.currentInboxId(from: databaseReader)
         )
     }
 
@@ -398,83 +536,24 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: Notifications
 
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
-        // Get the currently active client ID (the inbox being viewed)
-        let activeClientId = await lifecycleManager.activeClientId
-
-        // If no active client (e.g., on conversations list), show all notifications
-        guard let activeClientId else {
-            return true
-        }
-
-        // Look up the client ID for this conversation
-        do {
-            let conversationClientId = try await databaseReader.read { db in
-                try DBConversation
-                    .filter(DBConversation.Columns.id == conversationId)
-                    .fetchOne(db)?
-                    .clientId
-            }
-
-            // Suppress notification if it's for a conversation in the active inbox
-            if conversationClientId == activeClientId {
-                Log.debug("Suppressing notification for conversation in active inbox: \(conversationId)")
-                return false
-            }
-        } catch {
-            Log.error("Failed to look up clientId for conversationId \(conversationId): \(error)")
-        }
-
+        let state = screenStateLock.withLock { $0 }
+        if state.isOnConversationsList { return false }
+        if state.activeConversationId == conversationId { return false }
         return true
+    }
+
+    public func setIsOnConversationsList(_ isOn: Bool) {
+        screenStateLock.withLock { state in
+            state.isOnConversationsList = isOn
+        }
     }
 
     public func notifyChangesInDatabase() {
         notificationChangeReporter.notifyChangesInDatabase()
     }
 
-    // MARK: - Lifecycle Management
-
-    public func setActiveClientId(_ clientId: String?) async {
-        await lifecycleManager.setActiveClientId(clientId)
-        await lifecycleManager.rebalance()
-    }
-
-    public func wakeInboxForNotification(clientId: String, inboxId: String) async {
-        do {
-            // wake() handles eviction automatically when at capacity
-            _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .pushNotification)
-            Log.debug("Woke inbox for push notification: \(clientId)")
-        } catch {
-            Log.error("Failed to wake inbox for notification: \(error)")
-        }
-    }
-
-    public func wakeInboxForNotification(conversationId: String) async {
-        do {
-            // Look up clientId and inboxId from the conversation
-            guard let (clientId, inboxId) = try await databaseReader.read({ db in
-                try DBConversation
-                    .filter(DBConversation.Columns.id == conversationId)
-                    .fetchOne(db)
-                    .map { ($0.clientId, $0.inboxId) }
-            }) else {
-                Log.warning("Cannot wake inbox for notification: conversation not found for id \(conversationId)")
-                return
-            }
-
-            // wake() handles eviction automatically when at capacity
-            _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .pushNotification)
-            Log.debug("Woke inbox for push notification: clientId=\(clientId), conversationId=\(conversationId)")
-        } catch {
-            Log.error("Failed to wake inbox for notification (conversationId: \(conversationId)): \(error)")
-        }
-    }
-
-    public func isInboxAwake(clientId: String) async -> Bool {
-        await lifecycleManager.isAwake(clientId: clientId)
-    }
-
-    public func isInboxSleeping(clientId: String) async -> Bool {
-        await lifecycleManager.isSleeping(clientId: clientId)
+    public func wakeInboxForNotification(conversationId: String) {
+        _ = loadOrCreateService()
     }
 
     // MARK: Debug
@@ -485,7 +564,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func deleteExpiredPendingInvites() async throws -> Int {
-        let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
+        let cutoff = Date().addingTimeInterval(-Self.stalePendingInviteInterval)
 
         let expiredInvites: [DBConversation] = try await databaseReader.read { db in
             let sql = """
@@ -502,89 +581,34 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         guard !expiredInvites.isEmpty else { return 0 }
 
-        let expiredConversationIds = Set(expiredInvites.map { $0.id })
-        let expiredClientIds = Set(expiredInvites.map { $0.clientId })
-
-        let clientIdsToKeep: Set<String> = try await databaseReader.read { db in
-            let placeholders = expiredClientIds.map { _ in "?" }.joined(separator: ",")
-            let expiredIdPlaceholders = expiredConversationIds.map { _ in "?" }.joined(separator: ",")
-
-            let sql = """
-                SELECT DISTINCT c.clientId
-                FROM conversation c
-                WHERE c.clientId IN (\(placeholders))
-                    AND (
-                        (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) > 1
-                        OR c.id NOT IN (\(expiredIdPlaceholders))
-                    )
-                """
-            let arguments = StatementArguments(Array(expiredClientIds) + Array(expiredConversationIds))
-            return Set(try String.fetchAll(db, sql: sql, arguments: arguments))
-        }
-
-        let safeToDeleteClientIds = expiredClientIds.subtracting(clientIdsToKeep)
-
-        let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-
-        for clientId in safeToDeleteClientIds {
-            await lifecycleManager.forceRemove(clientId: clientId)
-
-            do {
-                let identity = try await identityStore.delete(clientId: clientId)
-                Log.debug("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
-            } catch {
-                Log.warning("Could not delete keychain identity for clientId \(clientId): \(error)")
-            }
-
-            do {
-                try await inboxWriter.delete(clientId: clientId)
-                Log.debug("Deleted inbox record for expired invite clientId: \(clientId)")
-            } catch {
-                Log.warning("Could not delete inbox record for clientId \(clientId): \(error)")
-            }
-        }
-
-        let allExpiredConversationIds = expiredInvites.map { $0.id }
-
+        let expiredConversationIds = expiredInvites.map { $0.id }
         let deletedCount = try await databaseWriter.write { db in
             try DBConversation
-                .filter(allExpiredConversationIds.contains(DBConversation.Columns.id))
+                .filter(expiredConversationIds.contains(DBConversation.Columns.id))
                 .deleteAll(db)
         }
 
-        if !clientIdsToKeep.isEmpty {
-            Log.debug("Kept \(clientIdsToKeep.count) inbox(es) that have other active conversations")
-        }
-
-        Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
+        Log.info("Deleted \(deletedCount) expired pending invite draft(s)")
         return deletedCount
     }
 
-    public func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
-        let repository = OrphanedInboxRepository(databaseReader: databaseReader)
-        return try repository.allOrphanedInboxes()
-    }
-
-    public func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {
-        await lifecycleManager.forceRemove(clientId: clientId)
-
-        do {
-            let identity = try await identityStore.delete(clientId: clientId)
-            Log.debug("Deleted keychain identity for orphaned inbox: \(identity.inboxId)")
-        } catch {
-            Log.warning("Could not delete keychain identity for orphaned clientId \(clientId): \(error)")
+    /// Returns `true` when an inbox is authorized locally but has no joined
+    /// conversations and no tagged drafts — a sign of an aborted
+    /// registration that can be reset via `deleteAllInboxes`.
+    public func isAccountOrphaned() throws -> Bool {
+        try databaseReader.read { db in
+            guard (try DBInbox.fetchAll(db).first) != nil else { return false }
+            let nonDraftCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM conversation WHERE id NOT LIKE 'draft-%'"
+            ) ?? 0
+            if nonDraftCount > 0 { return false }
+            let taggedDraftCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM conversation WHERE id LIKE 'draft-%' AND inviteTag IS NOT NULL AND length(inviteTag) > 0"
+            ) ?? 0
+            return taggedDraftCount == 0
         }
-
-        let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-        try await inboxWriter.delete(clientId: clientId)
-
-        try await databaseWriter.write { db in
-            try DBConversation
-                .filter(DBConversation.Columns.clientId == clientId)
-                .deleteAll(db)
-        }
-
-        Log.info("Deleted orphaned inbox: clientId=\(clientId), inboxId=\(inboxId)")
     }
 
     // MARK: Helpers
@@ -592,10 +616,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     public func inboxId(for conversationId: String) async -> String? {
         do {
             return try await databaseReader.read { db in
-                try DBConversation
-                    .filter(DBConversation.Columns.id == conversationId)
-                    .fetchOne(db)?
-                    .inboxId
+                guard (try DBConversation.fetchOne(db, key: conversationId)) != nil else {
+                    return nil
+                }
+                return try DBInbox.fetchAll(db).first?.inboxId
             }
         } catch {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")

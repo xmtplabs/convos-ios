@@ -2,6 +2,8 @@
 
 Measure and record performance metrics for critical user-facing operations. This test establishes baseline timings and detects regressions.
 
+> **Single-inbox model (C4).** The multi-inbox LRU eviction and wake/sleep lifecycle were removed in the single-inbox refactor (see `docs/plans/single-inbox-identity-refactor.md`). There is one XMTP inbox per user; `MessagingService` is a singleton. The former `capacity-limited awake set`, `pre-creation cache`, and `pending-invite capacity tier` targets no longer apply. This test drops those assertions and measures only the single-client responsiveness envelope.
+
 ## Prerequisites
 
 - The app is running with the instrumented build (contains `[PERF]` log lines).
@@ -141,7 +143,8 @@ This is a baseline measurement test — there are no hard pass/fail thresholds o
 |--------|-------------|--------|
 | `open_few_msgs` | ConversationViewModel.init with < 50 messages | < 50ms |
 | `open_many_msgs` | ConversationViewModel.init with 100+ messages | < 100ms |
-| `new_convo_inbox` | NewConversation.inboxAcquired | < 500ms |
+| `new_convo_inbox` | NewConversation.inboxAcquired — singleton cache hit after first launch | < 50ms |
+| `new_convo_inbox_cold` | NewConversation.inboxAcquired on a fresh install (first identity creation) | < 1500ms |
 | `new_convo_ready` | NewConversation.ready (origin: created or existing) | < 1000ms |
 | `join_convo_ready` | NewConversation.ready (origin: joined), total time | informational* |
 | `join_approval_to_ready` | Delta from joinRequestSent to ready (origin: joined) | < 5000ms |

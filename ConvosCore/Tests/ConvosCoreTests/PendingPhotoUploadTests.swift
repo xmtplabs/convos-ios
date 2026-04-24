@@ -146,8 +146,6 @@ struct PendingPhotoUploadTests {
     private func makeDBConversation(id: String) -> DBConversation {
         DBConversation(
             id: id,
-            inboxId: "test-inbox",
-            clientId: "test-client",
             clientConversationId: id,
             inviteTag: "invite-\(id)",
             creatorId: "test-inbox",
@@ -165,8 +163,10 @@ struct PendingPhotoUploadTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAssistant: false,
         )
     }
 }

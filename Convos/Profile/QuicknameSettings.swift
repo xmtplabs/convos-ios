@@ -32,9 +32,13 @@ struct QuicknameSettings: Equatable {
 
     var profile: Profile {
         // Note: avatar is nil here because the local profileImage is passed directly
-        // to views (e.g., ProfileAvatarView) as placeholderImage, bypassing URL resolution.
+        // to views (e.g., ProfileAvatarView) as placeholderImage, bypassing URL
+        // resolution. The sentinel conversationId keeps the Profile's cache
+        // identifier stable and unlikely to collide with a real conversation's
+        // scoped key.
         .init(
             inboxId: "",
+            conversationId: Self.previewConversationId,
             name: displayName.isEmpty ? nil : displayName,
             avatar: nil
         )
@@ -75,15 +79,18 @@ struct QuicknameSettings: Equatable {
         )
     }
 
-    func profile(inboxId: String = "") -> Profile {
+    func profile(inboxId: String = "", conversationId: String = Self.previewConversationId) -> Profile {
         // Note: avatar is nil here because the local profileImage is passed directly
         // to views (e.g., ProfileAvatarView) as placeholderImage, bypassing URL resolution.
         .init(
             inboxId: inboxId,
+            conversationId: conversationId,
             name: displayName.isEmpty ? nil : displayName,
             avatar: nil
         )
     }
+
+    private static let previewConversationId: String = "quickname-preview"
 
     func save() throws {
         guard !isDefault else {

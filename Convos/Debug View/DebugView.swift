@@ -301,13 +301,9 @@ extension DebugViewSection {
         let apnsEnv = ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue
         Log.info("Debug: Force re-registering device (APNS env: \(apnsEnv))")
 
-        // Use the iOS platform providers
         let platformProviders = PlatformProviders.iOS
-
-        // Clear registration state
         DeviceRegistrationManager.clearRegistrationState(deviceInfo: platformProviders.deviceInfo)
 
-        // Create manager with iOS platform providers for re-registration
         let manager = DeviceRegistrationManager(
             environment: ConfigManager.shared.currentEnvironment,
             platformProviders: platformProviders

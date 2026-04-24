@@ -9,18 +9,18 @@ public protocol ConnectionGrantWriterProtocol: Sendable {
 }
 
 final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sendable {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let myProfileWriter: any MyProfileWriterProtocol
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         myProfileWriter: any MyProfileWriterProtocol
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.myProfileWriter = myProfileWriter
@@ -94,7 +94,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
     }
 
     private func syncGrantsToMetadata(for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let senderId = inboxReady.client.inboxId
 
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),

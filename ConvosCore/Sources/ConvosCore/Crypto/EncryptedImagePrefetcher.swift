@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 
 protocol EncryptedImagePrefetcherProtocol: Sendable {

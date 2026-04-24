@@ -12,19 +12,19 @@ enum ReplyWriterError: Error {
 }
 
 final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
     func sendReply(text: String, to parentMessageId: String, in conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
         let date = Date()
         let inboxId = client.inboxId

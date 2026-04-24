@@ -19,6 +19,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
+    var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState?
     var onPhotoRevealed: ((String) -> Void)?
@@ -90,6 +91,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onReaction: { [weak self] emoji, messageId in
                 self?.onReaction?(emoji, messageId)
+            },
+            onToggleReaction: { [weak self] emoji, messageId in
+                self?.onToggleReaction?(emoji, messageId)
             },
             onReply: { [weak self] message in
                 self?.onReply?(message)

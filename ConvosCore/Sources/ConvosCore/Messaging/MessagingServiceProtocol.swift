@@ -7,8 +7,8 @@ public enum MessagingServiceState {
 
 extension MessagingServiceProtocol {
     public var state: MessagingServiceState {
-        switch inboxStateManager.currentState {
-        case .ready(_, let result):
+        switch sessionStateManager.currentState {
+        case .ready(let result):
             return .authorized(result.client.inboxId)
         default:
             return .registering
@@ -17,9 +17,8 @@ extension MessagingServiceProtocol {
 }
 
 public protocol MessagingServiceProtocol: AnyObject, Sendable {
-    var clientId: String { get }
     var state: MessagingServiceState { get }
-    var inboxStateManager: any InboxStateManagerProtocol { get }
+    var sessionStateManager: any SessionStateManagerProtocol { get }
 
     func stop()
     func stop() async
@@ -57,10 +56,4 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
-}
-
-public extension MessagingServiceProtocol {
-    var clientId: String {
-        inboxStateManager.currentState.clientId
-    }
 }
