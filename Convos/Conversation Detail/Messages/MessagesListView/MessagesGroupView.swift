@@ -290,10 +290,10 @@ struct MessagesGroupView: View {
                         useSystemPlaceholder: false
                     )
                     .frame(width: 16, height: 16)
-                } else if !group.readByProfiles.isEmpty {
+                } else if !group.readByMembers.isEmpty {
                     Text("Read")
                         .font(.caption)
-                    ReadReceiptAvatarsView(profiles: group.readByProfiles)
+                    ReadReceiptAvatarsView(members: group.readByMembers)
                 } else {
                     Text("Sent")
                         .font(.caption)
@@ -312,9 +312,9 @@ struct MessagesGroupView: View {
             .accessibilityLabel(
                 group.onlyVisibleToSender
                     ? "Only visible to you"
-                    : (group.readByProfiles.isEmpty
+                    : (group.readByMembers.isEmpty
                         ? "Message sent"
-                        : "Message read by \(group.readByProfiles.count) \(group.readByProfiles.count == 1 ? "member" : "members")")
+                        : "Message read by \(group.readByMembers.count) \(group.readByMembers.count == 1 ? "member" : "members")")
             )
         }
     }

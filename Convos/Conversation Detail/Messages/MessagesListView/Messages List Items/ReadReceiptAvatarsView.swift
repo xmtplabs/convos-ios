@@ -2,7 +2,7 @@ import ConvosCore
 import SwiftUI
 
 struct ReadReceiptAvatarsView: View {
-    let profiles: [Profile]
+    let members: [ConversationMember]
 
     @State private var contentWidth: CGFloat = 0
 
@@ -15,11 +15,11 @@ struct ReadReceiptAvatarsView: View {
 
     private var avatarStack: some View {
         HStack(spacing: DesignConstants.Spacing.stepX) {
-            ForEach(profiles, id: \.self) { profile in
-                ProfileAvatarView(
-                    profile: profile,
-                    profileImage: nil,
-                    useSystemPlaceholder: false
+            ForEach(members, id: \.self) { member in
+                MessageAvatarView(
+                    profile: member.profile,
+                    size: avatarSize,
+                    agentVerification: member.agentVerification
                 )
                 .frame(width: avatarSize, height: avatarSize)
             }
@@ -69,4 +69,20 @@ private struct AvatarContentWidthKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
     }
+}
+
+#Preview("Mixed read receipts") {
+    let regular = ConversationMember.mock(name: "Alice")
+    let verifiedAssistant = ConversationMember.mock(
+        name: "Convos Assistant",
+        isAgent: true,
+        agentVerification: .verified(.convos)
+    )
+    let userOAuthAgent = ConversationMember.mock(
+        name: "OAuth Agent",
+        isAgent: true,
+        agentVerification: .verified(.userOAuth)
+    )
+    return ReadReceiptAvatarsView(members: [regular, verifiedAssistant, userOAuthAgent])
+        .padding()
 }

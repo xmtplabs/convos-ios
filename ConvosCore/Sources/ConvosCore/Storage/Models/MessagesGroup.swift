@@ -8,7 +8,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     public var isLastGroupSentByCurrentUser: Bool
     public let showsTypingIndicator: Bool
     public let allTypingMembers: [ConversationMember]
-    public let readByProfiles: [Profile]
+    public let readByMembers: [ConversationMember]
     public var onlyVisibleToSender: Bool = false
     public var isLastGroupBeforeOtherMembers: Bool = false
     public var adjacentToFullBleedAbove: Bool = false
@@ -42,7 +42,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         isLastGroupSentByCurrentUser: Bool,
         showsTypingIndicator: Bool = false,
         allTypingMembers: [ConversationMember] = [],
-        readByProfiles: [Profile] = [],
+        readByMembers: [ConversationMember] = [],
         onlyVisibleToSender: Bool = false,
         isLastGroupBeforeOtherMembers: Bool = false,
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
@@ -54,7 +54,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         self.isLastGroupSentByCurrentUser = isLastGroupSentByCurrentUser
         self.showsTypingIndicator = showsTypingIndicator
         self.allTypingMembers = allTypingMembers
-        self.readByProfiles = readByProfiles
+        self.readByMembers = readByMembers
         self.onlyVisibleToSender = onlyVisibleToSender
         self.isLastGroupBeforeOtherMembers = isLastGroupBeforeOtherMembers
         self.voiceMemoTranscripts = voiceMemoTranscripts
@@ -68,7 +68,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         isLastGroupSentByCurrentUser: Bool,
         showsTypingIndicator: Bool = false,
         allTypingMembers: [ConversationMember] = [],
-        readByProfiles: [Profile] = [],
+        readByMembers: [ConversationMember] = [],
         onlyVisibleToSender: Bool = false,
         isLastGroupBeforeOtherMembers: Bool = false,
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
@@ -80,7 +80,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         self.isLastGroupSentByCurrentUser = isLastGroupSentByCurrentUser
         self.showsTypingIndicator = showsTypingIndicator
         self.allTypingMembers = allTypingMembers
-        self.readByProfiles = readByProfiles
+        self.readByMembers = readByMembers
         self.onlyVisibleToSender = onlyVisibleToSender
         self.isLastGroupBeforeOtherMembers = isLastGroupBeforeOtherMembers
         self.voiceMemoTranscripts = voiceMemoTranscripts
@@ -94,7 +94,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
         lhs.showsTypingIndicator == rhs.showsTypingIndicator &&
         lhs.allTypingMembers == rhs.allTypingMembers &&
-        lhs.readByProfiles == rhs.readByProfiles &&
+        lhs.readByMembers == rhs.readByMembers &&
         lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
         lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers &&
         lhs.adjacentToFullBleedAbove == rhs.adjacentToFullBleedAbove &&
@@ -112,7 +112,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(isLastGroupSentByCurrentUser)
         hasher.combine(showsTypingIndicator)
         hasher.combine(allTypingMembers)
-        hasher.combine(readByProfiles)
+        hasher.combine(readByMembers)
         hasher.combine(onlyVisibleToSender)
         hasher.combine(isLastGroupBeforeOtherMembers)
         hasher.combine(adjacentToFullBleedAbove)
