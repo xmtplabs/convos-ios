@@ -877,6 +877,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/build-phases/copy-env-config-app-clip.sh",
+				"$(SRCROOT)/Scripts/secrets-utils.sh",
 				"$(SRCROOT)/Convos/Config/$(CONFIG_FILE)",
 				"$(SRCROOT)/.env",
 			);
@@ -900,6 +901,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/build-phases/copy-env-config-main-app.sh",
+				"$(SRCROOT)/Scripts/secrets-utils.sh",
 				"$(SRCROOT)/Convos/Config/$(CONFIG_FILE)",
 				"$(SRCROOT)/.env",
 			);
@@ -923,6 +925,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/build-phases/copy-env-config-notification-service.sh",
+				"$(SRCROOT)/Scripts/secrets-utils.sh",
 				"$(SRCROOT)/Convos/Config/$(CONFIG_FILE)",
 				"$(SRCROOT)/.env",
 			);
