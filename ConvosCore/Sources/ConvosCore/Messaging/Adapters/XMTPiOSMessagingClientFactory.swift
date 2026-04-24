@@ -19,13 +19,17 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
     public init() {}
 
     public func createClient(
-        signingKey: any SigningKey,
+        signer: any MessagingSigner,
         config: MessagingClientConfig,
         xmtpCodecs: [any ContentCodec]
     ) async throws -> any XMTPClientProvider {
         applyLocalAddressOverride(config: config)
         let options = clientOptions(config: config, xmtpCodecs: xmtpCodecs)
         Log.info("Creating XMTP client...")
+        // Wrap the Convos-owned signer so `XMTPiOS.Client.create` gets the
+        // native `SigningKey` protocol it expects. This is the only
+        // boundary where the forward adapter is used.
+        let signingKey = XMTPiOSSigningKeyAdapter(signer)
         let client = try await Client.create(account: signingKey, options: options)
         Log.info("XMTP Client created with app version: convos/\(Bundle.appVersion)")
         return client
@@ -33,7 +37,7 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
 
     public func buildClient(
         inboxId: String,
-        identity: PublicIdentity,
+        identity: MessagingIdentity,
         config: MessagingClientConfig,
         xmtpCodecs: [any ContentCodec]
     ) async throws -> any XMTPClientProvider {
@@ -41,7 +45,7 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
         let options = clientOptions(config: config, xmtpCodecs: xmtpCodecs)
         Log.debug("Building XMTP client for \(inboxId)...")
         let client = try await Client.build(
-            publicIdentity: identity,
+            publicIdentity: identity.xmtpPublicIdentity,
             options: options,
             inboxId: inboxId
         )

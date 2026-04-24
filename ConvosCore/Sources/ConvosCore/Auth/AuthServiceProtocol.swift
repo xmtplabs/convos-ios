@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-@preconcurrency import XMTPiOS
 
 public protocol AuthServiceRegisteredResultType: AuthServiceResultType {
     var inbox: any AuthServiceInboxType { get }
@@ -12,7 +11,7 @@ public protocol AuthServiceResultType {
 
 public protocol AuthServiceInboxType {
     var providerId: String { get }
-    var signingKey: any XMTPiOS.SigningKey { get }
+    var signingKey: any MessagingSigner { get }
     var databaseKey: Data { get }
 }
 
@@ -27,8 +26,18 @@ public struct AuthServiceResult: AuthServiceResultType {
 
 public struct AuthServiceInbox: AuthServiceInboxType {
     public let providerId: String
-    public let signingKey: any XMTPiOS.SigningKey
+    public let signingKey: any MessagingSigner
     public let databaseKey: Data
+
+    public init(
+        providerId: String,
+        signingKey: any MessagingSigner,
+        databaseKey: Data
+    ) {
+        self.providerId = providerId
+        self.signingKey = signingKey
+        self.databaseKey = databaseKey
+    }
 }
 
 public enum AuthServiceState {

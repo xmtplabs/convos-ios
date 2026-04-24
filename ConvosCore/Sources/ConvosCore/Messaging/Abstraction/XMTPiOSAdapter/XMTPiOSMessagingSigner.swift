@@ -40,3 +40,47 @@ struct XMTPiOSSigningKeyAdapter: XMTPiOS.SigningKey {
         return XMTPiOS.SignedData(rawData: rawSignature)
     }
 }
+
+/// Reverse adapter: presents an XMTPiOS `SigningKey` as a Convos
+/// `MessagingSigner`.
+///
+/// This is the boundary used by Stage 4f so that keychain-backed
+/// signers (`PrivateKey`) and any third-party `SigningKey` conformer
+/// can flow into APIs that now take `any MessagingSigner`
+/// (e.g. `MessagingClient.create`). The factory unwraps with the
+/// forward `XMTPiOSSigningKeyAdapter` when it needs a native
+/// `SigningKey` again.
+public struct XMTPiOSMessagingSignerAdapter: MessagingSigner {
+    public let xmtpSigningKey: any XMTPiOS.SigningKey
+
+    public init(_ xmtpSigningKey: any XMTPiOS.SigningKey) {
+        self.xmtpSigningKey = xmtpSigningKey
+    }
+
+    public var identity: MessagingIdentity {
+        MessagingIdentity(xmtpSigningKey.identity)
+    }
+
+    public var type: MessagingSignerType {
+        switch xmtpSigningKey.type {
+        case .EOA: return .eoa
+        case .SCW: return .smartContractWallet
+        }
+    }
+
+    public var chainId: Int64? { xmtpSigningKey.chainId }
+    public var blockNumber: Int64? { xmtpSigningKey.blockNumber }
+
+    public func sign(_ message: String) async throws -> Data {
+        let signed = try await xmtpSigningKey.sign(message)
+        return signed.rawData
+    }
+}
+
+public extension XMTPiOS.SigningKey {
+    /// Convenience wrapper to flow an XMTPiOS `SigningKey` into any API
+    /// that now takes `any MessagingSigner`. Added as part of Stage 4f.
+    var asMessagingSigner: any MessagingSigner {
+        XMTPiOSMessagingSignerAdapter(self)
+    }
+}

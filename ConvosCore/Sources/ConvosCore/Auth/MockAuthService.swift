@@ -1,6 +1,10 @@
 import Combine
 import ConvosAppData
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains for the
+// underlying `PrivateKey` (secp256k1) handle used by the mock. The
+// public-facing `signingKey` property is already migrated to
+// `any MessagingSigner` via `PrivateKey.asMessagingSigner`.
 @preconcurrency import XMTPiOS
 
 // swiftlint:disable implicitly_unwrapped_optional
@@ -21,7 +25,7 @@ struct MockAuthResult: AuthServiceResultType, AuthServiceRegisteredResultType, C
     var inbox: any AuthServiceInboxType {
         AuthServiceInbox(
             providerId: id,
-            signingKey: privateKey,
+            signingKey: privateKey.asMessagingSigner,
             databaseKey: databaseKey
         )
     }
@@ -38,8 +42,8 @@ struct MockAuthResult: AuthServiceResultType, AuthServiceRegisteredResultType, C
         profile.name
     }
 
-    var signingKey: any SigningKey {
-        privateKey
+    var signingKey: any MessagingSigner {
+        privateKey.asMessagingSigner
     }
 
     var databaseKey: Data {

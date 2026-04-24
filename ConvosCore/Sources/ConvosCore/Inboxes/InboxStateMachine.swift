@@ -589,7 +589,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             try Task.checkCancellation()
             Log.info("Error building client, trying create...")
             client = try await messagingClientFactory.createClient(
-                signingKey: keys.signingKey,
+                signer: keys.signingKey,
                 config: config,
                 xmtpCodecs: Self.defaultXMTPCodecs()
             )
@@ -623,7 +623,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         try Task.checkCancellation()
 
         let client = try await messagingClientFactory.createClient(
-            signingKey: keys.signingKey,
+            signer: keys.signingKey,
             config: messagingClientConfig(keys: keys),
             xmtpCodecs: Self.defaultXMTPCodecs()
         )

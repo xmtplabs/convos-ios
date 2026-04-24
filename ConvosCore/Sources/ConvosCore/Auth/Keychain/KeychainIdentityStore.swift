@@ -2,12 +2,18 @@ import CryptoKit
 import Foundation
 import LocalAuthentication
 import Security
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains for the
+// underlying secp256k1 crypto handle (`PrivateKey` type, plus its
+// encoding/decoding via `secp256K1.bytes`). The public `signingKey`
+// property is already migrated to `any MessagingSigner`. Once Convos
+// ships a first-party secp256k1 wrapper we can drop the XMTPiOS import
+// here altogether.
 @preconcurrency import XMTPiOS
 
 // MARK: - Models
 
 protocol XMTPClientKeys {
-    var signingKey: any XMTPiOS.SigningKey { get }
+    var signingKey: any MessagingSigner { get }
     var databaseKey: Data { get }
 }
 
@@ -15,8 +21,8 @@ public struct KeychainIdentityKeys: Codable, XMTPClientKeys, Sendable {
     public let privateKey: PrivateKey
     public let databaseKey: Data
 
-    public var signingKey: any SigningKey {
-        privateKey
+    public var signingKey: any MessagingSigner {
+        privateKey.asMessagingSigner
     }
 
     private enum CodingKeys: String, CodingKey {

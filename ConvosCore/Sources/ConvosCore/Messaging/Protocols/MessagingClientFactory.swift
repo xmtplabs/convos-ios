@@ -1,4 +1,13 @@
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// factory still returns `any XMTPClientProvider` and exposes
+// `ClientOptions.Api` for legacy static-op callers
+// (`SleepingInboxMessageChecker`). Stage 4f migrated the signer
+// parameter to `any MessagingSigner` and the identity parameter to
+// `MessagingIdentity`. Stage 3's writer-surface migration will retire
+// `XMTPClientProvider`, at which point the return type becomes
+// `any MessagingClient` and the last XMTPiOS dependency drops.
+// The codec list is still `[any XMTPiOS.ContentCodec]` (audit §5 Stage 6).
 @preconcurrency import XMTPiOS
 
 /// Factory surface for building an XMTP-backed client from a
@@ -13,16 +22,14 @@ import Foundation
 /// Callers pass a per-instance `MessagingClientConfig` — no process-
 /// wide state is read or written by the call site.
 ///
-/// We keep the factory signatures expressed in the existing XMTPiOS
-/// `SigningKey` / `PublicIdentity` types for now. Those types are a
-/// later-stage migration target (Stage 4 in the audit) and rewriting
-/// them here would widen scope well beyond Stage 5. The important
-/// invariant is that the only module touching `Client.create`,
-/// `Client.build`, `ClientOptions`, and `XMTPEnvironment.customLocalAddress`
-/// is the adapter conforming to this protocol.
+/// Stage 4f migrated the signer input to `any MessagingSigner` and
+/// the identity to `MessagingIdentity`. The return type is still
+/// `any XMTPClientProvider` because the downstream Stage 3 writer
+/// surface has not migrated yet; callers receive an XMTPiOS client
+/// handle under the legacy protocol.
 ///
-/// Custom codecs are passed separately as native XMTPiOS codec
-/// instances. They live on the XMTPiOS side until Stage 3 rewrites
+/// Custom codecs are still passed separately as native XMTPiOS codec
+/// instances. They live on the XMTPiOS side until Stage 6 rewrites
 /// them against `MessagingCodec`; passing them through this factory
 /// keeps `InboxStateMachine` unaware of the `ClientOptions` shape.
 public protocol MessagingClientFactory: Sendable {
@@ -30,7 +37,7 @@ public protocol MessagingClientFactory: Sendable {
     ///
     /// Mirrors `XMTPiOS.Client.create(account:options:)`.
     func createClient(
-        signingKey: any SigningKey,
+        signer: any MessagingSigner,
         config: MessagingClientConfig,
         xmtpCodecs: [any ContentCodec]
     ) async throws -> any XMTPClientProvider
@@ -40,7 +47,7 @@ public protocol MessagingClientFactory: Sendable {
     /// Mirrors `XMTPiOS.Client.build(publicIdentity:options:inboxId:)`.
     func buildClient(
         inboxId: String,
-        identity: PublicIdentity,
+        identity: MessagingIdentity,
         config: MessagingClientConfig,
         xmtpCodecs: [any ContentCodec]
     ) async throws -> any XMTPClientProvider

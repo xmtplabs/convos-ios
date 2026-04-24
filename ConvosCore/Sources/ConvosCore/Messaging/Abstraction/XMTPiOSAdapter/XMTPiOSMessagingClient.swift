@@ -54,7 +54,7 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         config: MessagingClientConfig
     ) async throws -> Self {
         let xmtpProvider = try await XMTPiOSMessagingClientFactory.shared.createClient(
-            signingKey: XMTPiOSSigningKeyAdapter(signer),
+            signer: signer,
             config: config,
             xmtpCodecs: Self.defaultXMTPCodecs()
         )
@@ -78,7 +78,7 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         if let inboxId {
             let xmtpProvider = try await XMTPiOSMessagingClientFactory.shared.buildClient(
                 inboxId: inboxId,
-                identity: identity.xmtpPublicIdentity,
+                identity: identity,
                 config: config,
                 xmtpCodecs: Self.defaultXMTPCodecs()
             )
