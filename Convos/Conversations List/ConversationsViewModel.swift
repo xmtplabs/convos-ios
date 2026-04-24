@@ -266,7 +266,7 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
-        case .connectionGrant(serviceId: let serviceId, conversationId: let conversationId):
+        case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
             _selectedConversationId = conversationId
             pendingGrantRequest = PendingGrantRequest(
                 serviceId: serviceId,

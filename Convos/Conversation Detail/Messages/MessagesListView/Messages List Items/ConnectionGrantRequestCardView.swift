@@ -5,7 +5,7 @@ struct ConnectionGrantRequestCardView: View {
     let request: ConnectionGrantRequest
     let conversationId: String
 
-    @Environment(\.openURL) private var openURL
+    @Environment(\.openURL) private var openURL: OpenURLAction
 
     private var serviceInfo: ConnectionServiceInfo? {
         ConnectionServiceCatalog.info(for: request.service)

@@ -217,7 +217,7 @@ enum ConnectionGrantError: LocalizedError {
         switch self {
         case .connectionNotFound(let id):
             "Connection not found: \(id)"
-        case .connectionNotActive(let id, let status):
+        case let .connectionNotActive(id, status):
             "Connection not active (\(status)): \(id)"
         case .conversationNotFound(let id):
             "Conversation not found: \(id)"
