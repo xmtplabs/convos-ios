@@ -11,6 +11,8 @@ struct ConvosApp: App {
     private let convos: ConvosClient
     let conversationsViewModel: ConversationsViewModel
     let quicknameViewModel: QuicknameSettingsViewModel = .shared
+    @MainActor let backupCoordinator: BackupCoordinator
+    @MainActor let staleDeviceObserver: StaleDeviceObserver = .init()
 
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
@@ -80,6 +82,7 @@ struct ConvosApp: App {
             await BackupScheduler.shared.runForegroundCatchUpIfNeeded()
         }
         self.conversationsViewModel = .init(session: convos.session)
+        self.backupCoordinator = BackupCoordinator(convos: convos)
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
     }
@@ -88,10 +91,25 @@ struct ConvosApp: App {
         WindowGroup {
             ConversationsView(
                 viewModel: conversationsViewModel,
-                quicknameViewModel: quicknameViewModel
+                quicknameViewModel: quicknameViewModel,
+                backupCoordinator: backupCoordinator
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
+            .overlay(alignment: .top) {
+                if staleDeviceObserver.isDeviceReplaced {
+                    let reset: () -> Void = {
+                        Task { try? await convos.session.deleteAllInboxes() }
+                    }
+                    StaleDeviceBanner(onReset: reset)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .task {
+                let service = convos.session.messagingService()
+                staleDeviceObserver.bind(to: service.sessionStateManager)
+            }
         }
     }
 }

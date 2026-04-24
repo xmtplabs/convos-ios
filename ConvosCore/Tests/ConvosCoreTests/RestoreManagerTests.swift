@@ -225,9 +225,10 @@ struct RestoreManagerTests {
             environment: f.environment,
             restoreFlagSuiteName: f.suite
         )
-        let sidecar = await manager.findAvailableBackup()
-        #expect(sidecar != nil)
-        #expect(sidecar?.schemaGeneration == LegacyDataWipe.currentGeneration)
+        let available = await manager.findAvailableBackup()
+        #expect(available != nil)
+        #expect(available?.sidecar.schemaGeneration == LegacyDataWipe.currentGeneration)
+        #expect(available?.bundleURL.lastPathComponent == "backup-latest.encrypted")
     }
 
     @Test("findAvailableBackup rejects sidecars with stale schemaGeneration")

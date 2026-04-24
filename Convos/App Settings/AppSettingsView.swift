@@ -34,6 +34,29 @@ struct AppSettingsView: View {
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
+
+    /// Optional backup/restore surface. Present only when the app wires
+    /// a `BackupRestoreViewModel` + restore initiator; hidden in previews
+    /// and mock paths.
+    let backupRestoreViewModel: BackupRestoreViewModel?
+    let onRestore: ((AvailableBackup) -> Void)?
+
+    init(
+        viewModel: AppSettingsViewModel,
+        quicknameViewModel: QuicknameSettingsViewModel,
+        session: any SessionManagerProtocol,
+        onDeleteAllData: @escaping () -> Void,
+        backupRestoreViewModel: BackupRestoreViewModel? = nil,
+        onRestore: ((AvailableBackup) -> Void)? = nil
+    ) {
+        self.viewModel = viewModel
+        self.quicknameViewModel = quicknameViewModel
+        self.session = session
+        self.onDeleteAllData = onDeleteAllData
+        self.backupRestoreViewModel = backupRestoreViewModel
+        self.onRestore = onRestore
+    }
+
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -148,6 +171,26 @@ struct AppSettingsView: View {
                     .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 }
                 .listRowSeparatorTint(.colorBorderSubtle)
+
+                if let backupRestoreViewModel, let onRestore {
+                    Section {
+                        NavigationLink {
+                            BackupRestoreSettingsView(
+                                viewModel: backupRestoreViewModel,
+                                onRestore: onRestore
+                            )
+                        } label: {
+                            HStack(spacing: DesignConstants.Spacing.step2x) {
+                                Text("Backup & Restore")
+                                    .foregroundStyle(.colorTextPrimary)
+                                Spacer()
+                            }
+                        }
+                        .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                        .accessibilityIdentifier("backup-restore-row")
+                    }
+                    .listRowSeparatorTint(.colorBorderSubtle)
+                }
 
                 Section {
                     Button {

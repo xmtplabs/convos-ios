@@ -4,6 +4,7 @@ import SwiftUI
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    var backupCoordinator: BackupCoordinator?
 
     @Namespace private var namespace: Namespace.ID
     @State private var presentingAppSettings: Bool = false
@@ -241,6 +242,7 @@ struct ConversationsView: View {
             presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
             quicknameViewModel: quicknameViewModel,
+            backupCoordinator: backupCoordinator,
             conversationPendingExplosion: $conversationPendingExplosion,
             namespace: namespace
         ))
@@ -259,6 +261,7 @@ private struct ConversationsSheetModifier: ViewModifier {
     @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
     let quicknameViewModel: QuicknameSettingsViewModel
+    var backupCoordinator: BackupCoordinator?
     @Binding var conversationPendingExplosion: Conversation?
     var namespace: Namespace.ID
 
@@ -269,7 +272,11 @@ private struct ConversationsSheetModifier: ViewModifier {
                     viewModel: viewModel.appSettingsViewModel,
                     quicknameViewModel: quicknameViewModel,
                     session: viewModel.session,
-                    onDeleteAllData: viewModel.deleteAllData
+                    onDeleteAllData: viewModel.deleteAllData,
+                    backupRestoreViewModel: backupCoordinator?.viewModel,
+                    onRestore: backupCoordinator.map { coordinator in
+                        { available in coordinator.beginRestore(available) }
+                    }
                 )
                 .navigationTransition(
                     .zoom(sourceID: "app-settings-transition-source", in: namespace)

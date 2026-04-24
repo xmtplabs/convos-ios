@@ -11,7 +11,7 @@ import Observation
 final class BackupRestoreViewModel {
     private(set) var isBackupInProgress: Bool = false
     private(set) var lastBackupAt: Date?
-    private(set) var availableRestore: BackupSidecarMetadata?
+    private(set) var availableRestore: AvailableBackup?
     private(set) var pendingArchiveImportFailure: PendingArchiveImportFailure?
     private(set) var iCloudAvailable: Bool = true
     private(set) var lastError: (any Error)?

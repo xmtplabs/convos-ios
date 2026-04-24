@@ -20,6 +20,19 @@ public typealias RestoreInstallationRevoker = @Sendable (
     _ keepInstallationId: String?
 ) async throws -> Int
 
+/// Pair of the discovery sidecar + the resolved bundle URL so callers
+/// can flow straight from `findAvailableBackup` into
+/// `restoreFromBackup(bundleURL:)` without re-resolving directories.
+public struct AvailableBackup: Sendable, Equatable {
+    public let sidecar: BackupSidecarMetadata
+    public let bundleURL: URL
+
+    public init(sidecar: BackupSidecarMetadata, bundleURL: URL) {
+        self.sidecar = sidecar
+        self.bundleURL = bundleURL
+    }
+}
+
 public actor RestoreManager {
     private let identityStore: any KeychainIdentityStoreProtocol
     private let databaseManager: any DatabaseManagerProtocol
@@ -60,9 +73,9 @@ public actor RestoreManager {
     /// matches the running app are rejected — they'd be wiped by
     /// `LegacyDataWipe` at next launch anyway, so surfacing them as
     /// restorable would be misleading.
-    public func findAvailableBackup() -> BackupSidecarMetadata? {
+    public func findAvailableBackup() -> AvailableBackup? {
         let directories = backupRootDirectories()
-        var newest: BackupSidecarMetadata?
+        var newest: AvailableBackup?
         for root in directories {
             guard let subdirs = try? fileManager.contentsOfDirectory(
                 at: root,
@@ -81,12 +94,17 @@ public actor RestoreManager {
                         "(\(sidecar.schemaGeneration) vs \(LegacyDataWipe.currentGeneration))")
                     continue
                 }
+                let bundleURL = dir.appendingPathComponent("backup-latest.encrypted")
+                guard fileManager.fileExists(atPath: bundleURL.path) else {
+                    continue
+                }
+                let candidate = AvailableBackup(sidecar: sidecar, bundleURL: bundleURL)
                 if let current = newest {
-                    if sidecar.createdAt > current.createdAt {
-                        newest = sidecar
+                    if sidecar.createdAt > current.sidecar.createdAt {
+                        newest = candidate
                     }
                 } else {
-                    newest = sidecar
+                    newest = candidate
                 }
             }
         }

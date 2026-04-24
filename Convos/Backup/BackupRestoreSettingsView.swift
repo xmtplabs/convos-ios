@@ -3,16 +3,16 @@ import SwiftUI
 
 struct BackupRestoreSettingsView: View {
     @Bindable var viewModel: BackupRestoreViewModel
-    let onRestore: (BackupSidecarMetadata) -> Void
+    let onRestore: (AvailableBackup) -> Void
 
     @State private var showingRestoreConfirmation: Bool = false
-    @State private var pendingRestoreSidecar: BackupSidecarMetadata?
+    @State private var pendingRestore: AvailableBackup?
 
     var body: some View {
         List {
             backUpSection()
-            if let sidecar = viewModel.availableRestore {
-                restoreSection(sidecar: sidecar)
+            if let available = viewModel.availableRestore {
+                restoreSection(available: available)
             }
             if let failure = viewModel.pendingArchiveImportFailure {
                 partialRestoreSection(failure: failure)
@@ -30,14 +30,14 @@ struct BackupRestoreSettingsView: View {
             titleVisibility: .visible
         ) {
             let confirm = {
-                if let sidecar = pendingRestoreSidecar {
-                    onRestore(sidecar)
+                if let available = pendingRestore {
+                    onRestore(available)
                 }
-                pendingRestoreSidecar = nil
+                pendingRestore = nil
             }
             Button("Restore", role: .destructive, action: confirm)
             Button("Cancel", role: .cancel) {
-                pendingRestoreSidecar = nil
+                pendingRestore = nil
             }
         } message: {
             Text("This will replace the data on this device with the backup. You can't undo this.")
@@ -85,17 +85,17 @@ struct BackupRestoreSettingsView: View {
     }
 
     @ViewBuilder
-    private func restoreSection(sidecar: BackupSidecarMetadata) -> some View {
+    private func restoreSection(available: AvailableBackup) -> some View {
         Section {
             let restore = {
-                pendingRestoreSidecar = sidecar
+                pendingRestore = available
                 showingRestoreConfirmation = true
             }
             Button(action: restore) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Restore from \(sidecar.deviceName)")
+                    Text("Restore from \(available.sidecar.deviceName)")
                         .foregroundStyle(.colorTextPrimary)
-                    Text(sidecar.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    Text(available.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                 }
