@@ -144,6 +144,14 @@ public final class DualBackendTestFixtures {
         }
         try await identityStore.deleteAll()
         try databaseManager.erase()
+
+        // Destroy this fixture's DTU universe so the shared server
+        // doesn't accumulate state across tests. The subprocess stays
+        // up for the next fixture.
+        if let universe = dtuUniverse {
+            await universe.destroy()
+            dtuUniverse = nil
+        }
     }
 
     // MARK: - XMTPiOS path
@@ -192,8 +200,18 @@ public final class DualBackendTestFixtures {
 
     // MARK: - DTU path
 
+    /// Per-fixture universe. Each `DualBackendTestFixtures` instance
+    /// gets its own universe on the shared dtu-server so that
+    /// `DTUMessagingConversations`'s per-client `dtu-g-N` counter
+    /// can't collide across tests (the counter is reset for each new
+    /// `DTUMessagingClient`, but conversation aliases within a
+    /// universe are unique — two tests both asking for `dtu-g-1`
+    /// would hit "alias already in use"). Lazily initialized on the
+    /// first DTU `createClient()` call.
+    private var dtuUniverse: DTUUniverse?
+
     private func createDTUClient(clientId: String) async throws -> ClientHandle {
-        let universe = try await Self.sharedDTUUniverse()
+        let universe = try await ensureDTUUniverse()
         let userAlias = "\(aliasBase)-user-\(nextAliasIndex)"
         let inboxAlias = "\(aliasBase)-inbox-\(nextAliasIndex)"
         let installationAlias = "\(aliasBase)-inst-\(nextAliasIndex)"
@@ -213,24 +231,34 @@ public final class DualBackendTestFixtures {
         )
     }
 
+    /// Returns the fixture-scoped DTU universe, creating it on first
+    /// call. The dtu-server subprocess is shared (fast spawn reuse);
+    /// the universe is NOT shared (isolates `dtu-g-N` counters and
+    /// actor aliases per test).
+    private func ensureDTUUniverse() async throws -> DTUUniverse {
+        if let existing = dtuUniverse {
+            return existing
+        }
+        let created = try await Self.createDTUUniverse(nonce: aliasBase)
+        dtuUniverse = created
+        return created
+    }
+
     // MARK: - Shared DTU-server lifecycle
 
-    /// Shared `dtu-server` subprocess + universe for the entire test run.
+    /// Shared `dtu-server` subprocess for the entire test run.
+    /// One server per run (fast reuse of the ~30ms spawn); universes
+    /// are per-fixture so `dtu-g-N` conversation-alias counters can't
+    /// collide across tests.
     ///
-    /// Per the POC brief: one server per run, not per test. Spawning
-    /// dtu-server takes ~30ms; the test run would burn time spinning
-    /// it up per-fixture. The universe is reused across every test
-    /// (aliases are uniquified per-fixture via `aliasBase`).
-    ///
-    /// The shared handle is torn down by `tearDownSharedDTUIfNeeded`,
-    /// which test classes should call from their final `+tearDown` (or
-    /// leave in place for the process to clean up; the server is a
-    /// subprocess that dies with us).
-    public static func sharedDTUUniverse() async throws -> DTUUniverse {
+    /// The server is torn down by `tearDownSharedDTUIfNeeded`, which
+    /// test classes should call from their final `+tearDown` (or
+    /// leave in place — the subprocess dies with us).
+    static func createDTUUniverse(nonce: String) async throws -> DTUUniverse {
         #if !os(macOS)
         throw XCTSkip("DTU backend requires macOS: DTUClient.spawn uses Process, which iOS lacks.")
         #else
-        try await DTUServerHandle.shared.universe()
+        return try await DTUServerHandle.shared.createUniverse(nonce: nonce)
         #endif
     }
 
@@ -295,76 +323,48 @@ public final class DualBackendTestFixtures {
 }
 
 #if os(macOS)
-/// Process-wide shared handle for the dtu-server subprocess + its
-/// universe. Synchronized via a Mutex so concurrent-fixture setup
-/// (parallel XCTest cases) doesn't race the spawn.
+/// Process-wide handle for the shared dtu-server subprocess. The
+/// subprocess is spawned on first use and reused across every
+/// DualBackendTestFixtures instance; each fixture then asks for its
+/// own universe via `createUniverse(nonce:)`.
 ///
 /// Uses a class with `NSLock` rather than an `actor` because
 /// `DTUClient` is a non-Sendable `final class`; an actor would refuse
 /// to hand it back to nonisolated XCTest call sites. The lock
 /// protects only the initialization handshake — the underlying
 /// `DTUClient` is already internally thread-safe.
-///
-/// Lifecycle:
-///   - First `universe()` call spawns `dtu-server` and creates a
-///     universe seeded at the canonical test time.
-///   - Subsequent calls reuse the same handle.
-///   - `teardown()` destroys the universe and terminates the server.
-///     Idempotent.
 final class DTUServerHandle: @unchecked Sendable {
-    static let shared = DTUServerHandle()
+    static let shared: DTUServerHandle = DTUServerHandle()
 
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
     private var client: DTUClient?
-    private var cachedUniverse: DTUUniverse?
     private var universeCounter: Int = 0
 
-    func universe() async throws -> DTUUniverse {
-        // Fast path: return cached universe if already set.
-        if let existing = readCachedUniverse() {
-            return existing
-        }
-        // Initialize inline. If two callers race here they'll both
-        // attempt to spawn; the second caller will observe the first's
-        // client via the lock and no-op the second spawn. Separate
-        // `ensureClient()` handles that.
+    /// Spawn-on-first-use. Creates a fresh universe named by the
+    /// caller's nonce; each fixture gets its own universe so that
+    /// DTU's per-client conversation-alias counter (`dtu-g-N`) can't
+    /// collide across tests.
+    func createUniverse(nonce: String) async throws -> DTUUniverse {
         let spawned = try await ensureClient()
         let id: String = lock.withLock {
             universeCounter += 1
-            return "u_dualbackend_\(universeCounter)"
+            return "u_dualbackend_\(universeCounter)_\(nonce)"
         }
-        let universe = try await spawned.createUniverse(
+        return try await spawned.createUniverse(
             id: id,
             seedTimeNs: 1_700_000_000_000_000_000
         )
-        lock.withLock {
-            if cachedUniverse == nil {
-                cachedUniverse = universe
-            }
-        }
-        // Return the canonical cached instance to avoid handing out
-        // two different universe handles if a second caller raced us.
-        return readCachedUniverse() ?? universe
     }
 
     func teardown() async {
-        let (universeToDestroy, clientToTerminate): (DTUUniverse?, DTUClient?) = lock.withLock {
-            let u = cachedUniverse
+        let clientToTerminate: DTUClient? = lock.withLock {
             let c = client
-            cachedUniverse = nil
             client = nil
-            return (u, c)
-        }
-        if let universeToDestroy {
-            await universeToDestroy.destroy()
+            return c
         }
         if let clientToTerminate {
             await clientToTerminate.terminate()
         }
-    }
-
-    private func readCachedUniverse() -> DTUUniverse? {
-        lock.withLock { cachedUniverse }
     }
 
     private func ensureClient() async throws -> DTUClient {
