@@ -237,12 +237,16 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
 
     public func imageUrl() async throws -> String { "" }
     public func description() async throws -> String { "" }
-    public func appData() async throws -> String { "" }
+
+    public func appData() async throws -> String {
+        try await context.universe.appData(conversation: id, actor: context.actor)
+    }
 
     public func updateAppData(_ appData: String) async throws {
-        throw DTUMessagingNotSupportedError(
-            method: "MessagingGroup.updateAppData",
-            reason: "DTU engine does not yet model the appData metadata slot"
+        _ = try await context.universe.updateAppData(
+            conversation: id,
+            data: appData,
+            actor: context.actor
         )
     }
 
