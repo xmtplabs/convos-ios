@@ -22,6 +22,26 @@ enum XMTPiOSConversationAdapter {
     }
 }
 
+// MARK: - Stage 4 bridge
+
+public extension MessagingConversation {
+    // Stage 4 bridge — remove when Stage 3 writers migrate.
+    // Stage 4 callers hold a `MessagingConversation` enum but must hand
+    // the raw `XMTPiOS.Conversation` to not-yet-migrated writers.
+    // Matches `.group` / `.dm` and rebuilds the native enum. Returns
+    // `nil` if the payload is not an XMTPiOS adapter.
+    var underlyingXMTPiOSConversation: XMTPiOS.Conversation? {
+        switch self {
+        case .group(let group):
+            guard let wrapped = group as? XMTPiOSMessagingGroup else { return nil }
+            return .group(wrapped.underlyingXMTPiOSGroup)
+        case .dm(let dm):
+            guard let wrapped = dm as? XMTPiOSMessagingDm else { return nil }
+            return .dm(wrapped.underlyingXMTPiOSDm)
+        }
+    }
+}
+
 // MARK: - Errors
 
 enum XMTPiOSAdapterError: Error, LocalizedError {

@@ -21,6 +21,13 @@ public final class XMTPiOSMessagingGroup: MessagingGroup, @unchecked Sendable {
         self.xmtpGroup = xmtpGroup
     }
 
+    // Stage 4 bridge — remove when Stage 3 writers migrate.
+    // Stage 4 callers hold `any MessagingGroup` but the Storage/Writers
+    // layer still takes raw `XMTPiOS.Group`. Callers downcast to
+    // `XMTPiOSMessagingGroup` and reach through this accessor until the
+    // writers are migrated. No new consumers should take this path.
+    public var underlyingXMTPiOSGroup: XMTPiOS.Group { xmtpGroup }
+
     // MARK: - MessagingConversationCore
 
     public var id: String { xmtpGroup.id }

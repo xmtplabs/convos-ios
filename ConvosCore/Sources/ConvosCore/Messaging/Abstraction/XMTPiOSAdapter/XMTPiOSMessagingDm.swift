@@ -14,6 +14,13 @@ public final class XMTPiOSMessagingDm: MessagingDm, @unchecked Sendable {
         self.xmtpDm = xmtpDm
     }
 
+    // Stage 4 bridge — remove when Stage 3 writers migrate.
+    // Stage 4 callers hold `any MessagingDm` but the Storage/Writers
+    // layer still takes raw `XMTPiOS.Dm`. Callers downcast to
+    // `XMTPiOSMessagingDm` and reach through this accessor until the
+    // writers are migrated. No new consumers should take this path.
+    public var underlyingXMTPiOSDm: XMTPiOS.Dm { xmtpDm }
+
     // MARK: - MessagingConversationCore
 
     public var id: String { xmtpDm.id }
