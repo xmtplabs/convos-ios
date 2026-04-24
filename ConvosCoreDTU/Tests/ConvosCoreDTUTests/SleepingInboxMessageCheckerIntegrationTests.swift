@@ -1,9 +1,15 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import ConvosProfiles
 import Foundation
 import GRDB
 import Testing
 @preconcurrency import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/SleepingInboxMessageCheckerIntegrationTests.swift`.
+// Integration test that needs Docker XMTP and the legacy
+// XMTPClientProvider surface; skips cleanly on DTU lane.
 
 // Set custom XMTP endpoint at module load time (before any async code)
 // @preconcurrency import suppresses strict concurrency warnings for XMTP static properties
@@ -19,11 +25,11 @@ private let _configureXMTPEndpoint: Void = {
 /// new messages, using real XMTP clients connected to the local Docker node.
 @Suite("SleepingInboxMessageChecker Integration Tests", .serialized, .timeLimit(.minutes(2)))
 struct SleepingInboxMessageCheckerIntegrationTests {
-
     // MARK: - Wake on New Message Tests
 
     @Test("Sleeping inbox wakes when it receives a new message from another client")
     func testSleepingInboxWakesOnNewMessage() async throws {
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SleepingInboxMessageChecker integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create two XMTP clients: sender and receiver
@@ -113,6 +119,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Sleeping inbox does NOT wake when no new messages after sleep time")
     func testSleepingInboxDoesNotWakeWithoutNewMessages() async throws {
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SleepingInboxMessageChecker integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create two XMTP clients
@@ -200,6 +207,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Multiple sleeping inboxes: only those with new messages wake")
     func testMultipleSleepingInboxesSelectiveWake() async throws {
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SleepingInboxMessageChecker integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create three clients: sender, receiver1 (will get new message), receiver2 (won't)
@@ -383,7 +391,10 @@ private class IntegrationTestFixtures {
             dbDirectory: environment.defaultDatabasesDirectory
         )
 
-        let client = try await Client.create(account: keys.signingKey, options: clientOptions)
+        // Stage 4f migrated `keys.signingKey` to MessagingSigner;
+        // wrap through the adapter for the legacy `Client.create` path.
+        let signingKey = XMTPiOSSigningKeyAdapter(keys.signingKey)
+        let client = try await Client.create(account: signingKey, options: clientOptions)
         createdClients.append(client)
 
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
@@ -440,7 +451,7 @@ private func waitForMessagePropagation(
     expectedMessageCount: Int = 1,
     timeout: Duration = .seconds(10)
 ) async throws {
-    try await waitUntil(timeout: timeout, interval: .milliseconds(100)) {
+    try await legacyWaitUntil(timeout: timeout, interval: .milliseconds(100)) {
         // Sync conversations to get latest state from network
         try? await client.conversations.sync()
 

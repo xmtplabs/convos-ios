@@ -1,4 +1,5 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import ConvosInvites
 import ConvosInvitesCore
 import Foundation
@@ -6,12 +7,17 @@ import GRDB
 import Testing
 @preconcurrency import XMTPiOS
 
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/InviteJoinRequestIntegrationTests.swift`.
+// Integration test that drives real Docker XMTP groups + invite
+// tags. Skips cleanly on the DTU lane (no DTU equivalent yet).
+
 @Suite("Invite Join Request Integration Tests", .serialized, .timeLimit(.minutes(3)))
 struct InviteJoinRequestIntegrationTests {
-
     @Test("Valid invite join request adds member to group")
     func validJoinRequestAddsMember() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InviteJoinRequest integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
@@ -28,7 +34,10 @@ struct InviteJoinRequestIntegrationTests {
         try await group.ensureInviteTag()
         try await group.sync()
 
-        let tag = try group.inviteTag
+        // Stage 6f: `group.inviteTag` was a pre-existing sync extension
+        // that has been removed; route through the MessagingGroup
+        // abstraction to fetch the current tag.
+        let tag = try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
         #expect(!tag.isEmpty, "Group should have an invite tag")
 
         let identity = try await fixtures.identityStore.identity(for: clientA.inboxId)
@@ -92,7 +101,8 @@ struct InviteJoinRequestIntegrationTests {
 
     @Test("Join request with revoked tag is rejected")
     func revokedTagJoinRequestRejected() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InviteJoinRequest integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
@@ -109,7 +119,7 @@ struct InviteJoinRequestIntegrationTests {
         try await group.ensureInviteTag()
         try await group.sync()
 
-        let originalTag = try group.inviteTag
+        let originalTag = try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
 
         let identity = try await fixtures.identityStore.identity(for: clientA.inboxId)
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
@@ -121,10 +131,10 @@ struct InviteJoinRequestIntegrationTests {
             tag: originalTag
         )
 
-        try await group.rotateInviteTag()
+        try await XMTPiOSMessagingGroup(xmtpGroup: group).rotateInviteTag()
         try await group.sync()
 
-        let newTag = try group.inviteTag
+        let newTag = try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
         #expect(newTag != originalTag, "Tag should have changed after rotation")
 
         let dm = try await clientB.conversations.findOrCreateDm(with: clientA.inboxId)
@@ -156,7 +166,8 @@ struct InviteJoinRequestIntegrationTests {
 
     @Test("Join request via single message processing adds member")
     func singleMessageProcessingAddsMember() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InviteJoinRequest integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
@@ -173,7 +184,10 @@ struct InviteJoinRequestIntegrationTests {
         try await group.ensureInviteTag()
         try await group.sync()
 
-        let tag = try group.inviteTag
+        // Stage 6f: `group.inviteTag` was a pre-existing sync extension
+        // that has been removed; route through the MessagingGroup
+        // abstraction to fetch the current tag.
+        let tag = try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
         let identity = try await fixtures.identityStore.identity(for: clientA.inboxId)
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
 
@@ -243,7 +257,8 @@ struct InviteJoinRequestIntegrationTests {
 
     @Test("Join request via JoinRequestContent type adds member")
     func joinRequestContentTypeAddsMember() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InviteJoinRequest integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
@@ -260,7 +275,10 @@ struct InviteJoinRequestIntegrationTests {
         try await group.ensureInviteTag()
         try await group.sync()
 
-        let tag = try group.inviteTag
+        // Stage 6f: `group.inviteTag` was a pre-existing sync extension
+        // that has been removed; route through the MessagingGroup
+        // abstraction to fetch the current tag.
+        let tag = try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
         let identity = try await fixtures.identityStore.identity(for: clientA.inboxId)
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
 
@@ -333,7 +351,8 @@ struct InviteJoinRequestIntegrationTests {
 
     @Test("Join request via InviteCoordinator.sendJoinRequest uses content type")
     func sendJoinRequestUsesContentType() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InviteJoinRequest integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
@@ -350,7 +369,10 @@ struct InviteJoinRequestIntegrationTests {
         try await group.ensureInviteTag()
         try await group.sync()
 
-        let tag = try group.inviteTag
+        // Stage 6f: `group.inviteTag` was a pre-existing sync extension
+        // that has been removed; route through the MessagingGroup
+        // abstraction to fetch the current tag.
+        let tag = try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
         let identity = try await fixtures.identityStore.identity(for: clientA.inboxId)
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
 
