@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-@preconcurrency import XMTPiOS
 
 struct IncomingMessageWriterResult: Sendable {
     let contentType: MessageContentType
@@ -16,11 +15,16 @@ enum ExplodeSettingsResult: Sendable {
     case scheduled(expiresAt: Date)
 }
 
+// Stage 3 migration (audit §5.3): the writer surface now operates on
+// `MessagingMessage` rather than `XMTPiOS.DecodedMessage`. Callers that
+// still hold raw `XMTPiOS.DecodedMessage` wrap through
+// `MessagingMessage(decoded)` at the call site; the writer file itself
+// no longer imports XMTPiOS.
 protocol IncomingMessageWriterProtocol: Sendable {
-    func store(message: XMTPiOS.DecodedMessage,
+    func store(message: MessagingMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult
 
-    func decodeExplodeSettings(from message: XMTPiOS.DecodedMessage) -> ExplodeSettings?
+    func decodeExplodeSettings(from message: MessagingMessage) -> ExplodeSettings?
 
     func processExplodeSettings(
         _ settings: ExplodeSettings,
@@ -39,14 +43,14 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         self.databaseWriter = databaseWriter
     }
 
-    func store(message: DecodedMessage,
+    func store(message messagingMessage: MessagingMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
-        // Stage 3 migration (audit §5): thread the XMTPiOS ->
-        // Messaging boundary here, then operate on `MessagingMessage`
-        // everywhere below. The storage translator
-        // (`MessagingMessage+DBRepresentation.swift`) now consumes the
-        // abstraction directly.
-        let messagingMessage = try MessagingMessage(message)
+        // Stage 3 migration (audit §5.3): the writer now takes a
+        // Convos-owned `MessagingMessage`. Callers that still hold
+        // `XMTPiOS.DecodedMessage` wrap it at the call site via
+        // `MessagingMessage(decoded)` — the XMTPiOS → abstraction
+        // boundary lives beside the rest of the adapter code in
+        // `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/`.
         let payload = messagingMessage.resolvedPayload()
 
         if case .reaction(let reaction) = payload {
@@ -176,9 +180,9 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
         if !result.messageAlreadyExists {
             QAEvent.emit(.message, "received", [
-                "id": message.id,
+                "id": messagingMessage.id,
                 "conversation": conversation.id,
-                "sender": message.senderInboxId,
+                "sender": messagingMessage.senderInboxId,
                 "type": result.contentType.rawValue
             ])
         }
@@ -263,19 +267,25 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         )
     }
 
-    func decodeExplodeSettings(from message: DecodedMessage) -> ExplodeSettings? {
-        guard let encodedContentType = try? message.encodedContent.type,
-              encodedContentType == ContentTypeExplodeSettings else {
+    func decodeExplodeSettings(from message: MessagingMessage) -> ExplodeSettings? {
+        // Stage 3 migration: dispatch on the abstraction-layer content
+        // type rather than the XMTPiOS `ContentTypeID` constant.
+        guard message.encodedContent.type == .explodeSettings else {
             return nil
         }
 
-        guard let content = try? message.content() as Any,
-              let explodeSettings = content as? ExplodeSettings else {
-            Log.error("Failed to extract ExplodeSettings content")
-            return nil
+        if case .explodeSettings(let settings) = message.resolvedPayload() {
+            return settings
         }
 
-        return explodeSettings
+        // Fall back to the generic decoder (matches the prior behavior
+        // where the codec registry is consulted directly).
+        if let explodeSettings = try? message.content() as ExplodeSettings {
+            return explodeSettings
+        }
+
+        Log.error("Failed to extract ExplodeSettings content")
+        return nil
     }
 
     /// Computes a sortId that places the message in chronological order within the conversation.

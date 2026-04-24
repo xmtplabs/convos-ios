@@ -335,7 +335,10 @@ extension MessagingService {
         userInfo: [AnyHashable: Any]
     ) async throws -> DecodedNotificationContent? {
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
-        let explodeSettings = messageWriter.decodeExplodeSettings(from: decodedMessage)
+        // Stage 3 migration: Stage 3 writers operate on `MessagingMessage`.
+        // Wrap the NSE-side `DecodedMessage` once for all writer-bound calls.
+        let messagingMessage = try MessagingMessage(decodedMessage)
+        let explodeSettings = messageWriter.decodeExplodeSettings(from: messagingMessage)
         if let explodeSettings {
             return try await handleExplodeSettingsMessage(
                 decodedMessage: decodedMessage,
@@ -378,7 +381,7 @@ extension MessagingService {
 
         let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
 
-        _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
+        _ = try await messageWriter.store(message: messagingMessage, for: dbConversation)
 
         let notificationTitle = (try? await getComputedDisplayName(
             conversationId: conversationId,

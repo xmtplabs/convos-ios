@@ -219,8 +219,13 @@ actor StreamProcessor: StreamProcessorProtocol {
                         inboxId: params.client.inboxId
                     )
 
+                    // Stage 3 migration: Stage 3 writers operate on
+                    // `MessagingMessage`. Wrap the stream-provided
+                    // `DecodedMessage` once for the writer-bound calls.
+                    let messagingMessage = try MessagingMessage(message)
+
                     // Handle ExplodeSettings - skip storing message if this is an explode message
-                    let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
+                    let explodeSettings = messageWriter.decodeExplodeSettings(from: messagingMessage)
                     if let explodeSettings {
                         await processExplodeSettings(
                             explodeSettings,
@@ -243,7 +248,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    let result = try await messageWriter.store(message: message, for: dbConversation)
+                    let result = try await messageWriter.store(message: messagingMessage, for: dbConversation)
 
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,

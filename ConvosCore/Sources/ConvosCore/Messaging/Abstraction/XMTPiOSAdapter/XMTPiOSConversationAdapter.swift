@@ -42,6 +42,41 @@ public extension MessagingConversation {
     }
 }
 
+// MARK: - Stage 3 bridge — XMTPClientProvider → MessagingConversation
+
+public extension XMTPClientProvider {
+    /// Convenience that looks up a native XMTPiOS conversation and
+    /// wraps it in the abstraction-layer `MessagingConversation`.
+    ///
+    /// Added for Stage 3 writer migration: writers that used to reach
+    /// for `client.conversation(with:)` → `XMTPiOS.Conversation` can
+    /// instead call `client.messagingConversation(with:)` and keep
+    /// their file free of `import XMTPiOS`. The XMTPiOS → abstraction
+    /// wrapping is localized here.
+    func messagingConversation(
+        with conversationId: String
+    ) async throws -> MessagingConversation? {
+        guard let xmtpConversation = try await conversation(with: conversationId) else {
+            return nil
+        }
+        return XMTPiOSConversationAdapter.messagingConversation(xmtpConversation)
+    }
+
+    /// Convenience for writers that need the `MessagingGroup` subtype
+    /// directly. Returns `nil` for DMs.
+    func messagingGroup(
+        with conversationId: String
+    ) async throws -> (any MessagingGroup)? {
+        guard let conversation = try await messagingConversation(with: conversationId) else {
+            return nil
+        }
+        if case .group(let group) = conversation {
+            return group
+        }
+        return nil
+    }
+}
+
 // MARK: - Errors
 
 enum XMTPiOSAdapterError: Error, LocalizedError {

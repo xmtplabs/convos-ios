@@ -271,7 +271,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let lastMessage = try await conversation.lastMessage()
         if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt {
             let result = try await messageWriter.store(
-                message: lastMessage,
+                message: MessagingMessage(lastMessage),
                 for: dbConversation
             )
             Log.debug("Saved last message: \(result)")
@@ -637,7 +637,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 continue
             }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
-            let result = try await messageWriter.store(message: message, for: dbConversation)
+            let result = try await messageWriter.store(
+                message: try MessagingMessage(message),
+                for: dbConversation
+            )
             if result.contentType.marksConversationAsUnread,
                message.senderInboxId != myInboxId {
                 marksConversationAsUnread = true
