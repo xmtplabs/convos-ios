@@ -31,14 +31,26 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
     private let assignedCreatedAtNs: Int64
     private let assignedLastActivityAtNs: Int64
 
+    /// Creator inbox alias cached at construction, or refreshed on demand
+    /// via `list_conversations`. DTU's engine sets the creator on every
+    /// `create_group` and surfaces it on `list_conversations`, matching
+    /// libxmtp's immutable MLS `creatorInboxId`. We thread it through the
+    /// factory (`DTUMessagingConversations`) so `creatorInboxId()` is a
+    /// local lookup when known, falling back to a list round-trip when the
+    /// handle was constructed without the creator in scope (e.g. a raw
+    /// `find(conversationId:)` cache miss).
+    private let cachedCreatorInboxId: MessagingInboxID?
+
     public init(
         context: DTUMessagingClientContext,
         conversationAlias: String,
+        creatorInboxId: MessagingInboxID? = nil,
         createdAtNs: Int64 = 0,
         lastActivityAtNs: Int64 = 0
     ) {
         self.context = context
         self.id = conversationAlias
+        self.cachedCreatorInboxId = creatorInboxId
         self.assignedCreatedAtNs = createdAtNs
         self.assignedLastActivityAtNs = lastActivityAtNs
     }
@@ -312,20 +324,32 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
     }
 
     public func creatorInboxId() async throws -> MessagingInboxID {
-        // Not exposed by DTU's engine — there is no `creator` field on
-        // the list_members / list_conversations outputs. The abstraction
-        // requires a value, so throw a scoped not-supported error.
-        throw DTUMessagingNotSupportedError(
-            method: "MessagingGroup.creatorInboxId",
-            reason: "DTU engine does not surface a group creator field"
-        )
+        // Prefer the construction-time cached value when available — the
+        // factory (`DTUMessagingConversations`) threads it through on
+        // `newGroup` / `list` so we never need a round-trip. Cache miss
+        // (bare `find(conversationId:)` against an engine we don't own)
+        // falls back to `list_conversations` which every DTU server now
+        // surfaces as `creatorInboxId`.
+        if let cached = cachedCreatorInboxId {
+            return cached
+        }
+        let entries = try await context.universe.listConversations(actor: context.actor)
+        guard let entry = entries.first(where: { $0.alias == id }) else {
+            throw DTUMessagingNotSupportedError(
+                method: "MessagingGroup.creatorInboxId",
+                reason: "Conversation \(id) not visible to actor \(context.actor); sync first"
+            )
+        }
+        return entry.creatorInboxId
     }
 
     public func isCreator() async throws -> Bool {
-        throw DTUMessagingNotSupportedError(
-            method: "MessagingGroup.isCreator",
-            reason: "DTU engine does not surface a group creator field"
-        )
+        // `isCreator` is "does the caller's inbox match the group creator?"
+        // — a pure comparison against our inbox alias. `context.inboxAlias`
+        // already carries the caller's inbox (wired by
+        // `DTUMessagingClientFactory`).
+        let creator = try await creatorInboxId()
+        return creator == context.inboxAlias
     }
 
     public func isAdmin(inboxId: MessagingInboxID) async throws -> Bool {

@@ -38,14 +38,20 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
 
     public func list(query: MessagingConversationQuery) async throws -> [MessagingConversation] {
         let entries = try await context.universe.listConversations(actor: context.actor)
-        // DTU's list entries only carry `alias` + `isActive`. The engine
-        // doesn't currently discriminate dm vs group on the list wire
-        // shape (both flow through `create_group`). Treat every
-        // list-entry as a group from the abstraction's perspective; a
-        // real DM adapter needs DTU engine support (see "Gaps" section
-        // in docs/ios-abstraction-audit.md §5.5).
+        // DTU's list entries carry `alias`, `isActive`, and `creatorInboxId`.
+        // The engine doesn't currently discriminate dm vs group on the list
+        // wire shape (both flow through `create_group`). Treat every list
+        // entry as a group from the abstraction's perspective; a real DM
+        // adapter needs DTU engine support (see "Gaps" section in
+        // docs/ios-abstraction-audit.md §5.5). We refresh the cached
+        // creator alias on every listing so a pre-cached handle updated
+        // mid-run (shouldn't happen — MLS creator is immutable) doesn't
+        // drift from the authoritative state.
         return entries.map { entry in
-            let group = handleForGroup(alias: entry.alias)
+            let group = handleForGroup(
+                alias: entry.alias,
+                creatorInboxId: entry.creatorInboxId.isEmpty ? nil : entry.creatorInboxId
+            )
             return MessagingConversation.group(group)
         }
     }
@@ -53,7 +59,10 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
     public func listGroups(query: MessagingConversationQuery) async throws -> [any MessagingGroup] {
         let entries = try await context.universe.listConversations(actor: context.actor)
         return entries.map { entry in
-            handleForGroup(alias: entry.alias) as any MessagingGroup
+            handleForGroup(
+                alias: entry.alias,
+                creatorInboxId: entry.creatorInboxId.isEmpty ? nil : entry.creatorInboxId
+            ) as any MessagingGroup
         }
     }
 
@@ -80,11 +89,17 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
 
         // Fall back to the universe's conversation list to verify the
         // alias exists, then wrap it as a group (the default projection).
+        // Carry the creator inbox through so downstream
+        // `creatorInboxId()` / `isCreator()` calls don't need a second
+        // list round-trip.
         let entries = try await context.universe.listConversations(actor: context.actor)
-        guard entries.contains(where: { $0.alias == conversationId }) else {
+        guard let entry = entries.first(where: { $0.alias == conversationId }) else {
             return nil
         }
-        let group = handleForGroup(alias: conversationId)
+        let group = handleForGroup(
+            alias: conversationId,
+            creatorInboxId: entry.creatorInboxId.isEmpty ? nil : entry.creatorInboxId
+        )
         return .group(group)
     }
 
@@ -149,7 +164,13 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
         // create_group. The abstraction passes them; we drop silently.
         // FIXME(dtu-engine): wire group metadata into create_group when
         // the engine grows a metadata slot.
-        return handleForGroup(alias: alias)
+        //
+        // Creator is the caller's inbox — DTU's engine sets
+        // `creator_inbox = actor.inbox_id` on create_group, so we thread
+        // `context.inboxAlias` through the handle at construction time
+        // to avoid a round-trip on the `creatorInboxId()` / `isCreator()`
+        // surfaces.
+        return handleForGroup(alias: alias, creatorInboxId: context.inboxAlias)
     }
 
     // MARK: - Sync
@@ -200,12 +221,21 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
     /// instance, matching the stability contract of the XMTPiOS
     /// adapter (whose wrappers are cheap reference types over the
     /// underlying SDK handle).
-    func handleForGroup(alias: String) -> DTUMessagingGroup {
+    ///
+    /// `creatorInboxId` is optional: callers that know the creator
+    /// (from a fresh `list_conversations` or the return of
+    /// `create_group`) thread it through so the handle's
+    /// `creatorInboxId()` / `isCreator()` surfaces don't need a second
+    /// round-trip. Cached handles preserve whichever creator was first
+    /// seen — MLS creator metadata is immutable, so the first value is
+    /// authoritative for the handle's lifetime.
+    func handleForGroup(alias: String, creatorInboxId: String? = nil) -> DTUMessagingGroup {
         withLock {
             if let cached = groupCache[alias] { return cached }
             let handle = DTUMessagingGroup(
                 context: context,
-                conversationAlias: alias
+                conversationAlias: alias,
+                creatorInboxId: creatorInboxId
             )
             groupCache[alias] = handle
             return handle

@@ -23,12 +23,14 @@ public final class DTUMessagingDm: MessagingDm, @unchecked Sendable {
         context: DTUMessagingClientContext,
         conversationAlias: String,
         peerInboxId: MessagingInboxID,
+        creatorInboxId: MessagingInboxID? = nil,
         createdAtNs: Int64 = 0,
         lastActivityAtNs: Int64 = 0
     ) {
         self.core = DTUMessagingGroup(
             context: context,
             conversationAlias: conversationAlias,
+            creatorInboxId: creatorInboxId,
             createdAtNs: createdAtNs,
             lastActivityAtNs: lastActivityAtNs
         )
