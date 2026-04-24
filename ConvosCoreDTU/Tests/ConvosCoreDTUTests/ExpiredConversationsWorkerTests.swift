@@ -1,14 +1,38 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
-import Testing
+import XCTest
 
-@Suite("ExpiredConversationsWorker Tests", .serialized)
-struct ExpiredConversationsWorkerTests {
+/// Stage 6f: migrated from
+/// `ConvosCore/Tests/ConvosCoreTests/ExpiredConversationsWorkerTests.swift`.
+///
+/// Exercises `ExpiredConversationsWorker`'s timer + notification
+/// driven cleanup of expired group conversations. The worker itself
+/// is XMTP-agnostic — it only reads `DBConversation`, schedules
+/// timers, and emits notifications. Migrating onto
+/// `DualBackendTestFixtures` reuses the shared database manager and
+/// XCTest tearDown conventions; both backends execute the same
+/// `ExpiredConversationsWorker` code paths so we don't need a
+/// backend guard.
+///
+/// Also restores buildability by including the `conversationEmoji` /
+/// `hasHadVerifiedAssistant` params to the `DBConversation` init —
+/// the legacy ConvosCoreTests build has been broken on these for
+/// some time (see batch 3+5 reports).
+final class ExpiredConversationsWorkerTests: XCTestCase {
+    private var fixtures: ExpiredWorkerTestFixtures?
 
-    @Test("Cleans up already-expired conversations on init")
+    override func tearDown() async throws {
+        fixtures = nil
+        try await super.tearDown()
+    }
+
+    // MARK: - Tests
+
     func testCleansUpExpiredOnInit() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
+        self.fixtures = fixtures
         let expiresAt = Date().addingTimeInterval(-60)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
@@ -18,9 +42,7 @@ struct ExpiredConversationsWorkerTests {
         defer { capture.stopCapturing() }
 
         let worker = fixtures.createWorker()
-        withExtendedLifetime(worker) {
-            // Worker retained for test duration
-        }
+        withExtendedLifetime(worker) {}
 
         try await waitForCondition(timeout: 2.0) {
             capture.hasNotification(.leftConversationNotification)
@@ -29,12 +51,12 @@ struct ExpiredConversationsWorkerTests {
         let matched = capture.notifications(named: .leftConversationNotification).contains {
             ($0.userInfo?["conversationId"] as? String) == conversationId
         }
-        #expect(matched, "Should clean up expired conversation on init")
+        XCTAssertTrue(matched, "Should clean up expired conversation on init")
     }
 
-    @Test("Schedules timer for next expiring conversation and fires cleanup")
     func testSchedulesTimerForNextExpiration() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
+        self.fixtures = fixtures
         let expiresAt = Date().addingTimeInterval(1.0)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
@@ -56,12 +78,12 @@ struct ExpiredConversationsWorkerTests {
         let matched = capture.notifications(named: .leftConversationNotification).contains {
             ($0.userInfo?["conversationId"] as? String) == conversationId
         }
-        #expect(matched, "Should clean up conversation when timer fires")
+        XCTAssertTrue(matched, "Should clean up conversation when timer fires")
     }
 
-    @Test("Reschedules timer when new explosion is scheduled")
     func testReschedulesOnNewExplosion() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
+        self.fixtures = fixtures
         let expiresAt = Date().addingTimeInterval(1.0)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
@@ -94,12 +116,12 @@ struct ExpiredConversationsWorkerTests {
         let matched = capture.notifications(named: .leftConversationNotification).contains {
             ($0.userInfo?["conversationId"] as? String) == conversationId
         }
-        #expect(matched, "Should clean up after rescheduled timer fires")
+        XCTAssertTrue(matched, "Should clean up after rescheduled timer fires")
     }
 
-    @Test("Processes expired conversations on app becoming active")
     func testProcessesOnAppActive() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
+        self.fixtures = fixtures
 
         let capture = NotificationCapture()
         capture.startCapturing(.leftConversationNotification)
@@ -128,12 +150,12 @@ struct ExpiredConversationsWorkerTests {
         let matched = capture.notifications(named: .leftConversationNotification).contains {
             ($0.userInfo?["conversationId"] as? String) == conversationId
         }
-        #expect(matched, "Should process expired conversations on app active")
+        XCTAssertTrue(matched, "Should process expired conversations on app active")
     }
 
-    @Test("Handles conversationExpired notification for specific conversation")
     func testHandlesConversationExpiredNotification() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
+        self.fixtures = fixtures
         try await fixtures.setupConversation(expiresAt: Date().addingTimeInterval(-1))
 
         let conversationId = fixtures.conversationId
@@ -162,11 +184,13 @@ struct ExpiredConversationsWorkerTests {
         let matched = capture.notifications(named: .leftConversationNotification).contains {
             ($0.userInfo?["conversationId"] as? String) == conversationId
         }
-        #expect(matched, "Should clean up conversation when conversationExpired notification received")
+        XCTAssertTrue(matched, "Should clean up conversation when conversationExpired notification received")
     }
 }
 
-private class ExpiredWorkerTestFixtures {
+// MARK: - Test fixtures
+
+private final class ExpiredWorkerTestFixtures {
     let databaseManager: MockDatabaseManager
     let appLifecycle: MockAppLifecycleProvider
     let sessionManager: MockInboxesService
@@ -215,13 +239,17 @@ private class ExpiredWorkerTestFixtures {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             )
             try conversation.upsert(db)
         }
     }
 }
+
+// MARK: - Helpers
 
 private func waitForCondition(timeout: TimeInterval, condition: () -> Bool) async throws {
     let deadline = Date().addingTimeInterval(timeout)
@@ -230,5 +258,46 @@ private func waitForCondition(timeout: TimeInterval, condition: () -> Bool) asyn
             return
         }
         try await Task.sleep(for: .milliseconds(50))
+    }
+}
+
+// MARK: - NotificationCapture (inlined from ConvosCoreTests/TestHelpers.swift)
+
+private final class NotificationCapture: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var _postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] = []
+    private var observers: [NSObjectProtocol] = []
+
+    var postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _postedNotifications
+    }
+
+    func startCapturing(_ name: Notification.Name) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            self.lock.lock()
+            self._postedNotifications.append((notification.name, notification.userInfo))
+            self.lock.unlock()
+        }
+        observers.append(observer)
+    }
+
+    func stopCapturing() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+    }
+
+    func hasNotification(_ name: Notification.Name) -> Bool {
+        postedNotifications.contains { $0.name == name }
+    }
+
+    func notifications(named name: Notification.Name) -> [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        postedNotifications.filter { $0.name == name }
     }
 }
