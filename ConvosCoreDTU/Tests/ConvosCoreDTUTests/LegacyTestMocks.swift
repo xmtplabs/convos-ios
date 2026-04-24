@@ -4,10 +4,30 @@ import ConvosInvites
 import Foundation
 import GRDB
 
-// MARK: - waitForState helper
+// MARK: - waitForState + legacyWaitUntil helpers
 //
-// Stage 6f: helper for migrated state-machine tests, lifted from
-// `ConvosCore/Tests/ConvosCoreTests/TestHelpers.swift`.
+// Stage 6f: helpers for migrated state-machine + sync tests, lifted
+// from `ConvosCore/Tests/ConvosCoreTests/TestHelpers.swift`.
+//
+// `legacyWaitUntil` mirrors the legacy `waitUntil` but renamed to
+// avoid a redeclaration conflict with the `waitUntil` already
+// defined in `ScheduledExplosionManagerTests.swift` at file scope.
+
+/// Waits until a condition becomes true, polling at a specified interval
+func legacyWaitUntil(
+    timeout: Duration = .seconds(10),
+    interval: Duration = .milliseconds(50),
+    condition: () async -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return
+        }
+        try await Task.sleep(for: interval)
+    }
+    throw TimeoutError()
+}
 
 /// Helper to wait for InboxStateMachine to reach a specific state with timeout
 func waitForState(

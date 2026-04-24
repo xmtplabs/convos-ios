@@ -1,7 +1,16 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import Testing
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/SessionManagerTests.swift`.
+// Drives SessionManager unit tests using mock identity store + db
+// (no real XMTP backend); same code paths run on both lanes.
+// DBConversation init updated to include `conversationEmoji` /
+// `hasHadVerifiedAssistant` (the schema gap that broke the legacy
+// target).
 
 @Suite("SessionManager Tests", .serialized, .timeLimit(.minutes(3)))
 struct SessionManagerTests {
@@ -46,8 +55,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -119,8 +130,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -160,8 +173,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -209,8 +224,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -236,8 +253,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -289,8 +308,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -316,8 +337,10 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false
             ).insert(db)
         }
 
@@ -347,7 +370,7 @@ struct SessionManagerTests {
         await fixtures.sessionManager.wakeInboxForNotification(conversationId: conversationId2)
 
         // Wait for wake operation to complete with polling
-        try await waitUntil {
+        try await legacyWaitUntil {
             await fixtures.lifecycleManager.isAwake(clientId: clientId2)
         }
 

@@ -1,9 +1,16 @@
 @preconcurrency @testable import ConvosCore
+@testable import ConvosCoreDTU
 import ConvosInvites
 import Foundation
 import GRDB
 import Testing
 import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/ConversationStateMachineTests.swift`.
+// Drives ConversationStateMachine end-to-end which still needs an
+// XMTPiOS-backed client + group/dm creation. On DTU lane skips
+// cleanly via LegacyFixtureBackendGuard.
 
 // MARK: - Test Helpers
 
@@ -70,7 +77,8 @@ struct ConversationStateMachineTests {
 
     @Test("Create flow reaches ready state")
     func testCreateFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -132,7 +140,8 @@ struct ConversationStateMachineTests {
 
     @Test("Create transitions through expected states")
     func testCreateStateTransitions() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -211,7 +220,8 @@ struct ConversationStateMachineTests {
 
     @Test("Messages queued during creation are sent when ready")
     func testMessageQueueingDuringCreation() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -280,7 +290,8 @@ struct ConversationStateMachineTests {
 
     @Test("Delete flow cleans up conversation")
     func testDeleteFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -365,7 +376,8 @@ struct ConversationStateMachineTests {
 
     @Test("Stop transitions to uninitialized without deleting")
     func testStopFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -448,7 +460,8 @@ struct ConversationStateMachineTests {
                  "Skipped in CI: requires two sequential XMTP conversation creations which can exceed timeout on ephemeral backends")
     )
     func testMultipleSequentialConversations() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -551,7 +564,8 @@ struct ConversationStateMachineTests {
 
     @Test("State sequence emits all state changes")
     func testStateSequenceEmission() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -636,8 +650,9 @@ struct ConversationStateMachineTests {
     )
     func testJoinConversationOnline() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        let inviterFixtures = TestFixtures()
-        let joinerFixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine join flow needs XMTPiOS-only invite + group creation.") else { return }
+        let inviterFixtures = LegacyTestFixtures()
+        let joinerFixtures = LegacyTestFixtures()
 
         // Setup inviter messaging service and state machine
         let inviterUnusedConversationCache = UnusedConversationCache(
@@ -720,7 +735,7 @@ struct ConversationStateMachineTests {
         // Wait for inviter's sync streams to be fully ready before joiner connects
         // This prevents a race condition where the joiner sends a DM before the inviter's
         // message stream is connected to receive it
-        try await waitUntil(timeout: .seconds(10)) {
+        try await legacyWaitUntil(timeout: .seconds(10)) {
             await inviterMessagingService.inboxStateManager.isSyncReady
         }
 
@@ -753,7 +768,7 @@ struct ConversationStateMachineTests {
         // Wait for joiner's sync streams to be fully ready before joining.
         // The XMTP SDK connection pool must be fully initialized to avoid
         // "Pool needs to reconnect before use" errors.
-        try await waitUntil(timeout: .seconds(10)) {
+        try await legacyWaitUntil(timeout: .seconds(10)) {
             await joinerMessagingService.inboxStateManager.isSyncReady
         }
 
@@ -807,8 +822,9 @@ struct ConversationStateMachineTests {
     )
     func testJoinConversationOffline() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        let inviterFixtures = TestFixtures()
-        let joinerFixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine join flow needs XMTPiOS-only invite + group creation.") else { return }
+        let inviterFixtures = LegacyTestFixtures()
+        let joinerFixtures = LegacyTestFixtures()
 
         // Setup inviter messaging service and state machine
         let inviterUnusedConversationCache = UnusedConversationCache(
@@ -994,7 +1010,8 @@ struct ConversationStateMachineTests {
 
     @Test("Stop during pending operations doesn't hang")
     func testStopDuringOperationsDoesntHang() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
@@ -1067,7 +1084,8 @@ struct ConversationStateMachineTests {
 
     @Test("Delete during message processing cancels gracefully")
     func testDeleteDuringMessageProcessing() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -1135,7 +1153,8 @@ struct ConversationStateMachineTests {
 
     @Test("Stop cancels queued message processing")
     func testStopCancelsQueuedMessages() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -1194,7 +1213,8 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting transitions to ready state with existing origin")
     func testUseExistingFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -1292,7 +1312,8 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting allows sending messages immediately")
     func testUseExistingWithMessages() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -1395,7 +1416,8 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting emits correct state sequence")
     func testUseExistingStateSequence() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -1507,7 +1529,8 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting can be called after stop")
     func testUseExistingAfterStop() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedConversationCache(
@@ -1607,8 +1630,9 @@ struct ConversationStateMachineTests {
     )
     func testMessageSyncAfterNetworkReconnection() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        let inviterFixtures = TestFixtures()
-        let joinerFixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine join flow needs XMTPiOS-only invite + group creation.") else { return }
+        let inviterFixtures = LegacyTestFixtures()
+        let joinerFixtures = LegacyTestFixtures()
 
         // Create two mock network monitors - both starting connected
         let inviterNetworkMonitor = MockNetworkMonitor(initialStatus: .connected(.wifi))
@@ -1691,7 +1715,7 @@ struct ConversationStateMachineTests {
         // Wait for inviter's sync streams to be fully ready before joiner connects
         // This prevents a race condition where the joiner sends a DM before the inviter's
         // message stream is connected to receive it
-        try await waitUntil(timeout: .seconds(10)) {
+        try await legacyWaitUntil(timeout: .seconds(10)) {
             await inviterMessagingService.inboxStateManager.isSyncReady
         }
 
@@ -1729,7 +1753,7 @@ struct ConversationStateMachineTests {
         }
 
         // Wait for joiner's sync streams to be ready before joining
-        try await waitUntil(timeout: .seconds(10)) {
+        try await legacyWaitUntil(timeout: .seconds(10)) {
             await joinerMessagingService.inboxStateManager.isSyncReady
         }
 
@@ -1879,7 +1903,8 @@ struct ConversationStateMachineTests {
 
     @Test("Join with empty-tag invite transitions to error state")
     func testJoinWithEmptyTagInviteShowsError() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
