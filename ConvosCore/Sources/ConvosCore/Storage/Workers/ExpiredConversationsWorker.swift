@@ -194,16 +194,14 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
         Log.info("Cleaning up expired conversation: \(conversation.conversationId), posting leftConversationNotification")
 
         // Scheduled-explode parity: when the timer fires on the creator's
-        // device, the MLS teardown (removeMembers + leaveGroup) has to
-        // actually run. Pre-fix, the worker only posted
-        // `.leftConversationNotification` — the creator stayed in the
-        // group on the network indefinitely until they manually exploded
-        // again from the UI. A scheduled explode was strictly weaker than
-        // an immediate one.
+        // device, the MLS teardown (`removeMembers` + `denyConsent`) has
+        // to actually run, otherwise the creator stays in the group on
+        // the network indefinitely until they manually explode again
+        // from the UI.
         //
         // We fetch the member list + creator inboxId, check whether the
         // current inbox is the creator, and if so invoke the writer. The
-        // writer's own `runBoundedMLSOp` helper absorbs any MLS flakes
+        // writer's own `runBoundedOp` helper absorbs any MLS flakes
         // without rethrowing, so this is fire-and-observe — failures log
         // and the notification still posts below.
         if let context = conversation.ownershipContext {
