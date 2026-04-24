@@ -246,7 +246,8 @@ struct MessagesGroupItemView: View {
         case .connectionGrantRequest(let request):
             ConnectionGrantRequestCardView(
                 request: request,
-                conversationId: conversationId
+                conversationId: conversationId,
+                sender: message.sender
             )
             .messageGesture(
                 message: message,

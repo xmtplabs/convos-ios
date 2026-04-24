@@ -4,6 +4,7 @@ import SwiftUI
 struct ConnectionGrantRequestCardView: View {
     let request: ConnectionGrantRequest
     let conversationId: String
+    let sender: ConversationMember
 
     @Environment(\.openURL) private var openURL: OpenURLAction
 
@@ -15,7 +16,21 @@ struct ConnectionGrantRequestCardView: View {
         ConnectionServiceCatalog.displayName(for: request.service, fallback: request.service)
     }
 
+    private var isTrustedSender: Bool {
+        sender.isVerifiedAssistant && request.requestedByInboxId == sender.profile.inboxId
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            card
+            Text("Sent by \(sender.displayName)")
+                .font(.caption2)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+        }
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 icon
@@ -33,19 +48,26 @@ struct ConnectionGrantRequestCardView: View {
                 Spacer(minLength: 0)
             }
 
-            let action = { openGrantLink() }
-            Button(action: action) {
-                Text("Open Settings")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DesignConstants.Spacing.step3x)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                            .fill(Color.colorFillPrimary)
-                    )
+            if isTrustedSender {
+                let action = { openGrantLink() }
+                Button(action: action) {
+                    Text("Open Settings")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DesignConstants.Spacing.step3x)
+                        .background(
+                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                                .fill(Color.colorFillPrimary)
+                        )
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text("This request was not sent by a verified assistant.")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
         }
         .padding(DesignConstants.Spacing.step3x)
         .background(

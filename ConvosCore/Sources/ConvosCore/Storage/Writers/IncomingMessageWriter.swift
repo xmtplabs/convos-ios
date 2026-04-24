@@ -39,6 +39,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         self.databaseWriter = databaseWriter
     }
 
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
     func store(message: DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
         let encodedContentType = try message.encodedContent.type
@@ -70,16 +71,22 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             }
         }
 
-        let result = try await databaseWriter.write { db in
-            let sender = DBMember(inboxId: message.senderInboxId)
-            try sender.save(db)
-            let senderProfile = DBMemberProfile(
+        let result = try await databaseWriter.write { db -> IncomingMessageWriterResult? in
+            let senderVerified = try Self.bootstrapSenderProfile(
+                db: db,
                 conversationId: conversation.id,
-                inboxId: message.senderInboxId,
-                name: nil,
-                avatar: nil
+                senderInboxId: message.senderInboxId
             )
-            try? senderProfile.insert(db)
+
+            // Defense against unverified or spoofed ConnectionGrantRequest senders:
+            // only persist grant requests whose sender is a verified Convos assistant
+            // in this conversation. Anything else gets dropped silently with a warning
+            // so the UI never has a chance to render the deep-link card.
+            if encodedContentType == ContentTypeConnectionGrantRequest, !senderVerified {
+                Log.warning("Dropping ConnectionGrantRequest from unverified sender \(message.senderInboxId) in \(conversation.id)")
+                return nil
+            }
+
             let message = try message.dbRepresentation()
 
             let messageExistsInDB = try DBMessage.exists(db, key: message.id)
@@ -171,6 +178,17 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 contentType: message.contentType,
                 wasRemovedFromConversation: wasRemovedFromConversation,
                 messageAlreadyExists: messageExistsInDB
+            )
+        }
+
+        // Dropped messages (e.g. unverified-sender ConnectionGrantRequests) return
+        // nil from the write block so the rest of the ingest pipeline treats them
+        // as a no-op rather than a new message.
+        guard let result else {
+            return IncomingMessageWriterResult(
+                contentType: .connectionGrantRequest,
+                wasRemovedFromConversation: false,
+                messageAlreadyExists: true
             )
         }
 
@@ -275,6 +293,34 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         }
 
         return explodeSettings
+    }
+
+    /// Ensures the sender has a row in `DBMember` and a `DBMemberProfile` for the
+    /// conversation. Returns true when the existing profile is already marked as a
+    /// verified Convos assistant — used to gate persisting sensitive content types
+    /// whose rendering assumes the sender is trusted.
+    static func bootstrapSenderProfile(
+        db: Database,
+        conversationId: String,
+        senderInboxId: String
+    ) throws -> Bool {
+        let sender = DBMember(inboxId: senderInboxId)
+        try sender.save(db)
+        let existingProfile = try DBMemberProfile.fetchOne(
+            db,
+            conversationId: conversationId,
+            inboxId: senderInboxId
+        )
+        if existingProfile == nil {
+            let newProfile = DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: senderInboxId,
+                name: nil,
+                avatar: nil
+            )
+            try? newProfile.insert(db)
+        }
+        return existingProfile?.agentVerification.isConvosAssistant ?? false
     }
 
     /// Computes a sortId that places the message in chronological order within the conversation.
