@@ -16,10 +16,6 @@
 	<array>
 		<string>$(ICLOUD_CONTAINER_IDENTIFIER)</string>
 	</array>
-	<key>com.apple.developer.icloud-services</key>
-	<array>
-		<string>CloudDocuments</string>
-	</array>
 	<key>com.apple.developer.ubiquity-container-identifiers</key>
 	<array>
 		<string>$(ICLOUD_CONTAINER_IDENTIFIER)</string>

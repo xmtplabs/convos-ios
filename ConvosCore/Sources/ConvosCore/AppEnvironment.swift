@@ -254,19 +254,21 @@ public extension AppEnvironment {
     /// iCloud container identifier used for backup bundle persistence.
     ///
     /// Matches the entitlement's `$(ICLOUD_CONTAINER_IDENTIFIER)` build
-    /// variable (`iCloud.<bundleId>`). Returns `nil` in the testing
-    /// environment because SPM tests have no `Bundle.main.bundleIdentifier`
-    /// and no iCloud entitlement. At runtime, `BackupManager` falls back
-    /// to the local app-group directory when this resolves to `nil` or
-    /// when the container isn't reachable (user signed out of iCloud,
-    /// entitlement not yet provisioned in Apple Developer for the
-    /// active bundle id, etc).
+    /// variable (`iCloud.<bundleId>`). Derived from the configured
+    /// `appGroupIdentifier` (stripping the `group.` prefix) to match
+    /// PR #602's convention — using `Bundle.main.bundleIdentifier` is
+    /// fragile in weird contexts (e.g. NSE in Prod builds). Returns
+    /// `nil` in the testing environment where no entitlement exists.
+    /// At runtime, `BackupManager` falls back to the local app-group
+    /// directory when `FileManager.url(forUbiquityContainerIdentifier:)`
+    /// returns nil (user signed out, container not provisioned, etc).
     var iCloudContainerIdentifier: String? {
-        guard !isTestingEnvironment,
-              let bundleId = Bundle.main.bundleIdentifier,
-              !bundleId.isEmpty else {
-            return nil
-        }
+        guard !isTestingEnvironment else { return nil }
+        let groupPrefix = "group."
+        let appGroup = appGroupIdentifier
+        let bundleId = appGroup.hasPrefix(groupPrefix)
+            ? String(appGroup.dropFirst(groupPrefix.count))
+            : appGroup
         return "iCloud.\(bundleId)"
     }
 
