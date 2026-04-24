@@ -1,8 +1,10 @@
-# Connections v0.1 - Backend Implementation Plan
+# Cloud Connections v0.1 — Backend Implementation Plan
+
+> **Vocabulary:** "Cloud Connections" = Composio-brokered SaaS integrations. The "Device Connections" pathway (`ConvosConnections` Swift package) lives entirely on-device and has no backend dependency.
 
 ## Context
 
-The iOS Connections feature needs the backend to do **one thing only**: hold the `COMPOSIO_API_KEY` and proxy Composio REST calls. Everything else lives elsewhere:
+The iOS Cloud Connections feature needs the backend to do **one thing only**: hold the `COMPOSIO_API_KEY` and proxy Composio REST calls. Everything else lives elsewhere:
 
 | State | Where it lives |
 |-------|---------------|

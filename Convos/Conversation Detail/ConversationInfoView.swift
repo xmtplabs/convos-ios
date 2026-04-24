@@ -439,7 +439,7 @@ struct ConversationInfoView: View {
 
             assistantSection
 
-            if FeatureFlags.shared.isConnectionsEnabled,
+            if FeatureFlags.shared.isCloudConnectionsEnabled,
                let connectionsViewModel,
                connectionsViewModel.hasConnections {
                 ConversationConnectionsSection(viewModel: connectionsViewModel)
@@ -590,7 +590,7 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if FeatureFlags.shared.isConnectionsEnabled, connectionsViewModel == nil {
+                    if FeatureFlags.shared.isCloudConnectionsEnabled, connectionsViewModel == nil {
                         connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
                     }
                 }

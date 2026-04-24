@@ -48,7 +48,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         do {
             try await syncGrantsToMetadata(for: conversationId)
         } catch {
-            Log.warning("[Connections] metadata write failed, rolling back DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+            Log.warning("[CloudConnections] metadata write failed, rolling back DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
             try? await databaseWriter.write { db in
                 try DBConnectionGrant
                     .filter(
@@ -83,7 +83,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         do {
             try await syncGrantsToMetadata(for: conversationId)
         } catch {
-            Log.warning("[Connections] metadata write failed, restoring DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+            Log.warning("[CloudConnections] metadata write failed, restoring DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
             if let removedGrant {
                 try? await databaseWriter.write { db in
                     try removedGrant.save(db)
@@ -137,9 +137,9 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         let grantsJson = payload.isEmpty ? nil : try payload.toJsonString()
 
         if let grantsJson {
-            Log.info("[Connections] writing grants for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(grantsJson.utf8.count)\n\(prettyPrint(grantsJson))")
+            Log.info("[CloudConnections] writing grants for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(grantsJson.utf8.count)\n\(prettyPrint(grantsJson))")
         } else {
-            Log.info("[Connections] clearing grants for groupId=\(conversationId) senderId=\(senderId)")
+            Log.info("[CloudConnections] clearing grants for groupId=\(conversationId) senderId=\(senderId)")
         }
 
         // Primary: send a ProfileUpdate message with metadata["connections"]. This is
@@ -161,7 +161,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
                 try await group.clearSenderConnections(senderInboxId: senderId)
             }
         } catch {
-            Log.warning("[Connections] appData write failed (best-effort), continuing: \(error.localizedDescription)")
+            Log.warning("[CloudConnections] appData write failed (best-effort), continuing: \(error.localizedDescription)")
         }
     }
 

@@ -48,7 +48,7 @@ struct DebugViewSection: View {
             Section("Features") {
                 Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
 
-                Toggle("Connections enabled", isOn: Bindable(FeatureFlags.shared).isConnectionsEnabled)
+                Toggle("Cloud Connections enabled", isOn: Bindable(FeatureFlags.shared).isCloudConnectionsEnabled)
 
                 let showInfoAction = { showingAssistantsInfoSheet = true }
                 Button(action: showInfoAction) {

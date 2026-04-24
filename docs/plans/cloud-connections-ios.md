@@ -1,8 +1,10 @@
-# Connections v0.1 - iOS Implementation Plan
+# Cloud Connections v0.1 — iOS Implementation Plan
+
+> **Vocabulary:** "Cloud Connections" = Composio-brokered SaaS integrations (OAuth tokens stored server-side, tool calls proxied through Composio). Separate from "Device Connections" — the on-device Apple-SDK pathway in the `ConvosConnections` package. Both show up to the user as plain "Connections" in Settings; Cloud/Device is engineering vocabulary only.
 
 ## Context
 
-Convos assistants are blind to users' real-world context. Connections let users link external services (starting with Google Calendar via Composio) and share access per-conversation, so the runtime can provision tools for the assistant.
+Convos assistants are blind to users' real-world context. Cloud Connections let users link external SaaS services (starting with Google Calendar via Composio) and share access per-conversation, so the runtime can provision tools for the assistant.
 
 This plan covers the **iOS side only**: data models, local storage, XMTP metadata sync, OAuth flow, and UI. It assumes the Convos backend will expose endpoints to proxy Composio API calls (keeping the Composio API key server-side).
 

@@ -40,7 +40,7 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var connectionsSection: some View {
-        if FeatureFlags.shared.isConnectionsEnabled {
+        if FeatureFlags.shared.isCloudConnectionsEnabled {
             Section {
                 NavigationLink {
                     ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
