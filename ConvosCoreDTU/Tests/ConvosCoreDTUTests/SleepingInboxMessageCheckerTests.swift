@@ -1,7 +1,20 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import Testing
 import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/SleepingInboxMessageCheckerTests.swift`.
+// Tests the `SleepingInboxMessageChecker.performCheck()` decision
+// logic using a mocked `XMTPStaticOperations.Type`. The checker
+// itself still talks to the legacy XMTPiOS-only static-op surface
+// (see FIXME(stage4) in `SleepingInboxMessageChecker.swift`); the
+// abstraction has `MessagingClient.newestMessageMetadata(...)` but
+// the senderInboxId field is missing on `FfiMessageMetadata` (audit
+// open question #1) so the checker hasn't switched over yet. The
+// test runs with mocked metadata so it doesn't require a real XMTP
+// backend on either lane — same code paths run for both.
 
 /// Mock implementation of XMTPStaticOperations for testing
 final class MockXMTPStaticOperations: XMTPStaticOperations, @unchecked Sendable {
