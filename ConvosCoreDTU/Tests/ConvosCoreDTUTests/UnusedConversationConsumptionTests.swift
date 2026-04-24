@@ -1,8 +1,16 @@
 @preconcurrency @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import Testing
 import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/UnusedConversationConsumptionTests.swift`.
+// Drives `UnusedConversationCache` end-to-end + ConversationStateMachine
+// integration. Like UnusedInboxCacheTests this still uses the legacy
+// XMTPClientProvider surface; on the DTU lane it skips cleanly via
+// `LegacyFixtureBackendGuard`.
 
 private let testEnvironment = AppEnvironment.tests
 
@@ -39,7 +47,8 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Pre-created unused conversation has a non-empty invite tag")
     func testUnusedConversationHasInviteTag() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -74,7 +83,8 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Consuming unused conversation returns the correct conversation ID in state manager")
     func testConsumedConversationIdMatchesStateManager() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -125,7 +135,8 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Only one conversation with isUnused=false exists after consumption")
     func testOnlyOneUsedConversationAfterConsumption() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -190,7 +201,8 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Full NewConversationViewModel flow does not create duplicate conversations")
     func testNewConversationViewModelFlowNoDuplicates() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -286,7 +298,8 @@ struct UnusedConversationConsumptionTests {
 
     @Test("State machine useExisting is called when existingConversationId is provided")
     func testStateMachineUsesExistingConversation() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -352,7 +365,8 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Conversation count after complete flow matches expected")
     func testConversationCountAfterFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,

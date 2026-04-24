@@ -1,8 +1,14 @@
 @preconcurrency @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import Testing
 import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/ConsumeInboxOnlyTests.swift`.
+// Drives `UnusedConversationCache.consumeInboxOnly(...)`. Same
+// guarding as UnusedInboxCacheTests — DTU lane skips cleanly.
 
 private let testEnvironment = AppEnvironment.tests
 
@@ -30,7 +36,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly returns a valid messaging service")
     func testConsumeInboxOnlyReturnsValidService() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -62,7 +69,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly leaves the pre-created conversation as unused in database")
     func testConsumeInboxOnlyLeavesConversationAsUnused() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -101,7 +109,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly does not make any conversation visible in the list")
     func testConsumeInboxOnlyNoVisibleConversation() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -141,7 +150,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly clears both inbox and conversation from keychain")
     func testConsumeInboxOnlyClearsKeychain() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -179,7 +189,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly and consumeOrCreate return different services")
     func testConsumeInboxOnlyReturnsDifferentService() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -222,7 +233,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly works when no cached conversation exists")
     func testConsumeInboxOnlyWithoutCache() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -248,7 +260,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeInboxOnly schedules background creation of new unused conversation")
     func testConsumeInboxOnlyTriggersReplenishment() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
@@ -281,7 +294,8 @@ struct ConsumeInboxOnlyTests {
 
     @Test("consumeOrCreate makes the conversation visible (contrast with consumeInboxOnly)")
     func testConsumeOrCreateMakesConversationVisible() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConsumeInboxOnly end-to-end requires XMTPiOS-only inbox creation flow.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
             identityStore: fixtures.identityStore,
