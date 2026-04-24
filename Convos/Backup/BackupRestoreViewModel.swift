@@ -36,11 +36,17 @@ final class BackupRestoreViewModel {
         isBackupInProgress = scheduler.isBackupInProgress
         lastBackupAt = lastSuccessfulBackupAt()
         pendingArchiveImportFailure = PendingArchiveImportFailureStorage.load(environment: environment)
-        iCloudAvailable = FileManager.default.ubiquityIdentityToken != nil
-            || environment.iCloudContainerIdentifier == nil
+        iCloudAvailable = resolveICloudAvailable()
         if let factory = restoreManagerFactory, let manager = factory() {
             availableRestore = await manager.findAvailableBackup()
         }
+    }
+
+    private func resolveICloudAvailable() -> Bool {
+        guard let identifier = environment.iCloudContainerIdentifier else {
+            return false
+        }
+        return FileManager.default.url(forUbiquityContainerIdentifier: identifier) != nil
     }
 
     func backUpNow() async {

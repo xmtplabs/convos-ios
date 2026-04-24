@@ -68,7 +68,15 @@ struct BackupDebugView: View {
                 let refresh: @MainActor () -> Void = {
                     Task { await self.refresh() }
                 }
-                Button("Refresh", action: refresh)
+                Button(action: refresh) {
+                    HStack {
+                        Text("Refresh")
+                            .foregroundStyle(.colorTextPrimary)
+                        Spacer()
+                        Image(systemName: "arrow.clockwise")
+                            .foregroundStyle(.colorTextSecondary)
+                    }
+                }
                 let simulate: @MainActor () -> Void = {
                     isSimulating = true
                     Task {
@@ -81,14 +89,19 @@ struct BackupDebugView: View {
                     simulate()
                 } label: {
                     HStack {
-                        Text("Simulate background run")
+                        Text("Run background backup now")
+                            .foregroundStyle(.colorTextPrimary)
                         Spacer()
                         if isSimulating {
                             ProgressView()
+                        } else {
+                            Image(systemName: "ladybug")
+                                .foregroundStyle(.colorTextSecondary)
                         }
                     }
                 }
                 .disabled(isSimulating)
+                .accessibilityIdentifier("simulate-background-backup-button")
             }
         }
         .navigationTitle("Backup debug")

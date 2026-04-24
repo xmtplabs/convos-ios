@@ -17,9 +17,7 @@ struct BackupRestoreSettingsView: View {
             if let failure = viewModel.pendingArchiveImportFailure {
                 partialRestoreSection(failure: failure)
             }
-            if !viewModel.iCloudAvailable {
-                iCloudSection()
-            }
+            statusSection()
         }
         .navigationTitle("Backup & Restore")
         .navigationBarTitleDisplayMode(.inline)
@@ -40,7 +38,16 @@ struct BackupRestoreSettingsView: View {
                 pendingRestore = nil
             }
         } message: {
-            Text("This will replace the data on this device with the backup. You can't undo this.")
+            if let sidecar = pendingRestore?.sidecar {
+                Text(
+                    "Replace this device's data with the backup from "
+                    + "\(sidecar.deviceName) "
+                    + "(\(sidecar.createdAt.formatted(date: .abbreviated, time: .shortened)))? "
+                    + "You can't undo this."
+                )
+            } else {
+                Text("This will replace the data on this device with the backup. You can't undo this.")
+            }
         }
     }
 
@@ -49,37 +56,38 @@ struct BackupRestoreSettingsView: View {
     @ViewBuilder
     private func backUpSection() -> some View {
         Section {
-            let backUp: @MainActor () -> Void = {
-                Task { await viewModel.backUpNow() }
-            }
-            Button(action: backUp) {
+            if viewModel.isBackupInProgress {
                 HStack {
-                    Text("Back up now")
+                    Text("Backing up…")
                         .foregroundStyle(.colorTextPrimary)
                     Spacer()
-                    if viewModel.isBackupInProgress {
-                        ProgressView()
+                    ProgressView()
+                }
+            } else {
+                let backUp: @MainActor () -> Void = {
+                    Task { await viewModel.backUpNow() }
+                }
+                Button(action: backUp) {
+                    HStack {
+                        Text("Back up now")
+                            .foregroundStyle(.colorTextPrimary)
+                        Spacer()
+                        Image(systemName: "icloud.and.arrow.up")
+                            .foregroundStyle(.colorTextSecondary)
                     }
                 }
+                .accessibilityIdentifier("back-up-now-button")
             }
-            .disabled(viewModel.isBackupInProgress)
-            .accessibilityIdentifier("back-up-now-button")
-
-            if let last = viewModel.lastBackupAt {
-                HStack {
-                    Text("Last backup")
-                        .foregroundStyle(.colorTextPrimary)
-                    Spacer()
-                    Text(last.formatted(date: .abbreviated, time: .shortened))
-                        .foregroundStyle(.colorTextSecondary)
-                }
-            }
+        } header: {
+            Text("Backup")
         } footer: {
             if let error = viewModel.lastError {
                 Text("Backup failed: \(error.localizedDescription)")
                     .foregroundStyle(.colorLava)
+            } else if let date = viewModel.lastBackupAt {
+                Text("Last backup: \(date.formatted(date: .abbreviated, time: .shortened))")
             } else {
-                Text("Convos backs up your conversations daily and stores them in iCloud.")
+                Text("No backup yet — Convos backs up your conversations daily.")
             }
         }
     }
@@ -92,19 +100,23 @@ struct BackupRestoreSettingsView: View {
                 showingRestoreConfirmation = true
             }
             Button(action: restore) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Restore from \(available.sidecar.deviceName)")
+                HStack {
+                    Text("Restore from backup")
                         .foregroundStyle(.colorTextPrimary)
-                    Text(available.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
+                    Spacer()
+                    Image(systemName: "icloud.and.arrow.down")
                         .foregroundStyle(.colorTextSecondary)
                 }
             }
             .accessibilityIdentifier("restore-from-backup-button")
         } header: {
-            Text("Available restore")
+            Text("Restore")
         } footer: {
-            Text("Replaces this device's conversations and messages with the backup.")
+            Text(
+                "From \(available.sidecar.deviceName) · "
+                + "\(available.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened)) · "
+                + "\(available.sidecar.conversationCount) convo\(available.sidecar.conversationCount == 1 ? "" : "s")"
+            )
         }
     }
 
@@ -112,8 +124,12 @@ struct BackupRestoreSettingsView: View {
     private func partialRestoreSection(failure: PendingArchiveImportFailure) -> some View {
         Section {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Message history wasn't fully restored")
-                    .foregroundStyle(.colorLava)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.colorLava)
+                    Text("Message history wasn't fully restored")
+                        .foregroundStyle(.colorLava)
+                }
                 Text(failure.reason)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
@@ -130,14 +146,32 @@ struct BackupRestoreSettingsView: View {
     }
 
     @ViewBuilder
-    private func iCloudSection() -> some View {
+    private func statusSection() -> some View {
         Section {
             HStack {
-                Image(systemName: "icloud.slash")
-                    .foregroundStyle(.colorLava)
-                Text("iCloud isn't available. Backups are saved locally until you sign in to iCloud.")
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
+                Text("iCloud")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if viewModel.iCloudAvailable {
+                    Label("Available", systemImage: "checkmark.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.green)
+                        .accessibilityLabel("iCloud is available")
+                } else {
+                    Label("Unavailable", systemImage: "xmark.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(.colorTextSecondary)
+                        .accessibilityLabel("iCloud is not available")
+                }
+            }
+            .accessibilityIdentifier("icloud-status-row")
+        } header: {
+            Text("Status")
+        } footer: {
+            if viewModel.iCloudAvailable {
+                Text("Backups sync to iCloud Drive on this Apple ID.")
+            } else {
+                Text("iCloud isn't reachable — backups save locally on this device until you sign in to iCloud.")
             }
         }
     }
