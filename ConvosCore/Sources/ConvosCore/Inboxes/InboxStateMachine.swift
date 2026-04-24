@@ -845,9 +845,13 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         // Drop database connection after sync is stopped
         // This releases SQLCipher connections in the Rust layer (LibXMTP)
+        // Stage 6a: route DB lifecycle through `messagingClient` so the
+        // operation lands on `MessagingClient.dropLocalDatabaseConnection`
+        // — the same SDK call, but reached through the abstraction seam
+        // instead of the legacy `XMTPClientProvider` extension method.
         if let client = clientToClose {
             do {
-                try client.dropLocalDatabaseConnection()
+                try client.messagingClient.dropLocalDatabaseConnection()
                 Log.debug("Dropped local database connection for \(clientId)")
             } catch {
                 Log.error("Failed to drop database connection for \(clientId): \(error)")
@@ -869,7 +873,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Pause the syncing manager
         await syncingManager?.pause()
 
-        try result.client.dropLocalDatabaseConnection()
+        // Stage 6a: route DB lifecycle through `messagingClient`.
+        try result.client.messagingClient.dropLocalDatabaseConnection()
 
         emitStateChange(.backgrounded(clientId: clientId, result: result))
         Log.info("Inbox backgrounded successfully")
@@ -878,7 +883,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private func handleEnterForeground(clientId: String, result: InboxReadyResult) async throws {
         Log.info("App entering foreground, resuming sync for clientId \(clientId)...")
 
-        try await result.client.reconnectLocalDatabase()
+        // Stage 6a: route DB lifecycle through `messagingClient`.
+        try await result.client.messagingClient.reconnectLocalDatabase()
 
         // Restart network monitoring
         await startNetworkMonitoring()
@@ -986,8 +992,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         // Delete XMTP local database
         // Try SDK method first, fall back to manual file deletion if it fails
+        // Stage 6a: route DB lifecycle through `messagingClient`.
         do {
-            try client.deleteLocalDatabase()
+            try client.messagingClient.deleteLocalDatabase()
             Log.debug("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
         } catch {
             Log.warning("SDK deleteLocalDatabase failed, attempting manual file deletion: \(error)")
