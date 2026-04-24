@@ -90,17 +90,12 @@ final class LockConversationTests: XCTestCase {
     func testOldInvitesCannotBeUsedAfterLocking() async throws {
         let backend = DualBackendTestFixtures.Backend.selected
         try guardBackendReady(backend)
-        if backend == .dtu {
-            // DTU's engine does not enforce the add-member permission
-            // policy at commit time — `updateAddMemberPermission(.deny)`
-            // is recorded in metadata but `addMembers(...)` still
-            // succeeds. XMTPiOS (libxmtp) rejects the commit. Until
-            // DTU mirrors this enforcement, skip.
-            throw XCTSkip(
-                "[dtu] DTU engine does not enforce add-member policy; "
-                    + "addMembers succeeds even when policy is .deny"
-            )
-        }
+        // DTU now enforces the add-member permission policy at commit time
+        // (matches libxmtp's `evaluate_commit` → `InsufficientPermissions`
+        // rejection). `addMembers(...)` under an `add_member_policy: deny`
+        // policy surfaces `DTUError.permissionDenied`, bubbled up as a
+        // throw from the abstraction layer — same shape as XMTPiOS's
+        // `GroupError::NotAuthorized`.
 
         let fixture = DualBackendTestFixtures(
             backend: backend,
@@ -298,18 +293,12 @@ final class LockConversationTests: XCTestCase {
     func testMemberRoleRemainsSuperAdminAfterConversationWriterStore() async throws {
         let backend = DualBackendTestFixtures.Backend.selected
         try guardBackendReady(backend)
-        if backend == .dtu {
-            // DTU's `listMembers` surfaces a plain `[alias]` list — the
-            // engine doesn't model admin / super-admin roles (see
-            // `DTUMessagingGroup.members()`), so `ConversationWriter`
-            // writes role=.member for every member. The test assertion
-            // here is fundamentally about the superAdmin-retention
-            // path that only lights up under libxmtp.
-            throw XCTSkip(
-                "[dtu] DTU engine does not model admin / super-admin "
-                    + "member roles; DBConversationMember.role stays .member"
-            )
-        }
+        // DTU now models admin / super-admin roles on the member surface
+        // (`DTUMessagingGroup.members()` maps the engine's `role` onto
+        // `MessagingMemberRole` 1:1). `ConversationWriter.store(...)` is
+        // pure-abstraction (takes `MessagingGroup.members()` via
+        // `dbRepresentation(conversationId:)`), so the lock-cycle
+        // assertions now light up on both backends.
 
         let fixture = DualBackendTestFixtures(
             backend: backend,
@@ -455,17 +444,10 @@ final class LockConversationTests: XCTestCase {
     func testXMTPPermissionLevelConsistency() async throws {
         let backend = DualBackendTestFixtures.Backend.selected
         try guardBackendReady(backend)
-        if backend == .dtu {
-            // See `testMemberRoleRemainsSuperAdminAfterConversationWriterStore`:
-            // DTU's `listMembers` always reports role=.member. The
-            // creator's `group.isSuperAdmin` surface is wired (via
-            // `listSuperAdmins`), but the two would never agree while
-            // `members()` fills .member for all entries.
-            throw XCTSkip(
-                "[dtu] DTU engine does not model admin / super-admin roles on "
-                    + "the member surface; group.members() returns role=.member"
-            )
-        }
+        // DTU's `list_members` now carries `{inboxId, role}` per member —
+        // the engine resolves the role against its tracked admin /
+        // super-admin sets. `group.isSuperAdmin` (via `listSuperAdmins`)
+        // and `group.members().role` now agree on both backends.
 
         let fixture = DualBackendTestFixtures(
             backend: backend,
