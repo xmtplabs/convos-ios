@@ -240,33 +240,46 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     // MARK: - Completed Onboarding Tests
 
-    func testStart_HasCompletedOnboarding_SkipsQuicknameForNewConversation() async {
+    func testStart_HasCompletedOnboarding_NewConversation_SurfacesQuicknameState() async {
         mockNotificationCenter.authStatus = .authorized
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
         UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
 
-        let newConversationId = "side-convo-opened-for-first-time"
+        let newConversationId = "new-convo-after-onboarding"
         await coordinator.start(for: newConversationId)
 
-        XCTAssertEqual(coordinator.state, .idle)
-        // The guard returns before `setHasSetQuickname(true, for:)` would
-        // normally run, so a regression that drops the guard flips this flag.
-        XCTAssertFalse(
-            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+        switch coordinator.state {
+        case .setupQuickname, .addQuickname:
+            XCTAssertTrue(true, "New convo after onboarding should surface a quickname state")
+        default:
+            XCTFail("Expected a quickname state, got \(coordinator.state)")
+        }
+
+        XCTAssertTrue(
+            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)"),
+            "Entry into startQuicknameFlow should mark the per-conversation flag"
         )
         UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
     }
 
-    func testStart_HasCompletedOnboarding_NotificationsDenied_StillNudges() async {
-        mockNotificationCenter.authStatus = .denied
+    func testStart_HasCompletedOnboarding_ReopensSameConversation_Skips() async {
+        mockNotificationCenter.authStatus = .authorized
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
         UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
 
-        let newConversationId = "side-convo-opened-for-first-time"
-        await coordinator.start(for: newConversationId)
+        let conversationId = "convo-seen-before"
+        UserDefaults.standard.set(true, forKey: "hasSetQuicknameForConversation_\(conversationId)")
 
-        XCTAssertEqual(coordinator.state, .notificationsDenied)
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+        await coordinator.start(for: conversationId)
+
+        switch coordinator.state {
+        case .setupQuickname, .addQuickname:
+            XCTFail("Re-opening a convo with the per-conversation flag set must not re-prompt")
+        default:
+            break
+        }
+
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversationId)")
     }
 
     // MARK: - App Lifecycle Tests

@@ -228,8 +228,28 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
-    func redeemInviteCode(_ code: String) async throws {
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
         try await base.redeemInviteCode(code)
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        try await base.fetchInviteCodeStatus(code)
+    }
+
+    func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
+        base.voiceMemoTranscriptRepository()
+    }
+
+    func voiceMemoTranscriptWriter() -> any VoiceMemoTranscriptWriterProtocol {
+        base.voiceMemoTranscriptWriter()
+    }
+
+    func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing {
+        base.voiceMemoTranscriptionService()
+    }
+
+    func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
+        base.assistantFilesLinksRepository(for: conversationId)
     }
 
     func pendingInviteDetails() throws -> [PendingInviteDetail] {

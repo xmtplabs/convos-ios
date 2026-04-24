@@ -1,3 +1,4 @@
+import ConvosCore
 import XCTest
 @testable import Convos
 
