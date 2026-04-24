@@ -84,15 +84,30 @@ public final class DualBackendTestFixtures {
     private var nextAliasIndex: Int = 0
     private let aliasBase: String
 
+    /// When `true`, DTU inbox aliases are generated as hex-only strings
+    /// (e.g. `deadbeef0011…`) instead of the readable `name-inbox-N`
+    /// form. Required for tests that feed the alias into
+    /// `ConversationProfile(inboxIdString:)` / `DBMemberProfile.conversationProfile`,
+    /// which reject non-hex inbox IDs via `.invalidInboxIdHex`
+    /// (see `ConvosAppData.ProfileHelpers.init?(inboxIdString:)`).
+    /// Default `false` keeps existing tests legible. The XMTPiOS path
+    /// ignores this flag — its inbox IDs are already real hex.
+    private let aliasesHexEncoded: Bool
+
     public var clientA: ClientHandle?
     public var clientB: ClientHandle?
     public var clientC: ClientHandle?
 
-    public init(backend: Backend = .selected, aliasPrefix: String = "actor") {
+    public init(
+        backend: Backend = .selected,
+        aliasPrefix: String = "actor",
+        aliasesHexEncoded: Bool = false
+    ) {
         self.backend = backend
         self.environment = .tests
         self.identityStore = MockKeychainIdentityStore()
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
+        self.aliasesHexEncoded = aliasesHexEncoded
         // DTU actor aliases must be unique across tests to keep the
         // shared universe state clean. Fold a fixture-scoped nonce in
         // on top of the caller-provided prefix.
@@ -213,7 +228,7 @@ public final class DualBackendTestFixtures {
     private func createDTUClient(clientId: String) async throws -> ClientHandle {
         let universe = try await ensureDTUUniverse()
         let userAlias = "\(aliasBase)-user-\(nextAliasIndex)"
-        let inboxAlias = "\(aliasBase)-inbox-\(nextAliasIndex)"
+        let inboxAlias = makeInboxAlias(index: nextAliasIndex)
         let installationAlias = "\(aliasBase)-inst-\(nextAliasIndex)"
 
         let factory = DTUMessagingClientFactory(universe: universe)
@@ -249,6 +264,40 @@ public final class DualBackendTestFixtures {
             inboxAlias: inboxAlias,
             installationAlias: installationAlias
         )
+    }
+
+    /// Build a DTU inbox alias. When `aliasesHexEncoded == true`, the
+    /// alias is a stable hex string derived from the fixture nonce +
+    /// index so that consumers that pipe the alias through
+    /// `ConversationProfile(inboxIdString:)` (which requires hex — see
+    /// `ConvosAppData.ProfileHelpers`) don't trip `.invalidInboxIdHex`.
+    /// Default (plain) aliases remain human-readable for assertion
+    /// legibility on every other test.
+    private func makeInboxAlias(index: Int) -> String {
+        if aliasesHexEncoded {
+            return Self.deriveHexInboxAlias(aliasBase: aliasBase, index: index)
+        }
+        return "\(aliasBase)-inbox-\(index)"
+    }
+
+    /// Derive a deterministic hex alias from the fixture's alias base +
+    /// per-client index. We hex-encode the UTF-8 bytes of the source
+    /// string, which both (a) guarantees all chars are in `[0-9a-f]`
+    /// and (b) preserves uniqueness across fixtures because the source
+    /// itself is already unique. Length is right-padded to 64 hex chars
+    /// (32 bytes) so DTU aliases look similar in shape to real libxmtp
+    /// inbox IDs even under this test-only code path.
+    private static func deriveHexInboxAlias(aliasBase: String, index: Int) -> String {
+        let source = "\(aliasBase)-inbox-\(index)"
+        let bytes = Array(source.utf8.prefix(32))
+        var hex = bytes.map { String(format: "%02x", $0) }.joined()
+        // Right-pad short sources so every alias is the same length,
+        // and so distinct `index` values deterministically diverge in
+        // the tail even when the prefix is very short.
+        while hex.count < 64 {
+            hex += String(format: "%02x", (index + hex.count) & 0xff)
+        }
+        return hex
     }
 
     /// Returns the fixture-scoped DTU universe, creating it on first

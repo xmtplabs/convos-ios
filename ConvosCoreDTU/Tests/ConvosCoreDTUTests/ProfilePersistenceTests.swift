@@ -198,25 +198,20 @@ final class ProfilePersistenceTests: XCTestCase {
     func testAppDataProfileFillsGap() async throws {
         let backend = DualBackendTestFixtures.Backend.selected
         try guardBackendReady(backend)
-        if backend == .dtu {
-            // `MessagingGroup.updateProfile` stuffs the inbox ID into
-            // the custom-metadata protobuf via `ConversationProfile`'s
-            // `inboxIdString:` initialiser, which fails if the inbox
-            // ID is not hex. DTU actor aliases are human-readable
-            // names, not hex strings, so the projection returns nil
-            // and the writer throws `.invalidInboxIdHex`. This is a
-            // DTU test-lane gap — the production DTU path would feed
-            // real hex inbox IDs. Skipping until DTU aliases can be
-            // hex (or the `ConversationProfile` init relaxes).
-            throw XCTSkip(
-                "[dtu] ConversationProfile requires hex-encoded inbox IDs; "
-                    + "DTU actor aliases are not hex strings"
-            )
-        }
 
+        // `MessagingGroup.updateProfile` stuffs the inbox ID into the
+        // custom-metadata protobuf via `ConversationProfile`'s
+        // `inboxIdString:` initialiser, which rejects non-hex inputs
+        // (see `ConvosAppData.ProfileHelpers`). XMTPiOS inbox IDs are
+        // real hex, so the readable aliases the fixture defaults to
+        // work there. The DTU path ordinarily uses human-readable
+        // aliases (`alice-inbox-1`), so opt into hex-encoded aliases
+        // for this test only — DTU's engine accepts opaque strings as
+        // inbox IDs regardless of shape.
         let fixture = DualBackendTestFixtures(
             backend: backend,
-            aliasPrefix: "profile-persistence-appdata"
+            aliasPrefix: "profile-persistence-appdata",
+            aliasesHexEncoded: backend == .dtu
         )
         self.fixtures = fixture
 
