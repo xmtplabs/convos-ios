@@ -41,46 +41,50 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
     func store(message: DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
-        let encodedContentType = try message.encodedContent.type
+        // Stage 3 migration (audit §5): thread the XMTPiOS ->
+        // Messaging boundary here, then operate on `MessagingMessage`
+        // everywhere below. The storage translator
+        // (`MessagingMessage+DBRepresentation.swift`) now consumes the
+        // abstraction directly.
+        let messagingMessage = try MessagingMessage(message)
+        let payload = messagingMessage.resolvedPayload()
 
-        if encodedContentType == ContentTypeReaction || encodedContentType == ContentTypeReactionV2 {
-            let content = try message.content() as Any
-            if let reaction = content as? Reaction {
-                switch reaction.action {
-                case .removed:
-                    return try await handleReactionRemoval(
-                        message: message,
-                        reaction: reaction,
-                        conversation: conversation
-                    )
-                case .added:
-                    return try await handleReactionAddition(
-                        message: message,
-                        reaction: reaction,
-                        conversation: conversation
-                    )
-                case .unknown:
-                    Log.warning("Received unknown reaction action, ignoring")
-                    return IncomingMessageWriterResult(
-                        contentType: .emoji,
-                        wasRemovedFromConversation: false,
-                        messageAlreadyExists: false
-                    )
-                }
+        if case .reaction(let reaction) = payload {
+            switch reaction.action {
+            case .removed:
+                return try await handleReactionRemoval(
+                    messagingMessage: messagingMessage,
+                    reaction: reaction,
+                    conversation: conversation
+                )
+            case .added:
+                return try await handleReactionAddition(
+                    messagingMessage: messagingMessage,
+                    payload: payload,
+                    reaction: reaction,
+                    conversation: conversation
+                )
+            case .unknown:
+                Log.warning("Received unknown reaction action, ignoring")
+                return IncomingMessageWriterResult(
+                    contentType: .emoji,
+                    wasRemovedFromConversation: false,
+                    messageAlreadyExists: false
+                )
             }
         }
 
         let result = try await databaseWriter.write { db in
-            let sender = DBMember(inboxId: message.senderInboxId)
+            let sender = DBMember(inboxId: messagingMessage.senderInboxId)
             try sender.save(db)
             let senderProfile = DBMemberProfile(
                 conversationId: conversation.id,
-                inboxId: message.senderInboxId,
+                inboxId: messagingMessage.senderInboxId,
                 name: nil,
                 avatar: nil
             )
             try? senderProfile.insert(db)
-            let message = try message.dbRepresentation()
+            let message = try messagingMessage.dbRepresentation(payload: payload)
 
             let messageExistsInDB = try DBMessage.exists(db, key: message.id)
             // @jarodl temporary, this should happen somewhere else more explicitly
@@ -188,16 +192,17 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
     }
 
     private func handleReactionAddition(
-        message: DecodedMessage,
-        reaction: Reaction,
+        messagingMessage: MessagingMessage,
+        payload: MessagingMessagePayload,
+        reaction: MessagingReaction,
         conversation: DBConversation
     ) async throws -> IncomingMessageWriterResult {
         let reactionAlreadyExists = try await databaseWriter.write { db -> Bool in
-            let sender = DBMember(inboxId: message.senderInboxId)
+            let sender = DBMember(inboxId: messagingMessage.senderInboxId)
             try sender.save(db)
             let senderProfile = DBMemberProfile(
                 conversationId: conversation.id,
-                inboxId: message.senderInboxId,
+                inboxId: messagingMessage.senderInboxId,
                 name: nil,
                 avatar: nil
             )
@@ -205,7 +210,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
             let existingReaction = try DBMessage
                 .filter(DBMessage.Columns.sourceMessageId == reaction.reference)
-                .filter(DBMessage.Columns.senderId == message.senderInboxId)
+                .filter(DBMessage.Columns.senderId == messagingMessage.senderInboxId)
                 .filter(DBMessage.Columns.emoji == reaction.emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
                 .fetchOne(db)
@@ -216,9 +221,9 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 Log.debug("Updated existing reaction \(existingReaction.id) status to published")
                 return true
             } else {
-                let dbMessage = try message.dbRepresentation()
+                let dbMessage = try messagingMessage.dbRepresentation(payload: payload)
                 try dbMessage.save(db)
-                Log.debug("Saved new incoming reaction \(message.id)")
+                Log.debug("Saved new incoming reaction \(messagingMessage.id)")
                 return false
             }
         }
@@ -226,7 +231,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             QAEvent.emit(.reaction, "received", [
                 "message": reaction.reference,
                 "emoji": reaction.emoji,
-                "sender": message.senderInboxId,
+                "sender": messagingMessage.senderInboxId,
                 "conversation": conversation.id
             ])
         }
@@ -238,18 +243,18 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
     }
 
     private func handleReactionRemoval(
-        message: DecodedMessage,
-        reaction: Reaction,
+        messagingMessage: MessagingMessage,
+        reaction: MessagingReaction,
         conversation: DBConversation
     ) async throws -> IncomingMessageWriterResult {
         try await databaseWriter.write { db in
             let deletedCount = try DBMessage
                 .filter(DBMessage.Columns.sourceMessageId == reaction.reference)
-                .filter(DBMessage.Columns.senderId == message.senderInboxId)
+                .filter(DBMessage.Columns.senderId == messagingMessage.senderInboxId)
                 .filter(DBMessage.Columns.emoji == reaction.emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
                 .deleteAll(db)
-            Log.debug("Deleted \(deletedCount) reaction(s) for message \(reaction.reference) from \(message.senderInboxId)")
+            Log.debug("Deleted \(deletedCount) reaction(s) for message \(reaction.reference) from \(messagingMessage.senderInboxId)")
         }
         return IncomingMessageWriterResult(
             contentType: .emoji,

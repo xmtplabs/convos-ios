@@ -2,7 +2,8 @@ import ConvosAppData
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
-import XMTPiOS
+
+// MARK: - Emoji helpers
 
 extension Character {
     var isSimpleEmoji: Bool {
@@ -26,12 +27,24 @@ extension String {
     }
 }
 
-extension XMTPiOS.DecodedMessage {
-    enum DecodedMessageDBRepresentationError: Error {
-        case mismatchedContentType, unsupportedContentType
+// MARK: - Translator
+
+/// Stage 3 migration (audit §5): the content-type dispatch that
+/// produces a `DBMessage` from an incoming message now operates on
+/// `MessagingMessage` (and its resolved `MessagingMessagePayload`)
+/// rather than on `XMTPiOS.DecodedMessage` directly.
+///
+/// The boundary from XMTPiOS -> abstraction lives in
+/// `Storage/XMTP DB Representations/MessagingMessage+XMTPiOS.swift`.
+/// This file is Foundation-only and contains the abstraction-side
+/// logic — what DTU will also exercise in Stage 5.
+extension MessagingMessage {
+    enum DBRepresentationError: Error {
+        case mismatchedContentType
+        case unsupportedContentType
     }
 
-    private struct DBMessageComponents {
+    fileprivate struct DBMessageComponents {
         var messageType: DBMessageType
         var contentType: MessageContentType
         var sourceMessageId: String?
@@ -43,37 +56,59 @@ extension XMTPiOS.DecodedMessage {
         var update: DBMessage.Update?
     }
 
-    func dbRepresentation() throws -> DBMessage {
+    /// Builds the GRDB `DBMessage` row for this message.
+    ///
+    /// The `payload` argument is expected to come from the boundary
+    /// adapter (see `MessagingMessage.resolvedPayload()` in
+    /// `Storage/XMTP DB Representations/MessagingMessage+XMTPiOS.swift`).
+    /// Accepting it as an argument lets this file stay Foundation-only
+    /// — the XIP decoding step is performed outside.
+    func dbRepresentation(payload: MessagingMessagePayload) throws -> DBMessage {
+        // Stage 2 migration: derive the DB status from the
+        // abstraction-layer `MessagingDeliveryStatus` rather than from
+        // `XMTPiOS.MessageDeliveryStatus` directly.
         let status: MessageStatus = deliveryStatus.status
-        let encodedContentType = try encodedContent.type
-        let components: DBMessageComponents
 
-        switch encodedContentType {
-        case ContentTypeText:
-            components = try handleTextContent()
-        case ContentTypeReply:
-            components = try handleReplyContent()
-        case ContentTypeReaction, ContentTypeReactionV2:
-            components = try handleReactionContent()
-        case ContentTypeAttachment:
-            components = try handleAttachmentContent()
-        case ContentTypeMultiRemoteAttachment:
-            components = try handleMultiRemoteAttachmentContent()
-        case ContentTypeRemoteAttachment:
-            components = try handleRemoteAttachmentContent()
-        case ContentTypeGroupUpdated:
-            components = try handleGroupUpdatedContent()
-        case ContentTypeExplodeSettings:
-            components = try handleExplodeSettingsContent()
-        case ContentTypeAssistantJoinRequest:
-            components = try handleAssistantJoinRequestContent()
-        case ContentTypeReadReceipt:
-            throw DecodedMessageDBRepresentationError.unsupportedContentType
-        default:
-            throw DecodedMessageDBRepresentationError.unsupportedContentType
+        let components: DBMessageComponents
+        switch payload {
+        case .text(let text):
+            components = Self.handleTextContent(text: text)
+        case .reply(let reply):
+            components = try Self.handleReplyContent(
+                reply: reply,
+                messageId: id
+            )
+        case .reaction(let reaction):
+            components = Self.handleReactionContent(reaction: reaction)
+        case .attachment(let attachment):
+            components = try Self.handleAttachmentContent(
+                attachment: attachment,
+                messageId: id
+            )
+        case .remoteAttachment(let remoteAttachment):
+            components = Self.handleRemoteAttachmentContent(
+                remoteAttachment: remoteAttachment
+            )
+        case .multiRemoteAttachment(let remoteAttachments):
+            components = Self.handleMultiRemoteAttachmentContent(
+                remoteAttachments: remoteAttachments
+            )
+        case .groupUpdated(let groupUpdated):
+            components = Self.handleGroupUpdatedContent(groupUpdated: groupUpdated)
+        case .explodeSettings(let explodeSettings):
+            components = Self.handleExplodeSettingsContent(
+                explodeSettings: explodeSettings,
+                senderInboxId: senderInboxId
+            )
+        case .assistantJoinRequest(let request):
+            components = Self.handleAssistantJoinRequestContent(request: request)
+        case .readReceipt:
+            throw DBRepresentationError.unsupportedContentType
+        case .unsupported:
+            throw DBRepresentationError.unsupportedContentType
         }
 
-        return .init(
+        return DBMessage(
             id: id,
             clientMessageId: id,
             conversationId: conversationId,
@@ -94,14 +129,11 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleTextContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let contentString = content as? String else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
+    // MARK: - Per-payload handlers
 
-        let isContentEmoji = contentString.allCharactersEmoji
-        if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
+    private static func handleTextContent(text: String) -> DBMessageComponents {
+        let isContentEmoji = text.allCharactersEmoji
+        if !isContentEmoji, let invite = MessageInvite.from(text: text) {
             return DBMessageComponents(
                 messageType: .original,
                 contentType: .invite,
@@ -109,10 +141,10 @@ extension XMTPiOS.DecodedMessage {
                 emoji: nil,
                 invite: invite,
                 attachmentUrls: [],
-                text: contentString,
+                text: text,
                 update: nil
             )
-        } else if !isContentEmoji, let preview = LinkPreview.from(text: contentString) {
+        } else if !isContentEmoji, let preview = LinkPreview.from(text: text) {
             return DBMessageComponents(
                 messageType: .original,
                 contentType: .linkPreview,
@@ -121,34 +153,30 @@ extension XMTPiOS.DecodedMessage {
                 invite: nil,
                 linkPreview: preview,
                 attachmentUrls: [],
-                text: contentString,
+                text: text,
                 update: nil
             )
         } else {
-            let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedContent = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return DBMessageComponents(
                 messageType: .original,
                 contentType: isContentEmoji ? .emoji : .text,
                 sourceMessageId: nil,
                 emoji: isContentEmoji ? trimmedContent : nil,
                 attachmentUrls: [],
-                text: isContentEmoji ? nil : contentString,
+                text: isContentEmoji ? nil : text,
                 update: nil
             )
         }
     }
 
-    private func handleReplyContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let contentReply = content as? Reply else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-        let sourceMessageId = contentReply.reference
-        switch contentReply.contentType {
-        case ContentTypeText:
-            guard let contentString = contentReply.content as? String else {
-                throw DecodedMessageDBRepresentationError.mismatchedContentType
-            }
+    private static func handleReplyContent(
+        reply: MessagingReplyPayload,
+        messageId: String
+    ) throws -> DBMessageComponents {
+        let sourceMessageId = reply.reference
+        switch reply.innerPayload {
+        case .text(let contentString):
             let isContentEmoji = contentString.allCharactersEmoji
             if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
                 return DBMessageComponents(
@@ -185,11 +213,12 @@ extension XMTPiOS.DecodedMessage {
                 text: isContentEmoji ? nil : contentString,
                 update: nil
             )
-        case ContentTypeAttachment:
-            guard let attachment = contentReply.content as? Attachment else {
-                throw DecodedMessageDBRepresentationError.mismatchedContentType
-            }
-            let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
+        case .attachment(let attachment):
+            let fileURL = try saveInlineAttachment(
+                data: attachment.data,
+                messageId: messageId,
+                filename: attachment.filename
+            )
             return DBMessageComponents(
                 messageType: .reply,
                 contentType: .attachments,
@@ -199,10 +228,7 @@ extension XMTPiOS.DecodedMessage {
                 text: nil,
                 update: nil
             )
-        case ContentTypeRemoteAttachment:
-            guard let remoteAttachment = contentReply.content as? RemoteAttachment else {
-                throw DecodedMessageDBRepresentationError.mismatchedContentType
-            }
+        case .remoteAttachment(let remoteAttachment):
             let stored = StoredRemoteAttachment(
                 url: remoteAttachment.url,
                 contentDigest: remoteAttachment.contentDigest,
@@ -221,8 +247,8 @@ extension XMTPiOS.DecodedMessage {
                 text: nil,
                 update: nil
             )
-        default:
-            Log.error("Unhandled contentType \(contentReply.contentType)")
+        case .other:
+            Log.error("Unhandled reply inner content type \(reply.innerContentType)")
             return DBMessageComponents(
                 messageType: .reply,
                 contentType: .text,
@@ -235,12 +261,13 @@ extension XMTPiOS.DecodedMessage {
         }
     }
 
-    private func handleReactionContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let reaction = content as? Reaction else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-        return DBMessageComponents(
+    private static func handleReactionContent(
+        reaction: MessagingReaction
+    ) -> DBMessageComponents {
+        // Stage 2 migration: derive the emoji glyph through the
+        // abstraction-layer `MessagingReaction` rather than from
+        // `XMTPiOS.Reaction` directly.
+        DBMessageComponents(
             messageType: .reaction,
             contentType: .emoji,
             sourceMessageId: reaction.reference,
@@ -251,12 +278,15 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleAttachmentContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let attachment = content as? Attachment else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-        let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
+    private static func handleAttachmentContent(
+        attachment: MessagingAttachmentPayload,
+        messageId: String
+    ) throws -> DBMessageComponents {
+        let fileURL = try saveInlineAttachment(
+            data: attachment.data,
+            messageId: messageId,
+            filename: attachment.filename
+        )
         return DBMessageComponents(
             messageType: .original,
             contentType: .attachments,
@@ -268,9 +298,13 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private static func saveInlineAttachment(data: Data, messageId: String, filename: String) throws -> URL {
+    private static func saveInlineAttachment(
+        data: Data,
+        messageId: String,
+        filename: String
+    ) throws -> URL {
         guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
+            throw DBRepresentationError.mismatchedContentType
         }
         let dir = cacheDir.appendingPathComponent("InlineAttachments", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -280,11 +314,9 @@ extension XMTPiOS.DecodedMessage {
         return fileURL
     }
 
-    private func handleMultiRemoteAttachmentContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let remoteAttachments = content as? [RemoteAttachment] else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
+    private static func handleMultiRemoteAttachmentContent(
+        remoteAttachments: [MessagingRemoteAttachmentPayload]
+    ) -> DBMessageComponents {
         let storedAttachments = remoteAttachments.map { attachment in
             let inferredMimeType: String? = attachment.filename.flatMap { filename in
                 let ext = (filename as NSString).pathExtension.lowercased()
@@ -313,11 +345,9 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleRemoteAttachmentContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let remoteAttachment = content as? RemoteAttachment else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
+    private static func handleRemoteAttachmentContent(
+        remoteAttachment: MessagingRemoteAttachmentPayload
+    ) -> DBMessageComponents {
         let inferredMimeType: String? = remoteAttachment.filename.flatMap { filename in
             let ext = (filename as NSString).pathExtension.lowercased()
             guard !ext.isEmpty else { return nil }
@@ -344,20 +374,19 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleGroupUpdatedContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let groupUpdated = content as? GroupUpdated else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-        let metadataFieldChanges: [DBMessage.Update.MetadataChange] = groupUpdated.metadataFieldChanges
-            .compactMap {
-                if $0.fieldName == ConversationUpdate.MetadataChange.Field.description.rawValue {
-                    let descriptionChanged = $0.oldValue != $0.newValue
+    private static func handleGroupUpdatedContent(
+        groupUpdated: MessagingGroupUpdatedPayload
+    ) -> DBMessageComponents {
+        let metadataFieldChanges: [DBMessage.Update.MetadataChange] = groupUpdated
+            .metadataFieldChanges
+            .compactMap { change in
+                if change.fieldName == ConversationUpdate.MetadataChange.Field.description.rawValue {
+                    let descriptionChanged = change.oldValue != change.newValue
                     if descriptionChanged {
                         return .init(
                             field: ConversationUpdate.MetadataChange.Field.description.rawValue,
-                            oldValue: $0.oldValue,
-                            newValue: $0.newValue
+                            oldValue: change.oldValue,
+                            newValue: change.newValue
                         )
                     } else {
                         return .init(
@@ -366,11 +395,11 @@ extension XMTPiOS.DecodedMessage {
                             newValue: nil
                         )
                     }
-                } else if $0.fieldName == ConversationUpdate.MetadataChange.Field.metadata.rawValue {
+                } else if change.fieldName == ConversationUpdate.MetadataChange.Field.metadata.rawValue {
                     let oldCustomValue: ConversationCustomMetadata?
-                    if $0.hasOldValue {
+                    if let oldValue = change.oldValue {
                         do {
-                            oldCustomValue = try ConversationCustomMetadata.fromCompactString($0.oldValue)
+                            oldCustomValue = try ConversationCustomMetadata.fromCompactString(oldValue)
                         } catch {
                             Log.error("Failed to decode old custom metadata: \(error)")
                             oldCustomValue = nil
@@ -380,9 +409,9 @@ extension XMTPiOS.DecodedMessage {
                     }
 
                     let newCustomValue: ConversationCustomMetadata?
-                    if $0.hasNewValue {
+                    if let newValue = change.newValue {
                         do {
-                            newCustomValue = try ConversationCustomMetadata.fromCompactString($0.newValue)
+                            newCustomValue = try ConversationCustomMetadata.fromCompactString(newValue)
                         } catch {
                             Log.error("Failed to decode new custom metadata: \(error)")
                             newCustomValue = nil
@@ -424,16 +453,16 @@ extension XMTPiOS.DecodedMessage {
                     }
                 } else {
                     return .init(
-                        field: $0.fieldName,
-                        oldValue: $0.hasOldValue ? $0.oldValue : nil,
-                        newValue: $0.hasNewValue ? $0.newValue : nil
+                        field: change.fieldName,
+                        oldValue: change.oldValue,
+                        newValue: change.newValue
                     )
                 }
             }
         let update = DBMessage.Update(
-            initiatedByInboxId: groupUpdated.initiatedByInboxID,
-            addedInboxIds: groupUpdated.addedInboxes.map { $0.inboxID },
-            removedInboxIds: groupUpdated.removedInboxes.map { $0.inboxID },
+            initiatedByInboxId: groupUpdated.initiatedByInboxId,
+            addedInboxIds: groupUpdated.addedInboxIds,
+            removedInboxIds: groupUpdated.removedInboxIds,
             metadataChanges: metadataFieldChanges,
             expiresAt: nil
         )
@@ -448,12 +477,10 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleAssistantJoinRequestContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let request = content as? AssistantJoinRequest else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-        return DBMessageComponents(
+    private static func handleAssistantJoinRequestContent(
+        request: AssistantJoinRequest
+    ) -> DBMessageComponents {
+        DBMessageComponents(
             messageType: .original,
             contentType: .assistantJoinRequest,
             sourceMessageId: nil,
@@ -464,12 +491,10 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleExplodeSettingsContent() throws -> DBMessageComponents {
-        let content = try content() as Any
-        guard let explodeSettings = content as? ExplodeSettings else {
-            throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-
+    private static func handleExplodeSettingsContent(
+        explodeSettings: ExplodeSettings,
+        senderInboxId: String
+    ) -> DBMessageComponents {
         Log.info("Received explode settings: \(explodeSettings)")
         let update = DBMessage.Update(
             initiatedByInboxId: senderInboxId,

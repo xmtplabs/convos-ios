@@ -1,6 +1,5 @@
 import ConvosCore
 import Foundation
-import XMTPiOS
 
 enum DebugLogExporter {
     static func exportAllLogs(
@@ -49,7 +48,7 @@ enum DebugLogExporter {
         }
 
         let logDir = environment.defaultXMTPLogsDirectoryURL
-        let filePaths = Client.getXMTPLogFilePaths(customLogDirectory: logDir)
+        let filePaths = MessagingDiagnosticsProvider.shared.logFilePaths(customLogDirectory: logDir)
         info.xmtpFileCount = filePaths.count
         for path in filePaths {
             if let attrs = try? fileManager.attributesOfItem(atPath: path),
@@ -64,7 +63,7 @@ enum DebugLogExporter {
     @discardableResult
     static func pruneXMTPLogs(environment: AppEnvironment, keepRecentHours: Int = 24) -> Int {
         let logDir = environment.defaultXMTPLogsDirectoryURL
-        let filePaths = Client.getXMTPLogFilePaths(customLogDirectory: logDir)
+        let filePaths = MessagingDiagnosticsProvider.shared.logFilePaths(customLogDirectory: logDir)
         guard !filePaths.isEmpty else { return 0 }
 
         let fileManager = FileManager.default
@@ -117,7 +116,7 @@ enum DebugLogExporter {
 
     private static func stageXMTPLogs(to directory: URL, environment: AppEnvironment) {
         let logDir = environment.defaultXMTPLogsDirectoryURL
-        let filePaths = Client.getXMTPLogFilePaths(customLogDirectory: logDir)
+        let filePaths = MessagingDiagnosticsProvider.shared.logFilePaths(customLogDirectory: logDir)
         guard !filePaths.isEmpty else { return }
 
         let xmtpDir = directory.appendingPathComponent("xmtp")

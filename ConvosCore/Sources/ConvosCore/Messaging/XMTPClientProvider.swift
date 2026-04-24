@@ -244,7 +244,15 @@ extension XMTPiOS.Client: XMTPClientProvider {
         guard let foundConversation = try await self.conversation(with: conversationId) else {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
-        try await foundConversation.updateConsentState(state: consent.consentState)
+        // Stage 2 migration: route through the abstraction layer so the
+        // Convos `Consent` -> SDK mapping is one hop through
+        // `MessagingConsentState`. This file is still a Stage-3 seam
+        // rewrite target; the narrow change here mirrors the bridging
+        // pattern used by `MessagingDeliveryStatus(ffiStatus)` in
+        // `DecodedMessage+DBRepresentation.swift`.
+        try await foundConversation.updateConsentState(
+            state: consent.messagingConsentState.xmtpConsentState
+        )
     }
 }
 

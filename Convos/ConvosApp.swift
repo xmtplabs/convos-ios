@@ -2,7 +2,6 @@ import ConvosCore
 import ConvosCoreiOS
 import SwiftUI
 import UserNotifications
-import XMTPiOS
 
 @main
 struct ConvosApp: App {
@@ -22,7 +21,7 @@ struct ConvosApp: App {
         // only enable LibXMTP logging in non-production environments
         if !environment.isProduction {
             Log.info("Activating LibXMTP Log Writer...")
-            Client.activatePersistentLibXMTPLogWriter(
+            MessagingDiagnosticsProvider.shared.activatePersistentLogWriter(
                 logLevel: .debug,
                 rotationSchedule: .hourly,
                 maxFiles: 10,

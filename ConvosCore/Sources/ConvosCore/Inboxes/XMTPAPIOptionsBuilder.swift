@@ -5,25 +5,41 @@ import Foundation
 ///
 /// This extracts the API options construction from InboxStateMachine for reuse
 /// in static XMTP operations like `getNewestMessageMetadata`.
+///
+/// Post Stage-5 migration, the actual `XMTPEnvironment.customLocalAddress`
+/// write is delegated to the `MessagingClientFactory` adapter so that
+/// the global mutable state lives behind a single boundary file (audit
+/// §2 DTU hazard). Callers here pass an `AppEnvironment` and stay
+/// unaware of the XMTP global.
 public struct XMTPAPIOptionsBuilder {
     /// Builds ClientOptions.Api for the given environment
     ///
-    /// - Parameter environment: The app environment to build options for
+    /// - Parameters:
+    ///   - environment: The app environment to build options for
+    ///   - factory: The messaging client factory used for translation.
+    ///     Defaults to the shared XMTPiOS-backed factory.
     /// - Returns: Configured API options for XMTP client
-    public static func build(environment: AppEnvironment) -> ClientOptions.Api {
-        // Set custom local address if configured
-        if let customHost = environment.customLocalAddress {
-            Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
-            XMTPEnvironment.customLocalAddress = customHost
-        } else {
-            XMTPEnvironment.customLocalAddress = nil
-        }
-
-        return ClientOptions.Api(
-            env: environment.xmtpEnv,
+    public static func build(
+        environment: AppEnvironment,
+        factory: any MessagingClientFactory = XMTPiOSMessagingClientFactory.shared
+    ) -> ClientOptions.Api {
+        // Delegate to the factory so the global `XMTPEnvironment.customLocalAddress`
+        // write (and `ClientOptions.Api` construction) lives inside the
+        // adapter, not here. We synthesize a minimal config carrying
+        // only the fields `ClientOptions.Api` actually consumes; the
+        // remaining config fields (`dbEncryptionKey`, `codecs`, etc.)
+        // are unused on the static-op path.
+        let config = MessagingClientConfig(
+            apiEnv: environment.messagingEnv,
+            customLocalAddress: environment.customLocalAddress,
             isSecure: environment.isSecure,
-            appVersion: "convos/\(Bundle.appVersion)"
+            appVersion: "convos/\(Bundle.appVersion)",
+            dbEncryptionKey: Data(),
+            dbDirectory: nil,
+            deviceSyncEnabled: false,
+            codecs: []
         )
+        return factory.apiOptions(config: config)
     }
 }
 

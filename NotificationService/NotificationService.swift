@@ -2,7 +2,6 @@ import ConvosCore
 import ConvosCoreiOS
 import Foundation
 import UserNotifications
-import XMTPiOS
 
 // MARK: - Global Push Handler Singleton
 // Shared across all NSE process instances for efficiency and thread safety
@@ -18,7 +17,7 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
         // only enable LibXMTP logging in non-production environments
         if !environment.isProduction {
             Log.info("Activating LibXMTP Log Writer...")
-            Client.activatePersistentLibXMTPLogWriter(
+            MessagingDiagnosticsProvider.shared.activatePersistentLogWriter(
                 logLevel: .debug,
                 rotationSchedule: .hourly,
                 maxFiles: 10,

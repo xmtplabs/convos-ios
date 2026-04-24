@@ -452,7 +452,7 @@ extension MessagingService {
             guard reaction.action == .added else {
                 return nil
             }
-            let emoji = reaction.emoji
+            let emoji = MessagingReaction(reaction).emoji
             let sourceMessageText = try await getSourceMessageText(messageId: reaction.reference, conversationId: conversationId)
             let sourceText = sourceMessageText.formattedAsReactionSource()
             return shouldShowSenderName ? "\(senderName) \(emoji)'d \(sourceText)" : "\(emoji)'d \(sourceText)"

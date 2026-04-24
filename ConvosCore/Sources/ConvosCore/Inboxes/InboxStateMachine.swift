@@ -107,6 +107,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
+    /// Factory that owns the XMTPiOS `Client.create` / `Client.build`
+    /// calls and the `XMTPEnvironment.customLocalAddress` write. This
+    /// is the Stage 5 seam (audit §5) — the call site stops seeing
+    /// XMTPiOS construction types and the global mutable host.
+    private let messagingClientFactory: any MessagingClientFactory
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
@@ -275,7 +280,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         overrideJWTToken: String? = nil,
         environment: AppEnvironment,
         appLifecycle: any AppLifecycleProviding,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        messagingClientFactory: any MessagingClientFactory = XMTPiOSMessagingClientFactory.shared
     ) {
         let initialState: State = .idle(clientId: clientId)
         self.initialClientId = clientId
@@ -289,6 +295,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         self.overrideJWTToken = overrideJWTToken ?? environment.defaultOverrideJWTToken
         self.environment = environment
         self.appLifecycle = appLifecycle
+        self.messagingClientFactory = messagingClientFactory
 
         // Use provided API client or create a new one
         if let apiClient {
@@ -302,7 +309,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             )
         }
 
-        // Set custom XMTP host if provided
+        // Log XMTP configuration for diagnostics. The adapter
+        // (`XMTPiOSMessagingClientFactory`) applies the custom-local-
+        // address override when it actually constructs a client, so
+        // this state machine no longer mutates `XMTPEnvironment`
+        // itself (audit §2 DTU hazard).
         Log.info("XMTP Configuration:")
 
         // @lourou: Enable XMTP v4 d14n when ready
@@ -310,28 +321,14 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         //     // XMTP d14n - using gateway
         //     Log.info("   Mode = XMTP d14n")
         //     Log.info("   GATEWAY_URL = \(gatewayUrl)")
-        //     // Clear any previous custom address when using gateway
-        //     if XMTPEnvironment.customLocalAddress != nil {
-        //         Log.info("   Clearing previous customLocalAddress for gateway mode")
-        //         XMTPEnvironment.customLocalAddress = nil
-        //     }
         // }
 
         // XMTP v3
         Log.debug("   Mode = XMTP v3")
         Log.debug("   XMTP_CUSTOM_HOST = \(environment.xmtpEndpoint ?? "nil")")
         Log.debug("   customLocalAddress = \(environment.customLocalAddress ?? "nil")")
-        Log.debug("   xmtpEnv = \(environment.xmtpEnv)")
+        Log.debug("   messagingEnv = \(environment.messagingEnv)")
         Log.debug("   isSecure = \(environment.isSecure)")
-
-        // Log the actual XMTPEnvironment.customLocalAddress after setting
-        if let customHost = environment.customLocalAddress {
-            Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
-            XMTPEnvironment.customLocalAddress = customHost
-            Log.debug("Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")")
-        } else {
-            Log.debug("Using default XMTP endpoints")
-        }
     }
 
     // MARK: - Public
@@ -577,26 +574,24 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             "Started authorization flow for inbox: \(inboxId), clientId: \(clientId)"
         )
 
-        // Set custom local address before building/creating client
-        // Only updates if different, avoiding unnecessary mutations
-        setCustomLocalAddress()
-
         let keys = identity.clientKeys
-        let clientOptions = clientOptions(keys: keys)
+        let config = messagingClientConfig(keys: keys)
         let client: any XMTPClientProvider
         do {
             try Task.checkCancellation()
-            client = try await buildXmtpClient(
+            client = try await messagingClientFactory.buildClient(
                 inboxId: identity.inboxId,
                 identity: keys.signingKey.identity,
-                options: clientOptions
+                config: config,
+                xmtpCodecs: Self.defaultXMTPCodecs()
             )
         } catch {
             try Task.checkCancellation()
             Log.info("Error building client, trying create...")
-            client = try await createXmtpClient(
+            client = try await messagingClientFactory.createClient(
                 signingKey: keys.signingKey,
-                options: clientOptions
+                config: config,
+                xmtpCodecs: Self.defaultXMTPCodecs()
             )
             guard client.inboxId == identity.inboxId else {
                 Log.error("Created client with mis-matched inboxId")
@@ -621,19 +616,16 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         emitStateChange(.registering(clientId: clientId))
         Log.info("Started registration flow with clientId: \(clientId)")
 
-        // Set custom local address before creating client
-        // Only updates if different, avoiding unnecessary mutations
-        setCustomLocalAddress()
-
         try Task.checkCancellation()
 
         let keys = try await identityStore.generateKeys()
 
         try Task.checkCancellation()
 
-        let client = try await createXmtpClient(
+        let client = try await messagingClientFactory.createClient(
             signingKey: keys.signingKey,
-            options: clientOptions(keys: keys)
+            config: messagingClientConfig(keys: keys),
+            xmtpCodecs: Self.defaultXMTPCodecs()
         )
 
         try Task.checkCancellation()
@@ -1074,85 +1066,44 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
     // MARK: - Helpers
 
-    private func clientOptions(keys: any XMTPClientKeys) -> ClientOptions {
-        // @lourou: Enable XMTP v4 d14n when ready
-        // When gatewayUrl is provided, we're using d14n
-        // The gateway handles env/isSecure automatically, so we don't set them
-        // if let gatewayUrl = environment.gatewayUrl, !gatewayUrl.isEmpty {
-        //     // d14n mode: gateway handles network selection
-        //     Log.info("Using XMTP d14n - Gateway: \(gatewayUrl)")
-        //     apiOptions = .init(
-        //         appVersion: "convos/\(Bundle.appVersion)",
-        //         gatewayUrl: gatewayUrl
-        //     )
-        // }
-
-        // Direct XMTP v3 connection: we specify env and isSecure
-        Log.debug("Using direct XMTP connection with env: \(environment.xmtpEnv)")
-        let apiOptions: ClientOptions.Api = .init(
-            env: environment.xmtpEnv,
-            isSecure: environment.isSecure,
-            appVersion: "convos/\(Bundle.appVersion)"
-        )
-
-        return ClientOptions(
-            api: apiOptions,
-            codecs: [
-                TextCodec(),
-                ReplyCodec(),
-                ReactionV2Codec(),
-                ReactionCodec(),
-                AttachmentCodec(),
-                RemoteAttachmentCodec(),
-                GroupUpdatedCodec(),
-                ExplodeSettingsCodec(),
-                InviteJoinErrorCodec(),
-                ProfileUpdateCodec(),
-                ProfileSnapshotCodec(),
-                JoinRequestCodec(),
-                AssistantJoinRequestCodec(),
-                TypingIndicatorCodec(),
-                ReadReceiptCodec()
-            ],
-            dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory,
-            deviceSyncEnabled: false,
-            maxDbPoolSize: 10,
-            minDbPoolSize: 3
+    /// Builds a per-instance `MessagingClientConfig` from the current
+    /// environment and keychain-backed keys.
+    ///
+    /// This replaces the previous `clientOptions(keys:)` + global
+    /// `XMTPEnvironment.customLocalAddress` mutation with one config
+    /// value. The XMTPiOS-backed `MessagingClientFactory` adapter
+    /// translates it into `ClientOptions` + applies the custom host
+    /// override internally (audit §5 Stage 5).
+    private func messagingClientConfig(keys: any XMTPClientKeys) -> MessagingClientConfig {
+        Log.debug("Using direct XMTP connection with env: \(environment.messagingEnv)")
+        return environment.messagingClientConfig(
+            dbEncryptionKey: keys.databaseKey
         )
     }
 
-    /// Sets XMTPEnvironment.customLocalAddress from current environment
-    /// Must be called before building/creating XMTP client
-    private func setCustomLocalAddress() {
-        if let customHost = environment.customLocalAddress {
-            Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
-            XMTPEnvironment.customLocalAddress = customHost
-        } else {
-            Log.debug("Clearing XMTPEnvironment.customLocalAddress")
-            XMTPEnvironment.customLocalAddress = nil
-        }
-    }
-
-    private func createXmtpClient(signingKey: SigningKey,
-                                  options: ClientOptions) async throws -> any XMTPClientProvider {
-        Log.info("Creating XMTP client...")
-        let client = try await Client.create(account: signingKey, options: options)
-        Log.info("XMTP Client created with app version: convos/\(Bundle.appVersion)")
-        return client
-    }
-
-    private func buildXmtpClient(inboxId: String,
-                                 identity: PublicIdentity,
-                                 options: ClientOptions) async throws -> any XMTPClientProvider {
-        Log.debug("Building XMTP client for \(inboxId)...")
-        let client = try await Client.build(
-            publicIdentity: identity,
-            options: options,
-            inboxId: inboxId
-        )
-        Log.debug("XMTP Client built.")
-        return client
+    /// The set of XMTPiOS codecs Convos registers at client-construction
+    /// time. Lives on the state machine side until Stage 3 migrates
+    /// codecs to the `MessagingCodec` protocol; at that point this list
+    /// moves into `MessagingClientConfig.codecs` and the XMTPiOS-native
+    /// codec argument drops out of the factory.
+    static func defaultXMTPCodecs() -> [any ContentCodec] {
+        [
+            TextCodec(),
+            ReplyCodec(),
+            ReactionV2Codec(),
+            ReactionCodec(),
+            AttachmentCodec(),
+            RemoteAttachmentCodec(),
+            GroupUpdatedCodec(),
+            ExplodeSettingsCodec(),
+            InviteJoinErrorCodec(),
+            ProfileUpdateCodec(),
+            ProfileSnapshotCodec(),
+            JoinRequestCodec(),
+            AssistantJoinRequestCodec(),
+            TypingIndicatorCodec(),
+            ReadReceiptCodec()
+        ]
     }
 
     private static let backendAuthMaxRetries: Int = 3
