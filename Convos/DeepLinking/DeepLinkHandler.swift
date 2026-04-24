@@ -55,7 +55,30 @@ final class DeepLinkHandler {
             return nil
         }
 
+        guard ConnectionServiceCatalog.info(for: service) != nil else {
+            Log.warning("Connection grant deep link references unknown service; dropping")
+            return nil
+        }
+
+        guard isSafeConversationIdentifier(conversationId) else {
+            Log.warning("Connection grant deep link has unsafe conversationId; dropping")
+            return nil
+        }
+
         return .connectionGrant(serviceId: service, conversationId: conversationId)
+    }
+
+    private static let maxConversationIdLength: Int = 256
+
+    private static func isSafeConversationIdentifier(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= maxConversationIdLength else {
+            return false
+        }
+        // Conversation IDs from XMTP are hex strings; restrict to a conservative
+        // alphanumeric + `-_` set so malformed or injection-style payloads are rejected
+        // before they ever reach the repository layer.
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        return value.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func isValidHost(_ host: String?) -> Bool {
