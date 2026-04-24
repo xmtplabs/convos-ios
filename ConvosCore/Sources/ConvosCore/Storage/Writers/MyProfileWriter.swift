@@ -93,6 +93,11 @@ class MyProfileWriter: MyProfileWriterProtocol {
             return profile
         }
         try await sendProfileUpdateThrowing(profile: profile, group: group)
+        do {
+            try await group.updateProfile(profile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
     }
 
     func update(avatar: ImageType?, conversationId: String) async throws {
