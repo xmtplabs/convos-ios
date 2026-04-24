@@ -1,34 +1,37 @@
 #!/bin/bash
 set -e
 
+source "${SRCROOT}/Scripts/secrets-utils.sh"
+GIT_SHA=$(get_git_commit_sha "${SRCROOT}")
+
 # Part 1: Generate Secrets.swift for Local builds (auto-detect IP)
 if [ "$CONFIGURATION" = "Local" ]; then
     echo "🏠 Local build detected - generating secrets with auto-detected IP"
-    
+
     SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
-    
+
     LOCAL_IP=$(ifconfig | grep -E "inet [0-9]+" | grep -v "127\\." | grep -v "169\\.254\\." | grep -v "10\\." | grep -v "172\\.1[6-9]\\." | grep -v "172\\.2[0-9]\\." | grep -v "172\\.3[0-1]\\." | grep -v "192\\.168\\." | head -1 | awk '{print $2}')
     if [ -z "$LOCAL_IP" ]; then
         LOCAL_IP=$(ifconfig | grep -E "inet [0-9]+" | grep -v "127\\." | grep -v "169\\.254\\." | head -1 | awk '{print $2}')
     fi
-    
+
     if [ -z "$LOCAL_IP" ]; then
         echo "❌ Could not detect local IP address"
         exit 1
     fi
     echo "✅ Detected local IP"
     mkdir -p "${SRCROOT}/Convos/Config"
-    
+
     CONVOS_API_BASE_URL=""
     XMTP_CUSTOM_HOST=""
     FIREBASE_TOKEN=""
-    
+
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         XMTP_CUSTOM_HOST=$(grep -v '^#' "${SRCROOT}/.env" | grep '^XMTP_CUSTOM_HOST=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
-    
+
     cat > "$SECRETS_FILE" << EOF
 import Foundation
 
@@ -39,6 +42,7 @@ enum Secrets {
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
 }
 // swiftlint:enable all
 EOF
@@ -47,10 +51,10 @@ EOF
 # Part 2: Generate Secrets.swift for Dev builds (read Firebase token from .env)
 elif [ "$CONFIGURATION" = "Dev" ]; then
     echo "🔧 Dev build detected - generating secrets from .env"
-    
+
     SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
     mkdir -p "${SRCROOT}/Convos/Config"
-    
+
     FIREBASE_TOKEN=""
     CONVOS_API_BASE_URL=""
     if [ -f "${SRCROOT}/.env" ]; then
@@ -58,13 +62,13 @@ elif [ "$CONFIGURATION" = "Dev" ]; then
 
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
-    
+
     if [ -n "$FIREBASE_TOKEN" ]; then
         echo "✅ Found Firebase debug token in .env"
     else
         echo "⚠️  No Firebase debug token in .env - you may need to register tokens manually"
     fi
-    
+
     cat > "$SECRETS_FILE" << EOF
 import Foundation
 
@@ -75,6 +79,7 @@ enum Secrets {
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
 }
 // swiftlint:enable all
 EOF

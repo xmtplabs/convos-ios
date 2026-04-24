@@ -908,6 +908,7 @@
 			);
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/config.json",
+				"$(SRCROOT)/NotificationService/BuildInfo.swift",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

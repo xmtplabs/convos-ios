@@ -24,6 +24,10 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
             )
         }
 
+        let nseVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let nseBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+        Log.info("Launch: version=\(nseVersion) build=\(nseBuild) commit=\(BuildInfo.commitHash) environment=\(environment.name)")
+
         return try NotificationExtensionEnvironment.createPushNotificationHandler(
             platformProviders: .iOSExtension
         )
