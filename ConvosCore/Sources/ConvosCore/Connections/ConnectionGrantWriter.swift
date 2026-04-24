@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -44,28 +43,23 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             grantedAt: Date()
         )
 
+        // Publish before persisting. If the publish fails we never commit the grant
+        // locally, so there is no way for a partially-completed operation to leave a
+        // local grant that was never announced to the group.
+        let targetGrants = try await projectedGrants(
+            for: conversationId,
+            addingOrReplacing: grant,
+            removing: nil
+        )
+        try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
+
         try await databaseWriter.write { db in
             try grant.save(db)
-        }
-
-        do {
-            try await syncGrantsToMetadata(for: conversationId)
-        } catch {
-            Log.warning("[CloudConnections] metadata write failed, rolling back DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
-            try? await databaseWriter.write { db in
-                try DBConnectionGrant
-                    .filter(
-                        DBConnectionGrant.Columns.connectionId == connectionId
-                            && DBConnectionGrant.Columns.conversationId == conversationId
-                    )
-                    .deleteAll(db)
-            }
-            throw error
         }
     }
 
     func revokeGrant(connectionId: String, from conversationId: String) async throws {
-        let removedGrant = try await databaseReader.read { db in
+        let existing = try await databaseReader.read { db in
             try DBConnectionGrant
                 .filter(
                     DBConnectionGrant.Columns.connectionId == connectionId
@@ -73,6 +67,20 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
                 )
                 .fetchOne(db)
         }
+        guard existing != nil else {
+            // Nothing to revoke, no-op.
+            return
+        }
+
+        // Publish the reduced grant set first; only delete locally after the agent sees
+        // the removal. If publish fails we leave the row intact so the UI/agent stay
+        // consistent.
+        let targetGrants = try await projectedGrants(
+            for: conversationId,
+            addingOrReplacing: nil,
+            removing: (connectionId: connectionId, conversationId: conversationId)
+        )
+        try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
 
         try await databaseWriter.write { db in
             try DBConnectionGrant
@@ -82,34 +90,42 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
                 )
                 .deleteAll(db)
         }
-
-        do {
-            try await syncGrantsToMetadata(for: conversationId)
-        } catch {
-            Log.warning("[CloudConnections] metadata write failed, restoring DB grant (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
-            if let removedGrant {
-                try? await databaseWriter.write { db in
-                    try removedGrant.save(db)
-                }
-            }
-            throw error
-        }
     }
 
-    private func syncGrantsToMetadata(for conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-        let senderId = inboxReady.client.inboxId
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConnectionGrantError.conversationNotFound(conversationId)
-        }
-
-        let grants = try await databaseReader.read { db in
+    private func projectedGrants(
+        for conversationId: String,
+        addingOrReplacing addition: DBConnectionGrant?,
+        removing removal: (connectionId: String, conversationId: String)?
+    ) async throws -> [DBConnectionGrant] {
+        let existing = try await databaseReader.read { db in
             try DBConnectionGrant
                 .filter(DBConnectionGrant.Columns.conversationId == conversationId)
                 .fetchAll(db)
         }
+
+        var projected = existing
+        if let removal {
+            projected.removeAll {
+                $0.connectionId == removal.connectionId
+                    && $0.conversationId == removal.conversationId
+            }
+        }
+        if let addition {
+            projected.removeAll {
+                $0.connectionId == addition.connectionId
+                    && $0.conversationId == addition.conversationId
+            }
+            projected.append(addition)
+        }
+        return projected
+    }
+
+    private func syncGrantsToMetadata(
+        for conversationId: String,
+        desiredGrants: [DBConnectionGrant]
+    ) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let senderId = inboxReady.client.inboxId
 
         let connections = try await databaseReader.read { db in
             try DBConnection
@@ -119,7 +135,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
 
         let iso8601 = ISO8601DateFormatter()
-        let entries: [ConnectionGrantEntry] = grants.compactMap { grant in
+        let entries: [ConnectionGrantEntry] = desiredGrants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
             // Guard against DB rows written before canonical-naming landed: if the
             // stored serviceId is a Composio toolkit slug, translate back to canonical.
@@ -146,9 +162,10 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         }
 
         // Primary: send a ProfileUpdate message with metadata["connections"]. This is
-        // the CLI's (and therefore the agent's) current read path — throws on failure
-        // so the caller rolls the DB grant back. We run this BEFORE the best-effort
-        // appData write so a ProfileUpdate failure can't leave a stale grant in appData.
+        // the CLI's (and therefore the agent's) current read path. We use the throwing
+        // variant so a send failure propagates to the caller, which then declines to
+        // persist the local grant change. We run this before the best-effort appData
+        // write so a ProfileUpdate failure can't leave a stale grant in appData.
         try await sendProfileUpdateWithConnections(
             conversationId: conversationId,
             senderId: senderId,
@@ -156,8 +173,14 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         )
 
         // Best-effort: stash on the sender's ConversationProfile in appData (field 5).
-        // Forward-compat hedge for any CLI reader that looks at appData — failures are logged only.
+        // Forward-compat hedge for any CLI reader that looks at appData — failures are logged only,
+        // including failure to locate the group (appData isn't on the critical path).
         do {
+            guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+                  case .group(let group) = conversation else {
+                Log.warning("[CloudConnections] appData write skipped (best-effort), conversation not found: \(conversationId)")
+                return
+            }
             if let grantsJson {
                 try await group.updateSenderConnections(grantsJson, senderInboxId: senderId)
             } else {
@@ -187,7 +210,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             merged.removeValue(forKey: Constant.connectionsKey)
         }
 
-        try await myProfileWriter.update(
+        try await myProfileWriter.updateAndPublish(
             metadata: merged.isEmpty ? nil : merged,
             conversationId: conversationId
         )
