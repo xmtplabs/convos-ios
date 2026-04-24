@@ -119,40 +119,51 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     public func refreshConnections() async throws -> [Connection] {
         let responses = try await apiClient.listConnections()
 
-        let connections: [Connection] = responses.map { response in
-            let canonical = ConnectionServiceNaming.canonicalService(fromComposioSlug: response.serviceId)
-            return Connection(
-                id: response.connectionId,
-                serviceId: canonical,
-                serviceName: displayName(for: response.serviceName, fallbackFrom: canonical),
-                provider: .composio,
-                composioEntityId: response.composioEntityId,
-                composioConnectionId: response.composioConnectionId,
-                status: ConnectionStatus.from(composioStatus: response.status),
-                connectedAt: Date()
-            )
-        }
-
         // Delta update rather than deleteAll-then-reinsert: DBConnectionGrant
         // rows have ON DELETE CASCADE on DBConnection.id, so deleting every
         // connection (even momentarily within the same transaction) wipes
         // every grant on the device. Since refresh() fires every time the
         // Connections settings screen appears, that path would destroy every
         // grant on settings entry.
-        let serverIds = Set(connections.map { $0.id })
-        try await databaseWriter.write { db in
-            let existingIds = Set(try DBConnection.fetchAll(db).map { $0.id })
+        //
+        // The server response doesn't include the original connection
+        // timestamp, so we must preserve the existing `connectedAt` for rows
+        // that already exist locally; otherwise every refresh resets the
+        // historical "connected on" date to now. Only brand-new rows get
+        // `Date()` as their creation timestamp.
+        let serverIds = Set(responses.map { $0.connectionId })
+        let connections: [Connection] = try await databaseWriter.write { [self] db in
+            let existingById = try Dictionary(
+                uniqueKeysWithValues: DBConnection.fetchAll(db).map { ($0.id, $0) }
+            )
 
-            for connection in connections {
+            let refreshed: [Connection] = responses.map { response in
+                let canonical = ConnectionServiceNaming.canonicalService(fromComposioSlug: response.serviceId)
+                let existingConnectedAt = existingById[response.connectionId]?.connectedAt
+                return Connection(
+                    id: response.connectionId,
+                    serviceId: canonical,
+                    serviceName: self.displayName(for: response.serviceName, fallbackFrom: canonical),
+                    provider: .composio,
+                    composioEntityId: response.composioEntityId,
+                    composioConnectionId: response.composioConnectionId,
+                    status: ConnectionStatus.from(composioStatus: response.status),
+                    connectedAt: existingConnectedAt ?? Date()
+                )
+            }
+
+            for connection in refreshed {
                 try DBConnection(from: connection).save(db)
             }
 
-            let idsToDelete = existingIds.subtracting(serverIds)
+            let idsToDelete = Set(existingById.keys).subtracting(serverIds)
             if !idsToDelete.isEmpty {
                 try DBConnection
                     .filter(idsToDelete.contains(DBConnection.Columns.id))
                     .deleteAll(db)
             }
+
+            return refreshed
         }
 
         return connections

@@ -71,6 +71,69 @@ struct ConnectionManagerTests {
         #expect(remaining == ["conn-keep"], "Delta update must drop rows the server no longer returns")
     }
 
+    @Test("refreshConnections preserves the existing connectedAt for rows the server still returns")
+    func refreshPreservesConnectedAt() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        let connectionId = "conn-1"
+        let originalConnectedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        try await fixtures.dbWriter.write { db in
+            try DBConnection(
+                id: connectionId,
+                serviceId: "google_calendar",
+                serviceName: "Google Calendar",
+                provider: ConnectionProvider.composio.rawValue,
+                composioEntityId: "entity-\(connectionId)",
+                composioConnectionId: "ca-\(connectionId)",
+                status: ConnectionStatus.active.rawValue,
+                connectedAt: originalConnectedAt
+            ).insert(db)
+        }
+
+        apiClient.stubbedConnections = [
+            makeConnectionResponse(connectionId: connectionId, serviceId: "google_calendar", status: "EXPIRED")
+        ]
+
+        let returned = try await manager.refreshConnections()
+
+        #expect(returned.first?.connectedAt == originalConnectedAt,
+                "Refresh must not overwrite an existing connectedAt with Date()")
+
+        let stored = try await fixtures.dbReader.read { db in
+            try DBConnection.fetchOne(db, key: connectionId)
+        }
+        #expect(stored?.connectedAt == originalConnectedAt,
+                "Database must preserve the original connectedAt across refresh")
+        #expect(stored?.status == ConnectionStatus.expired.rawValue,
+                "Refresh should still apply status updates from the server")
+    }
+
+    @Test("refreshConnections stamps Date() on brand-new rows")
+    func refreshStampsNewRowsWithNow() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        let before = Date()
+        apiClient.stubbedConnections = [
+            makeConnectionResponse(connectionId: "conn-new", serviceId: "google_calendar")
+        ]
+
+        let returned = try await manager.refreshConnections()
+        let after = Date()
+
+        let stampedAt = try #require(returned.first?.connectedAt)
+        #expect(stampedAt >= before && stampedAt <= after,
+                "A brand-new connection should get Date() as its connectedAt")
+    }
+
     @Test("refreshConnections upserts status changes without touching grants")
     func refreshUpdatesStatus() async throws {
         let fixtures = try await makeTestFixtures()
