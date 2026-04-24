@@ -96,7 +96,7 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
-    private var hiddenConversationIds: Set<String> = []
+    private(set) var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -304,7 +304,9 @@ final class ConversationsViewModel {
             do {
                 let writer = session.messagingService().conversationConsentWriter()
                 try await writer.delete(conversation: conversation)
+                self.hiddenConversationIds.remove(conversationId)
             } catch {
+                self.hiddenConversationIds.remove(conversationId)
                 Log.error("Failed to persist delete for \(conversationId): \(error.localizedDescription)")
             }
         }

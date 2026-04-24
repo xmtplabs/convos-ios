@@ -28,6 +28,63 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
         XCTAssertEqual(consentWriter.deletedConversations.map(\.id), [conversation.id])
     }
 
+    func testLeaveSuccessRemovesFromHiddenConversationIds() async throws {
+        let conversation = Conversation.mock(id: "conv-success", name: "Success")
+        let consentWriter = MockConversationConsentWriter()
+        let messagingService = MockMessagingService(conversationConsentWriter: consentWriter)
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            messagingService: messagingService
+        )
+
+        let viewModel = ConversationsViewModel(session: session)
+        viewModel.conversations = [conversation]
+
+        viewModel.leave(conversation: conversation)
+
+        try await waitUntil(timeout: 1.0) {
+            !consentWriter.deletedConversations.isEmpty
+        }
+
+        try await waitUntilMainActor(timeout: 1.0) {
+            !viewModel.hiddenConversationIds.contains(conversation.id)
+        }
+
+        XCTAssertFalse(
+            viewModel.hiddenConversationIds.contains(conversation.id),
+            "Optimistic hide should be released once the consent write succeeds"
+        )
+    }
+
+    func testLeaveFailureRemovesFromHiddenConversationIds() async throws {
+        let conversation = Conversation.mock(id: "conv-fail", name: "Failure")
+        let consentWriter = MockConversationConsentWriter()
+        consentWriter.deleteError = TestError.deleteFailed
+        let messagingService = MockMessagingService(conversationConsentWriter: consentWriter)
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            messagingService: messagingService
+        )
+
+        let viewModel = ConversationsViewModel(session: session)
+        viewModel.conversations = [conversation]
+
+        viewModel.leave(conversation: conversation)
+
+        try await waitUntilMainActor(timeout: 1.0) {
+            !viewModel.hiddenConversationIds.contains(conversation.id)
+        }
+
+        XCTAssertFalse(
+            viewModel.hiddenConversationIds.contains(conversation.id),
+            "Optimistic hide should be released when the consent write fails so the row can reappear"
+        )
+        XCTAssertTrue(
+            consentWriter.deletedConversations.isEmpty,
+            "Writer should not have recorded a successful deletion when throwing"
+        )
+    }
+
     func testLeaveHidesRowBeforeWriterCompletes() async throws {
         let slowWriter = DelayedConsentWriter()
         let messagingService = MockMessagingService(conversationConsentWriter: slowWriter)
@@ -77,6 +134,25 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
         }
         XCTFail("waitUntil timed out after \(timeout)s")
     }
+
+    private func waitUntilMainActor(
+        timeout: TimeInterval,
+        interval: TimeInterval = 0.02,
+        condition: @MainActor () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+        }
+        XCTFail("waitUntilMainActor timed out after \(timeout)s")
+    }
+}
+
+private enum TestError: Error {
+    case deleteFailed
 }
 
 private actor DelayedConsentWriterState {
