@@ -2,6 +2,16 @@ import ConvosInvites
 import ConvosProfiles
 import Foundation
 import GRDB
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because the
+// DM back-channel for the invite flow (audit open question #4) passes
+// `XMTPiOS.DecodedMessage` and `XMTPiOS.Group` through to
+// `ConvosInvites.InviteCoordinator` / `InviteClientProviderAdapter`.
+// `ConvosInvites` is a sibling SwiftPM package that ConvosCore depends
+// on, so it cannot depend on ConvosCore's `Messaging*` protocols
+// without a circular import (per directive for Stage 4e). Once
+// `ConvosInvites` migrates to a package-local signer / group protocol
+// or promotes the `Messaging*` types out of ConvosCore, this file can
+// migrate in lockstep.
 @preconcurrency import XMTPiOS
 
 public struct JoinRequestResult: Sendable {

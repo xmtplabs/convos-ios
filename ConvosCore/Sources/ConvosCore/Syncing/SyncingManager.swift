@@ -1,6 +1,14 @@
 import ConvosInvites
 import Foundation
 import GRDB
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// actor threads `AnyClientProvider` (= `any XMTPClientProvider`) and
+// `[ConsentState]` throughout its lifecycle surface. `XMTPClientProvider`
+// is the legacy Stage 3 writer-surface protocol; migrating it to
+// `any MessagingClient` (and `ConsentState` to `MessagingConsentState`)
+// is Stage 3 writer work. Stream consumption delegates to
+// `StreamProcessor`, which is where the actual `XMTPiOS.Group` /
+// `DecodedMessage` handling lives (also blocked on Stage 3).
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol

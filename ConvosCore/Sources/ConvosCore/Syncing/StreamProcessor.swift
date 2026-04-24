@@ -3,6 +3,17 @@ import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// actor is the main stream-processing entry point — it receives
+// `XMTPiOS.Group` and `DecodedMessage` directly from the legacy
+// `XMTPClientProvider` streams and hands both to Stage 3 writers
+// (`conversationWriter.store(...)`, `messageWriter.store(message:...)`)
+// + the invite-flow back-channel (`InviteJoinRequestsManager`, which
+// also takes `DecodedMessage`). The audit flags the `.group / .dm`
+// pattern match at ~line 200 (originally 187 pre-Stage-2) as
+// load-bearing — it is preserved here identically. Migration blocked
+// on Stage 3 writer surface + the `MessagingMessage` →
+// `XMTPiOS.DecodedMessage` round-trip gap (Stage 1 value type).
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol

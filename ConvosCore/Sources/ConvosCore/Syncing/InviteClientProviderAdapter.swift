@@ -1,5 +1,12 @@
 import ConvosInvites
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// file adapts the legacy `XMTPClientProvider` to
+// `ConvosInvites.InviteClientProvider`, whose protocol surface is
+// defined in XMTPiOS-native types (`XMTPiOS.Conversation`, `Dm`,
+// `ConsentState`, etc.). ConvosInvites is a sibling SwiftPM package;
+// migrating its protocol surface is Stage 4e territory (blocked on the
+// circular import — see directive).
 @preconcurrency import XMTPiOS
 
 /// Adapts ConvosCore's `XMTPClientProvider` to ConvosInvites' `InviteClientProvider`.
