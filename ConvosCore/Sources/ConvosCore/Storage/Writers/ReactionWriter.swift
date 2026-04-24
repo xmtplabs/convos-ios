@@ -10,7 +10,6 @@ public protocol ReactionWriterProtocol: Sendable {
 }
 
 enum ReactionWriterError: Error {
-    case missingClientProvider
     case conversationNotFound(conversationId: String)
     case messageNotFound(messageId: String)
     case unknownReactionAction
