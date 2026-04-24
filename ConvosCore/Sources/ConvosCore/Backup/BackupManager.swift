@@ -80,12 +80,17 @@ public actor BackupManager {
         // install whose conversations have all been explicitly deleted
         // hit this path — skip rather than producing a bundle the user
         // would have no reason to restore (and that would overwrite the
-        // last-good backup in iCloud).
+        // last-good backup in iCloud). Draft / unused rows (created
+        // optimistically by UnusedConversationCache but never sent to)
+        // don't count — a user with nothing but prepared-but-unsent
+        // groups hasn't actually started using the app yet.
         let conversationCount = try await databaseReader.read { db in
-            try DBConversation.fetchCount(db)
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == false)
+                .fetchCount(db)
         }
         guard conversationCount > 0 else {
-            Log.info("BackupManager: no conversations to back up, skipping")
+            Log.info("BackupManager: no usable conversations to back up, skipping")
             throw BackupError.noConversationsToBackUp
         }
 
@@ -102,6 +107,17 @@ public actor BackupManager {
         Log.info("BackupManager: snapshotting database")
         let dbDestination = try DatabaseQueue(path: BackupBundle.databasePath(in: stagingDir).path)
         try databaseReader.backup(to: dbDestination)
+
+        // Strip draft / unused rows from the snapshot. Prewarm may have
+        // created a DBConversation row with isUnused = true that the
+        // user never sent to. Shipping it across devices makes the
+        // restore show an empty placeholder conversation that can't
+        // reactivate — better to just not include it.
+        try await dbDestination.write { db in
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .deleteAll(db)
+        }
 
         // Per-bundle archive key. Generated fresh so compromise of a prior
         // bundle does not cascade to this one. Lives only inside the inner

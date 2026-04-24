@@ -39,12 +39,33 @@ final class BackupCoordinator {
         )
     }
 
-    /// Called once from `ConvosApp.init`'s follow-up Task. Runs the
-    /// restore-discovery pass and either flips the bootstrap gate to
-    /// `.restoreAvailable` (blocking registration while the prompt
-    /// card is up) or `.noRestoreAvailable` (releasing the gate so
-    /// normal onboarding runs).
+    /// Called once from `ConvosApp.init`'s follow-up Task. Resolves the
+    /// bootstrap gate:
+    ///
+    /// - If this install already has a DBInbox row, it's an existing
+    ///   user on a device they've been using. Skip the prompt and
+    ///   release the gate immediately so the normal session boots.
+    /// - Otherwise — this is either a fresh install OR a new device
+    ///   where iCloud Keychain synced the identity but no XMTP DB
+    ///   exists yet. If a compatible backup is discovered, block the
+    ///   gate and show the restore prompt. If not, release the gate
+    ///   and let normal onboarding run.
+    ///
+    /// Blocking the gate is what prevents the "silent restore" bug:
+    /// without it, `SessionManager` would run `.authorize` on the
+    /// iCloud-Keychain-synced identity, Client.build would fail for
+    /// lack of a local XMTP DB, Client.create would register a fresh
+    /// installation on the existing inbox, and the user's conversations
+    /// would quietly stream back in via welcome messages — all before
+    /// we ever asked whether they wanted that to happen.
     func resolveBootstrapDecision() async {
+        let alreadyInitialized = await convos.hasAnyUsedInbox()
+        if alreadyInitialized {
+            showRestorePrompt = false
+            convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
+            return
+        }
+
         let manager = convos.makeRestoreManager()
         let available = await manager.findAvailableBackup()
         await viewModel.refresh()

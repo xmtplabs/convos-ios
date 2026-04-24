@@ -9,7 +9,7 @@ import GRDB
 /// configuration. The client coordinates between the SessionManager (which handles
 /// multiple messaging service instances) and the DatabaseManager (which provides
 /// persistent storage).
-public final class ConvosClient {
+public final class ConvosClient: @unchecked Sendable {
     private let sessionManager: any SessionManagerProtocol
     private let databaseManager: any DatabaseManagerProtocol
     public let environment: AppEnvironment
@@ -113,6 +113,19 @@ public final class ConvosClient {
         (try? await databaseManager.dbReader.read { db in
             try DBConversation.fetchCount(db)
         }) ?? 0
+    }
+
+    /// True when this install has previously authorized an inbox —
+    /// i.e. there is at least one `DBInbox` row. Lets the app-layer
+    /// tell "fresh install, show restore prompt" from "existing user,
+    /// just boot the session". An identity being present in iCloud
+    /// Keychain is not enough — a brand-new device will see the
+    /// identity synced from another phone but will still have zero
+    /// DBInbox rows until it registers a new installation.
+    public func hasAnyUsedInbox() async -> Bool {
+        (try? await databaseManager.dbReader.read { db in
+            try DBInbox.fetchCount(db) > 0
+        }) ?? false
     }
 
     /// Builds a `RestoreManager` bound to this client's identity store +

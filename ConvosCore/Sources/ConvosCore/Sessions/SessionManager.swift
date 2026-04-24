@@ -319,18 +319,25 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 return errored
             }
 
-            // Bootstrap gate: if we'd take the .register branch (no
-            // identity present) and the restore decision hasn't been
-            // resolved yet, refuse to register. Minting a new identity
-            // now would invalidate the user's backup before they got to
-            // see the restore card. Cache a frozen placeholder backed by
+            // Bootstrap gate: block ALL session construction — both the
+            // .register branch (no identity present) and the .authorize
+            // branch (identity synced via iCloud Keychain from another
+            // device) — until the app-layer BackupCoordinator resolves
+            // .restoreAvailable vs .noRestoreAvailable.
+            //
+            // The .authorize branch must be gated too because the
+            // "identity synced but no local XMTP DB" scenario falls
+            // through Client.build and into Client.create, which
+            // registers a fresh installation on the existing inbox
+            // silently. From the user's POV that's a restore happening
+            // without consent. Cache a frozen placeholder backed by
             // RestoreDecisionPendingError so subsequent accessors don't
             // thrash; the next call after the decision resolves rebuilds.
-            if identity == nil, restoreBootstrapDecision.blocksRegistration {
+            if restoreBootstrapDecision.blocksRegistration {
                 if let existing = cached {
                     return existing
                 }
-                Log.info("SessionManager: registration blocked by bootstrap gate (\(restoreBootstrapDecision))")
+                Log.info("SessionManager: session construction blocked by bootstrap gate (\(restoreBootstrapDecision))")
                 let placeholder = MessagingService(
                     identityReadFailure: RestoreDecisionPendingError(),
                     databaseWriter: databaseWriter,
@@ -543,13 +550,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     /// Called by `RestoreManager` after `importArchive` completes (or
-    /// fails non-fatally). Clears both flags and re-runs prewarm so the
-    /// app rebuilds its cached service against the restored identity.
+    /// fails non-fatally). Clears both flags, re-runs prewarm so the
+    /// app rebuilds its cached service against the restored identity,
+    /// and nudges the NotificationChangeReporter so SwiftUI reloads
+    /// (GRDB's ValueObservation re-fires on actual data changes, but
+    /// view models that use the notification-based refresh path need
+    /// an explicit poke after replaceDatabase).
     public func resumeAfterRestore() async {
         cachedMessagingService.withLock { _ in
             isRestoringInProcess = false
         }
         RestoreInProgressFlag.set(false, environment: environment)
+        notificationChangeReporter.notifyChangesInDatabase()
         await prewarmUnusedConversation()
     }
 

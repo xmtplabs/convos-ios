@@ -629,6 +629,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             environment: environment
         ) {
             Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
+            // Flip every local conversation to inactive so the UI greys
+            // out the composer immediately. The StaleDeviceBanner is
+            // still the primary reset path; this makes each conversation
+            // individually correct even before the user taps Reset.
+            do {
+                try await ConversationLocalStateWriter(databaseWriter: databaseWriter)
+                    .markAllConversationsInactive()
+            } catch {
+                Log.warning("SessionStateMachine: failed to mark conversations inactive on device replacement: \(error)")
+            }
             throw DeviceReplacedError()
         }
 

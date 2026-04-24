@@ -10,21 +10,28 @@ extension ConvosClient {
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
         let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
-        // Start with the bootstrap gate closed if no identity is present.
-        // The app-layer BackupCoordinator resolves this to
-        // .restoreAvailable / .noRestoreAvailable on first launch, which
-        // keeps a fresh-install from minting a new identity before the
-        // restore prompt card appears. Installs that already have an
-        // identity open the gate immediately since loadOrCreateService's
-        // register-branch guard only blocks when loadSync returns nil.
-        let hasExistingIdentity = (try? identityStore.loadSync()) != nil
+        // Always start the bootstrap gate closed. The app-layer
+        // BackupCoordinator resolves it to
+        // .restoreAvailable / .noRestoreAvailable on first launch.
+        //
+        // This also covers the "identity synced via iCloud Keychain but no
+        // local XMTP DB" scenario — on a new device, loadSync() returns an
+        // identity (from iCloud Keychain sync), and without this gate the
+        // `.authorize` path would silently fall back to Client.create,
+        // registering a fresh installation on the existing inbox. That
+        // looks to the user like a restore happened without consent.
+        // Blocking all session construction until the coordinator's async
+        // resolve pass completes closes that race.
+        //
+        // Clip and test contexts that bypass the coordinator need to pass
+        // `initialBootstrapDecision: .noRestoreAvailable` explicitly.
         let sessionManager = SessionManager(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment,
             identityStore: identityStore,
             platformProviders: platformProviders,
-            initialBootstrapDecision: hasExistingIdentity ? .noRestoreAvailable : .unknown
+            initialBootstrapDecision: .unknown
         )
         LinkPreviewWriter.shared = LinkPreviewWriter(dbWriter: databaseWriter)
         let expiredConversationsWorker = ExpiredConversationsWorker(
