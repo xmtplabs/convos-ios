@@ -223,6 +223,26 @@ public final class DualBackendTestFixtures {
             installationAlias: installationAlias
         )
 
+        // Persist the DTU identity in the mock keychain store so
+        // `InviteWriter.generate(...)` (and any other
+        // `identityStore.identity(for:)` lookup keyed by this inbox
+        // alias) can resolve. The XMTPiOS path does this above in
+        // `createXMTPiOSClient`; without the mirror here,
+        // `ConversationWriter.store` falls into a degraded path on
+        // the DTU lane because `InviteWriter` throws `identityNotFound`
+        // and the writer swallows the error (Phase 2 batch 4 gap 3).
+        //
+        // `KeychainIdentityKeys.generate()` produces a real secp256k1
+        // private key — required because `InviteWriter.generate(...)`
+        // signs the invite slug with it via
+        // `SignedInvite.slug(..., privateKey:)`.
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(
+            inboxId: dtuClient.inboxId,
+            clientId: clientId,
+            keys: keys
+        )
+
         return ClientHandle(
             client: dtuClient,
             clientId: clientId,
