@@ -1,13 +1,11 @@
 import Foundation
 import GRDB
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
-// actor unwraps a legacy `GroupConversationSender` back into
-// `XMTPiOS.Group` to call `ensureInviteTag()` /
-// `ensureImageEncryptionKey()` / `saveUnusedConversationToDatabase(...)`.
-// The latter is a Stage 3 writer path. Full migration depends on the
-// `XMTPClientProvider.prepareConversation()` → `any MessagingGroup`
-// and Stage 3 writer-surface migration.
-@preconcurrency import XMTPiOS
+
+// Stage 6c: this actor now drives the optimistic-create flow through
+// `MessagingClient.conversations.newGroupOptimistic()` and operates
+// purely on the `MessagingGroup` abstraction. The legacy
+// `GroupConversationSender` /  `XMTPiOS.Group` downcast is gone, which
+// is what unblocks the DTU adapter for `UnusedConversationCache` tests.
 
 // MARK: - UnusedConversationCacheProtocol
 
@@ -50,12 +48,6 @@ public protocol UnusedConversationCacheProtocol: Actor {
 
     /// Checks if there is an unused conversation available
     func hasUnusedConversation() -> Bool
-}
-
-// MARK: - UnusedConversationCacheError
-
-enum UnusedConversationCacheError: Error {
-    case invalidConversationType
 }
 
 // MARK: - UnusedConversationCache
@@ -909,12 +901,13 @@ extension UnusedConversationCache {
             let client = inboxReady.client
             let inboxId = client.inboxId
 
-            // nonisolated(unsafe) is used because XMTP types are not Sendable. This is safe
-            // here because prepareConversation() is a one-shot operation, not a long-running
-            // stream that could overlap with other XMTP operations.
-            nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
-
-            let conversationId = optimisticConversation.id
+            // Stage 6c migration: drive the optimistic-create flow on
+            // the abstraction. `newGroupOptimistic()` returns a fully
+            // typed `MessagingGroup`, so the legacy
+            // `GroupConversationSender` -> `XMTPiOS.Group` downcast is
+            // unnecessary.
+            let messagingGroup = try await client.messagingClient.conversations.newGroupOptimistic()
+            let conversationId = messagingGroup.id
             let identity = try await identityStore.identity(for: inboxId)
 
             // Reserve the conversation in the database before publishing so the conversation
@@ -926,19 +919,12 @@ extension UnusedConversationCache {
                 databaseWriter: databaseWriter
             )
 
-            try await optimisticConversation.publish()
+            try await messagingGroup.publish()
             Log.debug("Created unused conversation: \(conversationId)")
 
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
 
-            guard let group = optimisticConversation as? XMTPiOS.Group else {
-                throw UnusedConversationCacheError.invalidConversationType
-            }
-
-            // Stage 3 migration: custom-metadata calls flow through
-            // `MessagingGroup+CustomMetadata.swift` on the abstraction.
-            let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(xmtpGroup: group)
             try await messagingGroup.ensureInviteTag()
             do {
                 try await messagingGroup.ensureImageEncryptionKey()
@@ -947,7 +933,7 @@ extension UnusedConversationCache {
             }
 
             try await saveUnusedConversationToDatabase(
-                conversation: group,
+                conversation: messagingGroup,
                 inboxId: inboxId,
                 clientId: identity.clientId,
                 databaseWriter: databaseWriter
@@ -1046,16 +1032,20 @@ extension UnusedConversationCache {
     }
 
     private func saveUnusedConversationToDatabase(
-        conversation: XMTPConversation,
+        conversation: any MessagingGroup,
         inboxId: String,
         clientId: String,
         databaseWriter: any DatabaseWriter
     ) async throws {
         let conversationId = conversation.id
         let creatorInboxId = try await conversation.creatorInboxId()
-        // Stage 3 migration: read inviteTag via the MessagingGroup
-        // extension on the XMTPiOS adapter.
-        let inviteTag = try await XMTPiOSMessagingGroup(xmtpGroup: conversation).inviteTag()
+        // Stage 6c migration: `inviteTag()` is exposed on
+        // `MessagingGroup` via `MessagingGroup+CustomMetadata`, so the
+        // adapter wrap is no longer needed here.
+        let inviteTag = try await conversation.inviteTag()
+        // Convert nanosecond timestamp from the abstraction back to a
+        // `Date` for `DBConversation`.
+        let createdAt = Date(timeIntervalSince1970: TimeInterval(conversation.createdAtNs) / 1_000_000_000)
 
         try await databaseWriter.write { db in
             let member = DBMember(inboxId: inboxId)
@@ -1075,7 +1065,7 @@ extension UnusedConversationCache {
                     creatorId: creatorInboxId,
                     kind: .group,
                     consent: .allowed,
-                    createdAt: conversation.createdAt,
+                    createdAt: createdAt,
                     name: nil,
                     description: nil,
                     imageURLString: nil,
@@ -1153,7 +1143,3 @@ extension UnusedConversationCache {
         } catch { Log.error("Failed to save unused conversation to keychain: \(error)") }
     }
 }
-
-// MARK: - Type Aliases
-
-private typealias XMTPConversation = XMTPiOS.Group
