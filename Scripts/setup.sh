@@ -146,40 +146,78 @@ echo "✅ All dependencies are properly installed"
 ################################################################################
 
 if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
-    ENV_FILE="${DIRNAME}/../.env"
+    REPO_ROOT="$(cd "${DIRNAME}/.." && pwd)"
+    PARENT_DIR="$(dirname "${REPO_ROOT}")"
+    PARENT_ENV="${PARENT_DIR}/.env"
+    LOCAL_ENV="${REPO_ROOT}/.env"
     FIREBASE_CONSOLE_URL="https://console.firebase.google.com/u/1/project/convos-otr/appcheck/apps"
-    if [ ! -f "$ENV_FILE" ]; then
+
+    # Reads FIREBASE_APP_CHECK_DEBUG_TOKEN from a file, or empty string if missing/unset.
+    read_firebase_token() {
+        local file="$1"
+        [ -f "$file" ] || { echo ""; return; }
+        grep "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$file" | tail -1 | cut -d'=' -f2-
+    }
+
+    # Matches the /firebase-token slash command's "new token" report.
+    print_firebase_report() {
+        local token="$1"
+        local pinned_path="$2"
+        local symlink_note="$3"
         echo ""
-        echo "⚠️  No .env file found at ${ENV_FILE}"
-        echo "   If this is a worktree, symlink the parent's .env:"
-        echo "     ln -s ../.env .env"
-        echo "   Otherwise, set a FIREBASE_APP_CHECK_DEBUG_TOKEN so Firebase App Check works:"
-        echo "     cp .env.example .env"
-        echo "     echo \"FIREBASE_APP_CHECK_DEBUG_TOKEN=\$(uuidgen)\" >> .env"
-        echo "   Then register the UUID at ${FIREBASE_CONSOLE_URL}"
-        echo "     → pick the iOS app for your scheme (Dev: org.convos.ios-preview,"
-        echo "       Local: org.convos.ios-local, Prod: org.convos.ios)"
-        echo "     → overflow menu (⋮) → Manage debug tokens → Add debug token"
-        echo "   Alternative: launch the app first, then run /firebase-token to grab the"
-        echo "   auto-generated token from simulator logs and register that instead."
-    elif ! grep -q "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" || \
-         [ -z "$(grep "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" | cut -d'=' -f2-)" ]; then
+        echo "🔥 Firebase App Check Debug Token"
         echo ""
-        echo "⚠️  FIREBASE_APP_CHECK_DEBUG_TOKEN is not set in .env"
-        echo "   Without it, you need to register a new debug token in Firebase each time"
-        echo "   the simulator changes."
+        echo "Token: ${token}"
         echo ""
-        echo "   Two ways to fix:"
-        echo "   (a) Generate and pin a stable UUID:"
-        echo "       echo \"FIREBASE_APP_CHECK_DEBUG_TOKEN=\$(uuidgen)\" >> .env"
-        echo "   (b) Launch the app, then run /firebase-token to extract the token the app"
-        echo "       generated, and paste that into .env."
+        echo "✓ Pinned in ${pinned_path}"
+        if [ -n "${symlink_note}" ]; then
+            echo "${symlink_note}"
+        fi
         echo ""
-        echo "   Register the token at ${FIREBASE_CONSOLE_URL}"
-        echo "     → iOS app for your scheme (Dev: org.convos.ios-preview,"
-        echo "       Local: org.convos.ios-local, Prod: org.convos.ios)"
-        echo "     → overflow menu (⋮) → Manage debug tokens → Add debug token"
+        echo "Register it in Firebase Console if you haven't already:"
+        echo "${FIREBASE_CONSOLE_URL}"
+        echo ""
+        echo "1. Click the link"
+        echo "2. Pick the iOS app for your scheme:"
+        echo "   - Dev:   org.convos.ios-preview"
+        echo "   - Local: org.convos.ios-local"
+        echo "   - Prod:  org.convos.ios"
+        echo "3. Overflow menu (⋮) → Manage debug tokens → Add debug token"
+        echo "4. Paste the UUID above"
+    }
+
+    LOCAL_TOKEN="$(read_firebase_token "${LOCAL_ENV}")"
+    PARENT_TOKEN="$(read_firebase_token "${PARENT_ENV}")"
+
+    if [ -n "${LOCAL_TOKEN}" ] || [ -n "${PARENT_TOKEN}" ]; then
+        if [ -L "${LOCAL_ENV}" ]; then
+            echo "✅ Firebase App Check debug token is configured (via ${LOCAL_ENV} → $(readlink "${LOCAL_ENV}"))"
+        elif [ -f "${LOCAL_ENV}" ] && [ -n "${LOCAL_TOKEN}" ]; then
+            echo "✅ Firebase App Check debug token is configured in ${LOCAL_ENV}"
+        else
+            echo "✅ Firebase App Check debug token is configured in ${PARENT_ENV}"
+        fi
     else
-        echo "✅ Firebase App Check debug token is configured"
+        # Nothing set anywhere — generate, pin in parent, symlink local.
+        NEW_TOKEN="$(uuidgen)"
+        if [ -f "${PARENT_ENV}" ] && grep -q "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "${PARENT_ENV}"; then
+            sed -i.bak "s|^FIREBASE_APP_CHECK_DEBUG_TOKEN=.*|FIREBASE_APP_CHECK_DEBUG_TOKEN=${NEW_TOKEN}|" "${PARENT_ENV}"
+            rm -f "${PARENT_ENV}.bak"
+        else
+            echo "FIREBASE_APP_CHECK_DEBUG_TOKEN=${NEW_TOKEN}" >> "${PARENT_ENV}"
+        fi
+
+        SYMLINK_NOTE=""
+        if [ ! -e "${LOCAL_ENV}" ] && [ ! -L "${LOCAL_ENV}" ]; then
+            ln -s ../.env "${LOCAL_ENV}"
+            SYMLINK_NOTE="✓ Linked .env → ../.env at ${LOCAL_ENV}"
+        elif [ -L "${LOCAL_ENV}" ]; then
+            link_target="$(readlink "${LOCAL_ENV}")"
+            SYMLINK_NOTE="✓ .env → ${link_target} symlink already in place at ${LOCAL_ENV}"
+        elif [ -f "${LOCAL_ENV}" ]; then
+            SYMLINK_NOTE=$'⚠️  '"${LOCAL_ENV}"$' is a regular file, not a symlink.\n   To share one token across worktrees:\n     cat .env >> ../.env && rm .env && ln -s ../.env .env'
+        fi
+
+        print_firebase_report "${NEW_TOKEN}" "${PARENT_ENV}" "${SYMLINK_NOTE}"
     fi
 fi
