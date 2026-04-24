@@ -33,6 +33,9 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         guard let connection else {
             throw ConnectionGrantError.connectionNotFound(connectionId)
         }
+        guard connection.status == ConnectionStatus.active.rawValue else {
+            throw ConnectionGrantError.connectionNotActive(connectionId, status: connection.status)
+        }
 
         let grant = DBConnectionGrant(
             connectionId: connectionId,
@@ -207,12 +210,15 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
 enum ConnectionGrantError: LocalizedError {
     case connectionNotFound(String)
+    case connectionNotActive(String, status: String)
     case conversationNotFound(String)
 
     var errorDescription: String? {
         switch self {
         case .connectionNotFound(let id):
             "Connection not found: \(id)"
+        case .connectionNotActive(let id, let status):
+            "Connection not active (\(status)): \(id)"
         case .conversationNotFound(let id):
             "Conversation not found: \(id)"
         }
