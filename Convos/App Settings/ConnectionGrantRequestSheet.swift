@@ -20,6 +20,7 @@ final class ConnectionGrantRequestSheetViewModel {
 
     let serviceId: String
     let conversationId: String
+    let conversation: Conversation?
 
     private let session: any SessionManagerProtocol
     private let connectionManager: any ConnectionManagerProtocol
@@ -29,10 +30,12 @@ final class ConnectionGrantRequestSheetViewModel {
     init(
         serviceId: String,
         conversationId: String,
+        conversation: Conversation?,
         session: any SessionManagerProtocol
     ) {
         self.serviceId = serviceId
         self.conversationId = conversationId
+        self.conversation = conversation
         self.session = session
 
         let oauthProvider: any OAuthSessionProvider = IOSOAuthSessionProvider()
@@ -57,6 +60,10 @@ final class ConnectionGrantRequestSheetViewModel {
 
     var displayName: String {
         ConnectionServiceCatalog.displayName(for: serviceId, fallback: connection?.serviceName)
+    }
+
+    var conversationDisplayName: String {
+        conversation?.displayName ?? "this conversation"
     }
 
     var hasConnection: Bool {
@@ -127,6 +134,8 @@ struct ConnectionGrantRequestSheet: View {
                     .foregroundStyle(.colorTextPrimary)
                     .multilineTextAlignment(.center)
 
+                conversationBadge
+
                 Text(bodyText)
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
@@ -162,15 +171,35 @@ struct ConnectionGrantRequestSheet: View {
             )
     }
 
+    @ViewBuilder
+    private var conversationBadge: some View {
+        if let conversation = viewModel.conversation {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ConversationAvatarView(conversation: conversation, conversationImage: nil)
+                    .frame(width: 24, height: 24)
+                Text(conversation.displayName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.stepX)
+            .background(
+                Capsule().fill(Color.colorBackgroundRaisedSecondary)
+            )
+        }
+    }
+
     private var headline: String {
         viewModel.hasConnection ? "Share \(viewModel.displayName)?" : "Connect \(viewModel.displayName)?"
     }
 
     private var bodyText: String {
+        let target = viewModel.conversationDisplayName
         if viewModel.hasConnection {
-            return "The assistant will be able to use \(viewModel.displayName) in this conversation."
+            return "The assistant will be able to use \(viewModel.displayName) in \(target)."
         } else {
-            return "You haven't connected \(viewModel.displayName) yet. Connect it now to share with this conversation."
+            return "You haven't connected \(viewModel.displayName) yet. Connect it now to share with \(target)."
         }
     }
 

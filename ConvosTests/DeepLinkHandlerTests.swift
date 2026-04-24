@@ -1,3 +1,4 @@
+import ConvosCore
 import XCTest
 @testable import Convos
 
@@ -76,5 +77,100 @@ final class DeepLinkHandlerTests: XCTestCase {
     func testInvalidSchemeReturnsNil() throws {
         let url = try XCTUnwrap(URL(string: "http://example.com/connections/grant?service=x&conversationId=y"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    // MARK: - Service allow-list
+
+    func testUnknownServiceIsRejectedAtParseTime() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=evil_cloud&conversationId=abc123"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testEmptyServiceIsRejectedAtParseTime() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=&conversationId=abc123"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testKnownServiceIsAccepted() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_drive&conversationId=abc123"))
+        guard case let .connectionGrant(service, conversationId) = DeepLinkHandler.destination(for: url) else {
+            XCTFail("Expected .connectionGrant for known service")
+            return
+        }
+        XCTAssertEqual(service, "google_drive")
+        XCTAssertEqual(conversationId, "abc123")
+    }
+
+    // MARK: - Malicious conversationId
+
+    func testConversationIdWithQuotesIsRejected() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc%27%20OR%201%3D1"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testConversationIdWithPathTraversalIsRejected() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=..%2Fetc%2Fpasswd"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testConversationIdWithSpacesIsRejected() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc%20123"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testOverlyLongConversationIdIsRejected() throws {
+        let longId = String(repeating: "a", count: 600)
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=\(longId)"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    // MARK: - ConversationsViewModel.handleURL validation
+
+    @MainActor
+    func testHandleURLDropsUnknownConversationId() throws {
+        let knownConversation = Conversation.mock(id: "known-conv")
+        let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=unknown-conv"))
+
+        viewModel.handleURL(url)
+
+        XCTAssertNil(viewModel.pendingGrantRequest, "Unknown conversationId should be dropped silently")
+        XCTAssertNil(viewModel.selectedConversationId, "Selection should not change for unknown conversationId")
+    }
+
+    @MainActor
+    func testHandleURLSetsPendingGrantForKnownConversation() throws {
+        let knownConversation = Conversation.mock(id: "known-conv")
+        let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=known-conv"))
+
+        viewModel.handleURL(url)
+
+        XCTAssertNotNil(viewModel.pendingGrantRequest)
+        XCTAssertEqual(viewModel.pendingGrantRequest?.serviceId, "google_calendar")
+        XCTAssertEqual(viewModel.pendingGrantRequest?.conversationId, "known-conv")
+        XCTAssertEqual(viewModel.selectedConversationId, "known-conv")
+    }
+
+    @MainActor
+    func testHandleURLDropsUnknownServiceEvenForKnownConversation() throws {
+        let knownConversation = Conversation.mock(id: "known-conv")
+        let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=evil_cloud&conversationId=known-conv"))
+
+        viewModel.handleURL(url)
+
+        XCTAssertNil(viewModel.pendingGrantRequest, "Unknown service should be rejected at parse time")
+    }
+
+    @MainActor
+    func testHandleURLDropsMaliciousConversationId() throws {
+        let knownConversation = Conversation.mock(id: "known-conv")
+        let viewModel = ConversationsViewModel.preview(conversations: [knownConversation])
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc%27%20OR%201%3D1"))
+
+        viewModel.handleURL(url)
+
+        XCTAssertNil(viewModel.pendingGrantRequest, "Malicious conversationId should be rejected")
     }
 }
