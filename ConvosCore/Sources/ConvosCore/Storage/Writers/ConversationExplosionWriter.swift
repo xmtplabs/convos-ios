@@ -8,14 +8,12 @@ public protocol ConversationExplosionWriterProtocol: Sendable {
 
 /// The MLS-level operations the explosion writer needs to reach through to
 /// the XMTP SDK. Factored out so tests can assert the call sequence
-/// (`sendExplode` → remove members → `leaveGroup` → fallback
-/// `updateConsentState`) without standing up a real MLS group. Production
-/// implementation is `XMTPExplodeGroupOperations`; `MockExplodeGroupOperations`
-/// backs the unit tests.
+/// (`sendExplode` → remove members → `denyConsent`) without standing up a
+/// real MLS group. Production implementation is `XMTPExplodeGroupOperations`;
+/// `MockExplodeGroupOperations` backs the unit tests.
 protocol ExplodeGroupOperationsProtocol: Sendable {
     func currentInboxId() async throws -> String
     func sendExplode(conversationId: String, expiresAt: Date) async throws
-    func leaveGroup(conversationId: String) async throws
     func denyConsent(conversationId: String) async throws
 }
 
@@ -45,11 +43,6 @@ struct XMTPExplodeGroupOperations: ExplodeGroupOperationsProtocol {
         let (xmtpConversation, _) = try await findGroupConversation(conversationId: conversationId)
         nonisolated(unsafe) let unsafeConversation = xmtpConversation
         try await unsafeConversation.sendExplode(expiresAt: expiresAt)
-    }
-
-    func leaveGroup(conversationId: String) async throws {
-        let (_, group) = try await findGroupConversation(conversationId: conversationId)
-        try await group.leaveGroup()
     }
 
     func denyConsent(conversationId: String) async throws {
@@ -92,21 +85,22 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
 
         // Filter the creator's own inboxId out of the member list. The
         // ViewModel passes `conversation.members.map { $0.profile.inboxId }`
-        // which includes the current user. MLS rejects self-removal via
-        // `removeMembers` — the creator must leave via `leaveGroup()` at the end.
-        // Without this filter the remove step throws and the explode degrades to
-        // "the codec message went out but nothing else happened."
+        // which includes the current user, and MLS rejects self-removal via
+        // `removeMembers`. Without this filter the remove step throws and the
+        // explode degrades to "the codec message went out but nothing else
+        // happened."
         let currentInboxId = try await operations.currentInboxId()
         let otherMemberInboxIds = memberInboxIds.filter { $0 != currentInboxId }
 
         // Every leg below runs through `runBoundedOp`: bounded timeout,
-        // logged failure, non-fatal. The MLS teardown (removeMembers +
-        // leaveGroup) is the source of truth for "group ends"; the codec
-        // `ExplodeSettings` send is a best-effort hint so receivers can hide the
-        // conversation ahead of the MLS commit arriving. Any single leg failing
-        // must not abort the remaining legs — partial-destruction leaves the
-        // group half-gone on the network, which is strictly worse than a
-        // best-effort full sweep where some pieces may still retry later.
+        // logged failure, non-fatal. `removeMembers` is the source of truth
+        // for "group ends" from the other participants' perspective; the
+        // codec `ExplodeSettings` send is a best-effort hint so receivers
+        // can hide the conversation ahead of the MLS commit arriving. Any
+        // single leg failing must not abort the remaining legs — partial-
+        // destruction leaves the group half-gone on the network, which is
+        // strictly worse than a best-effort full sweep where some pieces
+        // may still retry later.
         await runBoundedOp("ExplodeSettings send", logSuccess: true) { [operations] in
             try await operations.sendExplode(conversationId: conversationId, expiresAt: expiresAt)
         }
@@ -127,21 +121,15 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             try await metadataWriter.removeMembers(otherMemberInboxIds, from: conversationId)
         }
 
-        // The creator leaves the group via an explicit self-remove; the
-        // XMTP SDK sends the MLS commit that takes us out. `denyConsent` is
-        // a belt-and-suspenders fallback for when `leaveGroup()` gets
-        // interrupted — we're out of the group on success so there's
-        // nothing left to sync, but denying consent still blocks the
-        // conversation from re-syncing if the leave commit never landed.
-        let left = await runBoundedOp("leaveGroup", logSuccess: true) { [operations] in
-            try await operations.leaveGroup(conversationId: conversationId)
-        }
-        if left {
-            Log.info("Creator left exploded group: \(conversationId)")
-        } else {
-            await runBoundedOp("denyConsent fallback", logSuccess: true) { [operations] in
-                try await operations.denyConsent(conversationId: conversationId)
-            }
+        // Deny consent so the exploded conversation doesn't re-sync
+        // locally. `removeMembers` upstream is the real teardown signal to
+        // other participants; consent just prevents the local client from
+        // pulling the conversation back in. libxmtp rejects an explicit
+        // `leaveGroup()` here because the creator is the sole remaining
+        // member after `removeMembers`, and a 1 → 0 MLS commit has nobody
+        // left to validate it.
+        await runBoundedOp("denyConsent", logSuccess: true) { [operations] in
+            try await operations.denyConsent(conversationId: conversationId)
         }
     }
 
@@ -171,27 +159,21 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
     /// Bounded best-effort wrapper for a single leg of the explode sweep. Any
     /// thrown error or timeout is logged and swallowed so the remaining legs
     /// still run — partial destruction is strictly worse than a best-effort
-    /// full sweep. Returns `true` on success, `false` on throw or timeout;
-    /// callers that branch on the result (e.g. `leaveGroup` → `denyConsent`
-    /// fallback) read it. `logSuccess` toggles a success log line, set to
-    /// true on the network-visible MLS legs so telemetry can confirm they
-    /// completed.
-    @discardableResult
+    /// full sweep. `logSuccess` toggles a success log line, set to true on
+    /// the network-visible MLS legs so telemetry can confirm they completed.
     private func runBoundedOp(
         _ name: String,
         timeout: TimeInterval = 20,
         logSuccess: Bool = false,
         _ body: @escaping @Sendable () async throws -> Void
-    ) async -> Bool {
+    ) async {
         do {
             try await withTimeout(seconds: timeout, operation: body)
             if logSuccess {
                 Log.info("\(name) succeeded")
             }
-            return true
         } catch {
             Log.error("\(name) failed: \(error.localizedDescription)")
-            return false
         }
     }
 }
