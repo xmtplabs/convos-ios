@@ -1,5 +1,13 @@
 import Foundation
 import GRDB
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// file calls the static `XMTPStaticOperations.getNewestMessageMetadata`
+// which returns the native XMTPiOS `MessageMetadata` type. The
+// abstraction has `MessagingClient.newestMessageMetadata(...)` returning
+// `MessagingMessageMetadata`, but the pinned SDK's `FfiMessageMetadata`
+// does not yet surface `senderInboxId` (audit open question #1). Once
+// libxmtp upstreams the field, this file can switch to
+// `MessagingClient.newestMessageMetadata` and drop the XMTPiOS import.
 @preconcurrency import XMTPiOS
 
 /// Periodically checks if sleeping inboxes have new messages that warrant waking them up

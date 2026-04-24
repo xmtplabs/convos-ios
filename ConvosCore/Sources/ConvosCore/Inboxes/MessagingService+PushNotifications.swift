@@ -4,6 +4,17 @@ import Foundation
 import GRDB
 import UniformTypeIdentifiers
 import UserNotifications
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// file receives `XMTPiOS.Group` and `DecodedMessage` via the
+// `XMTPClientProvider` / `ConversationsProvider` legacy surface and
+// hands both to Stage 3 writers (`conversationWriter.store(...)`,
+// `messageWriter.store(message:...)`). Stage 3's writer-surface
+// migration is prerequisite; at that point this file can migrate to
+// `any MessagingGroup` / `MessagingMessage`, routing through the
+// Stage 4a `underlyingXMTPiOSGroup` bridge in the interim.
+// `DecodedMessage` cannot be round-tripped through `MessagingMessage`
+// today because the Stage 1 value type does not retain the native
+// handle (no `underlyingXMTPiOSDecodedMessage`).
 @preconcurrency import XMTPiOS
 
 /// Extension providing push notification specific functionality for SingleInboxAuthProcessor

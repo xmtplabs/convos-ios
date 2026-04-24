@@ -1,4 +1,9 @@
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// builder returns `ClientOptions.Api` for the static-op path
+// (`SleepingInboxMessageChecker.getNewestMessageMetadata`). Once static
+// ops fully migrate to `MessagingClient.newestMessageMetadata`, this
+// helper can be removed or reshaped to not leak `ClientOptions.Api`.
 @preconcurrency import XMTPiOS
 
 /// Builds XMTP API options for the given environment

@@ -3,6 +3,14 @@ import ConvosAppData
 import ConvosInvites
 import Foundation
 import GRDB
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because the
+// legacy `XMTPClientProvider.prepareConversation()` /
+// `ConversationsProvider.findConversation(...)` return raw `XMTPiOS.Group`
+// / `XMTPiOS.Conversation`. This file bridges each via
+// `XMTPiOSMessagingGroup(...)` so the calls hit
+// `MessagingGroup.ensureConversationEmoji`. Once Stage 3 migrates
+// `XMTPClientProvider` (legacy surface) to return Messaging* types, the
+// bridging wraps and this import can drop.
 @preconcurrency import XMTPiOS
 
 public struct ConversationReadyResult: Sendable {
@@ -459,8 +467,19 @@ public actor ConversationStateMachine {
         try await optimisticConversation.publish()
 
         do {
-            if let group = optimisticConversation as? XMTPiOS.Group {
-                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+            // Legacy `client.prepareConversation()` returns an
+            // `XMTPiOS.Group`-backed sender. Wrap in the Stage 2 adapter
+            // so the call lands on `MessagingGroup.ensureConversationEmoji`
+            // (`MessagingGroup+CustomMetadata.swift`). Once
+            // `XMTPClientProvider.prepareConversation()` migrates to
+            // return `any MessagingGroup`, the explicit downcast drops.
+            if let xmtpGroup = optimisticConversation as? XMTPiOS.Group {
+                let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(
+                    xmtpGroup: xmtpGroup
+                )
+                _ = try await messagingGroup.ensureConversationEmoji(
+                    seed: clientConversationId
+                )
             }
         } catch {
             Log.warning("Failed to seed conversation emoji for new conversation: \(error)")
@@ -492,8 +511,16 @@ public actor ConversationStateMachine {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
             if let conversation = try await inboxReady.client.conversationsProvider.findConversation(
                 conversationId: conversationId
-            ), case let .group(group) = conversation {
-                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+            ), case let .group(xmtpGroup) = conversation {
+                // Wrap the legacy `XMTPiOS.Conversation` enum case into
+                // the Stage 2 adapter so the call hits
+                // `MessagingGroup.ensureConversationEmoji`.
+                let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(
+                    xmtpGroup: xmtpGroup
+                )
+                _ = try await messagingGroup.ensureConversationEmoji(
+                    seed: clientConversationId
+                )
             }
         } catch {
             Log.warning("Failed to seed conversation emoji for existing conversation: \(error)")

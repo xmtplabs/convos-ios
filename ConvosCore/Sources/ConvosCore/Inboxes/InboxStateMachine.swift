@@ -3,6 +3,18 @@ import ConvosProfiles
 import Foundation
 import GRDB
 import os
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because:
+// 1. The factory still returns `any XMTPClientProvider` (legacy) and
+//    downstream state-machine consumers store the client under that
+//    protocol. Retiring `XMTPClientProvider` is Stage 3 writer-surface
+//    work.
+// 2. `defaultXMTPCodecs()` returns `[any XMTPiOS.ContentCodec]`. Codec
+//    migration to `MessagingCodec` is Stage 6 (audit §5.6).
+// Every direct `Client.create` / `Client.build` / `ClientOptions` /
+// `XMTPEnvironment.customLocalAddress` usage is migrated via Stage 2
+// (`XMTPiOSMessagingClientFactory` + `MessagingClientConfig`).
+// Stage 4f further migrated the signer/identity parameters to
+// `any MessagingSigner` / `MessagingIdentity`.
 @preconcurrency import XMTPiOS
 
 extension InboxStateMachine.State {
