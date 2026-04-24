@@ -139,6 +139,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 // Keep the draft include-info override until remote metadata changes propagate.
                 // Clearing it here can briefly show stale false values during async sync.
                 applyPendingDraftEdits()
+                startOnboarding()
             }
 
             if oldValue.isPendingInvite, !conversation.isPendingInvite {
@@ -761,10 +762,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     // MARK: - Public
 
     func startOnboarding() {
+        // Draft ids are ephemeral placeholders (e.g. "draft-<UUID>"). Running the
+        // coordinator against them would write hasSetQuicknameForConversation_<uuid>
+        // flags that are never read again — the real id arrives later via the
+        // conversation publisher and triggers startOnboarding from didSet.
+        guard !conversation.isDraft else { return }
         Task { @MainActor in
-            // Scoping the coordinator by conversation.id (not the singleton clientId)
-            // preserves per-conversation quickname-prompt tracking now that clientId
-            // is identical across every conversation.
             await onboardingCoordinator.start(
                 for: conversation.id,
                 isConversationCreator: conversation.creator.isCurrentUser
