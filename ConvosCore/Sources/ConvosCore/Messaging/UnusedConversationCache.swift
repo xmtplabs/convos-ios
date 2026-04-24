@@ -1,5 +1,12 @@
 import Foundation
 import GRDB
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// actor unwraps a legacy `GroupConversationSender` back into
+// `XMTPiOS.Group` to call `ensureInviteTag()` /
+// `ensureImageEncryptionKey()` / `saveUnusedConversationToDatabase(...)`.
+// The latter is a Stage 3 writer path. Full migration depends on the
+// `XMTPClientProvider.prepareConversation()` → `any MessagingGroup`
+// and Stage 3 writer-surface migration.
 @preconcurrency import XMTPiOS
 
 // MARK: - UnusedConversationCacheProtocol

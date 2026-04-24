@@ -1,4 +1,11 @@
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
+// service encrypts+uploads photo attachments using the XIP-native
+// `RemoteAttachment` / `Attachment` / `AttachmentCodec` types and
+// returns them via `PreparedPhotoAttachment.remoteAttachment:
+// RemoteAttachment`. Those XIP types are consumed downstream by Stage
+// 3 `OutgoingMessageWriter`. Migration blocked on Stage 6 codec
+// rewrite (`MessagingCodec` + `MessagingRemoteAttachmentPayload`).
 @preconcurrency import XMTPiOS
 
 public enum PhotoAttachmentError: Error {

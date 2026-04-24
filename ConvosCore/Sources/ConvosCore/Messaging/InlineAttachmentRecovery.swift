@@ -1,5 +1,13 @@
 import Foundation
-import XMTPiOS
+// FIXME(stage4): Stage 4 migration is partial for this file. The
+// `ConversationsProvider` protocol, `Attachment`, and `Reply` types
+// are XMTPiOS-owned and still consumed here because Stage 4 does not
+// migrate the XMTPClientProvider / legacy writer surface or the XIP
+// payload types (audit §5 Stage 3/6). Once `ConversationsProvider` is
+// replaced by `MessagingConversations.findMessage(...)` and the XIP
+// payloads move under `MessagingMessagePayload`, this file can drop
+// the XMTPiOS import and migrate fully.
+@preconcurrency import XMTPiOS
 
 public enum InlineAttachmentRecoveryError: Error {
     case messageNotFound
