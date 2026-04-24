@@ -11,9 +11,6 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
         let environment = try NotificationExtensionEnvironment.getEnvironment()
         ConvosLog.configure(environment: environment)
 
-        let nseVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        let nseBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
-        Log.info("Launch: version=\(nseVersion) build=\(nseBuild) commit=\(BuildInfo.commitHash) environment=\(environment.name)")
         Log.info("Initializing global push handler for environment: \(environment.name)")
 
         if !environment.isProduction {
@@ -26,6 +23,10 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
                 processType: .notificationExtension
             )
         }
+
+        let nseVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let nseBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+        Log.info("Launch: version=\(nseVersion) build=\(nseBuild) commit=\(BuildInfo.commitHash) environment=\(environment.name)")
 
         return try NotificationExtensionEnvironment.createPushNotificationHandler(
             platformProviders: .iOSExtension
