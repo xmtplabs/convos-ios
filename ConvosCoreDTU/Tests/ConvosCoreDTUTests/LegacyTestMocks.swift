@@ -319,7 +319,7 @@ actor DelayingMockUnusedConversationCache: UnusedConversationCacheProtocol {
     }
 
     /// Test helper: wait for `consumeOrCreateMessagingService` to start
-    func waitForConsumeStart() async {
+    func waitForConsumeStarted() async {
         await withCheckedContinuation { continuation in
             consumeStartedContinuation = continuation
         }

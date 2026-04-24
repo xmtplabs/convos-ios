@@ -1,7 +1,14 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import Testing
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/InboxLifecycleManagerTests.swift`.
+// Tests are mock-only, so they run on both lanes. The
+// `SequentialMockUnusedConversationCache` etc. mocks live in
+// `LegacyTestMocks.swift` to share with other migrated tests.
 
 @Suite("InboxLifecycleManager Tests", .serialized)
 struct InboxLifecycleManagerTests {
@@ -589,24 +596,14 @@ struct InboxLifecycleManagerTests {
 }
 
 // MARK: - Test Helper Extensions
-
-extension InboxLifecycleManager {
-    /// Helper for tests to wake without returning the non-Sendable service
-    func wakeAndDiscard(clientId: String, inboxId: String, reason: WakeReason) async throws {
-        _ = try await wake(clientId: clientId, inboxId: inboxId, reason: reason)
-    }
-
-    /// Helper for tests to getOrWake without returning the non-Sendable service
-    func getOrWakeAndDiscard(clientId: String, inboxId: String) async throws {
-        _ = try await getOrWake(clientId: clientId, inboxId: inboxId)
-    }
-}
+// (Stage 6f: extension methods moved to LegacyTestMocks.swift to share
+// across the migrated test files. The duplicate declaration below was
+// removed.)
 
 // MARK: - Race Condition Tests with SleepingInboxMessageChecker
 
 @Suite("InboxLifecycleManager Race Condition Tests", .serialized)
 struct InboxLifecycleManagerRaceConditionTests {
-
     @Test("New inbox from unused cache is protected during creation when other inboxes wake concurrently")
     func testNewInboxProtectedDuringConcurrentWakes() async throws {
         let databaseManager = MockDatabaseManager.makeTestDatabase()
@@ -787,7 +784,6 @@ struct InboxLifecycleManagerRaceConditionTests {
 
 @Suite("InboxLifecycleManager Creation Failure Tests", .serialized)
 struct InboxLifecycleManagerCreationFailureTests {
-
     /// Reproduces the bug: create inbox → delete → background creates new unused inbox → rebalance → create again
     /// The bug is: rebalance() wakes the unused inbox from DB, creating service A.
     /// Then createNewInbox() returns service B from cache with the SAME clientId.
@@ -1033,188 +1029,10 @@ actor TrackingMockUnusedConversationCache: UnusedConversationCacheProtocol {
     }
 }
 
-/// A mock that returns sequential inbox IDs and can simulate background inbox creation
-actor SequentialMockUnusedConversationCache: UnusedConversationCacheProtocol {
-    private var nextInboxNumber: Int = 1
-    private var currentUnusedInboxId: String?
-    private var currentUnusedConversationId: String?
-
-    init() {
-        currentUnusedInboxId = "unused-inbox-1"
-        currentUnusedConversationId = "unused-conversation-1"
-    }
-
-    func prepareUnusedConversationIfNeeded(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async {}
-
-    func consumeOrCreateMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        let clientId = "unused-client-\(nextInboxNumber)"
-        let conversationId = currentUnusedConversationId
-        currentUnusedInboxId = nil
-        currentUnusedConversationId = nil
-        nextInboxNumber += 1
-        let mockStateManager = MockInboxStateManager(initialState: .idle(clientId: clientId))
-        return (service: MockMessagingService(inboxStateManager: mockStateManager), conversationId: conversationId)
-    }
-
-    func consumeInboxOnly(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> any MessagingServiceProtocol {
-        let clientId = "unused-client-\(nextInboxNumber)"
-        currentUnusedInboxId = nil
-        currentUnusedConversationId = nil
-        nextInboxNumber += 1
-        let mockStateManager = MockInboxStateManager(initialState: .idle(clientId: clientId))
-        return MockMessagingService(inboxStateManager: mockStateManager)
-    }
-
-    func clearUnusedFromKeychain() {}
-
-    func isUnusedConversation(_ conversationId: String) -> Bool {
-        return conversationId == currentUnusedConversationId
-    }
-
-    func isUnusedInbox(_ inboxId: String) -> Bool {
-        return inboxId == currentUnusedInboxId
-    }
-
-    func hasUnusedConversation() -> Bool {
-        return currentUnusedConversationId != nil
-    }
-
-    /// Test helper: simulate background creation of new unused conversation
-    func markNewInboxAvailable() {
-        currentUnusedInboxId = "unused-inbox-\(nextInboxNumber)"
-        currentUnusedConversationId = "unused-conversation-\(nextInboxNumber)"
-    }
-}
-
-/// A mock that can delay the consume operation to simulate race conditions
-actor DelayingMockUnusedConversationCache: UnusedConversationCacheProtocol {
-    private var consumeStartedContinuation: CheckedContinuation<Void, Never>?
-    private var resumeContinuation: CheckedContinuation<Void, Never>?
-    private var hasConsumed: Bool = false
-    private var consumeStarted: Bool = false
-
-    func prepareUnusedConversationIfNeeded(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async {}
-
-    func consumeOrCreateMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        consumeStarted = true
-        consumeStartedContinuation?.resume()
-        consumeStartedContinuation = nil
-
-        await withCheckedContinuation { continuation in
-            resumeContinuation = continuation
-        }
-
-        hasConsumed = true
-        return (service: MockMessagingService(), conversationId: nil)
-    }
-
-    func consumeInboxOnly(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> any MessagingServiceProtocol {
-        hasConsumed = true
-        return MockMessagingService()
-    }
-
-    func clearUnusedFromKeychain() {}
-
-    func isUnusedConversation(_ conversationId: String) -> Bool {
-        false
-    }
-
-    func isUnusedInbox(_ inboxId: String) -> Bool {
-        false
-    }
-
-    func hasUnusedConversation() -> Bool {
-        !hasConsumed
-    }
-
-    func waitForConsumeStarted() async {
-        if consumeStarted { return }
-        await withCheckedContinuation { continuation in
-            consumeStartedContinuation = continuation
-        }
-    }
-
-    func resumeConsume() {
-        resumeContinuation?.resume()
-        resumeContinuation = nil
-    }
-}
-
-/// A simple mock that returns immediately
-actor SimpleMockUnusedConversationCache: UnusedConversationCacheProtocol {
-    func prepareUnusedConversationIfNeeded(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async {}
-
-    func consumeOrCreateMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        (service: MockMessagingService(), conversationId: nil)
-    }
-
-    func consumeInboxOnly(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> any MessagingServiceProtocol {
-        MockMessagingService()
-    }
-
-    func clearUnusedFromKeychain() {}
-
-    func isUnusedConversation(_ conversationId: String) -> Bool { false }
-
-    func isUnusedInbox(_ inboxId: String) -> Bool { false }
-
-    func hasUnusedConversation() -> Bool { false }
-}
-
-// MARK: - InboxLifecycleManager Test Helpers
-
-extension InboxLifecycleManager {
-    /// Test helper to manually mark a client as sleeping
-    func setSleepingForTest(clientId: String) async {
-        // This is a workaround since we can't directly access _sleepingClientIds
-        // We sleep the client if it's awake
-        if isAwake(clientId: clientId) {
-            await sleep(clientId: clientId)
-        }
-    }
-}
-
 // MARK: - Stale Pending Invite Expiry Tests
 
 @Suite("InboxLifecycleManager Stale Expiry Tests", .serialized)
 struct InboxLifecycleManagerStaleExpiryTests {
-
     @Test("Stale pending invites are deleted on app launch")
     func testStalePendingInvitesDeletedOnAppLaunch() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -1406,8 +1224,10 @@ struct InboxLifecycleManagerStaleExpiryTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAssistant: false
         )
     }
 }
@@ -1416,7 +1236,6 @@ struct InboxLifecycleManagerStaleExpiryTests {
 
 @Suite("InboxLifecycleManager Pending Invite Cap Tests", .serialized)
 struct InboxLifecycleManagerPendingInviteCapTests {
-
     @Test("Pending invite inboxes are capped during app launch")
     func testPendingInvitesAreCappedOnAppLaunch() async throws {
         let fixtures = makeTestFixtures(maxAwake: 10, maxPendingInvites: 2)

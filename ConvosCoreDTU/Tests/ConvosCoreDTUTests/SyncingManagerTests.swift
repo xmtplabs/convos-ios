@@ -1,12 +1,34 @@
+// swiftlint:disable force_cast
+
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import os.lock
 import Testing
 import XMTPiOS
 
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/SyncingManagerTests.swift`.
+// Mix of pure-mock SyncingManager tests (run on both lanes) and
+// integration tests that talk to XMTPiOS (skip on DTU).
+//
+// File-level `swiftlint:disable force_cast` mirrors the pattern in
+// the original file (test code casts mock conversation handles into
+// concrete types for assertion access).
+
 /// Testable mock XMTP client that allows controlling syncAllConversations behavior
 class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
+    /// Stage 6 bridge override: TestableMockClient does not wrap an
+    /// `XMTPiOS.Client`, so the default `messagingClient` extension
+    /// would trap. SyncingManager itself doesn't reach into
+    /// `messagingClient` today (consumes only the `XMTPClientProvider`
+    /// surface), so this property is effectively dead code for this
+    /// mock. We trap with an explanatory message to make any future
+    /// regression loud.
+    var messagingClient: any MessagingClient {
+        fatalError("TestableMockClient.messagingClient: this mock does not bridge to MessagingClient; if your test reached this, swap to XMTPiOSMessagingClient(xmtpClient:) instead.")
+    }
     var installationId: String = "test-installation-id"
     var inboxId: String = "test-inbox-id"
 
@@ -362,14 +384,18 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws {
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: code, name: nil, maxRedemptions: 1, redemptionCount: 0, remainingRedemptions: 1)
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: code, name: nil, maxRedemptions: 1, redemptionCount: 0, remainingRedemptions: 1)
     }
 }
 
 /// Comprehensive tests for SyncingManager state machine
 @Suite("SyncingManager Tests", .serialized, .timeLimit(.minutes(2)))
 struct SyncingManagerTests {
-
     private enum TestError: Error {
         case timeout(String)
     }
@@ -395,7 +421,8 @@ struct SyncingManagerTests {
 
     @Test("Start from idle starts streams then calls syncAllConversations")
     func testStartFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         let mockAPIClient = TestableMockAPIClient()
 
@@ -430,7 +457,8 @@ struct SyncingManagerTests {
 
     @Test("Start starts streams before syncAllConversations")
     func testStartOrder() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .delay(0.5)
         let mockAPIClient = TestableMockAPIClient()
@@ -465,7 +493,8 @@ struct SyncingManagerTests {
 
     @Test("Start handles syncAllConversations failure after streams are started")
     func testStartWithSyncFailure() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .fail(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Sync failed"]))
         let mockAPIClient = TestableMockAPIClient()
@@ -503,7 +532,8 @@ struct SyncingManagerTests {
 
     @Test("Pause stops streams but keeps client references")
     func testPauseFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose // Keep streams open
         let mockAPIClient = TestableMockAPIClient()
@@ -541,7 +571,8 @@ struct SyncingManagerTests {
 
     @Test("Resume restarts streams and re-syncs conversations")
     func testResumeFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose
         let mockAPIClient = TestableMockAPIClient()
@@ -586,7 +617,8 @@ struct SyncingManagerTests {
 
     @Test("Stop cancels all tasks and goes to idle")
     func testStopFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose
         let mockAPIClient = TestableMockAPIClient()
@@ -620,7 +652,8 @@ struct SyncingManagerTests {
 
     @Test("Start while already starting is ignored")
     func testStartWhileStarting() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .delay(1.0) // Delay sync to keep in starting state
         let mockAPIClient = TestableMockAPIClient()
@@ -655,7 +688,8 @@ struct SyncingManagerTests {
 
     @Test("Start while ready with same client is ignored")
     func testStartWhileReadySameClient() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         let mockAPIClient = TestableMockAPIClient()
 
@@ -692,7 +726,8 @@ struct SyncingManagerTests {
 
     @Test("Start while ready with different client stops and restarts")
     func testStartWhileReadyDifferentClient() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient1 = TestableMockClient()
         mockClient1.inboxId = "inbox-1"
         let mockClient2 = TestableMockClient()
@@ -732,7 +767,8 @@ struct SyncingManagerTests {
 
     @Test("Pause while starting transitions to paused once ready")
     func testPauseWhileStarting() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .delay(0.5) // Keep in starting state for a bit
         mockClient.streamBehavior = .neverClose // Keep streams open
@@ -768,7 +804,8 @@ struct SyncingManagerTests {
 
     @Test("Pause during starting state pauses after sync completes")
     func testPauseDuringStartingState() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         // Use a delay to ensure we're in starting state when pause is called
         mockClient.syncBehavior = .delay(0.3)
@@ -808,7 +845,8 @@ struct SyncingManagerTests {
 
     @Test("Pause then resume during starting results in ready state")
     func testPauseThenResumeDuringStarting() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         // Use a delay to ensure we're in starting state when pause/resume are called
         mockClient.syncBehavior = .delay(0.5)
@@ -851,7 +889,8 @@ struct SyncingManagerTests {
 
     @Test("Resume while not paused is ignored")
     func testResumeWhileNotPaused() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         let mockAPIClient = TestableMockAPIClient()
 
@@ -882,7 +921,8 @@ struct SyncingManagerTests {
 
     @Test("Stop from ready state")
     func testStopFromReady() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         let mockAPIClient = TestableMockAPIClient()
 
@@ -913,7 +953,8 @@ struct SyncingManagerTests {
 
     @Test("Stop from paused state")
     func testStopFromPaused() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         let mockAPIClient = TestableMockAPIClient()
 
@@ -948,7 +989,8 @@ struct SyncingManagerTests {
 
     @Test("Stop from starting state")
     func testStopFromStarting() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .delay(1.0) // Keep in starting state
         let mockAPIClient = TestableMockAPIClient()
@@ -977,7 +1019,8 @@ struct SyncingManagerTests {
 
     @Test("Stop waits for completion when called from ready state")
     func testStopWaitsFromReadyState() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose // Keep streams open so stop takes time
         let mockAPIClient = TestableMockAPIClient()
@@ -1019,7 +1062,8 @@ struct SyncingManagerTests {
 
     @Test("isSyncReady is false before start completes")
     func testSyncNotReadyBeforeStart() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .delay(0.5) // Delay sync to observe intermediate state
         mockClient.streamBehavior = .neverClose
@@ -1059,7 +1103,8 @@ struct SyncingManagerTests {
 
     @Test("Streams signal ready before syncAllConversations completes")
     func testStreamsReadyBeforeSyncCompletes() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.syncBehavior = .delay(0.5) // Sync takes time
         mockClient.streamBehavior = .neverClose // Streams stay open
@@ -1107,7 +1152,8 @@ struct SyncingManagerTests {
 
     @Test("Resume waits for streams to be ready before transitioning to ready state")
     func testResumeWaitsForStreamReadiness() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose
         let mockAPIClient = TestableMockAPIClient()
@@ -1153,7 +1199,8 @@ struct SyncingManagerTests {
 
     @Test("Stream failure triggers retry and eventually becomes ready")
     func testStreamFailureRetry() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .throwImmediately // Streams fail immediately
         let mockAPIClient = TestableMockAPIClient()
@@ -1185,7 +1232,8 @@ struct SyncingManagerTests {
 
     @Test("Multiple rapid start/stop cycles handle stream readiness correctly")
     func testRapidStartStopCycles() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "SyncingManager integration test requires XMTPiOS-only client + sync.") else { return }
+        let fixtures = LegacyTestFixtures()
         let mockClient = TestableMockClient()
         mockClient.streamBehavior = .neverClose
         let mockAPIClient = TestableMockAPIClient()
