@@ -82,7 +82,14 @@ struct ConvosApp: App {
             await BackupScheduler.shared.runForegroundCatchUpIfNeeded()
         }
         self.conversationsViewModel = .init(session: convos.session)
-        self.backupCoordinator = BackupCoordinator(convos: convos)
+        let coordinator = BackupCoordinator(convos: convos)
+        self.backupCoordinator = coordinator
+        // Resolve the fresh-install bootstrap gate: if a compatible
+        // backup is visible, leave the gate closed and show the prompt
+        // card; otherwise release the gate so normal registration runs.
+        Task { @MainActor in
+            await coordinator.resolveBootstrapDecision()
+        }
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
     }

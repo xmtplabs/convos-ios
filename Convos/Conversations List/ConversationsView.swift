@@ -22,6 +22,18 @@ struct ConversationsView: View {
     var emptyConversationsViewScrollable: some View {
         ScrollView {
             LazyVStack(spacing: 0.0) {
+                if let coordinator = backupCoordinator,
+                   coordinator.showRestorePrompt,
+                   let available = coordinator.viewModel.availableRestore {
+                    let restore = { coordinator.beginRestore(available) }
+                    let dismiss = { coordinator.dismissRestorePrompt() }
+                    RestorePromptCard(
+                        sidecar: available.sidecar,
+                        onRestore: restore,
+                        onStartFresh: dismiss
+                    )
+                    .padding(.top, DesignConstants.Spacing.step4x)
+                }
                 emptyConversationsView
             }
         }
@@ -273,10 +285,7 @@ private struct ConversationsSheetModifier: ViewModifier {
                     quicknameViewModel: quicknameViewModel,
                     session: viewModel.session,
                     onDeleteAllData: viewModel.deleteAllData,
-                    backupRestoreViewModel: backupCoordinator?.viewModel,
-                    onRestore: backupCoordinator.map { coordinator in
-                        { available in coordinator.beginRestore(available) }
-                    }
+                    backupCoordinator: backupCoordinator
                 )
                 .navigationTransition(
                     .zoom(sourceID: "app-settings-transition-source", in: namespace)

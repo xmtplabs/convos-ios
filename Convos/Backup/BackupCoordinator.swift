@@ -20,6 +20,12 @@ final class BackupCoordinator {
     private(set) var lastRestoreError: (any Error)?
     private(set) var isRestoring: Bool = false
 
+    /// True when the fresh-install restore prompt card should be shown.
+    /// Set once on app start if a compatible backup is discovered and
+    /// the user hasn't yet chosen Restore / Start fresh. Cleared by
+    /// either `beginRestore` succeeding or `dismissRestorePrompt`.
+    private(set) var showRestorePrompt: Bool = false
+
     init(convos: ConvosClient) {
         self.convos = convos
         self.viewModel = BackupRestoreViewModel(
@@ -28,6 +34,24 @@ final class BackupCoordinator {
                 convos?.makeRestoreManager()
             }
         )
+    }
+
+    /// Called once from `ConvosApp.init`'s follow-up Task. Runs the
+    /// restore-discovery pass and either flips the bootstrap gate to
+    /// `.restoreAvailable` (blocking registration while the prompt
+    /// card is up) or `.noRestoreAvailable` (releasing the gate so
+    /// normal onboarding runs).
+    func resolveBootstrapDecision() async {
+        let manager = convos.makeRestoreManager()
+        let available = await manager.findAvailableBackup()
+        await viewModel.refresh()
+        if available != nil {
+            showRestorePrompt = true
+            convos.session.setRestoreBootstrapDecision(.restoreAvailable)
+        } else {
+            showRestorePrompt = false
+            convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
+        }
     }
 
     /// Starts the restore against `available.bundleURL`. The actual
@@ -42,6 +66,7 @@ final class BackupCoordinator {
             do {
                 try await manager.restoreFromBackup(bundleURL: available.bundleURL)
                 convos.session.setRestoreBootstrapDecision(.restoreSucceeded)
+                showRestorePrompt = false
             } catch {
                 lastRestoreError = error
                 Log.error("BackupCoordinator: restore failed — \(error)")
@@ -55,6 +80,7 @@ final class BackupCoordinator {
     /// "Start fresh." Releases the bootstrap gate so registration can
     /// proceed normally.
     func dismissRestorePrompt() {
+        showRestorePrompt = false
         convos.session.setRestoreBootstrapDecision(.dismissedByUser)
     }
 }

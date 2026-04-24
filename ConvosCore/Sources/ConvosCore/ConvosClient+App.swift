@@ -10,12 +10,21 @@ extension ConvosClient {
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
         let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+        // Start with the bootstrap gate closed if no identity is present.
+        // The app-layer BackupCoordinator resolves this to
+        // .restoreAvailable / .noRestoreAvailable on first launch, which
+        // keeps a fresh-install from minting a new identity before the
+        // restore prompt card appears. Installs that already have an
+        // identity open the gate immediately since loadOrCreateService's
+        // register-branch guard only blocks when loadSync returns nil.
+        let hasExistingIdentity = (try? identityStore.loadSync()) != nil
         let sessionManager = SessionManager(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment,
             identityStore: identityStore,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            initialBootstrapDecision: hasExistingIdentity ? .noRestoreAvailable : .unknown
         )
         LinkPreviewWriter.shared = LinkPreviewWriter(dbWriter: databaseWriter)
         let expiredConversationsWorker = ExpiredConversationsWorker(

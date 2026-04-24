@@ -36,25 +36,21 @@ struct AppSettingsView: View {
     let onDeleteAllData: () -> Void
 
     /// Optional backup/restore surface. Present only when the app wires
-    /// a `BackupRestoreViewModel` + restore initiator; hidden in previews
-    /// and mock paths.
-    let backupRestoreViewModel: BackupRestoreViewModel?
-    let onRestore: ((AvailableBackup) -> Void)?
+    /// a `BackupCoordinator`; hidden in previews and mock paths.
+    let backupCoordinator: BackupCoordinator?
 
     init(
         viewModel: AppSettingsViewModel,
         quicknameViewModel: QuicknameSettingsViewModel,
         session: any SessionManagerProtocol,
         onDeleteAllData: @escaping () -> Void,
-        backupRestoreViewModel: BackupRestoreViewModel? = nil,
-        onRestore: ((AvailableBackup) -> Void)? = nil
+        backupCoordinator: BackupCoordinator? = nil
     ) {
         self.viewModel = viewModel
         self.quicknameViewModel = quicknameViewModel
         self.session = session
         self.onDeleteAllData = onDeleteAllData
-        self.backupRestoreViewModel = backupRestoreViewModel
-        self.onRestore = onRestore
+        self.backupCoordinator = backupCoordinator
     }
 
     @State private var showingDeleteAllDataConfirmation: Bool = false
@@ -172,11 +168,14 @@ struct AppSettingsView: View {
                 }
                 .listRowSeparatorTint(.colorBorderSubtle)
 
-                if let backupRestoreViewModel, let onRestore {
+                if let backupCoordinator {
+                    let onRestore: (AvailableBackup) -> Void = { available in
+                        backupCoordinator.beginRestore(available)
+                    }
                     Section {
                         NavigationLink {
                             BackupRestoreSettingsView(
-                                viewModel: backupRestoreViewModel,
+                                viewModel: backupCoordinator.viewModel,
                                 onRestore: onRestore
                             )
                         } label: {
@@ -228,7 +227,11 @@ struct AppSettingsView: View {
 
                     if !ConfigManager.shared.currentEnvironment.isProduction {
                         NavigationLink {
-                            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+                            DebugExportView(
+                                environment: ConfigManager.shared.currentEnvironment,
+                                session: session,
+                                backupCoordinator: backupCoordinator
+                            )
                         } label: {
                             Text("Debug")
                         }
