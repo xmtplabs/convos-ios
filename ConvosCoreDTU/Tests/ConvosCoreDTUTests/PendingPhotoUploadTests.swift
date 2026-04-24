@@ -1,13 +1,53 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
-import Testing
+import XCTest
 
-@Suite("PendingPhotoUpload Tests")
-struct PendingPhotoUploadTests {
-    @Test("Can insert and fetch pending upload")
+/// Phase 2 batch 1: migrated from
+/// `ConvosCore/Tests/ConvosCoreTests/PendingPhotoUploadTests.swift`.
+///
+/// Exercises GRDB CRUD on `DBPendingPhotoUpload`. Pure-DB, no
+/// `MessagingClient` involvement. Migrating onto
+/// `DualBackendTestFixtures` reuses the shared database manager and
+/// XCTest tearDown conventions already established by the rest of
+/// the ConvosCoreDTU test suite. Both backends execute the exact
+/// same GRDB code paths.
+///
+/// Also restores buildability by adding the `conversationEmoji` /
+/// `hasHadVerifiedAssistant` params to the `DBConversation` helper —
+/// the original file was already broken on this branch for the
+/// same reason as other ConvosCore tests that still construct
+/// DBConversation directly.
+final class PendingPhotoUploadTests: XCTestCase {
+    private var fixtures: DualBackendTestFixtures?
+
+    override func tearDown() async throws {
+        if let fixtures {
+            try? await fixtures.cleanup()
+            self.fixtures = nil
+        }
+        try await super.tearDown()
+    }
+
+    override class func tearDown() {
+        Task {
+            await DualBackendTestFixtures.tearDownSharedDTUIfNeeded()
+        }
+        super.tearDown()
+    }
+
+    /// Boots a DB-only fixture — no messaging client, no DTU
+    /// subprocess handshake, no Docker dependency.
+    private func bootDBOnlyFixture() -> DualBackendTestFixtures {
+        let fixture = DualBackendTestFixtures(aliasPrefix: "pending-photo-upload")
+        self.fixtures = fixture
+        return fixture
+    }
+
     func testInsertAndFetch() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let fixtures = bootDBOnlyFixture()
+        let dbManager = fixtures.databaseManager
 
         let upload = DBPendingPhotoUpload(
             id: "task-123",
@@ -20,7 +60,7 @@ struct PendingPhotoUploadTests {
         )
 
         try await dbManager.dbWriter.write { db in
-            try makeDBConversation(id: "conv-789").insert(db)
+            try Self.makeDBConversation(id: "conv-789").insert(db)
             try upload.insert(db)
         }
 
@@ -28,13 +68,13 @@ struct PendingPhotoUploadTests {
             try DBPendingPhotoUpload.fetchOne(db, key: "task-123")
         }
 
-        #expect(fetched?.clientMessageId == "msg-456")
-        #expect(fetched?.state == .uploading)
+        XCTAssertEqual(fetched?.clientMessageId, "msg-456")
+        XCTAssertEqual(fetched?.state, .uploading)
     }
 
-    @Test("Can update state to failed with error message")
     func testUpdateStateToFailed() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let fixtures = bootDBOnlyFixture()
+        let dbManager = fixtures.databaseManager
 
         let upload = DBPendingPhotoUpload(
             id: "task-123",
@@ -47,7 +87,7 @@ struct PendingPhotoUploadTests {
         )
 
         try await dbManager.dbWriter.write { db in
-            try makeDBConversation(id: "conv-789").insert(db)
+            try Self.makeDBConversation(id: "conv-789").insert(db)
             try upload.insert(db)
         }
 
@@ -65,13 +105,13 @@ struct PendingPhotoUploadTests {
             try DBPendingPhotoUpload.fetchOne(db, key: "task-123")
         }
 
-        #expect(fetched?.state == .failed)
-        #expect(fetched?.errorMessage == "Network timeout")
+        XCTAssertEqual(fetched?.state, .failed)
+        XCTAssertEqual(fetched?.errorMessage, "Network timeout")
     }
 
-    @Test("Can delete pending upload")
     func testDelete() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let fixtures = bootDBOnlyFixture()
+        let dbManager = fixtures.databaseManager
 
         let upload = DBPendingPhotoUpload(
             id: "task-123",
@@ -84,7 +124,7 @@ struct PendingPhotoUploadTests {
         )
 
         try await dbManager.dbWriter.write { db in
-            try makeDBConversation(id: "conv-789").insert(db)
+            try Self.makeDBConversation(id: "conv-789").insert(db)
             try upload.insert(db)
         }
 
@@ -96,12 +136,12 @@ struct PendingPhotoUploadTests {
             try DBPendingPhotoUpload.fetchOne(db, key: "task-123")
         }
 
-        #expect(fetched == nil)
+        XCTAssertNil(fetched)
     }
 
-    @Test("Can fetch all pending uploads by state")
     func testFetchByState() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let fixtures = bootDBOnlyFixture()
+        let dbManager = fixtures.databaseManager
 
         let uploading = DBPendingPhotoUpload(
             id: "task-1",
@@ -127,7 +167,7 @@ struct PendingPhotoUploadTests {
         )
 
         try await dbManager.dbWriter.write { db in
-            try makeDBConversation(id: "conv-1").insert(db)
+            try Self.makeDBConversation(id: "conv-1").insert(db)
             try uploading.insert(db)
             try failed.insert(db)
             try completed.insert(db)
@@ -139,11 +179,13 @@ struct PendingPhotoUploadTests {
                 .fetchAll(db)
         }
 
-        #expect(failedUploads.count == 1)
-        #expect(failedUploads.first?.id == "task-2")
+        XCTAssertEqual(failedUploads.count, 1)
+        XCTAssertEqual(failedUploads.first?.id, "task-2")
     }
 
-    private func makeDBConversation(id: String) -> DBConversation {
+    // MARK: - DB Row Helpers
+
+    static func makeDBConversation(id: String) -> DBConversation {
         DBConversation(
             id: id,
             inboxId: "test-inbox",
@@ -165,8 +207,10 @@ struct PendingPhotoUploadTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAssistant: false
         )
     }
 }
