@@ -104,16 +104,16 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
             conversation: id,
             actor: context.actor
         )
-        // DTU's `list_members` surfaces just sorted inbox aliases — no
-        // role / consent / identity per member. Fill with conservative
-        // defaults: `.member` role, `.unknown` consent, no wallet
-        // identities. Tests asserting richer member state must use the
-        // XMTPiOS adapter.
-        return result.members.map { alias in
+        // DTU's `list_members` now carries `{inboxId, role}` per member —
+        // the engine resolves super-admin / admin against the group's
+        // admin sets (matches libxmtp's `members()` surface). Consent and
+        // identities remain DTU gaps — defaulted to `.unknown` and `[]`
+        // until the engine models them.
+        return result.members.map { record in
             MessagingMember(
-                inboxId: alias,
+                inboxId: record.inboxId,
                 identities: [],
-                role: .member,
+                role: mapDTURole(record.role),
                 consentState: .unknown
             )
         }
@@ -417,6 +417,19 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
             method: "MessagingGroup.removeSuperAdmin",
             reason: "DTU engine does not yet model super-admin mutation"
         )
+    }
+}
+
+// MARK: - Member role projection
+
+/// Map the DTU engine's `MemberRole` enum onto `MessagingMemberRole`.
+/// Shapes are 1:1 — DTU's engine surface mirrors libxmtp's
+/// `PermissionLevel` exactly.
+private func mapDTURole(_ role: XMTPDTU.DTUUniverse.MemberRole) -> MessagingMemberRole {
+    switch role {
+    case .member: return .member
+    case .admin: return .admin
+    case .superAdmin: return .superAdmin
     }
 }
 
