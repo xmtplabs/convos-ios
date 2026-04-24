@@ -776,6 +776,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             profile = profile.with(metadata: metadata)
         }
 
+        let priorMemberKind = profile.memberKind
         if let memberKind {
             profile = profile.with(memberKind: memberKind)
 
@@ -786,6 +787,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 }
             }
         }
+
+        if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
+           !profile.agentVerification.isVerified {
+            profile = profile.with(memberKind: priorMemberKind)
+        }
+
         try profile.save(db)
 
         if profile.agentVerification.isConvosAssistant,
