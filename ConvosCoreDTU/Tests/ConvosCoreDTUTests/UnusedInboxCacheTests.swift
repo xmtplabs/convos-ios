@@ -1,8 +1,17 @@
 @preconcurrency @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import Testing
 import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/UnusedInboxCacheTests.swift`.
+// Drives `UnusedConversationCache` end-to-end, which still uses the
+// legacy XMTPClientProvider surface internally for invite + group
+// creation. Tests guard with `LegacyFixtureBackendGuard`; on the DTU
+// lane they skip cleanly (no DTU equivalent yet for the UnusedCache
+// pipeline).
 
 // MARK: - Test Environment Helper
 
@@ -58,7 +67,8 @@ struct UnusedConversationCacheTests {
 
     @Test("prepareUnusedConversationIfNeeded creates an unused conversation")
     func testPrepareUnusedConversation() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -92,7 +102,8 @@ struct UnusedConversationCacheTests {
 
     @Test("consumeOrCreateMessagingService returns a valid service")
     func testConsumeOrCreateReturnsValidService() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -116,7 +127,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Concurrent consumeOrCreateMessagingService calls never return the same service")
     func testConcurrentConsumptionNoDuplicates() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -169,7 +181,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Sequential consumption always returns different services")
     func testSequentialConsumptionDifferentServices() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -204,7 +217,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Rapid fire consumption attempts all return unique services")
     func testRapidFireConsumptionUniqueness() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -248,7 +262,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Consuming clears both memory and keychain atomically")
     func testAtomicCleanupOnConsumption() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -303,7 +318,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Keychain cleared even when consuming via memory")
     func testKeychainClearedWhenConsumingFromMemory() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -343,7 +359,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Both paths clear atomically - memory and keychain")
     func testBothConsumptionPathsClearAtomically() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Test 1: Consume via memory path
@@ -396,7 +413,8 @@ struct UnusedConversationCacheTests {
 
     @Test("isUnusedInbox correctly identifies unused inbox")
     func testIsUnusedInbox() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -435,7 +453,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Stress test: 10 rapid sequential consumptions all unique")
     func testStressConcurrentConsumptions() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -490,7 +509,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Unused conversation cache works after deleting first consumed conversation")
     func testUnusedConversationWorksAfterDeletion() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
@@ -546,7 +566,8 @@ struct UnusedConversationCacheTests {
 
     @Test("Multiple delete-and-recreate cycles work correctly")
     func testMultipleDeleteAndRecreateCycles() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        let fixtures = LegacyTestFixtures()
         let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Clear any existing unused conversation
