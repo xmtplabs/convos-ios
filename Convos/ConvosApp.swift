@@ -34,6 +34,9 @@ struct ConvosApp: App {
             )
         }
         Log.info("App starting with environment: \(environment)")
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+        Log.info("Launch: version=\(appVersion) build=\(appBuild) commit=\(Secrets.GIT_COMMIT_SHA) environment=\(environment.name)")
         QAEvent.emit(.app, "launched", ["environment": environment.name])
 
         // Firebase must be configured before ConvosClient is created so AppCheck is ready when auth begins

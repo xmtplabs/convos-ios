@@ -1,6 +1,27 @@
 #!/bin/bash
 set -e
 
+# Detect git commit SHA (CI env var takes priority, then git, then fallback)
+GIT_SHA="${GITHUB_SHA:-${BITRISE_GIT_COMMIT:-}}"
+if [ -z "$GIT_SHA" ]; then
+    GIT_SHA=$(cd "${SRCROOT}" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+else
+    GIT_SHA="${GIT_SHA:0:7}"
+fi
+
+# Generate BuildInfo.swift for the NotificationService extension
+if [ "$TARGET_NAME" = "NotificationService" ]; then
+    mkdir -p "${SRCROOT}/NotificationService"
+    cat > "${SRCROOT}/NotificationService/BuildInfo.swift" << EOF
+// swiftlint:disable all
+enum BuildInfo {
+    static let commitHash: String = "$GIT_SHA"
+}
+// swiftlint:enable all
+EOF
+    echo "🏁 Generated BuildInfo.swift for NotificationService (commit: $GIT_SHA)"
+fi
+
 # Part 1: Generate Secrets.swift for Local and Dev builds (App target only)
 if [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Local" ]; then
     echo "🏠 Local build detected - generating secrets with auto-detected IP"
@@ -68,13 +89,15 @@ HEADER_EOF
         echo "🔍 Auto-detecting XMTP_CUSTOM_HOST"
         echo "    static let XMTP_CUSTOM_HOST = \"$LOCAL_IP\"" >> "$SECRETS_FILE"
     fi
-    
+
+    echo "    static let GIT_COMMIT_SHA = \"$GIT_SHA\"" >> "$SECRETS_FILE"
+
     # Add other secrets from .env if available
     if [ -f "${SRCROOT}/.env" ]; then
         echo "📋 Adding additional secrets from .env file..."
-        
+
         # Process .env file: skip comments, empty lines, and IP-related keys (since we handled them above), then format as Swift
-        sed -n '/^[^#]/p' "${SRCROOT}/.env" | grep '=' | grep -v '^CONVOS_API_BASE_URL' | grep -v '^XMTP_CUSTOM_HOST' | sed 's/^\\([^=]*\\)=\\(.*\\)$/    static let \\1 = "\\2"/' | sed 's/""\\(.*\\)""/"\\1"/' >> "$SECRETS_FILE"
+        sed -n '/^[^#]/p' "${SRCROOT}/.env" | grep '=' | grep -v '^CONVOS_API_BASE_URL' | grep -v '^XMTP_CUSTOM_HOST' | grep -v '^GIT_COMMIT_SHA' | sed 's/^\\([^=]*\\)=\\(.*\\)$/    static let \\1 = "\\2"/' | sed 's/""\\(.*\\)""/"\\1"/' >> "$SECRETS_FILE"
     fi
     
     # Close the enum
@@ -128,6 +151,7 @@ enum Secrets {
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+    static let GIT_COMMIT_SHA = "$GIT_SHA"
 }
 
 // swiftlint:enable all
