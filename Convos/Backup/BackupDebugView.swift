@@ -22,16 +22,22 @@ struct BackupDebugView: View {
         var transaction: RestoreTransaction?
         var pendingFailure: PendingArchiveImportFailure?
         var availableBackup: AvailableBackup?
-        var iCloudContainerConfigured: Bool = false
+        var iCloudContainerIdentifier: String?
+        var iCloudContainerReachable: Bool = false
     }
 
     var body: some View {
         List {
             Section("Configuration") {
                 row("Schema generation", value: snapshot.schemaGeneration)
+                row("iCloud container", value: snapshot.iCloudContainerIdentifier ?? "(none)")
                 row(
-                    "iCloud container",
-                    value: snapshot.iCloudContainerConfigured ? "configured" : "not configured (local fallback)"
+                    "iCloud reachable",
+                    value: snapshot.iCloudContainerReachable
+                        ? "yes"
+                        : (snapshot.iCloudContainerIdentifier == nil
+                            ? "no (identifier missing)"
+                            : "no (container not provisioned or user signed out)")
                 )
             }
 
@@ -105,7 +111,11 @@ struct BackupDebugView: View {
         let defaults = UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard
         var snapshot = Snapshot()
         snapshot.schemaGeneration = LegacyDataWipe.currentGeneration
-        snapshot.iCloudContainerConfigured = environment.iCloudContainerIdentifier != nil
+        snapshot.iCloudContainerIdentifier = environment.iCloudContainerIdentifier
+        if let containerId = environment.iCloudContainerIdentifier {
+            snapshot.iCloudContainerReachable = FileManager.default
+                .url(forUbiquityContainerIdentifier: containerId) != nil
+        }
         snapshot.lastBackupAt = defaults.object(forKey: "convos.backup.lastSuccessfulAt") as? Date
         snapshot.flagSet = RestoreInProgressFlag.isSet(environment: environment)
         snapshot.transaction = RestoreTransactionStore.load(environment: environment)

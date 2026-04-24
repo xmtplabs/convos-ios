@@ -10,7 +10,7 @@ import Security
 /// re-wipe on next launch when the on-disk format changes incompatibly.
 public enum LegacyDataWipe {
     /// Current schema generation. Bump when a schema change requires a wipe.
-    public static let currentGeneration: String = "single-inbox-v2"
+    public static let currentGeneration: String = "v1-single-inbox"
 
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 

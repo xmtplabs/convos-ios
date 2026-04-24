@@ -157,7 +157,7 @@ The bundle's outer AES-GCM seal uses `identity.databaseKey` as just described. T
 
 ### `schemaGeneration` in metadata (not `databaseFilename`)
 
-The bundle's real version-skew risk is not the filename — it's the GRDB schema. `LegacyDataWipe` is gated on a `convos.schemaGeneration` marker in app-group UserDefaults; the current tag is `single-inbox-v2`. If we ever bump the generation, the wipe runs *before* `DatabaseManager` opens the DB, which is before restore runs. A bundle built at generation N, restored on a device running generation N+1, would be wiped by the wipe pass and silently lost.
+The bundle's real version-skew risk is not the filename — it's the GRDB schema. `LegacyDataWipe` is gated on a `convos.schemaGeneration` marker in app-group UserDefaults; the current tag is `v1-single-inbox`. If we ever bump the generation, the wipe runs *before* `DatabaseManager` opens the DB, which is before restore runs. A bundle built at generation N, restored on a device running generation N+1, would be wiped by the wipe pass and silently lost.
 
 Mitigation: `metadata.json` carries `schemaGeneration: String`. `RestoreManager.findAvailableBackup` compares against `LegacyDataWipe.currentGeneration` and refuses mismatches.
 

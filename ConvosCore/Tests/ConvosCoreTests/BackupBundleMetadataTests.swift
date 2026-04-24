@@ -21,7 +21,7 @@ struct BackupBundleMetadataTests {
             deviceName: "Test iPhone",
             osString: "ios",
             conversationCount: 7,
-            schemaGeneration: "single-inbox-v2",
+            schemaGeneration: "v1-single-inbox",
             appVersion: "2.3.4"
         )
         try BackupSidecarMetadata.write(sidecar, to: dir)
@@ -39,7 +39,7 @@ struct BackupBundleMetadataTests {
             deviceName: "Test iPad",
             osString: "ios",
             conversationCount: 3,
-            schemaGeneration: "single-inbox-v2",
+            schemaGeneration: "v1-single-inbox",
             appVersion: "2.3.4",
             archiveKey: archiveKey,
             archiveMetadata: .init(startNs: 1, endNs: 2)
@@ -60,7 +60,7 @@ struct BackupBundleMetadataTests {
             deviceName: "n",
             osString: "ios",
             conversationCount: 1,
-            schemaGeneration: "single-inbox-v2",
+            schemaGeneration: "v1-single-inbox",
             appVersion: "1.0.0"
         )
         let data = try BackupMetadataCoders.encoder.encode(sidecar)
@@ -77,7 +77,7 @@ struct BackupBundleMetadataTests {
             deviceName: "n",
             osString: "ios",
             conversationCount: 0,
-            schemaGeneration: "single-inbox-v2",
+            schemaGeneration: "v1-single-inbox",
             appVersion: "1.0.0",
             archiveKey: archiveKey
         )

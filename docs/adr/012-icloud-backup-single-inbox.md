@@ -162,10 +162,15 @@ Positive:
   rather than eventually.
 
 Negative / tradeoffs:
-- iCloud Drive entitlements aren't configured yet — the backup path
-  falls back to the local app-group container until provisioning
-  lands. Restore across devices won't actually work on production
-  builds until that happens.
+- The iCloud container (`iCloud.<bundleId>`) is wired into the
+  entitlement file + xcconfig, but each environment's container still
+  has to be created in the Apple Developer Portal and attached to its
+  matching App ID (one per bundle id: `iCloud.org.convos.ios-local`,
+  `iCloud.org.convos.ios-preview`, `iCloud.org.convos.ios`). Until
+  that provisioning is in place, `FileManager
+  .url(forUbiquityContainerIdentifier:)` returns nil on-device and
+  `BackupManager` falls back to the local app-group container —
+  intentional resilience, not a blocker.
 - `importArchive` failure is non-fatal but not silently recovered:
   the user gets a partial-restore warning and is asked to re-run
   restore. A later iteration may add a live-client retry path once

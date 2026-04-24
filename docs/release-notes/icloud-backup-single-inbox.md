@@ -40,11 +40,13 @@
 
 ### Known limitations
 
-- iCloud Drive entitlements aren't fully provisioned yet for
-  production builds. Until they land, backups fall back to the
-  local app-group directory on-device — device-to-device restore
-  won't actually work in Prod. Internal / TestFlight builds with
-  the entitlement will work end-to-end.
+- The iCloud container is declared in the entitlement + xcconfig
+  (`iCloud.<bundleId>`), but the container itself still needs to
+  be created per environment in the Apple Developer Portal and
+  attached to each App ID before cross-device restore works.
+  Until that's done, on-device backups work and are stored locally
+  in the app-group directory — they just don't follow you to
+  another device.
 - If the initial archive import doesn't complete, the conversation
   list restores but message history does not. The settings screen
   shows a warning row asking you to run restore again.

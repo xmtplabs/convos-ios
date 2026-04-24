@@ -253,13 +253,21 @@ public extension AppEnvironment {
 
     /// iCloud container identifier used for backup bundle persistence.
     ///
-    /// Returns `nil` today — the iCloud container is not yet configured in
-    /// entitlements or provisioning. `BackupManager` falls back to the local
-    /// app-group directory when this is nil. When entitlements land, this
-    /// can be wired through `ConvosConfiguration` without touching the
-    /// `BackupManager` call sites.
+    /// Matches the entitlement's `$(ICLOUD_CONTAINER_IDENTIFIER)` build
+    /// variable (`iCloud.<bundleId>`). Returns `nil` in the testing
+    /// environment because SPM tests have no `Bundle.main.bundleIdentifier`
+    /// and no iCloud entitlement. At runtime, `BackupManager` falls back
+    /// to the local app-group directory when this resolves to `nil` or
+    /// when the container isn't reachable (user signed out of iCloud,
+    /// entitlement not yet provisioned in Apple Developer for the
+    /// active bundle id, etc).
     var iCloudContainerIdentifier: String? {
-        nil
+        guard !isTestingEnvironment,
+              let bundleId = Bundle.main.bundleIdentifier,
+              !bundleId.isEmpty else {
+            return nil
+        }
+        return "iCloud.\(bundleId)"
     }
 
     /// App marketing version read from the host bundle. Defaults to `"0.0.0"`
