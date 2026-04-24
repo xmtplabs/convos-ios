@@ -96,7 +96,7 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
-    private var hiddenConversationIds: Set<String> = []
+    private(set) var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -286,18 +286,29 @@ final class ConversationsViewModel {
     }
 
     func leave(conversation: Conversation) {
-        // Hide the row so the next conversationsPublisher emit doesn't re-add
-        // it (see sink at `conversationsRepository.conversationsPublisher`,
-        // which filters on hiddenConversationIds). A proper group-leave path
-        // via group.leaveGroup() is tracked as a follow-up to C11 — until
-        // then the user remains a group member on the protocol side, but the
-        // row stays hidden locally.
+        // Optimistic hide while the consent write lands. Once the DB row's
+        // consent flips to .denied, ConversationsRepository filters it out
+        // unconditionally, so the hiddenConversationIds fallback is only
+        // needed during the in-flight window.
         hiddenConversationIds.insert(conversation.id)
         if let index = conversations.firstIndex(of: conversation) {
             conversations.remove(at: index)
         }
         if selectedConversation == conversation {
             selectedConversation = nil
+        }
+
+        let conversationId = conversation.id
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let writer = session.messagingService().conversationConsentWriter()
+                try await writer.delete(conversation: conversation)
+                self.hiddenConversationIds.remove(conversationId)
+            } catch {
+                self.hiddenConversationIds.remove(conversationId)
+                Log.error("Failed to persist delete for \(conversationId): \(error.localizedDescription)")
+            }
         }
     }
 
