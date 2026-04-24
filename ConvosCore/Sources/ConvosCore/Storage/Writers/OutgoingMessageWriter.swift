@@ -3,7 +3,15 @@ import Combine
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
-@preconcurrency import XMTPiOS
+
+// Stage 3 migration (audit §5.3): the writer no longer imports
+// XMTPiOS directly. The XIP send flow still lives on XMTPiOS (Reply,
+// RemoteAttachment, Attachment, AttachmentCodec, ContentTypeText,
+// ContentTypeRemoteAttachment, MessageSender.prepare(...)) so Stage 3
+// routes every XIP-layer call through per-op bridges in
+// `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/
+// XMTPiOSConversationWriterSupport.swift`. The writer file itself
+// stays Foundation + GRDB only.
 
 public protocol OutgoingMessageWriterProtocol: Sendable {
     var sentMessage: AnyPublisher<String, Never> { get }
@@ -529,15 +537,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
             let fileData = try Data(contentsOf: params.dataURL)
-            let attachment = Attachment(
+            // Stage 3 migration: delegate Attachment + AttachmentCodec
+            // construction to the Stage 6 XIP bridge.
+            let encrypted = try encodeEncryptedAttachmentViaBridge(
                 filename: params.filename,
                 mimeType: params.mimeType,
                 data: fileData
-            )
-
-            let encrypted = try RemoteAttachment.encodeEncrypted(
-                content: attachment,
-                codec: AttachmentCodec()
             )
 
             let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
@@ -643,17 +648,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw PhotoAttachmentError.encryptionFailed
         }
 
-        let remoteAttachment = try RemoteAttachment(
-            url: storedAttachment.url,
-            contentDigest: storedAttachment.contentDigest,
-            secret: storedAttachment.secret,
-            salt: storedAttachment.salt,
-            nonce: storedAttachment.nonce,
-            scheme: .https,
-            contentLength: nil,
-            filename: storedAttachment.filename
-        )
-
         guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: clientMessageId)
@@ -661,13 +655,14 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         do {
-            let messageId: String
-            if let replyContext {
-                let reply = Reply(reference: replyContext.parentDbId, content: remoteAttachment, contentType: ContentTypeRemoteAttachment)
-                messageId = try await sender.prepare(reply: reply)
-            } else {
-                messageId = try await sender.prepare(remoteAttachment: remoteAttachment)
-            }
+            // Stage 3 migration: delegate RemoteAttachment + Reply
+            // construction + `MessageSender.prepare(...)` dispatch to
+            // the Stage 6 XIP bridge.
+            let messageId = try await prepareRemoteAttachmentViaBridge(
+                sender: sender,
+                stored: storedAttachment,
+                replyParentDbId: replyContext?.parentDbId
+            )
 
             if let thumbnailImage {
                 ImageCacheContainer.shared.cacheImage(thumbnailImage, for: json, storageTier: .persistent)
@@ -693,7 +688,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             try await attachmentLocalStateWriter.migrateKey(from: trackingKey, to: json)
 
-            try await sender.publish()
+            nonisolated(unsafe) let unsafeSender = sender
+            try await unsafeSender.publish()
 
             ImageCacheContainer.shared.removeImage(for: trackingKey)
 
@@ -934,8 +930,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let xmtpMessageId: String
         if let replyContext = queued.replyContext {
-            let reply = Reply(reference: replyContext.parentDbId, content: queued.text, contentType: ContentTypeText)
-            xmtpMessageId = try await sender.prepare(reply: reply)
+            // Stage 3 migration: delegate XIP Reply construction to
+            // the Stage 6 bridge.
+            xmtpMessageId = try await prepareTextReplyViaBridge(
+                sender: sender,
+                text: queued.text,
+                replyParentDbId: replyContext.parentDbId
+            )
         } else {
             xmtpMessageId = try await sender.prepare(text: queued.text)
         }
@@ -978,7 +979,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         do {
-            try await sender.publish()
+            nonisolated(unsafe) let unsafeSender = sender
+            try await unsafeSender.publish()
         } catch {
             Log.error("Failed publishing text message: \(error)")
             try? await markMessageFailed(messageId: xmtpMessageId)
@@ -1079,15 +1081,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
         let videoData = try Data(contentsOf: queued.localCacheURL)
-        let attachment = Attachment(
+        let encrypted = try encodeEncryptedAttachmentViaBridge(
             filename: queued.filename,
             mimeType: "video/mp4",
             data: videoData
-        )
-
-        let encrypted = try RemoteAttachment.encodeEncrypted(
-            content: attachment,
-            codec: AttachmentCodec()
         )
 
         let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
@@ -1160,15 +1157,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
         let audioData = try Data(contentsOf: queued.localCacheURL)
-        let attachment = Attachment(
+        let encrypted = try encodeEncryptedAttachmentViaBridge(
             filename: queued.filename,
             mimeType: queued.mimeType,
             data: audioData
-        )
-
-        let encrypted = try RemoteAttachment.encodeEncrypted(
-            content: attachment,
-            codec: AttachmentCodec()
         )
 
         let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(

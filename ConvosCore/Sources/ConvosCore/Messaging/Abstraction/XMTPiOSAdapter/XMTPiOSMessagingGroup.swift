@@ -218,4 +218,22 @@ public final class XMTPiOSMessagingGroup: MessagingGroup, @unchecked Sendable {
     public func isActive() async throws -> Bool {
         try xmtpGroup.isActive()
     }
+
+    // MARK: - Admin management (Stage 3)
+
+    public func addAdmin(inboxId: MessagingInboxID) async throws {
+        try await xmtpGroup.addAdmin(inboxId: inboxId)
+    }
+
+    public func removeAdmin(inboxId: MessagingInboxID) async throws {
+        try await xmtpGroup.removeAdmin(inboxId: inboxId)
+    }
+
+    public func addSuperAdmin(inboxId: MessagingInboxID) async throws {
+        try await xmtpGroup.addSuperAdmin(inboxId: inboxId)
+    }
+
+    public func removeSuperAdmin(inboxId: MessagingInboxID) async throws {
+        try await xmtpGroup.removeSuperAdmin(inboxId: inboxId)
+    }
 }

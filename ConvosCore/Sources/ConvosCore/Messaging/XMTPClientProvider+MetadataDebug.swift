@@ -31,10 +31,13 @@ public extension XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
 
+        // Stage 3 migration: the XMTPiOS.Group custom-metadata shim is
+        // gone — read via the MessagingGroup adapter.
+        let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(xmtpGroup: group)
         let rawAppData = try group.appData()
         let snapshot = ConversationCustomMetadataDebugSnapshot(rawAppData: rawAppData)
-        let xmtpInviteTag = (try? group.inviteTag) ?? "<error>"
-        let xmtpExpiresAtDescription = (try? group.expiresAt)?.description ?? "<nil>"
+        let xmtpInviteTag = (try? await messagingGroup.inviteTag()) ?? "<error>"
+        let xmtpExpiresAtDescription = (try? await messagingGroup.expiresAt())?.description ?? "<nil>"
 
         return ConversationMetadataDebugInfo(
             conversationId: conversationId,

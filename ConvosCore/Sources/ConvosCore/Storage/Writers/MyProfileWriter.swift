@@ -1,7 +1,6 @@
 import ConvosProfiles
 import Foundation
 import GRDB
-@preconcurrency import XMTPiOS
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
@@ -13,6 +12,12 @@ enum MyProfileWriterError: Error {
     case imageCompressionFailed
 }
 
+// Stage 3 migration (audit §5.3): the writer no longer imports
+// XMTPiOS. Conversation lookup uses `messagingGroup(with:)`, and the
+// `group.updateProfile(_:)` / `group.ensureImageEncryptionKey()` calls
+// dispatch onto the `MessagingGroup+CustomMetadata` extension. Sending
+// the `ProfileUpdate` codec payload still goes through the Stage-6
+// `ProfileSnapshotBridge.sendProfileUpdate` bridge.
 class MyProfileWriter: MyProfileWriterProtocol {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
@@ -27,8 +32,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
     func update(displayName: String, conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
         let trimmedDisplayName = {
@@ -63,8 +67,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
     func update(metadata: ProfileMetadata?, conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
         let inboxId = inboxReady.client.inboxId
@@ -85,8 +88,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
     func update(avatar: ImageType?, conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
         let inboxId = inboxReady.client.inboxId
@@ -169,7 +171,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         await sendProfileUpdate(profile: updatedProfile, group: group)
     }
 
-    private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {
+    private func sendProfileUpdate(profile: DBMemberProfile, group: any MessagingGroup) async {
         var update = ProfileUpdate()
         if let name = profile.name {
             update.name = name
@@ -185,9 +187,10 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         do {
-            let codec = ProfileUpdateCodec()
-            let encoded = try codec.encode(content: update)
-            _ = try await group.send(encodedContent: encoded)
+            // FIXME(stage4e): `ProfileUpdateCodec` still lives on the
+            // XMTPiOS side; flow through the Stage-4e bridge until
+            // ConvosProfiles migrates onto the abstraction.
+            try await ProfileSnapshotBridge.sendProfileUpdate(update, on: group)
             Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
         } catch {
             Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")

@@ -3,7 +3,6 @@ import ConvosAppData
 import ConvosProfiles
 import Foundation
 import GRDB
-@preconcurrency import XMTPiOS
 
 // MARK: - Conversation Metadata Writer Protocol
 
@@ -53,6 +52,16 @@ enum ConversationMetadataError: LocalizedError {
 
 // MARK: - Conversation Metadata Writer Implementation
 
+/// Stage 3 migration (audit §5.3): the writer no longer imports
+/// XMTPiOS. Conversation lookups flow through the abstraction-layer
+/// `messagingGroup(with:)` convenience, and every `group.xxx` call
+/// resolves to either:
+/// - the protocol method on `MessagingGroup`, or
+/// - the extension defined on `MessagingGroup` in
+///   `Invites & Custom Metadata/MessagingGroup+CustomMetadata.swift`
+///   (which is a behavioural 1:1 of the legacy XMTPGroup+CustomMetadata
+///   shim).
+///
 /// @unchecked Sendable: All stored properties are immutable references (`let`).
 /// DatabaseWriter is thread-safe (internal serial queue). InboxStateManager and
 /// InviteWriter protocols are Sendable. All methods are async with no shared mutable state.
@@ -87,12 +96,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         let truncatedName = name.count > NameLimits.maxConversationNameLength ? String(name.prefix(NameLimits.maxConversationNameLength)) : name
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        try await group.updateName(name: truncatedName)
+        try await group.updateName(truncatedName)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -114,8 +122,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -139,12 +146,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func updateDescription(_ description: String, for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        try await group.updateDescription(description: description)
+        try await group.updateDescription(description)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -165,8 +171,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let xmtpConversation = try await inboxReady.client.conversation(with: conversation.id),
-              case .group(let group) = xmtpConversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversation.id) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
@@ -232,7 +237,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         encryptedRef.nonce = encryptedPayload.nonce
 
         try await group.updateEncryptedGroupImage(encryptedRef)
-        try await group.updateImageUrl(imageUrl: encryptedAssetUrl)
+        try await group.updateImageUrl(encryptedAssetUrl)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -255,7 +260,6 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         }
 
         // Cache the uploaded image using the new URL-tracking API
-        // Uses prepareForUpload + cacheAfterUpload to avoid double-caching
         if let cachedImage = ImageType(data: compressedImageData) {
             ImageCacheContainer.shared.cacheAfterUpload(cachedImage, for: conversation, url: encryptedAssetUrl)
         }
@@ -331,14 +335,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             return nil
         }
 
-        guard let xmtpConversation = try? await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = xmtpConversation else {
+        guard let group = try? await inboxReady.client.messagingGroup(with: conversationId) else {
             Log.warning("Could not find XMTP conversation for public preview")
             return nil
         }
 
-        guard let encryptedRef = try? group.encryptedGroupImage,
-              let groupKey = try? group.imageEncryptionKey,
+        guard let encryptedRef = try? await group.encryptedGroupImage(),
+              let groupKey = try? await group.imageEncryptionKey(),
               let encryptedURL = URL(string: encryptedRef.url) else {
             Log.warning("No encrypted group image available for public preview")
             return nil
@@ -370,12 +373,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        try await group.updateImageUrl(imageUrl: imageURL)
+        try await group.updateImageUrl(imageURL)
 
         guard let localConversation = try await databaseWriter.read({ db in
             try DBConversation.fetchOne(db, key: conversationId)
@@ -414,12 +416,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        _ = try await group.addMembers(inboxIds: memberInboxIds)
+        try await group.addMembers(inboxIds: memberInboxIds)
 
         let currentInboxId = inboxReady.client.inboxId
         try await databaseWriter.write { db in
@@ -440,9 +441,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
         QAEvent.emit(.member, "added", ["conversation": conversationId, "count": String(memberInboxIds.count)])
 
-        let allMemberInboxIds = try await group.members.map(\.inboxId)
+        let allMemberInboxIds = try await group.members().map(\.inboxId)
         do {
-            try await ProfileSnapshotBuilder.sendSnapshot(
+            try await ProfileSnapshotBridge.sendSnapshot(
                 group: group,
                 memberInboxIds: allMemberInboxIds
             )
@@ -455,8 +456,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -481,8 +481,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func promoteToAdmin(_ memberInboxId: String, in conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -505,8 +504,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -528,8 +526,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -551,8 +548,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -576,21 +572,21 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func lockConversation(for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        try await group.updateAddMemberPermission(newPermissionOption: .deny)
+        try await group.updateAddMemberPermission(.deny)
         try await group.rotateInviteTag()
 
+        let newInviteTag = try await group.inviteTag()
         let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
             }
             let updated = localConversation
                 .with(isLocked: true)
-                .with(inviteTag: try group.inviteTag)
+                .with(inviteTag: newInviteTag)
             try updated.save(db)
             Log.debug("Locked conversation \(conversationId) in local database")
             return updated
@@ -605,24 +601,23 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     func unlockConversation(for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
+        guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
         // Rotate invite tag first so the new invite is ready before members can add others.
-        // This ensures the invite works immediately when permissions are updated.
         try await group.rotateInviteTag()
 
-        try await group.updateAddMemberPermission(newPermissionOption: .allow)
+        try await group.updateAddMemberPermission(.allow)
 
+        let newInviteTag = try await group.inviteTag()
         let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
             }
             let updated = localConversation
                 .with(isLocked: false)
-                .with(inviteTag: try group.inviteTag)
+                .with(inviteTag: newInviteTag)
             try updated.save(db)
             Log.debug("Unlocked conversation \(conversationId) in local database")
             return updated

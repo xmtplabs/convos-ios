@@ -151,6 +151,15 @@ public protocol MessagingGroup: MessagingConversationCore {
     func listAdmins() async throws -> [MessagingInboxID]
     func listSuperAdmins() async throws -> [MessagingInboxID]
     func isActive() async throws -> Bool
+
+    // Stage 3 migration: admin-management methods consumed by
+    // `ConversationMetadataWriter`. Mirror the `XMTPiOS.Group`
+    // `addAdmin(inboxId:)` / `removeAdmin(inboxId:)` /
+    // `addSuperAdmin(inboxId:)` / `removeSuperAdmin(inboxId:)` surface.
+    func addAdmin(inboxId: MessagingInboxID) async throws
+    func removeAdmin(inboxId: MessagingInboxID) async throws
+    func addSuperAdmin(inboxId: MessagingInboxID) async throws
+    func removeSuperAdmin(inboxId: MessagingInboxID) async throws
 }
 
 // MARK: - DM

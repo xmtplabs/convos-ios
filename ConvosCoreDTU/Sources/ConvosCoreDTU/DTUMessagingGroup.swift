@@ -356,6 +356,40 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
         let entries = try await context.universe.listConversations(actor: context.actor)
         return entries.first { $0.alias == id }?.isActive ?? false
     }
+
+    // MARK: - Admin management (Stage 3)
+
+    /// Stage 3 migration: the DTU engine doesn't model admin /
+    /// super-admin mutation yet. Throw a scoped not-supported error
+    /// so callers that reach for these surfaces fail loudly on a
+    /// DTU-backed client.
+    public func addAdmin(inboxId: MessagingInboxID) async throws {
+        throw DTUMessagingNotSupportedError(
+            method: "MessagingGroup.addAdmin",
+            reason: "DTU engine does not yet model admin mutation"
+        )
+    }
+
+    public func removeAdmin(inboxId: MessagingInboxID) async throws {
+        throw DTUMessagingNotSupportedError(
+            method: "MessagingGroup.removeAdmin",
+            reason: "DTU engine does not yet model admin mutation"
+        )
+    }
+
+    public func addSuperAdmin(inboxId: MessagingInboxID) async throws {
+        throw DTUMessagingNotSupportedError(
+            method: "MessagingGroup.addSuperAdmin",
+            reason: "DTU engine does not yet model super-admin mutation"
+        )
+    }
+
+    public func removeSuperAdmin(inboxId: MessagingInboxID) async throws {
+        throw DTUMessagingNotSupportedError(
+            method: "MessagingGroup.removeSuperAdmin",
+            reason: "DTU engine does not yet model super-admin mutation"
+        )
+    }
 }
 
 // MARK: - Permission projection helper

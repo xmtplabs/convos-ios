@@ -936,9 +936,12 @@ extension UnusedConversationCache {
                 throw UnusedConversationCacheError.invalidConversationType
             }
 
-            try await group.ensureInviteTag()
+            // Stage 3 migration: custom-metadata calls flow through
+            // `MessagingGroup+CustomMetadata.swift` on the abstraction.
+            let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(xmtpGroup: group)
+            try await messagingGroup.ensureInviteTag()
             do {
-                try await group.ensureImageEncryptionKey()
+                try await messagingGroup.ensureImageEncryptionKey()
             } catch {
                 Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
             }
@@ -1050,7 +1053,9 @@ extension UnusedConversationCache {
     ) async throws {
         let conversationId = conversation.id
         let creatorInboxId = try await conversation.creatorInboxId()
-        let inviteTag = try conversation.inviteTag
+        // Stage 3 migration: read inviteTag via the MessagingGroup
+        // extension on the XMTPiOS adapter.
+        let inviteTag = try await XMTPiOSMessagingGroup(xmtpGroup: conversation).inviteTag()
 
         try await databaseWriter.write { db in
             let member = DBMember(inboxId: inboxId)

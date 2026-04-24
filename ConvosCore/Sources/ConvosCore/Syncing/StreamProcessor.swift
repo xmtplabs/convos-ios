@@ -146,10 +146,16 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == params.client.inboxId {
+            // Stage 3 migration: custom-metadata calls (ensureInviteTag,
+            // ensureImageEncryptionKey) are exposed on `MessagingGroup`
+            // via `MessagingGroup+CustomMetadata.swift`. Wrap the
+            // XMTPiOS.Group once for this block.
+            let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(xmtpGroup: conversation)
+
             // we created the conversation, update permissions, set inviteTag, and generate encryption key
-            try await conversation.ensureInviteTag()
+            try await messagingGroup.ensureInviteTag()
             do {
-                try await conversation.ensureImageEncryptionKey()
+                try await messagingGroup.ensureImageEncryptionKey()
             } catch {
                 Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
             }

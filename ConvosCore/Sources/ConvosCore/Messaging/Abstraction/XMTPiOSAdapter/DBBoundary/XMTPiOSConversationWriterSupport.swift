@@ -90,10 +90,10 @@ public extension XMTPiOS.Conversation {
     }
 
     var inviteTag: String {
-        get throws {
+        get async throws {
             switch self {
             case .group(let group):
-                return try group.inviteTag
+                return try await XMTPiOSMessagingGroup(xmtpGroup: group).inviteTag()
             case .dm:
                 throw ConversationInviteTagError.attemptedFetchingInviteTagForDM
             }
@@ -274,6 +274,112 @@ enum MessagingWriterBridge {
             visibilityOptions: XMTPiOS.MessageVisibilityOptions(shouldPush: shouldPush)
         )
     }
+
+    /// Send an `ExplodeSettings` message on a `MessagingConversation`.
+    /// FIXME(stage6): the `ExplodeSettingsCodec` is Convos-custom and
+    /// still lives on the XMTPiOS side.
+    static func sendExplode(
+        conversation: MessagingConversation,
+        expiresAt: Date
+    ) async throws {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "sendExplode"
+            )
+        }
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+    }
+
+    // MARK: - Outgoing attachment / reply send bridges
+    //
+    // FIXME(stage6): `Attachment`, `RemoteAttachment`, `Reply`,
+    // `AttachmentCodec`, `ContentTypeRemoteAttachment`, and the
+    // `MessageSender.prepare(reply:)` / `prepare(remoteAttachment:)`
+    // / `prepare(text:)` surface all live in XMTPiOS today.
+    // OutgoingMessageWriter used to construct them directly; Stage 3
+    // routes through these bridges so the writer file can stay
+    // XMTPiOS-free while the codec layer waits its turn.
+
+    /// Foundation-only projection of
+    /// `XMTPiOS.EncryptedEncodedContent`. Mirrors the subset of fields
+    /// callers read (payload + digest + secret + salt + nonce).
+    struct EncryptedRemoteAttachment: Sendable {
+        let payload: Data
+        let digest: String
+        let secret: Data
+        let salt: Data
+        let nonce: Data
+    }
+
+    /// Encode an in-memory attachment into an encrypted remote
+    /// attachment envelope suitable for upload. Mirrors
+    /// `RemoteAttachment.encodeEncrypted(content: Attachment(...), codec: AttachmentCodec())`.
+    static func encodeEncryptedAttachment(
+        filename: String,
+        mimeType: String,
+        data: Data
+    ) throws -> EncryptedRemoteAttachment {
+        let attachment = XMTPiOS.Attachment(
+            filename: filename,
+            mimeType: mimeType,
+            data: data
+        )
+        let encrypted = try XMTPiOS.RemoteAttachment.encodeEncrypted(
+            content: attachment,
+            codec: XMTPiOS.AttachmentCodec()
+        )
+        return EncryptedRemoteAttachment(
+            payload: encrypted.payload,
+            digest: encrypted.digest,
+            secret: encrypted.secret,
+            salt: encrypted.salt,
+            nonce: encrypted.nonce
+        )
+    }
+
+    /// Prepare an outgoing remote-attachment message (optionally a
+    /// reply) through `MessageSender.prepare(...)`. The `sender` stays
+    /// XMTPiOS-side; returns the opaque prepared message id.
+    static func prepareRemoteAttachment(
+        sender: any MessageSender,
+        stored: StoredRemoteAttachment,
+        replyParentDbId: String?
+    ) async throws -> String {
+        let remoteAttachment = try XMTPiOS.RemoteAttachment(
+            url: stored.url,
+            contentDigest: stored.contentDigest,
+            secret: stored.secret,
+            salt: stored.salt,
+            nonce: stored.nonce,
+            scheme: .https,
+            contentLength: nil,
+            filename: stored.filename
+        )
+        if let replyParentDbId {
+            let reply = XMTPiOS.Reply(
+                reference: replyParentDbId,
+                content: remoteAttachment,
+                contentType: XMTPiOS.ContentTypeRemoteAttachment
+            )
+            return try await sender.prepare(reply: reply)
+        }
+        return try await sender.prepare(remoteAttachment: remoteAttachment)
+    }
+
+    /// Prepare an outgoing text reply through `MessageSender.prepare(reply:)`.
+    static func prepareTextReply(
+        sender: any MessageSender,
+        text: String,
+        replyParentDbId: String
+    ) async throws -> String {
+        let reply = XMTPiOS.Reply(
+            reference: replyParentDbId,
+            content: text,
+            contentType: XMTPiOS.ContentTypeText
+        )
+        return try await sender.prepare(reply: reply)
+    }
 }
 
 enum MessagingWriterBridgeError: Error, LocalizedError {
@@ -284,6 +390,105 @@ enum MessagingWriterBridgeError: Error, LocalizedError {
         case .notSupportedOnBackend(let op):
             return "\(op) is not supported on the active messaging backend."
         }
+    }
+}
+
+// MARK: - ProfileSnapshotBridge
+
+/// Bridges `ConvosProfiles.ProfileSnapshotBuilder.sendSnapshot(group:
+/// memberInboxIds:)` — which still takes a raw `XMTPiOS.Group` — onto
+/// the `any MessagingGroup` surface that Stage 3 writers consume.
+/// FIXME(stage4e): remove once ConvosProfiles migrates to the
+/// abstraction (Stage 4e / Stage 6).
+enum ProfileSnapshotBridge {
+    static func sendSnapshot(
+        group: any MessagingGroup,
+        memberInboxIds: [MessagingInboxID]
+    ) async throws {
+        guard let xmtpiosGroup = (group as? XMTPiOSMessagingGroup)?.underlyingXMTPiOSGroup else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "ProfileSnapshotBuilder.sendSnapshot"
+            )
+        }
+        try await ProfileSnapshotBuilder.sendSnapshot(
+            group: xmtpiosGroup,
+            memberInboxIds: memberInboxIds
+        )
+    }
+
+    /// Encodes + sends a `ProfileUpdate` through the XMTPiOS codec
+    /// pipeline on behalf of a `MessagingGroup` writer.
+    /// FIXME(stage4e): migrate `ProfileUpdateCodec` off XMTPiOS and
+    /// remove this bridge.
+    static func sendProfileUpdate(
+        _ update: ProfileUpdate,
+        on group: any MessagingGroup
+    ) async throws {
+        guard let xmtpiosGroup = (group as? XMTPiOSMessagingGroup)?.underlyingXMTPiOSGroup else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "ProfileUpdateCodec.send"
+            )
+        }
+        let codec = ProfileUpdateCodec()
+        let encoded = try codec.encode(content: update)
+        _ = try await xmtpiosGroup.send(encodedContent: encoded)
+    }
+}
+
+// OutgoingMessageWriter shim. See the per-op FIXME(stage6) comments
+// at the bridge call-sites for the XIP codec migration.
+extension OutgoingMessageWriter {
+    func encodeEncryptedAttachmentViaBridge(
+        filename: String,
+        mimeType: String,
+        data: Data
+    ) throws -> MessagingWriterBridge.EncryptedRemoteAttachment {
+        try MessagingWriterBridge.encodeEncryptedAttachment(
+            filename: filename,
+            mimeType: mimeType,
+            data: data
+        )
+    }
+
+    func prepareRemoteAttachmentViaBridge(
+        sender: any MessageSender,
+        stored: StoredRemoteAttachment,
+        replyParentDbId: String?
+    ) async throws -> String {
+        nonisolated(unsafe) let unsafeSender = sender
+        return try await MessagingWriterBridge.prepareRemoteAttachment(
+            sender: unsafeSender,
+            stored: stored,
+            replyParentDbId: replyParentDbId
+        )
+    }
+
+    func prepareTextReplyViaBridge(
+        sender: any MessageSender,
+        text: String,
+        replyParentDbId: String
+    ) async throws -> String {
+        nonisolated(unsafe) let unsafeSender = sender
+        return try await MessagingWriterBridge.prepareTextReply(
+            sender: unsafeSender,
+            text: text,
+            replyParentDbId: replyParentDbId
+        )
+    }
+}
+
+// ConversationExplosionWriter shim. See
+// `MessagingWriterBridge.sendExplode` for the Stage 6 FIXME on the
+// ExplodeSettings codec.
+extension ConversationExplosionWriter {
+    func sendExplodeViaBridge(
+        conversation: MessagingConversation,
+        expiresAt: Date
+    ) async throws {
+        try await MessagingWriterBridge.sendExplode(
+            conversation: conversation,
+            expiresAt: expiresAt
+        )
     }
 }
 
@@ -338,6 +543,21 @@ extension ReplyMessageWriter {
         try await MessagingWriterBridge.publishPreparedMessages(
             conversation: conversation
         )
+    }
+}
+
+// MARK: - XMTPiOS.Group ConversationSender conformance helpers
+
+/// Stage 3 migration (audit §5.3): the `ConversationSender` /
+/// `GroupConversationSender` protocol (Stage 4 surface) requires
+/// `ensureInviteTag()` on `XMTPiOS.Group`. The legacy
+/// `Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` shim
+/// used to expose that extension; it's been deleted, so this tiny
+/// passthrough keeps the Stage 4 protocol conformance working by
+/// delegating into the abstraction-layer `MessagingGroup+CustomMetadata`.
+public extension XMTPiOS.Group {
+    func ensureInviteTag() async throws {
+        try await XMTPiOSMessagingGroup(xmtpGroup: self).ensureInviteTag()
     }
 }
 
