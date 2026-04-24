@@ -210,8 +210,6 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             await executeExplodeIfCreator(conversation: conversation, context: context)
         }
 
-        await pruneExpiredSideConversationStorage(conversationId: conversation.conversationId)
-
         await MainActor.run {
             NotificationCenter.default.post(
                 name: .leftConversationNotification,
@@ -219,28 +217,23 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
                 userInfo: ["conversationId": conversation.conversationId]
             )
         }
+
+        await deleteExpiredConversationRow(conversationId: conversation.conversationId)
     }
 
-    /// Deletes the cached messages of an exploded side convo to free storage.
-    /// The `DBConversation` shell is intentionally left behind so the parent
-    /// convo's inline invite row can still render as "Exploded" via the
-    /// `DBInvite → DBConversation.expiresAt` join at fetch time.
-    private func pruneExpiredSideConversationStorage(conversationId: String) async {
+    /// Deletes the expired conversation's row so the worker stops re-processing it.
+    /// Foreign-key cascade removes every child table (messages, invites, members,
+    /// local state, photo prefs, attachments). The parent convo's inline invite
+    /// row still renders as "Exploded" because that check reads
+    /// `conversationExpiresAt` from the embedded `SignedInvite` payload on
+    /// `DBMessage.invite`, not from this row.
+    private func deleteExpiredConversationRow(conversationId: String) async {
         do {
-            let deletedCount = try await databaseWriter.write { db -> Int in
-                let isSideConvo = try DBInvite
-                    .filter(DBInvite.Columns.conversationId == conversationId)
-                    .fetchCount(db) > 0
-                guard isSideConvo else { return 0 }
-                return try DBMessage
-                    .filter(DBMessage.Columns.conversationId == conversationId)
-                    .deleteAll(db)
-            }
-            if deletedCount > 0 {
-                Log.info("Pruned \(deletedCount) message(s) from expired side convo \(conversationId)")
+            try await databaseWriter.write { db in
+                _ = try DBConversation.deleteOne(db, key: conversationId)
             }
         } catch {
-            Log.error("Failed to prune messages for expired side convo \(conversationId): \(error)")
+            Log.error("Failed to delete expired DBConversation row \(conversationId): \(error)")
         }
     }
 

@@ -165,8 +165,8 @@ struct ExpiredConversationsWorkerTests {
         #expect(matched, "Should clean up conversation when conversationExpired notification received")
     }
 
-    @Test("Prunes cached messages from an exploded side convo but keeps the DBConversation shell")
-    func testPrunesSideConversationMessagesOnExpiration() async throws {
+    @Test("Deletes the DBConversation row of an exploded side convo, cascading its children")
+    func testDeletesSideConversationRowOnExpiration() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
         let expiresAt = Date().addingTimeInterval(-60)
         try await fixtures.setupConversation(expiresAt: expiresAt)
@@ -187,21 +187,27 @@ struct ExpiredConversationsWorkerTests {
         }
 
         try await waitForCondition(timeout: 1.0) {
-            let count = try? fixtures.messageCount(for: conversationId)
-            return count == 0
+            let exists = (try? fixtures.conversationExists(id: conversationId)) ?? true
+            return exists == false
         }
 
-        let remainingMessages = try fixtures.messageCount(for: conversationId)
-        #expect(remainingMessages == 0, "Messages for the exploded side convo should be pruned")
-
         let stillHasConversation = try fixtures.conversationExists(id: conversationId)
-        #expect(stillHasConversation, "DBConversation shell should survive so parent invite rows still detect Exploded")
+        #expect(stillHasConversation == false, "DBConversation row should be deleted after cleanup")
+
+        let remainingMessages = try fixtures.messageCount(for: conversationId)
+        #expect(remainingMessages == 0, "Cascade should remove all messages")
+
+        let remainingInvites = try fixtures.inviteCount(for: conversationId)
+        #expect(remainingInvites == 0, "Cascade should remove the invite row")
+
+        let remainingMembers = try fixtures.memberCount(for: conversationId)
+        #expect(remainingMembers == 0, "Cascade should remove conversation members")
 
         withExtendedLifetime(worker) {}
     }
 
-    @Test("Does not prune messages from an exploded non-side conversation")
-    func testDoesNotPruneRegularConversationMessages() async throws {
+    @Test("Deletes the DBConversation row of an exploded regular conversation, cascading its children")
+    func testDeletesRegularConversationRowOnExpiration() async throws {
         let fixtures = ExpiredWorkerTestFixtures()
         let expiresAt = Date().addingTimeInterval(-60)
         try await fixtures.setupConversation(expiresAt: expiresAt)
@@ -220,11 +226,55 @@ struct ExpiredConversationsWorkerTests {
             }
         }
 
-        // Allow the pruning write a moment to run if it were going to.
-        try? await Task.sleep(for: .milliseconds(200))
+        try await waitForCondition(timeout: 1.0) {
+            let exists = (try? fixtures.conversationExists(id: conversationId)) ?? true
+            return exists == false
+        }
+
+        let stillHasConversation = try fixtures.conversationExists(id: conversationId)
+        #expect(stillHasConversation == false, "DBConversation row should be deleted after cleanup")
 
         let remainingMessages = try fixtures.messageCount(for: conversationId)
-        #expect(remainingMessages == 2, "Regular (non-side-convo) messages should not be pruned")
+        #expect(remainingMessages == 0, "Cascade should remove all messages")
+
+        withExtendedLifetime(worker) {}
+    }
+
+    @Test("Parent convo's inline invite still renders Exploded after the side convo row is deleted")
+    func testParentInviteRendersExplodedAfterSideConvoDeletion() async throws {
+        let fixtures = ExpiredWorkerTestFixtures()
+        let sideConvoExpiresAt = Date().addingTimeInterval(-60)
+        try await fixtures.setupConversation(expiresAt: sideConvoExpiresAt)
+        try await fixtures.markAsSideConversation()
+
+        let parentConversationId = "parent-of-\(fixtures.conversationId)"
+        try await fixtures.setupConversation(id: parentConversationId, expiresAt: nil)
+        let parentInviteMessageId = try await fixtures.seedInviteMessage(
+            inParentConversation: parentConversationId,
+            referencingSideConversationExpiresAt: sideConvoExpiresAt
+        )
+
+        let sideConvoId = fixtures.conversationId
+        let capture = NotificationCapture()
+        capture.startCapturing(.leftConversationNotification)
+        defer { capture.stopCapturing() }
+
+        let worker = fixtures.createWorker()
+
+        try await waitForCondition(timeout: 2.0) {
+            capture.notifications(named: .leftConversationNotification).contains {
+                ($0.userInfo?["conversationId"] as? String) == sideConvoId
+            }
+        }
+
+        try await waitForCondition(timeout: 1.0) {
+            let exists = (try? fixtures.conversationExists(id: sideConvoId)) ?? true
+            return exists == false
+        }
+
+        let parentInvite = try fixtures.loadInvitePayload(messageId: parentInviteMessageId)
+        #expect(parentInvite?.isConversationExpired == true,
+                "Parent invite should still report expired via embedded payload after side convo row is gone")
 
         withExtendedLifetime(worker) {}
     }
@@ -236,7 +286,6 @@ private class ExpiredWorkerTestFixtures {
     let sessionManager: MockInboxesService
     let conversationId: String = "expired-worker-test-\(UUID().uuidString)"
     let inboxId: String = "test-inbox-id"
-    let clientId: String = "test-client-id"
 
     init() {
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
@@ -316,21 +365,83 @@ private class ExpiredWorkerTestFixtures {
         }
     }
 
+    func inviteCount(for conversationId: String) throws -> Int {
+        try databaseManager.dbReader.read { db in
+            try DBInvite
+                .filter(DBInvite.Columns.conversationId == conversationId)
+                .fetchCount(db)
+        }
+    }
+
+    func memberCount(for conversationId: String) throws -> Int {
+        try databaseManager.dbReader.read { db in
+            try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == conversationId)
+                .fetchCount(db)
+        }
+    }
+
     func conversationExists(id: String) throws -> Bool {
         try databaseManager.dbReader.read { db in
             try DBConversation.fetchOne(db, key: id) != nil
         }
     }
 
+    func seedInviteMessage(
+        inParentConversation parentConversationId: String,
+        referencingSideConversationExpiresAt sideConvoExpiresAt: Date
+    ) async throws -> String {
+        let senderId = inboxId
+        let messageId = "invite-msg-\(parentConversationId)"
+        let invite = MessageInvite(
+            inviteSlug: "slug-parent-invite",
+            conversationName: "Test Side Convo",
+            conversationDescription: nil,
+            imageURL: nil,
+            emoji: nil,
+            expiresAt: nil,
+            conversationExpiresAt: sideConvoExpiresAt
+        )
+        try await databaseManager.dbWriter.write { db in
+            try DBMember(inboxId: senderId).save(db, onConflict: .ignore)
+            let now = Date()
+            try DBMessage(
+                id: messageId,
+                clientMessageId: messageId,
+                conversationId: parentConversationId,
+                senderId: senderId,
+                dateNs: Int64(now.timeIntervalSince1970 * 1_000_000_000),
+                date: now,
+                sortId: 0,
+                status: .published,
+                messageType: .original,
+                contentType: .text,
+                text: nil,
+                emoji: nil,
+                invite: invite,
+                linkPreview: nil,
+                sourceMessageId: nil,
+                attachmentUrls: [],
+                update: nil
+            ).insert(db)
+        }
+        return messageId
+    }
+
+    func loadInvitePayload(messageId: String) throws -> MessageInvite? {
+        try databaseManager.dbReader.read { db in
+            try DBMessage.fetchOne(db, key: messageId)?.invite
+        }
+    }
+
     func setupConversation(id: String? = nil, expiresAt: Date?) async throws {
         let convId = id ?? conversationId
         let inbxId = inboxId
-        let clId = clientId
         try await databaseManager.dbWriter.write { db in
             let conversation = DBConversation(
                 id: convId,
-                                clientConversationId: convId,
-                inviteTag: "test-invite-tag",
+                clientConversationId: convId,
+                inviteTag: "test-invite-tag-\(convId)",
                 creatorId: inbxId,
                 kind: .group,
                 consent: .allowed,
