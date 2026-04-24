@@ -48,10 +48,21 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     func deleteFailedMessage(id: String) async throws
 }
 
-enum OutgoingMessageWriterError: Error {
-    case missingClientProvider
+enum OutgoingMessageWriterError: Error, CustomStringConvertible {
+    case conversationNotFound(conversationId: String)
     case eagerUploadNotFound
     case parentMessageNotFound
+
+    var description: String {
+        switch self {
+        case .conversationNotFound(let conversationId):
+            return "Conversation not found in XMTP local store: \(conversationId)"
+        case .eagerUploadNotFound:
+            return "Eager upload not found"
+        case .parentMessageNotFound:
+            return "Parent message not found"
+        }
+    }
 }
 
 // swiftlint:disable:next type_body_length
@@ -657,7 +668,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: clientMessageId)
-            throw OutgoingMessageWriterError.missingClientProvider
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
         }
 
         do {
@@ -929,7 +940,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         guard let sender = try await client.messageSender(for: conversationId) else {
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)
-            throw OutgoingMessageWriterError.missingClientProvider
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
         }
 
         let xmtpMessageId: String
@@ -1406,7 +1417,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         guard let sender = try await client.messageSender(for: conversationId) else {
             try? await markMessageFailed(messageId: messageId)
-            throw OutgoingMessageWriterError.missingClientProvider
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
         }
 
         do {
