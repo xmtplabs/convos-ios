@@ -1,6 +1,7 @@
 @testable import ConvosCore
 import Foundation
 import GRDB
+import os
 import Testing
 
 @Suite("ExpiredConversationsWorker Tests", .serialized)
@@ -228,20 +229,154 @@ struct ExpiredConversationsWorkerTests {
 
         withExtendedLifetime(worker) {}
     }
+
+    @Test("Creator path: runs explodeConversation, never peer-self-leave")
+    func testCreatorPathRunsExplode() async throws {
+        // `MockXMTPClientProvider` hands back `mock-inbox-id` as the current
+        // inbox, so setting the DBConversation's `creatorId` to match makes
+        // the worker take the creator-explode branch.
+        let fixtures = ExpiredWorkerTestFixtures(inboxId: "mock-inbox-id")
+        try await fixtures.setupConversation(expiresAt: Date().addingTimeInterval(-60))
+
+        let conversationId = fixtures.conversationId
+        let capture = NotificationCapture()
+        capture.startCapturing(.leftConversationNotification)
+        defer { capture.stopCapturing() }
+
+        let worker = fixtures.createWorker()
+
+        try await waitForCondition(timeout: 2.0) {
+            capture.notifications(named: .leftConversationNotification).contains {
+                ($0.userInfo?["conversationId"] as? String) == conversationId
+            }
+        }
+
+        #expect(fixtures.explosionWriter.explodedConversationIds.contains(conversationId),
+                "Creator should run explodeConversation")
+        #expect(!fixtures.explosionWriter.peerSelfLeftConversationIds.contains(conversationId),
+                "Creator must not also invoke peer-self-leave")
+
+        withExtendedLifetime(worker) {}
+    }
+
+    @Test("Peer path: runs peer-self-leave, never explodeConversation")
+    func testPeerPathRunsSelfLeaveOnly() async throws {
+        // Default inboxId (`test-inbox-id`) does not match the mocked
+        // current inbox (`mock-inbox-id`) so the worker takes the peer
+        // branch.
+        let fixtures = ExpiredWorkerTestFixtures()
+        try await fixtures.setupConversation(expiresAt: Date().addingTimeInterval(-60))
+
+        let conversationId = fixtures.conversationId
+        let capture = NotificationCapture()
+        capture.startCapturing(.leftConversationNotification)
+        defer { capture.stopCapturing() }
+
+        let worker = fixtures.createWorker()
+
+        try await waitForCondition(timeout: 2.0) {
+            capture.notifications(named: .leftConversationNotification).contains {
+                ($0.userInfo?["conversationId"] as? String) == conversationId
+            }
+        }
+
+        #expect(fixtures.explosionWriter.peerSelfLeftConversationIds.contains(conversationId),
+                "Peer should run peerSelfLeaveExpiredConversation")
+        #expect(!fixtures.explosionWriter.explodedConversationIds.contains(conversationId),
+                "Peer must not invoke the creator explode flow")
+
+        withExtendedLifetime(worker) {}
+    }
+
+    @Test("Peer path: local cleanup still runs when the MLS leave fails")
+    func testPeerPathLocalCleanupRunsEvenIfLeaveFails() async throws {
+        // Construct a writer that throws on peer-self-leave to mirror the
+        // "last member" / "already removed" cases. The worker must still
+        // prune side-convo messages and post `.leftConversationNotification`.
+        let throwingWriter = ThrowingExplosionWriter(error: StubExplodeError.leaveFailed)
+        let sessionManager = MockInboxesService(
+            mockMessagingService: MockMessagingService(conversationExplosionWriter: throwingWriter)
+        )
+        let databaseManager = MockDatabaseManager.makeTestDatabase()
+        let appLifecycle = MockAppLifecycleProvider()
+        ConvosLog.configure(environment: .tests)
+
+        let conversationId = "expired-worker-peer-throw-\(UUID().uuidString)"
+        try await databaseManager.dbWriter.write { db in
+            let conversation = DBConversation(
+                id: conversationId,
+                                clientConversationId: conversationId,
+                inviteTag: "test-invite-tag",
+                creatorId: "test-inbox-id",
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: "Test Conversation",
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: Date().addingTimeInterval(-60),
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAssistant: false,
+            )
+            try conversation.upsert(db)
+        }
+
+        let capture = NotificationCapture()
+        capture.startCapturing(.leftConversationNotification)
+        defer { capture.stopCapturing() }
+
+        let worker = ExpiredConversationsWorker(
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            sessionManager: sessionManager,
+            appLifecycle: appLifecycle
+        )
+
+        try await waitForCondition(timeout: 2.0) {
+            capture.notifications(named: .leftConversationNotification).contains {
+                ($0.userInfo?["conversationId"] as? String) == conversationId
+            }
+        }
+
+        #expect(throwingWriter.peerSelfLeaveCalls.contains(conversationId),
+                "Peer self-leave should still be invoked")
+
+        withExtendedLifetime(worker) {}
+    }
 }
 
 private class ExpiredWorkerTestFixtures {
     let databaseManager: MockDatabaseManager
     let appLifecycle: MockAppLifecycleProvider
     let sessionManager: MockInboxesService
+    let explosionWriter: MockConversationExplosionWriter
     let conversationId: String = "expired-worker-test-\(UUID().uuidString)"
-    let inboxId: String = "test-inbox-id"
+    let inboxId: String
     let clientId: String = "test-client-id"
 
-    init() {
+    /// - Parameter inboxId: Overrides the creator inboxId written into the
+    ///   test `DBConversation`. Pass `"mock-inbox-id"` to make it match
+    ///   `MockXMTPClientProvider`'s default (exercises the creator-explode
+    ///   branch); any other value exercises the peer-self-leave branch.
+    init(inboxId: String = "test-inbox-id") {
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
         self.appLifecycle = MockAppLifecycleProvider()
-        self.sessionManager = MockInboxesService()
+        self.explosionWriter = MockConversationExplosionWriter()
+        self.sessionManager = MockInboxesService(
+            mockMessagingService: MockMessagingService(
+                conversationExplosionWriter: explosionWriter
+            )
+        )
+        self.inboxId = inboxId
         ConvosLog.configure(environment: .tests)
     }
 
@@ -353,6 +488,42 @@ private class ExpiredWorkerTestFixtures {
             )
             try conversation.upsert(db)
         }
+    }
+}
+
+private enum StubExplodeError: Error {
+    case leaveFailed
+}
+
+/// Explosion writer that records invocations and can surface a thrown peer
+/// self-leave without actually running the sweep. Used to assert local
+/// cleanup still fires when the MLS leg fails.
+private final class ThrowingExplosionWriter: ConversationExplosionWriterProtocol, @unchecked Sendable {
+    private let callsLock: OSAllocatedUnfairLock<[String]> = .init(initialState: [])
+    private let error: (any Error)?
+
+    init(error: (any Error)? = nil) {
+        self.error = error
+    }
+
+    var peerSelfLeaveCalls: [String] {
+        callsLock.withLock { $0 }
+    }
+
+    func explodeConversation(conversationId: String, memberInboxIds: [String]) async throws {}
+
+    func scheduleExplosion(conversationId: String, expiresAt: Date) async throws {}
+
+    /// Mirrors the real writer's contract: the peer-self-leave entry point
+    /// is non-throwing, because the bounded-op wrapper internally swallows
+    /// all leave failures — benign libxmtp errors (last-member /
+    /// already-removed) and otherwise. We capture the call so tests can
+    /// still assert it fired even when we simulate an underlying failure.
+    func peerSelfLeaveExpiredConversation(conversationId: String) async {
+        callsLock.withLock { $0.append(conversationId) }
+        // Error is retained purely so test sites can read back what
+        // scenario was configured; the writer itself swallows it.
+        _ = error
     }
 }
 

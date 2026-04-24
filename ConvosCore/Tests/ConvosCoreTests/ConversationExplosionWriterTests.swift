@@ -120,6 +120,7 @@ struct ConversationExplosionWriterTests {
             }
             func sendExplode(conversationId: String, expiresAt: Date) async throws {}
             func denyConsent(conversationId: String) async throws {}
+            func peerLeaveExpiredGroup(conversationId: String) async throws {}
         }
         let throwing = ThrowingOperations()
         let writer = ConversationExplosionWriter(
@@ -161,6 +162,101 @@ struct ConversationExplosionWriterTests {
         #expect(calls.contains(.denyConsent(conversationId: conversationId)))
         #expect(fixtures.metadataWriter.updatedExpiresAt.count == 1)
         #expect(fixtures.metadataWriter.removedMembers.count == 1)
+    }
+
+    @Test("peer self-leave: leaveGroup → denyConsent in order")
+    func peerSelfLeaveCallOrder() async throws {
+        let fixtures = Fixtures()
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        let calls = fixtures.operations.calls
+        #expect(calls.count == 2, "Expected leaveGroup + denyConsent, got \(calls)")
+        #expect(calls.first == .peerLeaveExpiredGroup(conversationId: conversationId))
+        #expect(calls.last == .denyConsent(conversationId: conversationId))
+    }
+
+    @Test("peer self-leave: swallows LeaveCantProcessed (last member) and still denies consent")
+    func peerSelfLeaveSwallowsLastMember() async throws {
+        // libxmtp rejects the 1 → 0 MLS commit when we're the only member
+        // left. The whole point of each peer leaving independently is that
+        // the zombie outcome is acceptable — same shape as today's
+        // creator-only zombie, just potentially landing on a different
+        // device.
+        let fixtures = Fixtures()
+        fixtures.operations.failPeerLeave(
+            with: NSError(
+                domain: "XMTPiOS.FfiError",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "[GroupError::LeaveCantProcessed] Group error: cannot leave a group that has only one member"]
+            )
+        )
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        let calls = fixtures.operations.calls
+        #expect(calls.contains(.peerLeaveExpiredGroup(conversationId: conversationId)))
+        #expect(calls.contains(.denyConsent(conversationId: conversationId)),
+                "denyConsent must always follow the leave attempt")
+    }
+
+    @Test("peer self-leave: swallows NotFound::MlsGroup (already kicked) and still denies consent")
+    func peerSelfLeaveSwallowsAlreadyRemoved() async throws {
+        // Creator's `removeMembers` sweep may have landed before our local
+        // cleanup ran, in which case we're no longer a member and
+        // `leaveGroup` fails. The `denyConsent` fallback still protects
+        // against re-sync of the local row.
+        let fixtures = Fixtures()
+        fixtures.operations.failPeerLeave(
+            with: NSError(
+                domain: "XMTPiOS.FfiError",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "StorageError: NotFound::MlsGroup"]
+            )
+        )
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        #expect(fixtures.operations.calls.contains(.denyConsent(conversationId: conversationId)))
+    }
+
+    @Test("peer self-leave: denyConsent runs even on an unrecognized leave failure")
+    func peerSelfLeaveDenyConsentBeltAndSuspenders() async throws {
+        // A `PoolNeedsConnection` or similar libxmtp error is not benign by
+        // our match list, but we still want the local side protected from
+        // re-sync — `denyConsent` is idempotent and cheap.
+        let fixtures = Fixtures()
+        fixtures.operations.failPeerLeave(
+            with: NSError(
+                domain: "XMTPiOS.FfiError",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "PoolNeedsConnection"]
+            )
+        )
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        #expect(fixtures.operations.calls.contains(.denyConsent(conversationId: conversationId)))
+    }
+
+    @Test("peer self-leave: denyConsent failure is swallowed")
+    func peerSelfLeaveDenyConsentFailureSwallowed() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.failDenyConsent(with: StubError.consentFailed)
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
     }
 
     @Test("scheduleExplosion sends the message and records expiresAt; never touches denyConsent")

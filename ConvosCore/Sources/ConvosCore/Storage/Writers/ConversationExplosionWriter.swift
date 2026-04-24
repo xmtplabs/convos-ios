@@ -4,6 +4,7 @@ import Foundation
 public protocol ConversationExplosionWriterProtocol: Sendable {
     func explodeConversation(conversationId: String, memberInboxIds: [String]) async throws
     func scheduleExplosion(conversationId: String, expiresAt: Date) async throws
+    func peerSelfLeaveExpiredConversation(conversationId: String) async
 }
 
 /// The MLS-level operations the explosion writer needs to reach through to
@@ -15,6 +16,7 @@ protocol ExplodeGroupOperationsProtocol: Sendable {
     func currentInboxId() async throws -> String
     func sendExplode(conversationId: String, expiresAt: Date) async throws
     func denyConsent(conversationId: String) async throws
+    func peerLeaveExpiredGroup(conversationId: String) async throws
 }
 
 enum ConversationExplosionError: LocalizedError {
@@ -48,6 +50,11 @@ struct XMTPExplodeGroupOperations: ExplodeGroupOperationsProtocol {
     func denyConsent(conversationId: String) async throws {
         let (_, group) = try await findGroupConversation(conversationId: conversationId)
         try await group.updateConsentState(state: .denied)
+    }
+
+    func peerLeaveExpiredGroup(conversationId: String) async throws {
+        let (_, group) = try await findGroupConversation(conversationId: conversationId)
+        try await group.leaveGroup()
     }
 
     private func findGroupConversation(
@@ -131,6 +138,53 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
         await runBoundedOp("denyConsent", logSuccess: true) { [operations] in
             try await operations.denyConsent(conversationId: conversationId)
         }
+    }
+
+    /// Peer-side cleanup when a scheduled explode's timer fires on a
+    /// non-creator device. The peer walks out of the MLS group on their own
+    /// rather than waiting for the creator to kick them — if the creator is
+    /// offline past T the group would otherwise persist on the XMTP network
+    /// with every peer still subscribed, and any message sent during that
+    /// window syncs back onto phantom convo rows.
+    ///
+    /// Every leg is best-effort:
+    /// - `leaveGroup` hitting libxmtp's 1 → 0 invariant (we're the last
+    ///   member still present) is logged at info and swallowed; the zombie
+    ///   outcome matches today's creator-side zombie.
+    /// - `leaveGroup` against a group we're no longer a member of (creator's
+    ///   `removeMembers` already landed) is logged at info and swallowed.
+    /// - `denyConsent` always runs afterwards regardless of leave outcome as
+    ///   belt-and-suspenders against re-sync if the leave failed for any
+    ///   reason. It's idempotent when we've already left the group.
+    func peerSelfLeaveExpiredConversation(conversationId: String) async {
+        await runBoundedOp("peerLeaveExpiredGroup", logSuccess: true) { [operations] in
+            do {
+                try await operations.peerLeaveExpiredGroup(conversationId: conversationId)
+            } catch {
+                if Self.isBenignPeerLeaveError(error) {
+                    Log.info("Peer self-leave skipped for \(conversationId): \(error.localizedDescription)")
+                    return
+                }
+                throw error
+            }
+        }
+        await runBoundedOp("denyConsent", logSuccess: true) { [operations] in
+            try await operations.denyConsent(conversationId: conversationId)
+        }
+    }
+
+    /// libxmtp surfaces MLS failures as FFI errors whose full message is only
+    /// visible via `String(describing:)`. The two cases we treat as benign:
+    ///
+    /// - `LeaveCantProcessed` — "cannot leave a group that has only one
+    ///   member" (we're the last peer still in; 1 → 0 invariant).
+    /// - `NotFound::MlsGroup` — creator's `removeMembers` already landed
+    ///   before our cleanup ran; we're no longer a member.
+    private static func isBenignPeerLeaveError(_ error: any Error) -> Bool {
+        let description = String(describing: error)
+        return description.contains("LeaveCantProcessed")
+            || description.contains("cannot leave a group that has only one member")
+            || description.contains("NotFound::MlsGroup")
     }
 
     func scheduleExplosion(conversationId: String, expiresAt: Date) async throws {
