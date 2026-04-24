@@ -142,6 +142,55 @@ fi
 echo "✅ All dependencies are properly installed"
 
 ################################################################################
+# convos-task PATH + alias                                                     #
+################################################################################
+
+SHELL_RC_UPDATED=false
+
+if [ ! "${CI}" = true ]; then
+    REPO_ROOT="$(cd "${DIRNAME}/.." && pwd)"
+    CONVOS_TASK_DIR="${REPO_ROOT}/.claude/scripts"
+
+    if [ -x "${CONVOS_TASK_DIR}/convos-task" ]; then
+        case "${SHELL}" in
+            */zsh)  SHELL_RC="${HOME}/.zshrc" ;;
+            */bash) SHELL_RC="${HOME}/.bashrc" ;;
+            *)      SHELL_RC="" ;;
+        esac
+
+        if [ -z "${SHELL_RC}" ]; then
+            echo "ℹ️ Unrecognized shell (${SHELL}); add to your shell rc manually:"
+            echo "    export PATH=\"${CONVOS_TASK_DIR}:\$PATH\""
+            echo "    alias ct=\"convos-task\""
+        else
+            MARKER="# convos-task (added by Scripts/setup.sh)"
+            PATH_LINE="export PATH=\"${CONVOS_TASK_DIR}:\$PATH\""
+            ALIAS_LINE='alias ct="convos-task"'
+
+            has_path=false
+            has_alias=false
+            if [ -f "${SHELL_RC}" ]; then
+                grep -qF "${CONVOS_TASK_DIR}" "${SHELL_RC}" && has_path=true
+                grep -qE '^[[:space:]]*alias[[:space:]]+ct=' "${SHELL_RC}" && has_alias=true
+            fi
+
+            if [ "${has_path}" = true ] && [ "${has_alias}" = true ]; then
+                echo "✅ convos-task already configured in ${SHELL_RC}"
+            else
+                {
+                    echo ""
+                    echo "${MARKER}"
+                    [ "${has_path}" = false ] && echo "${PATH_LINE}"
+                    [ "${has_alias}" = false ] && echo "${ALIAS_LINE}"
+                } >> "${SHELL_RC}"
+                echo "✅ Added convos-task to ${SHELL_RC}"
+                SHELL_RC_UPDATED=true
+            fi
+        fi
+    fi
+fi
+
+################################################################################
 # Firebase App Check Debug Token                                                #
 ################################################################################
 
@@ -219,5 +268,33 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
         fi
 
         print_firebase_report "${NEW_TOKEN}" "${PARENT_ENV}" "${SYMLINK_NOTE}"
+    fi
+fi
+
+################################################################################
+# Reload shell so new PATH/alias is live immediately                            #
+################################################################################
+
+# If we just added entries to the shell rc, replace this process with a fresh
+# interactive shell so 'convos-task' / 'ct' work without the user having to
+# source their rc or open a new terminal. Only do this when invoked directly
+# from an interactive terminal — skip in CI, under Claude Code's Bash tool,
+# when piped, or when run as a subprocess of make/npm/etc. (where exec'ing a
+# shell would hang the parent waiting on the script to finish). Use -i
+# (interactive non-login) rather than -l so bash sources ~/.bashrc (login
+# shells source ~/.bash_profile instead); zsh sources ~/.zshrc in both modes,
+# so -i works uniformly.
+if [ "${SHELL_RC_UPDATED}" = true ] \
+    && [ -t 0 ] && [ -t 1 ] \
+    && [ -n "${SHELL}" ] \
+    && [ -z "${MAKELEVEL}" ] \
+    && [ -z "${npm_lifecycle_event}" ]; then
+    echo ""
+    echo "🔄 Reloading your shell so 'convos-task' is on PATH..."
+    exec "${SHELL}" -i
+else
+    if [ "${SHELL_RC_UPDATED}" = true ]; then
+        echo ""
+        echo "ℹ️ Open a new terminal (or run 'source ${SHELL_RC}') to pick up 'convos-task'."
     fi
 fi
