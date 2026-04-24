@@ -58,6 +58,13 @@ public struct InboxReadyResult: @unchecked Sendable {
         self.client = client
         self.apiClient = apiClient
     }
+
+    /// Stage 6 bridge: lift the legacy provider into the abstraction
+    /// `MessagingClient` surface for consumers (tests + new code) that
+    /// want to operate against the Stage 5+ surface without rewriting
+    /// InboxStateMachine prod code in this stage. Backed by the
+    /// XMTPClientProvider extension default in XMTPClientProvider.swift.
+    public var messagingClient: any MessagingClient { client.messagingClient }
 }
 
 typealias AnySyncingManager = (any SyncingManagerProtocol)

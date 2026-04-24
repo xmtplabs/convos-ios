@@ -146,6 +146,25 @@ public protocol XMTPClientProvider: AnyObject {
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
+
+    /// Stage 6 bridge: present this legacy provider as a
+    /// `MessagingClient`. Default implementation requires the provider
+    /// to wrap an `XMTPiOS.Client` (the only conformer today). Tests
+    /// and new code can lift to the abstraction surface without
+    /// rewriting state-machine prod code in this stage.
+    var messagingClient: any MessagingClient { get }
+}
+
+public extension XMTPClientProvider {
+    var messagingClient: any MessagingClient {
+        if let xmtpClient = self as? XMTPiOS.Client {
+            return XMTPiOSMessagingClient(xmtpClient: xmtpClient)
+        }
+        // Default: only XMTPiOS.Client conforms today. Mock providers
+        // that need to surface a MessagingClient should override this
+        // accessor (see MockXMTPClientProvider).
+        preconditionFailure("XMTPClientProvider conformer must override `messagingClient` if not backed by XMTPiOS.Client")
+    }
 }
 
 enum XMTPClientProviderError: Error {
