@@ -1,13 +1,8 @@
 #!/bin/bash
 set -e
 
-# Detect git commit SHA (CI env var takes priority, then git, then fallback)
-GIT_SHA="${GITHUB_SHA:-${BITRISE_GIT_COMMIT:-}}"
-if [ -z "$GIT_SHA" ]; then
-    GIT_SHA=$(cd "${SRCROOT}" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-else
-    GIT_SHA="${GIT_SHA:0:7}"
-fi
+source "${SRCROOT}/Scripts/secrets-utils.sh"
+GIT_SHA=$(get_git_commit_sha "${SRCROOT}")
 
 # Generate BuildInfo.swift for the NotificationService extension
 if [ "$TARGET_NAME" = "NotificationService" ]; then
@@ -15,7 +10,7 @@ if [ "$TARGET_NAME" = "NotificationService" ]; then
     cat > "${SRCROOT}/NotificationService/BuildInfo.swift" << EOF
 // swiftlint:disable all
 enum BuildInfo {
-    static let commitHash: String = "$GIT_SHA"
+    static let commitHash: String = "$(swift_escape "$GIT_SHA")"
 }
 // swiftlint:enable all
 EOF
@@ -90,7 +85,7 @@ HEADER_EOF
         echo "    static let XMTP_CUSTOM_HOST = \"$LOCAL_IP\"" >> "$SECRETS_FILE"
     fi
 
-    echo "    static let GIT_COMMIT_SHA = \"$GIT_SHA\"" >> "$SECRETS_FILE"
+    echo "    static let GIT_COMMIT_SHA: String = \"$(swift_escape "$GIT_SHA")\"" >> "$SECRETS_FILE"
 
     # Add other secrets from .env if available
     if [ -f "${SRCROOT}/.env" ]; then
@@ -151,12 +146,12 @@ enum Secrets {
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
-    static let GIT_COMMIT_SHA = "$GIT_SHA"
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
 }
 
 // swiftlint:enable all
 EOF
-    
+
     echo "🏁 Generated Secrets.swift for Dev"
 fi
 

@@ -36,3 +36,22 @@ ensure_secrets_directories() {
     mkdir -p "Convos/Config"
     mkdir -p "ConvosAppClip/Config"
 }
+
+# Detect git commit SHA.
+# Optional first argument: repo directory to cd into (use for Xcode build phases
+# where the working directory is not the repo root). Omit for standalone scripts
+# that already run from the repo root.
+# Priority: $GITHUB_SHA -> $BITRISE_GIT_COMMIT -> git rev-parse -> "unknown"
+get_git_commit_sha() {
+    local repo_dir="${1:-}"
+    local raw_sha="${GITHUB_SHA:-${BITRISE_GIT_COMMIT:-}}"
+    if [ -z "$raw_sha" ]; then
+        if [ -n "$repo_dir" ]; then
+            (cd "$repo_dir" && git rev-parse --short HEAD 2>/dev/null) || echo "unknown"
+        else
+            git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+        fi
+    else
+        echo "${raw_sha:0:7}"
+    fi
+}
