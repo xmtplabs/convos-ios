@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-import XMTPiOS
 
 public protocol ReactionWriterProtocol: Sendable {
     func addReaction(emoji: String, to messageId: String, in conversationId: String) async throws
@@ -16,6 +15,12 @@ enum ReactionWriterError: Error {
     case unknownReactionAction
 }
 
+// Stage 3 migration (audit §5.3): the writer no longer imports
+// XMTPiOS. The XIP `Reaction` codec still lives on the XMTPiOS side
+// so reactions flow through the Stage-6 codec bridge
+// (`MessagingWriterBridge.sendReaction`). Once the codec migrates to
+// the abstraction this can reduce to
+// `conversation.core.sendOptimistic(encodedContent:options:)`.
 final class ReactionWriter: ReactionWriterProtocol, Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
@@ -69,11 +74,15 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         }
     }
 
+    private enum Action {
+        case added, removed
+    }
+
     private func sendReaction(
         emoji: String,
         to messageId: String,
         in conversationId: String,
-        action: ReactionAction
+        action: Action
     ) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
@@ -94,10 +103,6 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 in: conversationId,
                 client: client
             )
-
-        case .unknown:
-            Log.error("Attempted to send unknown reaction action")
-            throw ReactionWriterError.unknownReactionAction
         }
     }
 
@@ -161,24 +166,19 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
             Log.debug("Saved local reaction with id: \(reactionClientMessageId)")
         }
 
-        guard let conversation = try await client.conversation(with: conversationId) else {
+        guard let conversation = try await client.messagingConversation(with: conversationId) else {
             try await markReactionFailed(clientMessageId: reactionClientMessageId)
             throw ReactionWriterError.conversationNotFound(conversationId: conversationId)
         }
 
-        let reaction = Reaction(
-            reference: dbMessageId,
-            action: .added,
-            content: emoji,
-            schema: .unicode,
-            referenceInboxId: sourceMessage.senderId
-        )
-
         do {
-            let encodedContent = try ReactionV2Codec().encode(content: reaction)
-            try await conversation.send(
-                encodedContent: encodedContent,
-                visibilityOptions: MessageVisibilityOptions(shouldPush: true)
+            try await sendReactionViaBridge(
+                conversation: conversation,
+                reference: dbMessageId,
+                action: .added,
+                emoji: emoji,
+                referenceInboxId: sourceMessage.senderId,
+                shouldPush: true
             )
             Log.info("Sent reaction \(emoji) to message \(dbMessageId)")
             QAEvent.emit(.reaction, "sent", ["message": dbMessageId, "emoji": emoji])
@@ -253,20 +253,18 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         }
 
         do {
-            guard let conversation = try await client.conversation(with: conversationId) else {
+            guard let conversation = try await client.messagingConversation(with: conversationId) else {
                 throw ReactionWriterError.conversationNotFound(conversationId: conversationId)
             }
 
-            let reaction = Reaction(
+            try await sendReactionViaBridge(
+                conversation: conversation,
                 reference: dbMessageId,
                 action: .removed,
-                content: emoji,
-                schema: .unicode,
-                referenceInboxId: sourceMessage.senderId
+                emoji: emoji,
+                referenceInboxId: sourceMessage.senderId,
+                shouldPush: true
             )
-
-            let encodedContent = try ReactionV2Codec().encode(content: reaction)
-            try await conversation.send(encodedContent: encodedContent)
             Log.info("Sent remove reaction \(emoji) for message \(dbMessageId)")
             QAEvent.emit(.reaction, "removed", ["message": dbMessageId, "emoji": emoji])
         } catch {

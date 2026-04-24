@@ -164,6 +164,183 @@ fileprivate extension MessagingCommitLogForkStatus {
     }
 }
 
+// MARK: - Stage 3 writer bridges
+
+/// Stage 3 migration (audit §5.3) helper for writers that need to
+/// invoke an XMTPiOS-specific operation on a `MessagingConversation`
+/// until the corresponding Messaging* surface lands (Stage 6). Each
+/// helper downcasts to the XMTPiOS adapter and throws a clear error
+/// on any other backend (e.g. DTU in Stage 5+).
+enum MessagingWriterBridge {
+    /// Send a read-receipt on a `MessagingConversation`.
+    /// FIXME(stage6): surface `sendReadReceipt()` on
+    /// `MessagingConversationCore` once the `ReadReceiptCodec`
+    /// migrates to the abstraction layer.
+    static func sendReadReceipt(
+        conversation: MessagingConversation
+    ) async throws {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "sendReadReceipt"
+            )
+        }
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        try await unsafeConversation.sendReadReceipt()
+    }
+
+    /// Send a text reply on a `MessagingConversation`.
+    /// FIXME(stage6): `Reply` / `ContentTypeText` / `ContentTypeReply`
+    /// are XMTPiOS XIP codec values. Surface a Messaging* equivalent
+    /// once the codecs migrate.
+    @discardableResult
+    static func sendTextReply(
+        conversation: MessagingConversation,
+        replyText: String,
+        parentMessageId: String
+    ) async throws -> String {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "sendTextReply"
+            )
+        }
+        let reply = XMTPiOS.Reply(
+            reference: parentMessageId,
+            content: replyText,
+            contentType: XMTPiOS.ContentTypeText
+        )
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        return try await unsafeConversation.prepareMessage(
+            content: reply,
+            options: .init(contentType: XMTPiOS.ContentTypeReply)
+        )
+    }
+
+    /// Publish any previously-prepared messages on a
+    /// `MessagingConversation`. Thin wrapper over
+    /// `MessagingConversationCore.publish()` that keeps the call site
+    /// lexically symmetrical with `sendTextReply` (which must go
+    /// through the bridge). Writers can swap back to
+    /// `conversation.core.publish()` freely once all reply flows live
+    /// on the abstraction.
+    static func publishPreparedMessages(
+        conversation: MessagingConversation
+    ) async throws {
+        try await conversation.core.publish()
+    }
+
+    /// Reaction action values accepted by the bridge. Mirrors
+    /// `XMTPiOS.ReactionAction`.
+    enum ReactionActionBridge {
+        case added
+        case removed
+
+        fileprivate var xmtpAction: XMTPiOS.ReactionAction {
+            switch self {
+            case .added: return .added
+            case .removed: return .removed
+            }
+        }
+    }
+
+    /// Send a reaction on a `MessagingConversation`.
+    /// FIXME(stage6): the `Reaction` struct + `ReactionV2Codec` are
+    /// XMTPiOS XIP values. Once the codec surface moves to the
+    /// abstraction, reimplement via `conversation.core.sendOptimistic(
+    /// encodedContent:options:)`.
+    static func sendReaction(
+        conversation: MessagingConversation,
+        reference: String,
+        action: ReactionActionBridge,
+        emoji: String,
+        referenceInboxId: String,
+        shouldPush: Bool
+    ) async throws {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "sendReaction"
+            )
+        }
+        let reaction = XMTPiOS.Reaction(
+            reference: reference,
+            action: action.xmtpAction,
+            content: emoji,
+            schema: .unicode,
+            referenceInboxId: referenceInboxId
+        )
+        let encodedContent = try XMTPiOS.ReactionV2Codec().encode(content: reaction)
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        try await unsafeConversation.send(
+            encodedContent: encodedContent,
+            visibilityOptions: XMTPiOS.MessageVisibilityOptions(shouldPush: shouldPush)
+        )
+    }
+}
+
+enum MessagingWriterBridgeError: Error, LocalizedError {
+    case notSupportedOnBackend(operation: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notSupportedOnBackend(let op):
+            return "\(op) is not supported on the active messaging backend."
+        }
+    }
+}
+
+// A ReadReceiptWriter shim so the writer file itself doesn't import
+// XMTPiOS but still has a one-liner to call.
+extension ReadReceiptWriter {
+    func sendReadReceiptViaBridge(conversation: MessagingConversation) async throws {
+        try await MessagingWriterBridge.sendReadReceipt(conversation: conversation)
+    }
+}
+
+// ReactionWriter shim. See `MessagingWriterBridge.sendReaction` for
+// the Stage 6 FIXME on the XIP `Reaction` codec.
+extension ReactionWriter {
+    func sendReactionViaBridge(
+        conversation: MessagingConversation,
+        reference: String,
+        action: MessagingWriterBridge.ReactionActionBridge,
+        emoji: String,
+        referenceInboxId: String,
+        shouldPush: Bool
+    ) async throws {
+        try await MessagingWriterBridge.sendReaction(
+            conversation: conversation,
+            reference: reference,
+            action: action,
+            emoji: emoji,
+            referenceInboxId: referenceInboxId,
+            shouldPush: shouldPush
+        )
+    }
+}
+
+// ReplyMessageWriter shim. See `MessagingWriterBridge.sendTextReply`
+// for the Stage 6 FIXME on the XIP `Reply` codec.
+extension ReplyMessageWriter {
+    func sendTextReplyViaBridge(
+        conversation: MessagingConversation,
+        replyText: String,
+        parentMessageId: String
+    ) async throws -> String {
+        try await MessagingWriterBridge.sendTextReply(
+            conversation: conversation,
+            replyText: replyText,
+            parentMessageId: parentMessageId
+        )
+    }
+
+    func publishPreparedMessagesViaBridge(
+        conversation: MessagingConversation
+    ) async throws {
+        try await MessagingWriterBridge.publishPreparedMessages(
+            conversation: conversation
+        )
+    }
+}
+
 // MARK: - XMTPiOS.DecodedMessage predicates
 
 /// Stage 3 migration (audit §5.3): the `isProfileMessage`/

@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import XMTPiOS
 
 public protocol ReplyMessageWriterProtocol: Sendable {
     func sendReply(text: String, to parentMessageId: String, in conversationId: String) async throws
@@ -11,6 +10,12 @@ enum ReplyWriterError: Error {
     case conversationNotFound(conversationId: String)
 }
 
+// Stage 3 migration (audit §5.3): the writer no longer imports
+// XMTPiOS. The reply-send flow still reaches into the XMTPiOS XIP
+// `Reply` codec via the `MessagingWriterBridge.sendTextReply` bridge
+// (Stage 6 codec migration). Conversation lookup flows through the
+// `messagingConversation(with:)` convenience, keeping the writer's
+// call site abstraction-aware.
 final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
@@ -39,7 +44,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
             throw ReplyWriterError.parentMessageNotFound(messageId: parentMessageId)
         }
 
-        guard let conversation = try await client.conversation(with: conversationId) else {
+        guard let conversation = try await client.messagingConversation(with: conversationId) else {
             throw ReplyWriterError.conversationNotFound(conversationId: conversationId)
         }
 
@@ -86,18 +91,16 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
             Log.info("Saved local reply with id: \(clientMessageId)")
         }
 
-        let reply = Reply(
-            reference: parentMessage.id,
-            content: text,
-            contentType: ContentTypeText
-        )
-
         var currentDbId = clientMessageId
 
         do {
-            let preparedMessageId = try await conversation.prepareMessage(
-                content: reply,
-                options: .init(contentType: ContentTypeReply)
+            // FIXME(stage6): `Reply(...) / ContentTypeText / ContentTypeReply`
+            // are XMTPiOS XIP codec values. Until the codecs migrate to
+            // the abstraction layer, bridge through the XMTPiOS adapter.
+            let preparedMessageId = try await sendTextReplyViaBridge(
+                conversation: conversation,
+                replyText: text,
+                parentMessageId: parentMessage.id
             )
 
             if preparedMessageId != clientMessageId {
@@ -109,7 +112,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 currentDbId = preparedMessageId
             }
 
-            try await conversation.publishMessages()
+            try await publishPreparedMessagesViaBridge(conversation: conversation)
             Log.info("Published reply to message \(parentMessageId)")
         } catch {
             Log.error("Failed publishing reply: \(error.localizedDescription)")
