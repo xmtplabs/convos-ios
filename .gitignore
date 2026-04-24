@@ -8,7 +8,6 @@
 
 ### Secrets ###
 **/Secrets.swift
-**/BuildInfo.swift
 .env
 .env.local
 
