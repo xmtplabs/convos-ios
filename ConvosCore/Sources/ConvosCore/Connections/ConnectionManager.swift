@@ -12,17 +12,20 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     private let oauthProvider: any OAuthSessionProvider
     private let databaseWriter: any DatabaseWriter
     private let callbackURLScheme: String
+    private let grantWriterProvider: @Sendable () -> (any ConnectionGrantWriterProtocol)?
 
     public init(
         apiClient: any ConvosAPIClientProtocol,
         oauthProvider: any OAuthSessionProvider,
         databaseWriter: any DatabaseWriter,
-        callbackURLScheme: String
+        callbackURLScheme: String,
+        grantWriterProvider: @escaping @Sendable () -> (any ConnectionGrantWriterProtocol)? = { nil }
     ) {
         self.apiClient = apiClient
         self.oauthProvider = oauthProvider
         self.databaseWriter = databaseWriter
         self.callbackURLScheme = callbackURLScheme
+        self.grantWriterProvider = grantWriterProvider
     }
 
     public func connect(serviceId canonicalServiceId: String) async throws -> Connection {
@@ -68,6 +71,46 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     public func disconnect(connectionId: String) async throws {
         try await apiClient.revokeConnection(connectionId: connectionId)
 
+        // Collect conversations that currently reference this connection so we
+        // can republish per-conversation metadata after the local rows are gone.
+        // Without this, the ProfileUpdate metadata previously published to XMTP
+        // groups still carries the revoked grants and the agent would keep
+        // using them.
+        let affectedConversationIds = try await databaseWriter.read { db in
+            try DBConnectionGrant
+                .filter(DBConnectionGrant.Columns.connectionId == connectionId)
+                .fetchAll(db)
+                .map { $0.conversationId }
+        }
+        let uniqueConversationIds = Array(Set(affectedConversationIds))
+
+        // revokeGrant deletes the row and republishes metadata for that
+        // conversation. We go through the public writer interface so the two
+        // paths stay in sync. A republish failure here is logged but doesn't
+        // block the subsequent DBConnection delete — the ON DELETE CASCADE
+        // guarantees any grant revokeGrant restored on failure still gets
+        // removed locally. The stale metadata on XMTP is the best we can do
+        // if the sync is down at wipe time.
+        if let grantWriter = grantWriterProvider() {
+            for conversationId in uniqueConversationIds {
+                do {
+                    try await grantWriter.revokeGrant(
+                        connectionId: connectionId,
+                        from: conversationId
+                    )
+                } catch {
+                    Log.warning("[CloudConnections] failed to republish grants after disconnect (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                }
+            }
+        } else if !uniqueConversationIds.isEmpty {
+            let conversationCount = uniqueConversationIds.count
+            Log.warning(
+                "[CloudConnections] disconnect had no grant writer injected; metadata for " +
+                "\(conversationCount) conversation(s) will remain stale until the next grant/revoke " +
+                "on the affected conversations"
+            )
+        }
+
         try await databaseWriter.write { db in
             _ = try DBConnection.deleteOne(db, key: connectionId)
         }
@@ -90,10 +133,25 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
             )
         }
 
+        // Delta update rather than deleteAll-then-reinsert: DBConnectionGrant
+        // rows have ON DELETE CASCADE on DBConnection.id, so deleting every
+        // connection (even momentarily within the same transaction) wipes
+        // every grant on the device. Since refresh() fires every time the
+        // Connections settings screen appears, that path would destroy every
+        // grant on settings entry.
+        let serverIds = Set(connections.map { $0.id })
         try await databaseWriter.write { db in
-            try DBConnection.deleteAll(db)
+            let existingIds = Set(try DBConnection.fetchAll(db).map { $0.id })
+
             for connection in connections {
                 try DBConnection(from: connection).save(db)
+            }
+
+            let idsToDelete = existingIds.subtracting(serverIds)
+            if !idsToDelete.isEmpty {
+                try DBConnection
+                    .filter(idsToDelete.contains(DBConnection.Columns.id))
+                    .deleteAll(db)
             }
         }
 
