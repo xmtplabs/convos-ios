@@ -18,9 +18,9 @@ public struct RestoreTransaction: Codable, Equatable, Sendable {
     public var phase: Phase
 
     public enum Phase: String, Codable, Sendable {
-        case paused
-        case databaseReplaced
-        case committed
+        case paused = "paused"
+        case databaseReplaced = "database_replaced"
+        case committed = "committed"
     }
 
     public init(id: UUID = UUID(), startedAt: Date = Date(), phase: Phase = .paused) {

@@ -75,12 +75,47 @@ struct BackupManagerTests {
         return identity
     }
 
+    /// BackupManager now refuses to bundle an empty state — tests that
+    /// drive createBackup past the guard must seed at least one
+    /// conversation row.
+    private func seedConversation(in fixtures: Fixtures, id: String = UUID().uuidString) async throws {
+        try await fixtures.databaseManager.dbWriter.write { db in
+            let creatorInboxId = "inbox-\(id)"
+            try DBMember(inboxId: creatorInboxId).save(db, onConflict: .ignore)
+            try DBConversation(
+                id: id,
+                clientConversationId: id,
+                inviteTag: "tag-\(id)",
+                creatorId: creatorInboxId,
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAssistant: false
+            ).insert(db)
+        }
+    }
+
     // MARK: - Happy path
 
     @Test("createBackup writes a sealed bundle, sidecar, and invokes the archive provider once")
     func testCreateBackupHappyPath() async throws {
         let fixtures = try await freshFixtures()
         _ = try await seedIdentity(fixtures.identityStore)
+        try await seedConversation(in: fixtures)
 
         let provider = StubArchiveProvider()
         let manager = BackupManager(
@@ -100,7 +135,7 @@ struct BackupManagerTests {
         // Sidecar sits next to the bundle, unencrypted.
         let sidecar = try BackupSidecarMetadata.read(from: bundleURL.deletingLastPathComponent())
         #expect(sidecar.schemaGeneration == LegacyDataWipe.currentGeneration)
-        #expect(sidecar.conversationCount == 0)
+        #expect(sidecar.conversationCount == 1)
 
         // Clean up the bundle dir to keep the shared temp env tidy across tests.
         try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent())
@@ -110,6 +145,7 @@ struct BackupManagerTests {
     func testBundleContentsRoundTrip() async throws {
         let fixtures = try await freshFixtures()
         let identity = try await seedIdentity(fixtures.identityStore)
+        try await seedConversation(in: fixtures)
 
         let expectedArchiveBytes = Data("xmtp-bytes-\(UUID().uuidString)".utf8)
         let provider = StubArchiveProvider(payload: expectedArchiveBytes)
@@ -153,6 +189,30 @@ struct BackupManagerTests {
     // UserDefaults, so we cover the path by inspection — see
     // BackupManager.createBackup's early guard.
 
+    @Test("createBackup throws noConversationsToBackUp when the DB is empty")
+    func testSkipsWhenNoConversations() async throws {
+        let fixtures = try await freshFixtures()
+        _ = try await seedIdentity(fixtures.identityStore)
+        // Intentionally no conversations seeded.
+
+        let provider = StubArchiveProvider()
+        let manager = BackupManager(
+            identityStore: fixtures.identityStore,
+            archiveProvider: provider,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceInfo: fixtures.deviceInfo,
+            environment: fixtures.environment,
+            restoreFlagSuiteName: fixtures.suite
+        )
+
+        await #expect(throws: BackupError.self) {
+            _ = try await manager.createBackup()
+        }
+        // Crucially, the archive provider was never invoked — no wasted
+        // XMTP createArchive round-trip, no staged staging dir.
+        #expect(provider.callCount == 0)
+    }
+
     @Test("createBackup throws noIdentityAvailable when the store is empty")
     func testSkipsWhenNoIdentity() async throws {
         let fixtures = try await freshFixtures()
@@ -180,6 +240,7 @@ struct BackupManagerTests {
     func testArchiveProviderFailurePropagates() async throws {
         let fixtures = try await freshFixtures()
         _ = try await seedIdentity(fixtures.identityStore)
+        try await seedConversation(in: fixtures)
 
         struct BoomError: Error {}
         let provider = StubArchiveProvider(throwing: BoomError())

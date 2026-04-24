@@ -106,6 +106,15 @@ public final class ConvosClient {
         )
     }
 
+    /// Current conversation count in the local DB. Drives the UI's
+    /// `canBackUp` gate — we refuse to produce an empty bundle that
+    /// would overwrite the last-good backup in iCloud.
+    public func conversationCount() async -> Int {
+        (try? await databaseManager.dbReader.read { db in
+            try DBConversation.fetchCount(db)
+        }) ?? 0
+    }
+
     /// Builds a `RestoreManager` bound to this client's identity store +
     /// database manager. Lifecycle controller defaults to the live
     /// `SessionManager` if it conforms (it does).

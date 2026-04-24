@@ -11,8 +11,12 @@ struct RestorePromptCard: View {
     let onRestore: () -> Void
     let onStartFresh: () -> Void
 
+    @State private var showingRestoreConfirmation: Bool = false
+
     var body: some View {
-        let restoreAction = onRestore
+        let restoreAction: () -> Void = {
+            showingRestoreConfirmation = true
+        }
         let skipAction = onStartFresh
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
@@ -53,6 +57,23 @@ struct RestorePromptCard: View {
         .padding(DesignConstants.Spacing.step4x)
         .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .alert(
+            "Replace this device's data?",
+            isPresented: $showingRestoreConfirmation
+        ) {
+            Button("Replace", role: .destructive, action: onRestore)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This will restore your conversations from the backup on "
+                + "\(sidecar.deviceName) "
+                + "(\(sidecar.createdAt.formatted(date: .abbreviated, time: .shortened))) "
+                + "and replace anything on this device.\n\n"
+                + "Your other devices will be signed out of this account "
+                + "as part of the restore.\n\n"
+                + "This can't be undone."
+            )
+        }
     }
 }
 

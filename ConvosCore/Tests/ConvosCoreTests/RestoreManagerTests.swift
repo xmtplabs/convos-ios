@@ -20,16 +20,18 @@ struct RestoreManagerTests {
         private let lock: NSLock = NSLock()
         var callCount: Int = 0
         var throwing: (any Error)?
+        let installationId: String = "install-\(UUID().uuidString)"
         func importArchive(
             at path: URL,
             encryptionKey: Data,
             identity: KeychainIdentity
-        ) async throws {
+        ) async throws -> String {
             let err: (any Error)? = lock.withLock {
                 callCount += 1
                 return throwing
             }
             if let err { throw err }
+            return installationId
         }
     }
 
@@ -86,7 +88,42 @@ struct RestoreManagerTests {
         )
     }
 
+    /// BackupManager refuses to bundle when there are 0 conversations.
+    /// Seed one before calling makeBackup.
+    private func seedConversation(in f: Fixtures) async throws {
+        try await f.databaseManager.dbWriter.write { db in
+            let id = UUID().uuidString
+            let creatorInboxId = "inbox-\(id)"
+            try DBMember(inboxId: creatorInboxId).save(db, onConflict: .ignore)
+            try DBConversation(
+                id: id,
+                clientConversationId: id,
+                inviteTag: "tag-\(id)",
+                creatorId: creatorInboxId,
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAssistant: false
+            ).insert(db)
+        }
+    }
+
     private func makeBackup(_ f: Fixtures) async throws -> URL {
+        try await seedConversation(in: f)
         let manager = BackupManager(
             identityStore: f.identityStore,
             archiveProvider: f.archiveProvider,
@@ -101,19 +138,28 @@ struct RestoreManagerTests {
 
     // MARK: - restoreFromBackup happy path
 
-    @Test("restoreFromBackup succeeds: lifecycle pause/resume fire, state reaches completed")
+    @Test("restoreFromBackup succeeds: lifecycle pause/resume fire, revoker keeps throwaway install")
     func testHappyPath() async throws {
         let f = makeFixtures()
         _ = try await seedIdentity(f.identityStore)
         let bundleURL = try await makeBackup(f)
         defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
 
+        // Spy revoker so we can assert the keepInstallationId passed in
+        // is the throwaway importer's id (not the pre-restore identity's
+        // clientId, which was the previous bug).
+        let recorder = RevokerRecorder()
+        let revoker: RestoreInstallationRevoker = { inboxId, _, keepId in
+            recorder.record(inboxId: inboxId, keep: keepId)
+            return 1
+        }
+
         let manager = RestoreManager(
             identityStore: f.identityStore,
             databaseManager: f.databaseManager,
             archiveImporter: f.archiveImporter,
             lifecycleController: f.lifecycle,
-            installationRevoker: nil,
+            installationRevoker: revoker,
             environment: f.environment,
             restoreFlagSuiteName: f.suite
         )
@@ -123,8 +169,53 @@ struct RestoreManagerTests {
         #expect(f.lifecycle.pauseCount == 1)
         #expect(f.lifecycle.resumeCount == 1)
         #expect(f.archiveImporter.callCount == 1)
+        #expect(recorder.calls == 1)
+        #expect(recorder.lastKeep == f.archiveImporter.installationId)
         #expect(RestoreInProgressFlag.isSet(defaults: f.defaults) == false)
         #expect(RestoreTransactionStore.load(defaults: f.defaults) == nil)
+    }
+
+    @Test("revocation is skipped when archive import fails so the new device isn't orphaned")
+    func testRevocationSkippedOnArchiveFailure() async throws {
+        let f = makeFixtures()
+        _ = try await seedIdentity(f.identityStore)
+        let bundleURL = try await makeBackup(f)
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        struct BoomError: Error {}
+        f.archiveImporter.throwing = BoomError()
+        let recorder = RevokerRecorder()
+        let revoker: RestoreInstallationRevoker = { _, _, keep in
+            recorder.record(inboxId: "", keep: keep)
+            return 0
+        }
+        let manager = RestoreManager(
+            identityStore: f.identityStore,
+            databaseManager: f.databaseManager,
+            archiveImporter: f.archiveImporter,
+            lifecycleController: f.lifecycle,
+            installationRevoker: revoker,
+            environment: f.environment,
+            restoreFlagSuiteName: f.suite
+        )
+        try await manager.restoreFromBackup(bundleURL: bundleURL)
+
+        // Restore still completes (partial), but revoker must not have
+        // fired — with no throwaway installationId, a revoke call would
+        // wipe every installation and orphan this device.
+        #expect(recorder.calls == 0)
+    }
+
+    final class RevokerRecorder: @unchecked Sendable {
+        private let lock: NSLock = NSLock()
+        private(set) var calls: Int = 0
+        private(set) var lastKeep: String?
+        func record(inboxId: String, keep: String?) {
+            lock.withLock {
+                calls += 1
+                lastKeep = keep
+            }
+        }
     }
 
     // MARK: - Archive import failure is non-fatal

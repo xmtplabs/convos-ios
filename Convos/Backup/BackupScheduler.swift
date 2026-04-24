@@ -190,6 +190,10 @@ final class BackupScheduler {
             Log.info("[BackupScheduler] \(source) backup completed")
             QAEvent.emit(.backup, "completed", ["source": source])
             return url
+        } catch BackupError.noConversationsToBackUp {
+            Log.info("[BackupScheduler] \(source) skipped — no conversations yet")
+            QAEvent.emit(.backup, "skipped_no_conversations", ["source": source])
+            return nil
         } catch {
             Log.error("[BackupScheduler] \(source) backup failed: \(error.localizedDescription)")
             QAEvent.emit(.backup, "failed", ["source": source, "error": error.localizedDescription])

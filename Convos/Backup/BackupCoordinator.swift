@@ -30,6 +30,9 @@ final class BackupCoordinator {
         self.convos = convos
         self.viewModel = BackupRestoreViewModel(
             environment: convos.environment,
+            conversationCountProvider: { [weak convos] in
+                await convos?.conversationCount() ?? 0
+            },
             restoreManagerFactory: { [weak convos] in
                 convos?.makeRestoreManager()
             }

@@ -180,10 +180,13 @@ public actor RestoreManager {
 
             // Archive import — non-fatal per the plan. Failure surfaces as
             // `RestoreState.archiveImportFailed` + a persisted summary; the
-            // GRDB restore is still the primary contract.
+            // GRDB restore is still the primary contract. The returned id
+            // is the throwaway client's XMTP `installationId`, which is
+            // registered on the network and will become the only surviving
+            // installation after the revocation pass below.
             state = .importingArchive
             let archivePath = BackupBundle.archivePath(in: stagingDir)
-            await importArchiveNonFatally(
+            let keepInstallationId = await importArchiveNonFatally(
                 archivePath: archivePath,
                 archiveKey: innerMetadata.archiveKey,
                 identity: identity
@@ -196,13 +199,20 @@ public actor RestoreManager {
                 databaseWriter: databaseManager.dbWriter
             ).markAllConversationsInactive()
 
-            // Non-fatal revocation of other installations.
-            if let revoker = installationRevoker {
+            // Revocation of other installations. Non-fatal on failure —
+            // the restore has already committed the GRDB + archive state,
+            // and a retry from settings will clean up any stragglers.
+            // Skipped entirely if archive import failed: without a
+            // throwaway installationId we can't name a keeper, and
+            // revoking "everything except nil" would remove the device
+            // we're actively restoring onto.
+            if let revoker = installationRevoker,
+               let keepInstallationId {
                 do {
                     _ = try await revoker(
                         identity.inboxId,
                         identity.keys.signingKey,
-                        identity.clientId
+                        keepInstallationId
                     )
                 } catch {
                     Log.warning("RestoreManager: installation revocation failed: \(error)")
@@ -369,22 +379,27 @@ public actor RestoreManager {
 
     // MARK: - Archive import
 
+    /// Returns the throwaway client's `installationId` on success, or
+    /// `nil` when import failed (we have no installation to keep and the
+    /// caller skips revocation to avoid orphaning this device).
     private func importArchiveNonFatally(
         archivePath: URL,
         archiveKey: Data,
         identity: KeychainIdentity
-    ) async {
+    ) async -> String? {
         do {
-            try await archiveImporter.importArchive(
+            let installationId = try await archiveImporter.importArchive(
                 at: archivePath,
                 encryptionKey: archiveKey,
                 identity: identity
             )
+            return installationId
         } catch {
             Log.error("RestoreManager: archive import failed: \(error)")
             let failure = PendingArchiveImportFailure(reason: error.localizedDescription)
             PendingArchiveImportFailureStorage.save(failure, defaults: restoreFlagDefaults)
             state = .archiveImportFailed(reason: error.localizedDescription)
+            return nil
         }
     }
 

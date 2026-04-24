@@ -22,32 +22,29 @@ struct BackupRestoreSettingsView: View {
         .navigationTitle("Backup & Restore")
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.refresh() }
-        .confirmationDialog(
-            "Restore from backup?",
+        .alert(
+            "Replace this device's data?",
             isPresented: $showingRestoreConfirmation,
-            titleVisibility: .visible
-        ) {
+            presenting: pendingRestore
+        ) { available in
             let confirm = {
-                if let available = pendingRestore {
-                    onRestore(available)
-                }
+                onRestore(available)
                 pendingRestore = nil
             }
-            Button("Restore", role: .destructive, action: confirm)
+            Button("Replace", role: .destructive, action: confirm)
             Button("Cancel", role: .cancel) {
                 pendingRestore = nil
             }
-        } message: {
-            if let sidecar = pendingRestore?.sidecar {
-                Text(
-                    "Replace this device's data with the backup from "
-                    + "\(sidecar.deviceName) "
-                    + "(\(sidecar.createdAt.formatted(date: .abbreviated, time: .shortened)))? "
-                    + "You can't undo this."
-                )
-            } else {
-                Text("This will replace the data on this device with the backup. You can't undo this.")
-            }
+        } message: { available in
+            Text(
+                "This will erase all conversations, drafts, and settings on "
+                + "this device and replace them with the backup from "
+                + "\(available.sidecar.deviceName) "
+                + "(\(available.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened))).\n\n"
+                + "Your other devices will be signed out of this account as "
+                + "part of the restore.\n\n"
+                + "This can't be undone."
+            )
         }
     }
 
@@ -70,12 +67,13 @@ struct BackupRestoreSettingsView: View {
                 Button(action: backUp) {
                     HStack {
                         Text("Back up now")
-                            .foregroundStyle(.colorTextPrimary)
+                            .foregroundStyle(viewModel.canBackUp ? .colorTextPrimary : .colorTextSecondary)
                         Spacer()
                         Image(systemName: "icloud.and.arrow.up")
                             .foregroundStyle(.colorTextSecondary)
                     }
                 }
+                .disabled(!viewModel.canBackUp)
                 .accessibilityIdentifier("back-up-now-button")
             }
         } header: {
@@ -84,6 +82,8 @@ struct BackupRestoreSettingsView: View {
             if let error = viewModel.lastError {
                 Text("Backup failed: \(error.localizedDescription)")
                     .foregroundStyle(.colorLava)
+            } else if !viewModel.canBackUp {
+                Text("Start a conversation to enable backups.")
             } else if let date = viewModel.lastBackupAt {
                 Text("Last backup: \(date.formatted(date: .abbreviated, time: .shortened))")
             } else {

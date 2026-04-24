@@ -9,9 +9,17 @@ public protocol RestoreArchiveImporting: Sendable {
     /// the given restored identity. Callers must have staged any existing
     /// xmtp-*.db3 files aside before invoking — the importer opens a
     /// client against an empty DB to avoid mixing in stale state.
+    ///
+    /// Returns the throwaway client's `installationId`. That installation
+    /// is registered on the network as a side effect of `Client.build`,
+    /// and becomes the keeper when `XMTPInstallationRevoker
+    /// .revokeOtherInstallations` runs at the tail of the restore — every
+    /// OTHER installation (i.e. the backed-up device's previous
+    /// installation) is revoked so the original phone stops being able
+    /// to accept writes.
     func importArchive(
         at path: URL,
         encryptionKey: Data,
         identity: KeychainIdentity
-    ) async throws
+    ) async throws -> String
 }

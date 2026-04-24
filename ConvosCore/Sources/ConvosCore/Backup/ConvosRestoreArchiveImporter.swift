@@ -23,7 +23,7 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporting {
         at path: URL,
         encryptionKey: Data,
         identity: KeychainIdentity
-    ) async throws {
+    ) async throws -> String {
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let options = ClientOptions(
             api: api,
@@ -44,5 +44,6 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporting {
         defer { try? client.dropLocalDatabaseConnection() }
 
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
+        return client.installationId
     }
 }

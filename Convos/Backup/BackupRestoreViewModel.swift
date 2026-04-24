@@ -14,19 +14,31 @@ final class BackupRestoreViewModel {
     private(set) var availableRestore: AvailableBackup?
     private(set) var pendingArchiveImportFailure: PendingArchiveImportFailure?
     private(set) var iCloudAvailable: Bool = true
+    private(set) var conversationCount: Int = 0
     private(set) var lastError: (any Error)?
+
+    /// Whether the "Back up now" button should be enabled. Matches the
+    /// plan's contract that we never bundle 0 conversations — disabling
+    /// the button keeps the UI coherent with `BackupManager
+    /// .createBackup`'s `.noConversationsToBackUp` guard.
+    var canBackUp: Bool {
+        conversationCount > 0
+    }
 
     private let environment: AppEnvironment
     private let scheduler: BackupScheduler
+    private let conversationCountProvider: (@MainActor () async -> Int)?
     private let restoreManagerFactory: (@MainActor () -> RestoreManager?)?
 
     init(
         environment: AppEnvironment,
         scheduler: BackupScheduler = .shared,
+        conversationCountProvider: (@MainActor () async -> Int)? = nil,
         restoreManagerFactory: (@MainActor () -> RestoreManager?)? = nil
     ) {
         self.environment = environment
         self.scheduler = scheduler
+        self.conversationCountProvider = conversationCountProvider
         self.restoreManagerFactory = restoreManagerFactory
     }
 
@@ -37,6 +49,7 @@ final class BackupRestoreViewModel {
         lastBackupAt = lastSuccessfulBackupAt()
         pendingArchiveImportFailure = PendingArchiveImportFailureStorage.load(environment: environment)
         iCloudAvailable = resolveICloudAvailable()
+        conversationCount = await (conversationCountProvider?() ?? 0)
         if let factory = restoreManagerFactory, let manager = factory() {
             availableRestore = await manager.findAvailableBackup()
         }

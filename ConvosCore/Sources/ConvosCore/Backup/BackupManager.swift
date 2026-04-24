@@ -5,6 +5,7 @@ import GRDB
 public enum BackupError: LocalizedError {
     case restoreInProgress
     case noIdentityAvailable
+    case noConversationsToBackUp
     case archiveKeyGenerationFailed
     case bundleWriteFailed(String)
 
@@ -14,6 +15,8 @@ public enum BackupError: LocalizedError {
             return "A restore is currently in progress; skipping backup."
         case .noIdentityAvailable:
             return "No identity is available yet; skipping backup."
+        case .noConversationsToBackUp:
+            return "No conversations to back up yet."
         case .archiveKeyGenerationFailed:
             return "Failed to generate a per-bundle archive key."
         case .bundleWriteFailed(let reason):
@@ -73,6 +76,19 @@ public actor BackupManager {
             throw BackupError.noIdentityAvailable
         }
 
+        // No point in sealing an empty bundle. Fresh installs and any
+        // install whose conversations have all been explicitly deleted
+        // hit this path — skip rather than producing a bundle the user
+        // would have no reason to restore (and that would overwrite the
+        // last-good backup in iCloud).
+        let conversationCount = try await databaseReader.read { db in
+            try DBConversation.fetchCount(db)
+        }
+        guard conversationCount > 0 else {
+            Log.info("BackupManager: no conversations to back up, skipping")
+            throw BackupError.noConversationsToBackUp
+        }
+
         let stagingDir = try BackupBundle.createStagingDirectory()
         var cleanedUp = false
         defer {
@@ -98,10 +114,6 @@ public actor BackupManager {
             at: archivePath,
             encryptionKey: archiveKey
         )
-
-        let conversationCount = try await databaseReader.read { db in
-            try DBConversation.fetchCount(db)
-        }
 
         let innerMetadata = BackupBundleMetadata(
             deviceId: deviceInfo.deviceIdentifier,
