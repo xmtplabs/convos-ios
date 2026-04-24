@@ -1,5 +1,8 @@
 import ConvosAppData
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
+// ConvosProfiles is a sibling SwiftPM package. See
+// `ProfileUpdateCodec.swift` for the circular-import blocker note.
 @preconcurrency import XMTPiOS
 
 public enum ProfileSnapshotBuilder {

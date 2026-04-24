@@ -1,3 +1,6 @@
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
+// ConvosInvites is a sibling SwiftPM package (ConvosCore depends on
+// it). See `InviteCoordinator.swift` for the circular-import blocker.
 @preconcurrency import XMTPiOS
 
 /// Minimal client interface needed by InviteCoordinator.

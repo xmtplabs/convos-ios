@@ -1,5 +1,13 @@
 import ConvosInvitesCore
 import Foundation
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
+// ConvosInvites is a sibling SwiftPM package that ConvosCore depends
+// on. Migrating its public protocols (`InviteClientProvider`,
+// `InviteTagStorage`) to `Messaging*` types would require depending on
+// ConvosCore, creating a circular import. Resolution paths: (1)
+// promote `Messaging*` out of ConvosCore into its own package, or
+// (2) define a package-local signer/group protocol in
+// ConvosInvitesCore and have callers bridge at the boundary.
 @preconcurrency import XMTPiOS
 
 // MARK: - Private Key Provider

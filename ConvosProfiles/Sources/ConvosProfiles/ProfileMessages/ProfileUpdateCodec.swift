@@ -1,5 +1,12 @@
 import Foundation
 import SwiftProtobuf
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
+// ConvosProfiles is a sibling SwiftPM package (ConvosCore depends on
+// it). The codec conforms to `XMTPiOS.ContentCodec` directly.
+// Migration to the Convos-owned `MessagingCodec` protocol requires
+// either promoting `Messaging*` out of ConvosCore into a shared
+// package, or defining a package-local codec protocol and having
+// callers bridge. Tracks audit §5 Stage 6 (codec migration).
 @preconcurrency import XMTPiOS
 
 public let ContentTypeProfileUpdate = ContentTypeID(

@@ -1,5 +1,9 @@
 import Foundation
 import SwiftProtobuf
+// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
+// ConvosProfiles is a sibling SwiftPM package. See
+// `ProfileUpdateCodec.swift` for the full note on the
+// circular-import blocker (Stage 4e / Stage 6).
 @preconcurrency import XMTPiOS
 
 public let ContentTypeProfileSnapshot = ContentTypeID(
