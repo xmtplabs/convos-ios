@@ -1,8 +1,16 @@
 @testable import ConvosCore
+@testable import ConvosCoreDTU
 import Foundation
 import GRDB
 import Testing
 import XMTPiOS
+
+// Stage 6f: migrated from
+// `ConvosCore/Tests/ConvosCoreTests/InboxStateMachineTests.swift`.
+// Drives the InboxStateMachine end-to-end which still needs an
+// XMTPiOS-backed client (Stage 6a state-machine rewrite onto
+// MessagingClient is deferred — see report). On DTU lane we skip
+// cleanly via LegacyFixtureBackendGuard.
 
 // MARK: - Test Helpers
 
@@ -24,7 +32,8 @@ struct InboxStateMachineTests {
 
     @Test("Register creates new client and reaches ready state")
     func testRegisterFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockSync = MockSyncingManager()
@@ -79,7 +88,8 @@ struct InboxStateMachineTests {
 
     @Test("Register saves to both keychain and database")
     func testRegisterSavesToKeychainAndDatabase() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockInvites = MockInvitesRepository()
@@ -138,7 +148,8 @@ struct InboxStateMachineTests {
 
     @Test("Authorize with existing identity reaches ready state")
     func testAuthorizeFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Create a client and save identity first
         let (client, clientId, _) = try await fixtures.createClient()
@@ -190,7 +201,8 @@ struct InboxStateMachineTests {
 
     @Test("Authorize with mismatched clientId fails")
     func testAuthorizeMismatchedClientId() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Create a client and save identity
         let (client, _, _) = try await fixtures.createClient()
@@ -241,7 +253,8 @@ struct InboxStateMachineTests {
 
     @Test("Stop transitions from ready to idle")
     func testStopFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockSync = MockSyncingManager()
@@ -309,7 +322,8 @@ struct InboxStateMachineTests {
 
     @Test("Delete removes all data and returns to idle")
     func testDeleteFlow() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockSync = MockSyncingManager()
@@ -382,7 +396,8 @@ struct InboxStateMachineTests {
 
     @Test("Delete from error state cleans up properly")
     func testDeleteFromErrorState() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockSync = MockSyncingManager()
@@ -438,7 +453,8 @@ struct InboxStateMachineTests {
 
     @Test("State sequence emits all state changes")
     func testStateSequenceEmission() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockInvites = MockInvitesRepository()
@@ -523,7 +539,8 @@ struct InboxStateMachineTests {
 
     @Test("Action queue processes actions sequentially")
     func testActionQueueSequencing() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockSync = MockSyncingManager()
@@ -575,7 +592,8 @@ struct InboxStateMachineTests {
 
     @Test("Messages sync after network disconnection and reconnection")
     func testNetworkDisconnectionAndReconnection() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         // Create mock network monitor starting connected
         let mockNetworkMonitor = MockNetworkMonitor(initialStatus: .connected(.wifi))
@@ -656,7 +674,8 @@ struct InboxStateMachineTests {
 
     @Test("App backgrounding pauses sync and app foregrounding resumes sync")
     func testAppBackgroundAndForeground() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockSync = MockSyncingManager()
@@ -753,7 +772,8 @@ struct InboxStateMachineTests {
 
     @Test("State sequence includes backgrounded state")
     func testStateSequenceIncludesBackgrounded() async throws {
-        let fixtures = TestFixtures()
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
         let mockInvites = MockInvitesRepository()

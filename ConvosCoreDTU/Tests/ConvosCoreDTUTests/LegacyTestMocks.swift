@@ -1,7 +1,169 @@
 @testable import ConvosCore
 @testable import ConvosCoreDTU
+import ConvosInvites
 import Foundation
 import GRDB
+
+// MARK: - waitForState helper
+//
+// Stage 6f: helper for migrated state-machine tests, lifted from
+// `ConvosCore/Tests/ConvosCoreTests/TestHelpers.swift`.
+
+/// Helper to wait for InboxStateMachine to reach a specific state with timeout
+func waitForState(
+    _ stateMachine: InboxStateMachine,
+    timeout: TimeInterval = 30,
+    condition: @escaping @Sendable (InboxStateMachine.State) -> Bool
+) async throws -> InboxStateMachine.State {
+    try await withTimeout(seconds: timeout) {
+        for await state in await stateMachine.stateSequence {
+            if condition(state) {
+                return state
+            }
+        }
+        throw TimeoutError()
+    }
+}
+
+// MARK: - MockInvitesRepository
+//
+// Lifted from the same legacy file. Used by InboxStateMachineTests
+// and other migrated tests that exercise the invites lookup path.
+
+class MockInvitesRepository: InvitesRepositoryProtocol {
+    private var invites: [String: [Invite]] = [:]
+
+    func fetchInvites(for creatorInboxId: String) async throws -> [Invite] {
+        invites[creatorInboxId] ?? []
+    }
+
+    func addInvite(_ invite: Invite, for creatorInboxId: String) {
+        var existing = invites[creatorInboxId] ?? []
+        existing.append(invite)
+        invites[creatorInboxId] = existing
+    }
+
+    func clearInvites(for creatorInboxId: String) {
+        invites.removeValue(forKey: creatorInboxId)
+    }
+}
+
+// MARK: - MockSyncingManager
+
+/// Mock implementation of SyncingManagerProtocol for testing
+actor MockSyncingManager: SyncingManagerProtocol {
+    var isStarted = false
+    var isPaused = false
+    var startCallCount = 0
+    var stopCallCount = 0
+    var pauseCallCount = 0
+    var resumeCallCount = 0
+
+    var isSyncReady: Bool {
+        isStarted && !isPaused
+    }
+
+    func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+        isStarted = true
+        isPaused = false
+        startCallCount += 1
+    }
+
+    func stop() {
+        isStarted = false
+        isPaused = false
+        stopCallCount += 1
+    }
+
+    func pause() {
+        isPaused = true
+        pauseCallCount += 1
+    }
+
+    func resume() {
+        isPaused = false
+        resumeCallCount += 1
+    }
+
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {}
+
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}
+
+    func requestDiscovery() async {}
+}
+
+// MARK: - MockNetworkMonitor
+
+/// Mock implementation of NetworkMonitor for testing
+public actor MockNetworkMonitor: NetworkMonitorProtocol {
+    private var _status: NetworkMonitor.Status = .connected(.wifi)
+    private var statusContinuations: [AsyncStream<NetworkMonitor.Status>.Continuation] = []
+
+    public init(initialStatus: NetworkMonitor.Status = .connected(.wifi)) {
+        self._status = initialStatus
+    }
+
+    public var status: NetworkMonitor.Status {
+        _status
+    }
+
+    public var isConnected: Bool {
+        _status.isConnected
+    }
+
+    public func start() async {}
+
+    public func stop() async {
+        for continuation in statusContinuations {
+            continuation.finish()
+        }
+        statusContinuations.removeAll()
+    }
+
+    public var statusSequence: AsyncStream<NetworkMonitor.Status> {
+        AsyncStream { continuation in
+            Task { [weak self] in
+                guard let self else { return }
+                await self.addStatusContinuation(continuation)
+            }
+        }
+    }
+
+    private func addStatusContinuation(_ continuation: AsyncStream<NetworkMonitor.Status>.Continuation) {
+        statusContinuations.append(continuation)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeStatusContinuation(continuation)
+            }
+        }
+        continuation.yield(_status)
+    }
+
+    private func removeStatusContinuation(_ continuation: AsyncStream<NetworkMonitor.Status>.Continuation) {
+        statusContinuations.removeAll { $0 == continuation }
+    }
+
+    public func simulateDisconnection() {
+        _status = .disconnected
+        for continuation in statusContinuations {
+            continuation.yield(_status)
+        }
+    }
+
+    public func simulateConnection(type: NetworkMonitor.ConnectionType = .wifi) {
+        _status = .connected(type)
+        for continuation in statusContinuations {
+            continuation.yield(_status)
+        }
+    }
+
+    public func simulateConnecting() {
+        _status = .connecting
+        for continuation in statusContinuations {
+            continuation.yield(_status)
+        }
+    }
+}
 
 // MARK: - SequentialMockUnusedConversationCache
 //
