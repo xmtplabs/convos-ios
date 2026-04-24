@@ -847,7 +847,12 @@ extension MessagingService {
             databaseWriter: databaseWriter,
             messageWriter: messageWriter
         )
-        return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
+        // Stage 3 migration: conversationWriter takes `any MessagingGroup`.
+        // Wrap the XMTPiOS.Group at the call site.
+        return try await conversationWriter.storeWithLatestMessages(
+            conversation: XMTPiOSMessagingGroup(xmtpGroup: conversation),
+            inboxId: inboxId
+        )
     }
 
     // MARK: - Computed Display Name

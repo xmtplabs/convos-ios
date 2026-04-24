@@ -161,8 +161,10 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
+        // Stage 3 migration: conversationWriter takes `any MessagingGroup`.
+        // Wrap the stream-provided XMTPiOS.Group at the call site.
         try await conversationWriter.storeWithLatestMessages(
-            conversation: conversation,
+            conversation: XMTPiOSMessagingGroup(xmtpGroup: conversation),
             inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
         )
@@ -215,7 +217,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     let dbConversation = try await conversationWriter.store(
-                        conversation: conversation,
+                        conversation: XMTPiOSMessagingGroup(xmtpGroup: conversation),
                         inboxId: params.client.inboxId
                     )
 

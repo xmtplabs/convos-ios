@@ -2,26 +2,6 @@ import ConvosInvites
 import ConvosProfiles
 import Foundation
 import GRDB
-@preconcurrency import XMTPiOS
-
-extension DecodedMessage {
-    var isProfileMessage: Bool {
-        guard let contentType = try? encodedContent.type else { return false }
-        return contentType == ContentTypeProfileUpdate || contentType == ContentTypeProfileSnapshot
-    }
-
-    var isTypingIndicator: Bool {
-        guard let contentType = try? encodedContent.type else { return false }
-        return contentType.authorityID == ContentTypeTypingIndicator.authorityID
-            && contentType.typeID == ContentTypeTypingIndicator.typeID
-    }
-
-    var isReadReceipt: Bool {
-        guard let contentType = try? encodedContent.type else { return false }
-        return contentType.authorityID == ContentTypeReadReceipt.authorityID
-            && contentType.typeID == ContentTypeReadReceipt.typeID
-    }
-}
 
 enum ConversationWriterError: Error {
     case inboxNotFound(String)
@@ -29,16 +9,23 @@ enum ConversationWriterError: Error {
     case invalidInvite(String)
 }
 
+// Stage 3 migration (audit §5.3): the writer surface now operates on
+// `any MessagingGroup` instead of `XMTPiOS.Group`. Stage 4 callers
+// that still hold a raw `XMTPiOS.Group` wrap it via
+// `XMTPiOSMessagingGroup(xmtpGroup:)` at the call site; the writer
+// file itself no longer imports XMTPiOS. XMTPiOS-specific helpers
+// moved to
+// `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/XMTPiOSConversationWriterSupport.swift`.
 protocol ConversationWriterProtocol: Sendable {
     @discardableResult
     func store(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String,
         clientConversationId: String?
     ) async throws -> DBConversation
     @discardableResult
     func storeWithLatestMessages(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String,
         clientConversationId: String?
     ) async throws -> DBConversation
@@ -52,7 +39,7 @@ protocol ConversationWriterProtocol: Sendable {
 extension ConversationWriterProtocol {
     @discardableResult
     func store(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String
     ) async throws -> DBConversation {
         try await store(conversation: conversation, inboxId: inboxId, clientConversationId: nil)
@@ -60,7 +47,7 @@ extension ConversationWriterProtocol {
 
     @discardableResult
     func storeWithLatestMessages(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String
     ) async throws -> DBConversation {
         try await storeWithLatestMessages(conversation: conversation, inboxId: inboxId, clientConversationId: nil)
@@ -87,7 +74,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     }
 
     func store(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String,
         clientConversationId: String? = nil
     ) async throws -> DBConversation {
@@ -99,7 +86,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     }
 
     func storeWithLatestMessages(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String,
         clientConversationId: String? = nil
     ) async throws -> DBConversation {
@@ -197,7 +184,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     }
 
     private func _store(
-        conversation: XMTPiOS.Group,
+        conversation: any MessagingGroup,
         inboxId: String,
         withLatestMessages: Bool = false,
         clientConversationId: String? = nil
@@ -207,9 +194,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
-        let members = try await conversation.members
+        let members = try await conversation.members()
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
-        let memberProfiles = try conversation.memberProfiles
+        let memberProfiles = try await conversation.memberProfiles()
 
         // Create database representation (imageLastRenewed will be determined inside the write transaction
         // to avoid race conditions with concurrent asset renewal)
@@ -232,7 +219,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
 
         if let preservedInviteTag = saveResult.preservedInviteTag,
-           (try conversation.inviteTag).isEmpty {
+           try await conversation.inviteTag().isEmpty {
             Log.warning("[MetadataDebug] preserving local invite tag and attempting self-heal for groupId=\(conversation.id) tag=\(preservedInviteTag)")
             do {
                 try await conversation.restoreInviteTagIfMissing(preservedInviteTag)
@@ -242,11 +229,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         // Prefetch encrypted profile images in background
-        prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
+        await prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
 
         // Prefetch encrypted group image in background (invalidate old URL if changed)
         // Use actualClientConversationId to match the ID that ViewModels subscribe to
-        prefetchEncryptedGroupImage(
+        await prefetchEncryptedGroupImage(
             cacheId: saveResult.clientConversationId,
             group: conversation,
             oldImageURL: saveResult.oldImageURL != metadata.imageURLString ? saveResult.oldImageURL : nil
@@ -271,7 +258,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let lastMessage = try await conversation.lastMessage()
         if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt {
             let result = try await messageWriter.store(
-                message: MessagingMessage(lastMessage),
+                message: lastMessage,
                 for: dbConversation
             )
             Log.debug("Saved last message: \(result)")
@@ -300,26 +287,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let hasHadVerifiedAssistant: Bool
     }
 
-    private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
-        let debugInfo = try await conversation.getDebugInformation().toDBDebugInfo()
-        let permissionPolicy = try conversation.permissionPolicySet()
-        let isLocked = permissionPolicy.addMemberPolicy == .deny
+    private func extractConversationMetadata(from conversation: any MessagingGroup) async throws -> ConversationMetadata {
+        let debugInfo = try await conversation.debugInformation().toDBDebugInfo()
+        let permissionPolicy = try await conversation.permissionPolicySet()
+        let isLocked = permissionPolicy.addMemberPolicy.isLocked
 
-        let encryptedRef = try? conversation.encryptedGroupImage
-        let imageEncryptionKey = try? conversation.imageEncryptionKey
-        let conversationEmoji = try? conversation.conversationEmoji
+        let encryptedRef = try? await conversation.encryptedGroupImage()
+        let imageEncryptionKey = try? await conversation.imageEncryptionKey()
+        let conversationEmoji = try? await conversation.conversationEmoji()
         Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
 
         return ConversationMetadata(
             kind: .group,
-            name: try conversation.name(),
-            description: try conversation.description(),
-            imageURLString: try conversation.imageUrl(),
+            name: try await conversation.name(),
+            description: try await conversation.description(),
+            imageURLString: try await conversation.imageUrl(),
             imageSalt: encryptedRef?.salt,
             imageNonce: encryptedRef?.nonce,
             imageEncryptionKey: imageEncryptionKey,
             conversationEmoji: conversationEmoji,
-            expiresAt: try conversation.expiresAt,
+            expiresAt: try await conversation.expiresAt(),
             debugInfo: debugInfo,
             isLocked: isLocked,
             hasHadVerifiedAssistant: false
@@ -327,7 +314,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     }
 
     private func createDBConversation(
-        from conversation: XMTPiOS.Group,
+        from conversation: any MessagingGroup,
         metadata: ConversationMetadata,
         inboxId: String,
         clientConversationId: String? = nil,
@@ -341,16 +328,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             return inbox.clientId
         }
 
+        // Convert `createdAtNs` to `Date` since DBConversation is built in
+        // terms of a `Date`. Matches the prior `conversation.createdAt`
+        // on `XMTPiOS.Group`.
+        let createdAt = Date(timeIntervalSince1970: TimeInterval(conversation.createdAtNs) / 1_000_000_000)
+
         return DBConversation(
             id: conversation.id,
             inboxId: inboxId,
             clientId: clientId,
             clientConversationId: clientConversationId ?? conversation.id,
-            inviteTag: try conversation.inviteTag,
+            inviteTag: try await conversation.inviteTag(),
             creatorId: try await conversation.creatorInboxId(),
             kind: metadata.kind,
-            consent: try conversation.consentState().consent,
-            createdAt: conversation.createdAt,
+            consent: try await conversation.consentState().consent,
+            createdAt: createdAt,
             name: metadata.name,
             description: metadata.description,
             imageURLString: metadata.imageURLString,
@@ -613,7 +605,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     }
 
     private func fetchAndStoreLatestMessages(
-        for conversation: XMTPiOS.Group,
+        for conversation: any MessagingGroup,
         dbConversation: DBConversation
     ) async throws {
         Log.debug("Attempting to fetch latest messages...")
@@ -622,7 +614,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let lastMessageNs = try await getLastMessageTimestamp(for: conversation.id)
 
         // Fetch new messages
-        let messages = try await conversation.messages(afterNs: lastMessageNs)
+        let messages = try await conversation.messages(
+            query: MessagingMessageQuery(afterNs: lastMessageNs)
+        )
         guard !messages.isEmpty else { return }
 
         Log.debug("Found \(messages.count) new messages, catching up...")
@@ -638,7 +632,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(
-                message: try MessagingMessage(message),
+                message: message,
                 for: dbConversation
             )
             if result.contentType.marksConversationAsUnread,
@@ -653,7 +647,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
     }
 
-    private func storeReadReceipt(_ message: DecodedMessage, conversationId: String) async {
+    private func storeReadReceipt(_ message: MessagingMessage, conversationId: String) async {
         do {
             try await databaseWriter.write { db in
                 let senderInboxId = message.senderInboxId
@@ -678,25 +672,35 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
     }
 
-    private func processProfileMessagesFromHistory(conversation: XMTPiOS.Group) async {
+    private func processProfileMessagesFromHistory(conversation: any MessagingGroup) async {
         do {
-            let messages = try await conversation.messages(limit: 500)
+            let messages = try await conversation.messages(
+                query: MessagingMessageQuery(limit: 500)
+            )
             let conversationId = conversation.id
-            let encryptionKey = try? conversation.imageEncryptionKey
+            let encryptionKey = try? await conversation.imageEncryptionKey()
 
             var latestUpdates: [String: ProfileUpdate] = [:]
             var latestSnapshot: ProfileSnapshot?
 
             for message in messages {
-                guard let contentType = try? message.encodedContent.type else { continue }
+                let contentType = message.encodedContent.type
 
-                if contentType == ContentTypeProfileUpdate {
-                    guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { continue }
+                if contentType == .profileUpdate {
+                    // ProfileUpdateCodec consumes the XMTPiOS-level
+                    // `EncodedContent`; bridge via
+                    // `MessagingEncodedContent.xmtpEncodedContent`. Codec
+                    // migration tracked as Stage 6.
+                    guard let update = try? ProfileUpdateCodec().decode(
+                        content: message.encodedContent.xmtpEncodedContent
+                    ) else { continue }
                     let inboxId = message.senderInboxId
                     guard !inboxId.isEmpty, latestUpdates[inboxId] == nil else { continue }
                     latestUpdates[inboxId] = update
-                } else if contentType == ContentTypeProfileSnapshot, latestSnapshot == nil {
-                    latestSnapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent)
+                } else if contentType == .profileSnapshot, latestSnapshot == nil {
+                    latestSnapshot = try? ProfileSnapshotCodec().decode(
+                        content: message.encodedContent.xmtpEncodedContent
+                    )
                 }
             }
 
@@ -813,11 +817,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
     }
 
-    private func prefetchEncryptedImages(profiles: [DBMemberProfile], group: XMTPiOS.Group) {
+    private func prefetchEncryptedImages(profiles: [DBMemberProfile], group: any MessagingGroup) async {
         let encryptedProfiles = profiles.filter { $0.avatarSalt != nil && $0.avatarNonce != nil }
         guard !encryptedProfiles.isEmpty else { return }
 
-        let groupKey: Data? = try? group.imageEncryptionKey
+        let groupKey: Data? = try? await group.imageEncryptionKey()
 
         Task.detached(priority: .background) {
             guard let groupKey else {
@@ -833,9 +837,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
     }
 
-    private func prefetchEncryptedGroupImage(cacheId: String, group: XMTPiOS.Group, oldImageURL: String? = nil) {
-        guard let encryptedRef = try? group.encryptedGroupImage,
-              let groupKey = try? group.imageEncryptionKey,
+    private func prefetchEncryptedGroupImage(cacheId: String, group: any MessagingGroup, oldImageURL: String? = nil) async {
+        guard let encryptedRef = try? await group.encryptedGroupImage(),
+              let groupKey = try? await group.imageEncryptionKey(),
               let params = EncryptedImageParams(encryptedRef: encryptedRef, groupKey: groupKey) else {
             return
         }
@@ -863,105 +867,4 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     }
 }
 
-// MARK: - Helper Extensions
-
-extension Attachment {
-    func saveToTmpFile() throws -> URL {
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileName = UUID().uuidString + filename
-        let fileURL = tempDir.appendingPathComponent(fileName)
-        try data.write(to: fileURL)
-        return fileURL
-    }
-}
-
-fileprivate extension XMTPiOS.Member {
-    func dbRepresentation(conversationId: String) -> DBConversationMember {
-        .init(conversationId: conversationId,
-              inboxId: inboxId,
-              role: permissionLevel.role,
-              consent: consentState.memberConsent,
-              createdAt: Date(),
-              invitedByInboxId: nil)
-    }
-}
-
-fileprivate extension XMTPiOS.PermissionLevel {
-    var role: MemberRole {
-        switch self {
-        case .SuperAdmin: return .superAdmin
-        case .Admin: return .admin
-        case .Member: return .member
-        }
-    }
-}
-
-enum ConversationInviteTagError: Error {
-    case attemptedFetchingInviteTagForDM
-}
-
-extension XMTPiOS.Conversation {
-    var creatorInboxId: String {
-        get async throws {
-            switch self {
-            case .group(let group):
-                return try await group.creatorInboxId()
-            case .dm(let dm):
-                return try await dm.creatorInboxId()
-            }
-        }
-    }
-
-    var inviteTag: String {
-        get throws {
-            switch self {
-            case .group(let group):
-                return try group.inviteTag
-            case .dm:
-                throw ConversationInviteTagError.attemptedFetchingInviteTagForDM
-            }
-        }
-    }
-}
 // swiftlint:enable type_body_length
-
-fileprivate extension XMTPiOS.ConsentState {
-    var memberConsent: Consent {
-        switch self {
-        case .allowed: return .allowed
-        case .denied: return .denied
-        case .unknown: return .unknown
-        }
-    }
-
-    var consent: Consent {
-        switch self {
-        case .allowed: return .allowed
-        case .denied: return .denied
-        case .unknown: return .unknown
-        }
-    }
-}
-
-fileprivate extension XMTPiOS.ConversationDebugInfo {
-    func toDBDebugInfo() -> ConversationDebugInfo {
-        ConversationDebugInfo(
-            epoch: epoch,
-            maybeForked: maybeForked,
-            forkDetails: forkDetails,
-            localCommitLog: localCommitLog,
-            remoteCommitLog: remoteCommitLog,
-            commitLogForkStatus: commitLogForkStatus.toDBStatus()
-        )
-    }
-}
-
-fileprivate extension XMTPiOS.CommitLogForkStatus {
-    func toDBStatus() -> CommitLogForkStatus {
-        switch self {
-        case .forked: return .forked
-        case .notForked: return .notForked
-        case .unknown: return .unknown
-        }
-    }
-}

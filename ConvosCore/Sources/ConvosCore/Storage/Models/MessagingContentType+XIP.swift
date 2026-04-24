@@ -108,4 +108,74 @@ public extension MessagingContentType {
         versionMajor: 1,
         versionMinor: 0
     )
+
+    /// `convos.org/typing_indicator:1.0`
+    ///
+    /// Mirror of `Custom Content Types/TypingIndicatorCodec.swift`'s
+    /// `ContentTypeTypingIndicator` so writers can dispatch on the
+    /// abstraction-layer type rather than the XMTPiOS-owned constant.
+    static let typingIndicator: MessagingContentType = MessagingContentType(
+        authorityID: "convos.org",
+        typeID: "typing_indicator",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+
+    /// `convos.org/profile_update:1.0`
+    ///
+    /// Mirror of `ConvosProfiles.ContentTypeProfileUpdate` so writers
+    /// can dispatch on the abstraction-layer type.
+    static let profileUpdate: MessagingContentType = MessagingContentType(
+        authorityID: "convos.org",
+        typeID: "profile_update",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+
+    /// `convos.org/profile_snapshot:1.0`
+    ///
+    /// Mirror of `ConvosProfiles.ContentTypeProfileSnapshot` so
+    /// writers can dispatch on the abstraction-layer type.
+    static let profileSnapshot: MessagingContentType = MessagingContentType(
+        authorityID: "convos.org",
+        typeID: "profile_snapshot",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+}
+
+// MARK: - MessagingMessage convenience predicates
+
+/// Stage 3 migration (audit §5.3): the profile / typing-indicator /
+/// read-receipt predicates used to live on `XMTPiOS.DecodedMessage`
+/// (see `Storage/Writers/ConversationWriter.swift:7-24` pre-Stage 3).
+/// The Storage layer now dispatches on `MessagingMessage` so the
+/// predicates must be available on the abstraction side. Keeping them
+/// in one place beside the content-type constants makes the
+/// authority/type-ID lookup obvious.
+public extension MessagingMessage {
+    /// True when the message carries a `ProfileUpdate` or
+    /// `ProfileSnapshot` XIP payload. Used by sync / storage to skip
+    /// writing profile messages as ordinary `DBMessage` rows.
+    var isProfileMessage: Bool {
+        encodedContent.type == .profileUpdate
+            || encodedContent.type == .profileSnapshot
+    }
+
+    /// True when the message is a Convos typing-indicator ping.
+    /// Matches by authority + type ID only — the codec doesn't care
+    /// about version.
+    var isTypingIndicator: Bool {
+        let type = encodedContent.type
+        return type.authorityID == MessagingContentType.typingIndicator.authorityID
+            && type.typeID == MessagingContentType.typingIndicator.typeID
+    }
+
+    /// True when the message is a read-receipt. Matches by authority +
+    /// type ID only.
+    var isReadReceipt: Bool {
+        let type = encodedContent.type
+        return type.authorityID == MessagingContentType.readReceipt.authorityID
+            && type.typeID == MessagingContentType.readReceipt.typeID
+    }
 }
