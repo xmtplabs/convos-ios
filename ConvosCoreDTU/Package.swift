@@ -41,6 +41,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../ConvosCore"),
+        // ConvosAppData lives beside ConvosCore in this workspace and
+        // carries the `ConversationCustomMetadata` protobuf type that
+        // writer-integration tests in this target need to encode
+        // empty-metadata blobs. The ConvosCore library already depends
+        // on it; we declare the dep explicitly so the test target can
+        // `import ConvosAppData` without reaching through internal
+        // transitive module names.
+        .package(path: "../ConvosAppData"),
         // XMTPDTU lives in a sibling `xmtp-dtu` workspace folder (see
         // project CLAUDE.md). Relative path anchors at the task-D clone
         // parent so `xmtp-dtu/clients/swift/` resolves cleanly.
@@ -63,6 +71,7 @@ let package = Package(
             dependencies: [
                 "ConvosCoreDTU",
                 .product(name: "ConvosCore", package: "ConvosCore"),
+                .product(name: "ConvosAppData", package: "ConvosAppData"),
                 .product(name: "XMTPDTU", package: "XMTPDTU"),
             ],
             swiftSettings: [
