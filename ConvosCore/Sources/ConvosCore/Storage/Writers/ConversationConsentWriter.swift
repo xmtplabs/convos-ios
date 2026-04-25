@@ -13,6 +13,7 @@ public protocol ConversationConsentWriterProtocol {
 class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked Sendable {
     enum ConversationConsentWriterError: Error {
         case deleteAllFailedWithErrors([Error])
+        case conversationNotFound(conversationId: String)
     }
 
     private let inboxStateManager: any InboxStateManagerProtocol
@@ -25,11 +26,17 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func join(conversation: Conversation) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates `update(consent:for:)` to the abstraction; until
-        // then bridge through `legacyProvider`.
-        let client = try await inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-        try await client.update(consent: .allowed, for: conversation.id)
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction. `messagingConversation(with:)` looks up the
+        // `MessagingConversation`; the `.core.updateConsentState(_:)`
+        // call replaces the legacy `client.update(consent:for:)`
+        // helper that XMTPClientProvider exposed.
+        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        try await updateMessagingConsent(
+            using: client,
+            conversationId: conversation.id,
+            to: .allowed
+        )
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
                 .filter(DBConversation.Columns.id == conversation.id)
@@ -42,11 +49,14 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func delete(conversation: Conversation) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates `update(consent:for:)` to the abstraction; until
-        // then bridge through `legacyProvider`.
-        let client = try await inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-        try await client.update(consent: .denied, for: conversation.id)
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction (see `join(...)` above for rationale).
+        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        try await updateMessagingConsent(
+            using: client,
+            conversationId: conversation.id,
+            to: .denied
+        )
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
                 .filter(DBConversation.Columns.id == conversation.id)
@@ -59,10 +69,9 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func deleteAll() async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates `update(consent:for:)` to the abstraction; until
-        // then bridge through `legacyProvider`.
-        let client = try await inboxStateManager.waitForInboxReadyResult().client.legacyProvider
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await inboxStateManager.waitForInboxReadyResult().client
         let inboxId = client.inboxId
         let conversationsToDeny = try await databaseWriter.read { db in
             try DBConversation
@@ -74,7 +83,11 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
         var errors: [Error] = []
         for dbConversation in conversationsToDeny {
             do {
-                try await client.update(consent: .denied, for: dbConversation.id)
+                try await updateMessagingConsent(
+                    using: client,
+                    conversationId: dbConversation.id,
+                    to: .denied
+                )
                 try await databaseWriter.write { db in
                     try dbConversation.with(consent: .denied).save(db)
                     Log.info("Updated conversation \(dbConversation.id) consent state to denied")
@@ -87,5 +100,25 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
         if !errors.isEmpty {
             throw ConversationConsentWriterError.deleteAllFailedWithErrors(errors)
         }
+    }
+
+    /// Looks up the conversation through the `MessagingClient`
+    /// abstraction and updates its consent state via
+    /// `MessagingConversationCore.updateConsentState(_:)`. Mirrors
+    /// the prior `XMTPClientProvider.update(consent:for:)` semantics
+    /// (throws if the conversation is not found).
+    private func updateMessagingConsent(
+        using client: any MessagingClient,
+        conversationId: String,
+        to consent: Consent
+    ) async throws {
+        guard let conversation = try await client.messagingConversation(
+            with: conversationId
+        ) else {
+            throw ConversationConsentWriterError.conversationNotFound(
+                conversationId: conversationId
+            )
+        }
+        try await conversation.core.updateConsentState(consent.messagingConsentState)
     }
 }
