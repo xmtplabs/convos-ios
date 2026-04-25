@@ -139,6 +139,7 @@ excluded:
   - .build/
   - "**/.build"
   - .derivedData/
+  - .claude/worktrees/
   - ConvosCore/Tests
   - ConvosTests
   - ConvosTests/Helpers
