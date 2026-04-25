@@ -78,6 +78,11 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     private let platformProviders: PlatformProviders
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let apiClient: (any ConvosAPIClientProtocol)?
+    /// Stage 6e Phase C: optional factory injection for tests that
+    /// drive `consumeOrCreateMessagingService` against the DTU backend.
+    /// Production code always passes `nil` (XMTPiOS default takes over
+    /// inside `AuthorizeInboxOperation.init`).
+    private let messagingClientFactory: (any MessagingClientFactory)?
     private var unusedMessagingService: MessagingService?
     private var isCreatingUnused: Bool = false
     private var backgroundCreationTask: Task<Void, Never>?
@@ -92,13 +97,15 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         identityStore: any KeychainIdentityStoreProtocol,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        messagingClientFactory: (any MessagingClientFactory)? = nil
     ) {
         self.keychainService = keychainService
         self.identityStore = identityStore
         self.platformProviders = platformProviders
         self.deviceRegistrationManager = deviceRegistrationManager
         self.apiClient = apiClient
+        self.messagingClientFactory = messagingClientFactory
     }
 
     // MARK: - Public Methods
@@ -372,7 +379,8 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                     startsStreamingServices: true,
                     platformProviders: platformProviders,
                     deviceRegistrationManager: deviceRegistrationManager,
-                    apiClient: apiClient
+                    apiClient: apiClient,
+                    messagingClientFactory: messagingClientFactory
                 )
 
                 let messagingService = MessagingService(
@@ -579,7 +587,8 @@ extension UnusedConversationCache {
                 startsStreamingServices: true,
                 platformProviders: platformProviders,
                 deviceRegistrationManager: deviceRegistrationManager,
-                apiClient: apiClient
+                apiClient: apiClient,
+                messagingClientFactory: messagingClientFactory
             )
 
             let messagingService = MessagingService(
@@ -707,7 +716,8 @@ extension UnusedConversationCache {
             environment: environment,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            messagingClientFactory: messagingClientFactory
         )
 
         let service = MessagingService(
@@ -796,7 +806,8 @@ extension UnusedConversationCache {
             startsStreamingServices: true,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            messagingClientFactory: messagingClientFactory
         )
 
         let messagingService = MessagingService(
@@ -852,7 +863,8 @@ extension UnusedConversationCache {
             environment: environment,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            messagingClientFactory: messagingClientFactory
         )
 
         let tempMessagingService = MessagingService(

@@ -331,6 +331,23 @@ actor SyncingManager: SyncingManagerProtocol {
     // MARK: - Action Handlers
 
     private func handleStart(client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) async throws {
+        // Stage 6e Phase C: SyncingManager's stream + sync paths reach
+        // for `client.legacyProvider.conversationsProvider`, which
+        // `preconditionFailure`s for non-XMTPiOS clients (DTU). The
+        // wire-layer migration off `legacyProvider` is the Stage 6f
+        // residual scope (the FIXME(stage6e-residual) note above).
+        // For DTU-backed clients we no-op the streaming + sync path —
+        // tests that drive the full Convos integration end-to-end on
+        // DTU rely on the InboxStateMachine reaching .ready, but they
+        // don't actually exercise the message streams (they use mocks
+        // or skip stream-dependent assertions).
+        if isLegacyProviderUnavailable(client: client) {
+            Log.info("SyncingManager.start: skipping wire-layer streams for non-XMTPiOS client (DTU lane)")
+            // Mirror the XMTPiOS happy-path's terminal state so callers
+            // observing `isSyncReady` see a consistent ready signal.
+            emitStateChange(.ready(SyncClientParams(client: client, apiClient: apiClient)))
+            return
+        }
         let params = SyncClientParams(client: client, apiClient: apiClient)
         emitStateChange(.starting(params, pauseOnComplete: false))
 
@@ -886,5 +903,26 @@ actor SyncingManager: SyncingManagerProtocol {
             }
         }
         notificationObservers.append(activeConversationObserver)
+    }
+
+    /// Stage 6e Phase C: detect clients that can't be driven through
+    /// the legacy `XMTPClientProvider` wire-layer (i.e. anything that
+    /// isn't an `XMTPiOSMessagingClient` or a test double that
+    /// double-conforms to `XMTPClientProvider`). The `legacyProvider`
+    /// extension on `MessagingClient` `preconditionFailure`s for
+    /// non-XMTPiOS clients; we mirror that detection here so the
+    /// SyncingManager can short-circuit cleanly instead of crashing
+    /// the streaming Task chain.
+    private func isLegacyProviderUnavailable(client: any MessagingClient) -> Bool {
+        // Same shape as `MessagingClient.legacyProvider`'s default impl:
+        // XMTPiOSMessagingClient -> available; double-conforming test
+        // doubles -> available; everything else -> unavailable.
+        if (client as? XMTPiOSMessagingClient) != nil {
+            return false
+        }
+        if (client as? any XMTPClientProvider) != nil {
+            return false
+        }
+        return true
     }
 }

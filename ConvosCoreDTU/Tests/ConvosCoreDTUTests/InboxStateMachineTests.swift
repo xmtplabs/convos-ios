@@ -32,7 +32,7 @@ struct InboxStateMachineTests {
 
     @Test("Register creates new client and reaches ready state")
     func testRegisterFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -49,7 +49,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Start in idle state
@@ -88,7 +89,7 @@ struct InboxStateMachineTests {
 
     @Test("Register saves to both keychain and database")
     func testRegisterSavesToKeychainAndDatabase() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -104,7 +105,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         await stateMachine.register(clientId: clientId)
@@ -148,7 +150,7 @@ struct InboxStateMachineTests {
 
     @Test("Authorize with existing identity reaches ready state")
     func testAuthorizeFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Create a client and save identity first
@@ -167,7 +169,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Authorize with the existing inbox
@@ -201,7 +204,7 @@ struct InboxStateMachineTests {
 
     @Test("Authorize with mismatched clientId fails")
     func testAuthorizeMismatchedClientId() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Create a client and save identity
@@ -219,7 +222,8 @@ struct InboxStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Try to authorize with wrong clientId
@@ -253,7 +257,7 @@ struct InboxStateMachineTests {
 
     @Test("Stop transitions from ready to idle")
     func testStopFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -270,7 +274,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Register and wait for ready
@@ -323,7 +328,7 @@ struct InboxStateMachineTests {
 
     @Test("Delete removes all data and returns to idle")
     func testDeleteFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -340,7 +345,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Register and wait for ready
@@ -397,7 +403,7 @@ struct InboxStateMachineTests {
 
     @Test("Delete from error state cleans up properly")
     func testDeleteFromErrorState() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -414,7 +420,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Try to authorize with non-existent inboxId to trigger error
@@ -454,7 +461,7 @@ struct InboxStateMachineTests {
 
     @Test("State sequence emits all state changes")
     func testStateSequenceEmission() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -469,7 +476,8 @@ struct InboxStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         actor StateCollector {
@@ -540,7 +548,7 @@ struct InboxStateMachineTests {
 
     @Test("Action queue processes actions sequentially")
     func testActionQueueSequencing() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -557,7 +565,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Queue register and then stop
@@ -594,7 +603,7 @@ struct InboxStateMachineTests {
 
     @Test("Messages sync after network disconnection and reconnection")
     func testNetworkDisconnectionAndReconnection() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Create mock network monitor starting connected
@@ -614,7 +623,8 @@ struct InboxStateMachineTests {
             networkMonitor: mockNetworkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Register and wait for ready
@@ -676,7 +686,7 @@ struct InboxStateMachineTests {
 
     @Test("App backgrounding pauses sync and app foregrounding resumes sync")
     func testAppBackgroundAndForeground() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -693,7 +703,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         // Register and wait for ready
@@ -774,7 +785,7 @@ struct InboxStateMachineTests {
 
     @Test("State sequence includes backgrounded state")
     func testStateSequenceIncludesBackgrounded() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "InboxStateMachine end-to-end requires XMTPiOS-only client + factory.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "InboxStateMachine end-to-end") else { return }
         let fixtures = LegacyTestFixtures()
 
         let clientId = ClientId.generate().value
@@ -790,7 +801,8 @@ struct InboxStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
         actor StateCollector {

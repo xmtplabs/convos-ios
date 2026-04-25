@@ -45,7 +45,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        messagingClientFactory: (any MessagingClientFactory)? = nil
     ) -> AuthorizeInboxOperation {
         let operation = AuthorizeInboxOperation(
             clientId: clientId,
@@ -58,7 +59,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            messagingClientFactory: messagingClientFactory
         )
         operation.authorize(inboxId: inboxId, clientId: clientId)
         return operation
@@ -72,7 +74,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         environment: AppEnvironment,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        messagingClientFactory: (any MessagingClientFactory)? = nil
     ) -> AuthorizeInboxOperation {
         // Generate clientId before creating state machine
         let clientId = ClientId.generate().value
@@ -86,12 +89,14 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             startsStreamingServices: true,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            messagingClientFactory: messagingClientFactory
         )
         operation.register(clientId: clientId)
         return operation
     }
 
+    // swiftlint:disable:next function_parameter_count
     private init(
         clientId: String,
         identityStore: any KeychainIdentityStoreProtocol,
@@ -103,7 +108,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?,
-        apiClient: (any ConvosAPIClientProtocol)?
+        apiClient: (any ConvosAPIClientProtocol)?,
+        messagingClientFactory: (any MessagingClientFactory)?
     ) {
         let syncingManager = startsStreamingServices ? SyncingManager(
             identityStore: identityStore,
@@ -113,6 +119,11 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             notificationCenter: platformProviders.notificationCenter
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
+        // Stage 6e Phase C: factory injection unblocks the
+        // `UnusedConversationCache` test path on the DTU lane. The
+        // production default remains `XMTPiOSMessagingClientFactory.shared`
+        // (matched in `InboxStateMachine.init`); tests can override.
+        let resolvedFactory: any MessagingClientFactory = messagingClientFactory ?? XMTPiOSMessagingClientFactory.shared
         stateMachine = InboxStateMachine(
             clientId: clientId,
             identityStore: identityStore,
@@ -123,7 +134,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             environment: environment,
             appLifecycle: platformProviders.appLifecycle,
-            apiClient: apiClient
+            apiClient: apiClient,
+            messagingClientFactory: resolvedFactory
         )
     }
 

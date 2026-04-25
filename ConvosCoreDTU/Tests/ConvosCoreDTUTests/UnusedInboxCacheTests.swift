@@ -67,9 +67,17 @@ struct UnusedConversationCacheTests {
 
     @Test("prepareUnusedConversationIfNeeded creates an unused conversation")
     func testPrepareUnusedConversation() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -102,9 +110,17 @@ struct UnusedConversationCacheTests {
 
     @Test("consumeOrCreateMessagingService returns a valid service")
     func testConsumeOrCreateReturnsValidService() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -127,9 +143,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Concurrent consumeOrCreateMessagingService calls never return the same service")
     func testConcurrentConsumptionNoDuplicates() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -181,9 +205,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Sequential consumption always returns different services")
     func testSequentialConsumptionDifferentServices() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -217,9 +249,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Rapid fire consumption attempts all return unique services")
     func testRapidFireConsumptionUniqueness() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -262,9 +302,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Consuming clears both memory and keychain atomically")
     func testAtomicCleanupOnConsumption() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -318,9 +366,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Keychain cleared even when consuming via memory")
     func testKeychainClearedWhenConsumingFromMemory() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -359,9 +415,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Both paths clear atomically - memory and keychain")
     func testBothConsumptionPathsClearAtomically() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Test 1: Consume via memory path
         await cache.clearUnusedFromKeychain()
@@ -413,9 +477,17 @@ struct UnusedConversationCacheTests {
 
     @Test("isUnusedInbox correctly identifies unused inbox")
     func testIsUnusedInbox() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -453,9 +525,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Stress test: 10 rapid sequential consumptions all unique")
     func testStressConcurrentConsumptions() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -509,9 +589,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Unused conversation cache works after deleting first consumed conversation")
     func testUnusedConversationWorksAfterDeletion() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()
@@ -566,9 +654,17 @@ struct UnusedConversationCacheTests {
 
     @Test("Multiple delete-and-recreate cycles work correctly")
     func testMultipleDeleteAndRecreateCycles() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationCache exercises XMTPiOS-only invite + group creation; no DTU equivalent yet.") else { return }
+        // Stage 6e Phase C: this test exercises the full
+        // `UnusedConversationCache` flow which calls
+        // `MessagingConversations.newGroupOptimistic(...)`. DTU's
+        // `MessagingConversations` adapter throws
+        // `DTUMessagingNotSupportedError(MessagingConversations.newGroupOptimistic)`
+        // because the DTU engine has no optimistic-create flow
+        // (see `DTUMessagingConversations.swift`). Until that gap is
+        // closed (Stage 6f scope), the test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = try await fixtures.unusedConversationCache()
 
         // Clear any existing unused conversation
         await cache.clearUnusedFromKeychain()

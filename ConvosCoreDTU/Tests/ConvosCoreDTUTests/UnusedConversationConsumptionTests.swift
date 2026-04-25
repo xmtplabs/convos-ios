@@ -47,13 +47,13 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Pre-created unused conversation has a non-empty invite tag")
     func testUnusedConversationHasInviteTag() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        // Stage 6e Phase C: same DTU gap as UnusedInboxCacheTests —
+        // UnusedConversationCache calls newGroupOptimistic during
+        // prepareUnusedConversationIfNeeded; DTU does not implement
+        // that path. Test stays gated on XMTPiOS until Stage 6f.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(
-            keychainService: MockKeychainService(),
-            identityStore: fixtures.identityStore,
-            platformProviders: .mock
-        )
+        let cache = try await fixtures.unusedConversationCache()
 
         await cache.clearUnusedFromKeychain()
 
@@ -83,13 +83,13 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Consuming unused conversation returns the correct conversation ID in state manager")
     func testConsumedConversationIdMatchesStateManager() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        // Stage 6e Phase C: same DTU gap as UnusedInboxCacheTests —
+        // UnusedConversationCache calls newGroupOptimistic during
+        // prepareUnusedConversationIfNeeded; DTU does not implement
+        // that path. Test stays gated on XMTPiOS until Stage 6f.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(
-            keychainService: MockKeychainService(),
-            identityStore: fixtures.identityStore,
-            platformProviders: .mock
-        )
+        let cache = try await fixtures.unusedConversationCache()
 
         await cache.clearUnusedFromKeychain()
 
@@ -135,13 +135,13 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Only one conversation with isUnused=false exists after consumption")
     func testOnlyOneUsedConversationAfterConsumption() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        // Stage 6e Phase C: same DTU gap as UnusedInboxCacheTests —
+        // UnusedConversationCache calls newGroupOptimistic during
+        // prepareUnusedConversationIfNeeded; DTU does not implement
+        // that path. Test stays gated on XMTPiOS until Stage 6f.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(
-            keychainService: MockKeychainService(),
-            identityStore: fixtures.identityStore,
-            platformProviders: .mock
-        )
+        let cache = try await fixtures.unusedConversationCache()
 
         await cache.clearUnusedFromKeychain()
 
@@ -201,13 +201,13 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Full NewConversationViewModel flow does not create duplicate conversations")
     func testNewConversationViewModelFlowNoDuplicates() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        // Stage 6e Phase C: same DTU gap as UnusedInboxCacheTests —
+        // UnusedConversationCache calls newGroupOptimistic during
+        // prepareUnusedConversationIfNeeded; DTU does not implement
+        // that path. Test stays gated on XMTPiOS until Stage 6f.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(
-            keychainService: MockKeychainService(),
-            identityStore: fixtures.identityStore,
-            platformProviders: .mock
-        )
+        let cache = try await fixtures.unusedConversationCache()
 
         await cache.clearUnusedFromKeychain()
 
@@ -298,13 +298,13 @@ struct UnusedConversationConsumptionTests {
 
     @Test("State machine useExisting is called when existingConversationId is provided")
     func testStateMachineUsesExistingConversation() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        // Stage 6e Phase C: same DTU gap as UnusedInboxCacheTests —
+        // UnusedConversationCache calls newGroupOptimistic during
+        // prepareUnusedConversationIfNeeded; DTU does not implement
+        // that path. Test stays gated on XMTPiOS until Stage 6f.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(
-            keychainService: MockKeychainService(),
-            identityStore: fixtures.identityStore,
-            platformProviders: .mock
-        )
+        let cache = try await fixtures.unusedConversationCache()
 
         await cache.clearUnusedFromKeychain()
 
@@ -365,13 +365,13 @@ struct UnusedConversationConsumptionTests {
 
     @Test("Conversation count after complete flow matches expected")
     func testConversationCountAfterFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "UnusedConversationConsumption end-to-end requires XMTPiOS-only invite + group flow.") else { return }
+        // Stage 6e Phase C: same DTU gap as UnusedInboxCacheTests —
+        // UnusedConversationCache calls newGroupOptimistic during
+        // prepareUnusedConversationIfNeeded; DTU does not implement
+        // that path. Test stays gated on XMTPiOS until Stage 6f.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
-        let cache = UnusedConversationCache(
-            keychainService: MockKeychainService(),
-            identityStore: fixtures.identityStore,
-            platformProviders: .mock
-        )
+        let cache = try await fixtures.unusedConversationCache()
 
         await cache.clearUnusedFromKeychain()
 

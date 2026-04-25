@@ -77,13 +77,18 @@ struct ConversationStateMachineTests {
 
     @Test("Create flow reaches ready state")
     func testCreateFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -140,13 +145,18 @@ struct ConversationStateMachineTests {
 
     @Test("Create transitions through expected states")
     func testCreateStateTransitions() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -220,13 +230,18 @@ struct ConversationStateMachineTests {
 
     @Test("Messages queued during creation are sent when ready")
     func testMessageQueueingDuringCreation() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -290,13 +305,18 @@ struct ConversationStateMachineTests {
 
     @Test("Delete flow cleans up conversation")
     func testDeleteFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -376,13 +396,18 @@ struct ConversationStateMachineTests {
 
     @Test("Stop transitions to uninitialized without deleting")
     func testStopFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -460,13 +485,18 @@ struct ConversationStateMachineTests {
                  "Skipped in CI: requires two sequential XMTP conversation creations which can exceed timeout on ephemeral backends")
     )
     func testMultipleSequentialConversations() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -564,13 +594,18 @@ struct ConversationStateMachineTests {
 
     @Test("State sequence emits all state changes")
     func testStateSequenceEmission() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -650,14 +685,18 @@ struct ConversationStateMachineTests {
     )
     func testJoinConversationOnline() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine join flow needs XMTPiOS-only invite + group creation.") else { return }
+        // Stage 6e Phase C: same DTU gap as the create-flow tests —
+        // the join flow needs newGroupOptimistic plus invite
+        // coordination through the XMTPiOS-typed InviteClientProvider
+        // surface (`InviteClientProviderAdapter` requires XMTPiOS).
+        // Test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow drives newGroupOptimistic + InviteClientProvider; DTU has neither path yet.") else { return }
         let inviterFixtures = LegacyTestFixtures()
         let joinerFixtures = LegacyTestFixtures()
 
         // Setup inviter messaging service and state machine
-        let inviterUnusedConversationCache = UnusedConversationCache(
+        let inviterUnusedConversationCache = try await inviterFixtures.unusedConversationCache(
             keychainService: inviterFixtures.keychainService,
-            identityStore: inviterFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (inviterMessagingService, _) = await inviterUnusedConversationCache.consumeOrCreateMessagingService(
@@ -740,9 +779,8 @@ struct ConversationStateMachineTests {
         }
 
         // Setup joiner messaging service and state machine
-        let joinerUnusedConversationCache = UnusedConversationCache(
+        let joinerUnusedConversationCache = try await joinerFixtures.unusedConversationCache(
             keychainService: joinerFixtures.keychainService,
-            identityStore: joinerFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (joinerMessagingService, _) = await joinerUnusedConversationCache.consumeOrCreateMessagingService(
@@ -822,14 +860,18 @@ struct ConversationStateMachineTests {
     )
     func testJoinConversationOffline() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine join flow needs XMTPiOS-only invite + group creation.") else { return }
+        // Stage 6e Phase C: same DTU gap as the create-flow tests —
+        // the join flow needs newGroupOptimistic plus invite
+        // coordination through the XMTPiOS-typed InviteClientProvider
+        // surface (`InviteClientProviderAdapter` requires XMTPiOS).
+        // Test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow drives newGroupOptimistic + InviteClientProvider; DTU has neither path yet.") else { return }
         let inviterFixtures = LegacyTestFixtures()
         let joinerFixtures = LegacyTestFixtures()
 
         // Setup inviter messaging service and state machine
-        let inviterUnusedConversationCache = UnusedConversationCache(
+        let inviterUnusedConversationCache = try await inviterFixtures.unusedConversationCache(
             keychainService: inviterFixtures.keychainService,
-            identityStore: inviterFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (inviterMessagingService, _) = await inviterUnusedConversationCache.consumeOrCreateMessagingService(
@@ -917,9 +959,8 @@ struct ConversationStateMachineTests {
         Log.info("Inviter went offline")
 
         // Setup joiner messaging service and state machine
-        let joinerUnusedConversationCache = UnusedConversationCache(
+        let joinerUnusedConversationCache = try await joinerFixtures.unusedConversationCache(
             keychainService: joinerFixtures.keychainService,
-            identityStore: joinerFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (joinerMessagingService, _) = await joinerUnusedConversationCache.consumeOrCreateMessagingService(
@@ -1010,12 +1051,17 @@ struct ConversationStateMachineTests {
 
     @Test("Stop during pending operations doesn't hang")
     func testStopDuringOperationsDoesntHang() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1084,13 +1130,18 @@ struct ConversationStateMachineTests {
 
     @Test("Delete during message processing cancels gracefully")
     func testDeleteDuringMessageProcessing() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1153,13 +1204,18 @@ struct ConversationStateMachineTests {
 
     @Test("Stop cancels queued message processing")
     func testStopCancelsQueuedMessages() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1213,13 +1269,18 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting transitions to ready state with existing origin")
     func testUseExistingFlow() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1312,13 +1373,18 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting allows sending messages immediately")
     func testUseExistingWithMessages() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1416,13 +1482,18 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting emits correct state sequence")
     func testUseExistingStateSequence() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1529,13 +1600,18 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting can be called after stop")
     func testUseExistingAfterStop() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
@@ -1630,7 +1706,12 @@ struct ConversationStateMachineTests {
     )
     func testMessageSyncAfterNetworkReconnection() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine join flow needs XMTPiOS-only invite + group creation.") else { return }
+        // Stage 6e Phase C: same DTU gap as the create-flow tests —
+        // the join flow needs newGroupOptimistic plus invite
+        // coordination through the XMTPiOS-typed InviteClientProvider
+        // surface (`InviteClientProviderAdapter` requires XMTPiOS).
+        // Test stays gated on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow drives newGroupOptimistic + InviteClientProvider; DTU has neither path yet.") else { return }
         let inviterFixtures = LegacyTestFixtures()
         let joinerFixtures = LegacyTestFixtures()
 
@@ -1903,12 +1984,17 @@ struct ConversationStateMachineTests {
 
     @Test("Join with empty-tag invite transitions to error state")
     func testJoinWithEmptyTagInviteShowsError() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "ConversationStateMachine end-to-end requires XMTPiOS-only group/dm creation flow.") else { return }
+        // Stage 6e Phase C: ConversationStateMachine drives
+        // UnusedConversationCache + per-step group/dm creation, both of
+        // which DTU's MessagingConversations adapter does not yet
+        // implement (newGroupOptimistic / findOrCreateDm). Test stays
+        // gated on XMTPiOS until Stage 6f closes the conversation-
+        // creation gap.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
         let fixtures = LegacyTestFixtures()
 
-        let unusedInboxCache = UnusedConversationCache(
+        let unusedInboxCache = try await fixtures.unusedConversationCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
         let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
