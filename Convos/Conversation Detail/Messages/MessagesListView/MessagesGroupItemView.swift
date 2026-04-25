@@ -244,18 +244,26 @@ struct MessagesGroupItemView: View {
             EmptyView()
 
         case .connectionGrantRequest(let request):
-            ConnectionGrantRequestCardView(
-                request: request,
-                conversationId: conversationId,
-                sender: message.sender
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: bubbleType,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .padding(.trailing, trailingPadding)
+            // Cloud Connections is feature-flagged. With the flag off, an
+            // authorized assistant can still send a grant-request payload —
+            // we receive and decode it but render nothing so the unsupported
+            // feature isn't surfaced to the user.
+            if FeatureFlags.shared.isCloudConnectionsEnabled {
+                ConnectionGrantRequestCardView(
+                    request: request,
+                    conversationId: conversationId,
+                    sender: message.sender
+                )
+                .messageGesture(
+                    message: message,
+                    bubbleStyle: bubbleType,
+                    onReply: onReply,
+                    onToggleReaction: onToggleReaction
+                )
+                .padding(.trailing, trailingPadding)
+            } else {
+                EmptyView()
+            }
         }
     }
 

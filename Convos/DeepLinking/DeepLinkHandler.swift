@@ -8,6 +8,7 @@ enum DeepLinkDestination {
 }
 
 final class DeepLinkHandler {
+    @MainActor
     static func destination(for url: URL) -> DeepLinkDestination? {
         let isValidScheme = url.scheme == "https" ?
             isValidHost(url.host) :
@@ -30,7 +31,16 @@ final class DeepLinkHandler {
         return .joinConversation(inviteCode: inviteCode)
     }
 
+    @MainActor
     private static func parseConnectionGrant(from url: URL) -> DeepLinkDestination? {
+        // Cloud Connections feature flag — with the flag off, treat connection
+        // grant URLs as unrecognized so they fall through to invite parsing
+        // (and ultimately get rejected). Prevents soft-launch leak via universal
+        // links the user never explicitly opted into.
+        guard FeatureFlags.shared.isCloudConnectionsEnabled else {
+            return nil
+        }
+
         let pathComponents = url.pathComponents.filter { $0 != "/" }
 
         // Custom scheme: `convos://connections/grant?…` → host="connections", path="/grant"

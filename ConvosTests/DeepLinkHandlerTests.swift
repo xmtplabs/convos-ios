@@ -2,6 +2,7 @@ import ConvosCore
 import XCTest
 @testable import Convos
 
+@MainActor
 final class DeepLinkHandlerTests: XCTestCase {
     private var appUrlScheme: String {
         ConfigManager.shared.appUrlScheme
@@ -9,6 +10,19 @@ final class DeepLinkHandlerTests: XCTestCase {
 
     private var primaryDomain: String {
         ConfigManager.shared.associatedDomain
+    }
+
+    override func setUp() {
+        super.setUp()
+        // Most tests in this file exercise the connection-grant path, which is
+        // gated on FeatureFlags.shared.isCloudConnectionsEnabled. Flip it on for
+        // the suite; individual flag-off cases override below.
+        FeatureFlags.shared.isCloudConnectionsEnabled = true
+    }
+
+    override func tearDown() {
+        FeatureFlags.shared.isCloudConnectionsEnabled = false
+        super.tearDown()
     }
 
     // MARK: - Connection Grant Deep Links (custom scheme)
@@ -122,6 +136,20 @@ final class DeepLinkHandlerTests: XCTestCase {
         let longId = String(repeating: "a", count: 600)
         let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=\(longId)"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    // MARK: - Feature flag gating
+
+    func testConnectionGrantDeepLinkIgnoredWhenFeatureFlagOff() throws {
+        FeatureFlags.shared.isCloudConnectionsEnabled = false
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc123"))
+        // With the flag off, connection grant URLs must not be parsed — even
+        // a fully valid one should fall through to invite parsing (and ultimately
+        // return nil since the URL has no invite code).
+        let destination = DeepLinkHandler.destination(for: url)
+        if case .connectionGrant = destination {
+            XCTFail("Connection grant deep link should be ignored when flag is off")
+        }
     }
 
     // MARK: - ConversationsViewModel.handleURL validation
