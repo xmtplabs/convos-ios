@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-@preconcurrency import XMTPiOS
 
 // MARK: - Conversation Permissions Repository Protocol
 
@@ -127,24 +126,32 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     // MARK: - Public Methods
 
     func getConversationPermissions(for conversationId: String) async throws -> ConversationPermissionPolicySet {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction. `messagingConversation(with:)` returns a
+        // `MessagingConversation`; admin / super-admin checks live on
+        // `MessagingGroup`. No XMTPiOS types in this file.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
 
-        let isCurrentUserAdmin = try group.isAdmin(inboxId: client.inboxId)
-        let isCurrentUserSuperAdmin = try group.isSuperAdmin(inboxId: client.inboxId)
+        let isCurrentUserAdmin = try await group.isAdmin(inboxId: client.inboxId)
+        let isCurrentUserSuperAdmin = try await group.isSuperAdmin(inboxId: client.inboxId)
 
         // Get all conversation members to analyze the permission structure
-        let members = try await conversation.members()
-        let hasMultipleAdmins = members.filter { member in
-            (try? group.isAdmin(inboxId: member.inboxId)) == true ||
-            (try? group.isSuperAdmin(inboxId: member.inboxId)) == true
-        }.count > 1
+        let members = try await group.members()
+        var multipleAdminsSeen = false
+        var adminsCount = 0
+        for member in members {
+            let isAdmin = (try? await group.isAdmin(inboxId: member.inboxId)) ?? false
+            let isSuperAdmin = (try? await group.isSuperAdmin(inboxId: member.inboxId)) ?? false
+            if isAdmin || isSuperAdmin {
+                adminsCount += 1
+                if adminsCount > 1 {
+                    multipleAdminsSeen = true
+                    break
+                }
+            }
+        }
+        let hasMultipleAdmins = multipleAdminsSeen
 
         // Determine permission policy based on conversation structure and user role
         if isCurrentUserSuperAdmin {
@@ -163,24 +170,19 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getMemberRole(memberInboxId: String, in conversationId: String) async throws -> MemberRole {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction (see `getConversationPermissions(for:)` above).
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
 
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
-        // Use XMTP SDK methods to check member roles
-        if try group.isSuperAdmin(inboxId: memberInboxId) {
+        // Use the abstraction-layer methods to check member roles
+        if try await group.isSuperAdmin(inboxId: memberInboxId) {
             return .superAdmin
-        } else if try group.isAdmin(inboxId: memberInboxId) {
+        } else if try await group.isAdmin(inboxId: memberInboxId) {
             return .admin
         } else {
             // Check if member exists in the conversation
-            let members = try await conversation.members()
+            let members = try await group.members()
             let memberExists = members.contains { $0.inboxId == memberInboxId }
             if memberExists {
                 return .member
@@ -227,48 +229,31 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getConversationMembers(for conversationId: String) async throws -> [ConversationMemberInfo] {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction. `MessagingMember.consentState` is already
+        // `MessagingConsentState`, which maps to `Consent` via the
+        // `MessagingConsentState.consent` boundary helper.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
 
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
+        let members = try await group.members()
 
-        // Get members from XMTP - members is a property, not a function
-        let members = try await conversation.members()
-
-        // Convert to our format
         var conversationMemberInfos: [ConversationMemberInfo] = []
-
         for member in members {
-            // Determine role using XMTP SDK methods
+            // Determine role using the abstraction-layer methods
             let memberRole: MemberRole
-            if try group.isSuperAdmin(inboxId: member.inboxId) {
+            if try await group.isSuperAdmin(inboxId: member.inboxId) {
                 memberRole = .superAdmin
-            } else if try group.isAdmin(inboxId: member.inboxId) {
+            } else if try await group.isAdmin(inboxId: member.inboxId) {
                 memberRole = .admin
             } else {
                 memberRole = .member
             }
 
-            // Convert XMTP ConsentState to app's Consent type
-            let consent: Consent
-            switch member.consentState {
-            case .allowed:
-                consent = .allowed
-            case .denied:
-                consent = .denied
-            case .unknown:
-                consent = .unknown
-            }
-
             let conversationMemberInfo = ConversationMemberInfo(
                 inboxId: member.inboxId,
                 role: memberRole,
-                consent: consent,
+                consent: member.consentState.consent,
                 addedAt: Date() // XMTP doesn't provide exact add date, use current
             )
 
@@ -279,90 +264,70 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func addAdmin(memberInboxId: String, to conversationId: String) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addAdmin(inboxId: memberInboxId)
     }
 
     func removeAdmin(memberInboxId: String, from conversationId: String) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeAdmin(inboxId: memberInboxId)
     }
 
     func addSuperAdmin(memberInboxId: String, to conversationId: String) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addSuperAdmin(inboxId: memberInboxId)
     }
 
     func removeSuperAdmin(memberInboxId: String, from conversationId: String) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeSuperAdmin(inboxId: memberInboxId)
     }
 
     func addMembers(inboxIds: [String], to conversationId: String) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
-        _ = try await group.addMembers(inboxIds: inboxIds)
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
+        try await group.addMembers(inboxIds: inboxIds)
     }
 
     func removeMembers(inboxIds: [String], from conversationId: String) async throws {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates these XMTPiOS-typed group operations to the
-        // abstraction; until then bridge through `legacyProvider`.
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
-
-        guard let conversation = try await client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
-        }
-
+        // Stage 6e Phase B: route through the `MessagingClient`
+        // abstraction.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeMembers(inboxIds: inboxIds)
     }
 
     // MARK: - Private Helper Methods
+
+    /// Looks up a `MessagingGroup` for `conversationId` via the
+    /// `MessagingClient` abstraction. Throws
+    /// `conversationNotFound` for both missing conversations and DMs
+    /// (which the permission methods all assume to be groups).
+    private func loadGroup(
+        client: any MessagingClient,
+        conversationId: String
+    ) async throws -> any MessagingGroup {
+        guard let group = try await client.messagingGroup(with: conversationId) else {
+            throw ConversationPermissionsError.conversationNotFound(
+                conversationId: conversationId
+            )
+        }
+        return group
+    }
 
     private func checkPermission(memberRole: MemberRole, requiredLevel: ConversationPermissionLevel) -> Bool {
         switch requiredLevel {
