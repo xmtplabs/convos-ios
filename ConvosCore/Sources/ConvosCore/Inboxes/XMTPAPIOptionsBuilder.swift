@@ -8,8 +8,8 @@ import Foundation
 
 /// Builds XMTP API options for the given environment
 ///
-/// This extracts the API options construction from InboxStateMachine for reuse
-/// in static XMTP operations like `getNewestMessageMetadata`.
+/// This extracts the API options construction from SessionStateMachine so it
+/// can be reused anywhere XMTP API options are needed.
 ///
 /// Post Stage-5 migration, the actual `XMTPEnvironment.customLocalAddress`
 /// write is delegated to the `MessagingClientFactory` adapter so that

@@ -2,45 +2,6 @@ import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Protocol for static XMTP operations that don't require a client instance
-public protocol XMTPStaticOperations {
-    /// Fetches the newest message metadata for the given conversation IDs
-    ///
-    /// This is a static operation that can be performed without waking up the inbox's XMTP client.
-    /// - Parameters:
-    ///   - groupIds: Array of conversation/group IDs to fetch metadata for
-    ///   - api: XMTP API options for the request
-    /// - Returns: Dictionary mapping conversation ID to its newest message metadata
-    static func getNewestMessageMetadata(
-        groupIds: [String],
-        api: ClientOptions.Api
-    ) async throws -> [String: MessageMetadata]
-}
-
-extension Client: XMTPStaticOperations {}
-
-/// Sendable wrapper for XMTPStaticOperations metatypes.
-///
-/// Metatypes are inherently thread-safe since they only contain type metadata,
-/// not mutable instance state. This wrapper allows passing metatypes across
-/// actor boundaries without triggering false positive Sendable warnings.
-public struct SendableXMTPOperations: Sendable {
-    // Using @unchecked because metatypes are inherently thread-safe
-    // (they're just references to type metadata, not mutable instances)
-    private nonisolated(unsafe) let metatype: any XMTPStaticOperations.Type
-
-    public init(_ metatype: any XMTPStaticOperations.Type) {
-        self.metatype = metatype
-    }
-
-    public func getNewestMessageMetadata(
-        groupIds: [String],
-        api: ClientOptions.Api
-    ) async throws -> [String: MessageMetadata] {
-        try await metatype.getNewestMessageMetadata(groupIds: groupIds, api: api)
-    }
-}
-
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func sendTypingIndicator(isTyping: Bool) async throws
