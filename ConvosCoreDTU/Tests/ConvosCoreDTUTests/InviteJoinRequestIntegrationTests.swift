@@ -403,13 +403,28 @@ struct InviteJoinRequestIntegrationTests {
         try await clientA.conversations.sync()
         _ = try await clientA.conversations.syncAllConversations(consentStates: [.unknown])
 
-        let messages = try await dm.messages(afterNs: nil)
+        // Stage 6f Step 7: `sendJoinRequest` now returns `any MessagingDm`,
+        // not `XMTPiOS.Dm`. Drive the assertions through the
+        // abstraction-layer `MessagingMessage` surface.
+        let messages = try await dm.messages(query: MessagingMessageQuery())
         let clientBMessages = messages.filter { $0.senderInboxId != clientA.inboxId }
         #expect(clientBMessages.count >= 2, "Should have both JoinRequestContent and plain text messages")
 
+        let joinRequestType = MessagingContentType(
+            authorityID: ContentTypeJoinRequest.authorityID,
+            typeID: ContentTypeJoinRequest.typeID,
+            versionMajor: Int(ContentTypeJoinRequest.versionMajor),
+            versionMinor: Int(ContentTypeJoinRequest.versionMinor)
+        )
+        let textType = MessagingContentType(
+            authorityID: "xmtp.org",
+            typeID: "text",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+
         let joinRequestMessage = clientBMessages.first { msg in
-            guard let contentType = try? msg.encodedContent.type else { return false }
-            return contentType == ContentTypeJoinRequest
+            msg.encodedContent.type == joinRequestType
         }
 
         guard let joinRequestMessage else {
@@ -418,15 +433,17 @@ struct InviteJoinRequestIntegrationTests {
             return
         }
 
-        let decoded: JoinRequestContent = try joinRequestMessage.content()
+        let decoded = try JSONDecoder().decode(
+            JoinRequestContent.self,
+            from: joinRequestMessage.encodedContent.content
+        )
         #expect(decoded.inviteSlug == slug)
         #expect(decoded.profile?.name == "Coordinator User")
         #expect(decoded.profile?.imageURL == "https://example.com/pic.jpg")
         #expect(decoded.metadata?["deviceName"] == "iPhone")
 
         let plainTextMessage = clientBMessages.first { msg in
-            guard let contentType = try? msg.encodedContent.type else { return false }
-            return contentType == ContentTypeText
+            msg.encodedContent.type == textType
         }
         #expect(plainTextMessage != nil, "Should also have a plain text fallback message")
 

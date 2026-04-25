@@ -1,13 +1,14 @@
 import ConvosInvitesCore
+import ConvosMessagingProtocols
 import Foundation
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
-// ConvosInvites is a sibling SwiftPM package that ConvosCore depends
-// on. Migrating its public protocols (`InviteClientProvider`,
-// `InviteTagStorage`) to `Messaging*` types would require depending on
-// ConvosCore, creating a circular import. Resolution paths: (1)
-// promote `Messaging*` out of ConvosCore into its own package, or
-// (2) define a package-local signer/group protocol in
-// ConvosInvitesCore and have callers bridge at the boundary.
+// FIXME(stage6f-step8): `@preconcurrency import XMTPiOS` remains because
+// `InviteTagStorageProtocol` is still typed against `XMTPiOS.Group`,
+// `createInvite`/`revokeInvites` take `XMTPiOS.Group` directly, and
+// the `JoinRequestCodec` / `InviteJoinErrorCodec` content-type IDs are
+// XMTPiOS-native (`ContentTypeID`). The protocol surface lift in
+// Stage 6f Step 7 unblocked DTU for the production-callsite paths
+// (`processMessage`, `processJoinRequests`, `hasOutgoingJoinRequest`);
+// the tag-storage and codec migrations are deferred to Step 8.
 @preconcurrency import XMTPiOS
 
 // MARK: - Private Key Provider
@@ -74,13 +75,13 @@ public final class InviteCoordinator: @unchecked Sendable {
     // MARK: - Invite Creation
 
     public func createInvite(
-        for group: XMTPiOS.Group,
+        for group: any MessagingGroup,
         client: any InviteClientProvider,
         options: InviteOptions = InviteOptions()
     ) async throws -> InviteCreationResult {
         let inboxId = client.inviteInboxId
         let privateKey = try await privateKeyProvider(inboxId)
-        let tag = try tagStorage.getInviteTag(for: group)
+        let tag = try await tagStorage.getInviteTag(for: group)
 
         let slug = try SignedInvite.createSlug(
             conversationId: group.id,
@@ -102,7 +103,7 @@ public final class InviteCoordinator: @unchecked Sendable {
     }
 
     @discardableResult
-    public func revokeInvites(for group: XMTPiOS.Group) async throws -> String {
+    public func revokeInvites(for group: any MessagingGroup) async throws -> String {
         try await tagStorage.regenerateInviteTag(for: group)
     }
 
@@ -113,7 +114,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         client: any InviteClientProvider,
         profile: JoinRequestProfile? = nil,
         metadata: [String: String]? = nil
-    ) async throws -> XMTPiOS.Dm {
+    ) async throws -> any MessagingDm {
         guard !signedInvite.hasExpired else { throw JoinRequestError.expired }
         guard !signedInvite.conversationHasExpired else { throw JoinRequestError.conversationExpired }
 
@@ -127,12 +128,30 @@ public final class InviteCoordinator: @unchecked Sendable {
             profile: profile,
             metadata: metadata
         )
-        let codec = JoinRequestCodec()
-        _ = try await dm.send(
-            content: joinRequest,
-            options: .init(contentType: codec.contentType)
+        let joinRequestBytes = try JSONEncoder().encode(joinRequest)
+        let joinRequestEncoded = MessagingEncodedContent(
+            type: ContentTypeJoinRequest.asMessagingContentType,
+            content: joinRequestBytes,
+            fallback: slug
         )
-        _ = try await dm.send(content: slug)
+        _ = try await dm.sendOptimistic(
+            encodedContent: joinRequestEncoded,
+            options: MessagingSendOptions(
+                contentType: ContentTypeJoinRequest.asMessagingContentType
+            )
+        )
+
+        // Plain-text follow-up — mirrors the `dm.send(content: slug)`
+        // that the legacy XMTPiOS path produced.
+        let textEncoded = MessagingEncodedContent(
+            type: .text,
+            parameters: ["encoding": "UTF-8"],
+            content: Data(slug.utf8)
+        )
+        _ = try await dm.sendOptimistic(
+            encodedContent: textEncoded,
+            options: MessagingSendOptions(contentType: .text)
+        )
 
         return dm
     }
@@ -177,7 +196,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         since: Date?,
         client: any InviteClientProvider
     ) async -> [JoinResult] {
-        guard let dms = try? client.listDms(
+        guard let dms = try? await client.listDms(
             createdAfterNs: since?.nanosecondsSince1970,
             createdBeforeNs: nil,
             lastActivityBeforeNs: nil,
@@ -197,18 +216,18 @@ public final class InviteCoordinator: @unchecked Sendable {
     }
 
     public func hasOutgoingJoinRequest(
-        for group: XMTPiOS.Group,
+        for group: any MessagingGroup,
         client: any InviteClientProvider
     ) async throws -> Bool {
         let tag: String
         do {
-            tag = try tagStorage.getInviteTag(for: group)
+            tag = try await tagStorage.getInviteTag(for: group)
         } catch {
             return false
         }
         guard !tag.isEmpty else { return false }
 
-        let dms = try client.listDms(
+        let dms = try await client.listDms(
             createdAfterNs: nil,
             createdBeforeNs: nil,
             lastActivityBeforeNs: nil,
@@ -301,7 +320,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
 
         guard let conversation = try? await client.findConversation(conversationId: conversationId),
-              (try? conversation.consentState()) == .allowed else {
+              (try? await conversation.core.consentState()) == .allowed else {
             await sendJoinError(.conversationExpired, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationNotFound(conversationId))
             return nil
@@ -316,7 +335,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         try? await group.sync()
 
         do {
-            let currentTag = try tagStorage.getInviteTag(for: group)
+            let currentTag = try await tagStorage.getInviteTag(for: group)
             guard signedInvite.invitePayload.tag == currentTag else {
                 await sendJoinError(.conversationExpired, for: request, client: client)
                 delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
@@ -329,21 +348,21 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
 
         do {
-            _ = try await group.addMembers(inboxIds: [request.joinerInboxId])
+            try await group.addMembers(inboxIds: [request.joinerInboxId])
         } catch {
             await sendJoinError(.genericFailure, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .addMemberFailed)
             return nil
         }
 
-        if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
-            try? await dm.updateConsentState(state: .allowed)
+        if let dmConversation = try? await client.findConversation(conversationId: request.dmConversationId) {
+            try? await dmConversation.core.updateConsentState(.allowed)
         }
 
         let result = JoinResult(
             conversationId: conversationId,
             joinerInboxId: request.joinerInboxId,
-            conversationName: try? group.name(),
+            conversationName: try? await group.name(),
             profile: request.profile,
             metadata: request.metadata
         )
@@ -354,35 +373,78 @@ public final class InviteCoordinator: @unchecked Sendable {
     // MARK: - Helpers
 
     private func processDm(
-        _ dm: XMTPiOS.Dm,
+        _ dm: any MessagingDm,
         client: any InviteClientProvider
     ) async -> JoinResult? {
-        guard let messages = try? await dm.messages(afterNs: nil) else { return nil }
+        guard let messages = try? await dm.messages(query: MessagingMessageQuery()) else { return nil }
 
         let candidates = messages.filter { message in
-            guard let contentType = try? message.encodedContent.type,
-                  contentType == ContentTypeText || contentType == ContentTypeJoinRequest,
-                  message.senderInboxId != client.inviteInboxId else {
-                return false
-            }
-            return true
+            let contentType = message.encodedContent.type
+            let isInviteContent = contentType == ContentTypeText.asMessagingContentType
+                || contentType == ContentTypeJoinRequest.asMessagingContentType
+            return isInviteContent && message.senderInboxId != client.inviteInboxId
         }
 
         for message in candidates {
             if let result = await processMessage(message, client: client) {
-                try? await dm.updateConsentState(state: .allowed)
+                try? await dm.updateConsentState(.allowed)
                 return result
             }
         }
         return nil
     }
 
+    /// Stage 6f Step 7 internal overload for the
+    /// `processDm`/`processMessage` on-Messaging-types path. Decodes the
+    /// abstraction-layer `MessagingMessage` content via the codec to
+    /// produce the `JoinRequestContent` / `String`-text payloads
+    /// previously consumed via XMTPiOS's content-type registry.
+    private func processMessage(
+        _ message: MessagingMessage,
+        client: any InviteClientProvider
+    ) async -> JoinResult? {
+        guard message.senderInboxId != client.inviteInboxId else { return nil }
+
+        let contentType = message.encodedContent.type
+        let slug: String
+        var profile: JoinRequestProfile?
+        var metadata: [String: String]?
+
+        if contentType == ContentTypeJoinRequest.asMessagingContentType {
+            guard let joinRequest = try? JSONDecoder().decode(
+                JoinRequestContent.self,
+                from: message.encodedContent.content
+            ) else { return nil }
+            slug = joinRequest.inviteSlug
+            profile = joinRequest.profile
+            metadata = joinRequest.metadata
+        } else if contentType == ContentTypeText.asMessagingContentType {
+            guard let text = String(data: message.encodedContent.content, encoding: .utf8) else { return nil }
+            slug = text
+        } else {
+            return nil
+        }
+
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else { return nil }
+
+        let request = JoinRequest(
+            joinerInboxId: message.senderInboxId,
+            dmConversationId: message.conversationId,
+            signedInvite: signedInvite,
+            messageId: message.id,
+            profile: profile,
+            metadata: metadata
+        )
+
+        return await processJoinRequest(request, client: client)
+    }
+
     private func blockSpammer(
         _ request: JoinRequest,
         client: any InviteClientProvider
     ) async {
-        if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
-            try? await dm.updateConsentState(state: .denied)
+        if let conversation = try? await client.findConversation(conversationId: request.dmConversationId) {
+            try? await conversation.core.updateConsentState(.denied)
         }
         delegate?.coordinator(self, didBlockSpammer: request.joinerInboxId, in: request.dmConversationId)
     }
@@ -392,7 +454,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         for request: JoinRequest,
         client: any InviteClientProvider
     ) async {
-        guard let dm = try? await client.findConversation(conversationId: request.dmConversationId) else {
+        guard let conversation = try? await client.findConversation(conversationId: request.dmConversationId) else {
             return
         }
 
@@ -402,10 +464,24 @@ public final class InviteCoordinator: @unchecked Sendable {
             timestamp: Date()
         )
 
+        // Encode via the codec's bytes pathway so the wire format is
+        // exactly what `InviteJoinErrorCodec` would have produced, then
+        // wrap as `MessagingEncodedContent` for the abstraction-layer
+        // send. The codec's `encode` returns an XMTPiOS `EncodedContent`
+        // whose `content` field is the JSON we want here.
         let codec = InviteJoinErrorCodec()
-        _ = try? await dm.send(
-            content: error,
-            options: .init(contentType: codec.contentType)
+        guard let encodedJoinError = try? codec.encode(content: error) else { return }
+        let messagingEncoded = MessagingEncodedContent(
+            type: ContentTypeInviteJoinError.asMessagingContentType,
+            parameters: encodedJoinError.parameters,
+            content: encodedJoinError.content,
+            fallback: try? codec.fallback(content: error)
+        )
+        _ = try? await conversation.core.sendOptimistic(
+            encodedContent: messagingEncoded,
+            options: MessagingSendOptions(
+                contentType: ContentTypeInviteJoinError.asMessagingContentType
+            )
         )
     }
 }
@@ -434,22 +510,28 @@ extension Date {
     }
 }
 
-// MARK: - Dm Extension
+// MARK: - MessagingDm Extension
 
-extension XMTPiOS.Dm {
+extension MessagingDm {
+    /// Stage 6f Step 7: relocated from `XMTPiOS.Dm` to `MessagingDm`
+    /// so the body works against the abstraction surface (DTU + XMTPiOS
+    /// both back this method).
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
         guard let lastMessage = try? await self.lastMessage(),
-              lastMessage.senderInboxId == clientInboxId,
-              let contentType = try? lastMessage.encodedContent.type else {
+              lastMessage.senderInboxId == clientInboxId else {
             return nil
         }
 
+        let contentType = lastMessage.encodedContent.type
         let slug: String
-        if contentType == ContentTypeJoinRequest,
-           let joinRequest: JoinRequestContent = try? lastMessage.content() {
+        if contentType == ContentTypeJoinRequest.asMessagingContentType {
+            guard let joinRequest = try? JSONDecoder().decode(
+                JoinRequestContent.self,
+                from: lastMessage.encodedContent.content
+            ) else { return nil }
             slug = joinRequest.inviteSlug
-        } else if contentType == ContentTypeText,
-                  let text: String = try? lastMessage.content() {
+        } else if contentType == ContentTypeText.asMessagingContentType {
+            guard let text = String(data: lastMessage.encodedContent.content, encoding: .utf8) else { return nil }
             slug = text
         } else {
             return nil
@@ -457,4 +539,34 @@ extension XMTPiOS.Dm {
 
         return try? SignedInvite.fromURLSafeSlug(slug)
     }
+}
+
+// MARK: - Content Type Bridges
+
+/// Stage 6f Step 7 bridge: converts an XMTPiOS `ContentTypeID` to the
+/// abstraction-layer `MessagingContentType` so codec-typed
+/// constants (`ContentTypeJoinRequest`, `ContentTypeInviteJoinError`,
+/// XMTPiOS's `ContentTypeText`) can be compared against
+/// `MessagingMessage.encodedContent.type`.
+extension XMTPiOS.ContentTypeID {
+    var asMessagingContentType: MessagingContentType {
+        MessagingContentType(
+            authorityID: authorityID,
+            typeID: typeID,
+            versionMajor: Int(versionMajor),
+            versionMinor: Int(versionMinor)
+        )
+    }
+}
+
+extension MessagingContentType {
+    /// `xmtp.org/text:1.0` — duplicated here from
+    /// `ConvosCore`'s `MessagingContentType+XIP.swift` because
+    /// `ConvosInvites` cannot import ConvosCore (circular).
+    static let text: MessagingContentType = MessagingContentType(
+        authorityID: "xmtp.org",
+        typeID: "text",
+        versionMajor: 1,
+        versionMinor: 0
+    )
 }

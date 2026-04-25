@@ -98,7 +98,17 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         for conversation: XMTPiOS.Group,
         client: any MessagingClient
     ) async throws -> Bool {
-        try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
+        // Stage 6f Step 7: `InviteCoordinator.hasOutgoingJoinRequest`
+        // takes `any MessagingGroup` after the protocol-surface lift.
+        // StreamProcessor still calls in with a raw `XMTPiOS.Group`; we
+        // wrap it through `XMTPiOSMessagingGroup` here so the legacy
+        // call site continues to work. StreamProcessor's own migration
+        // is deferred (Gap 2 territory).
+        let messagingGroup = XMTPiOSMessagingGroup(xmtpGroup: conversation)
+        return try await coordinator.hasOutgoingJoinRequest(
+            for: messagingGroup,
+            client: InviteClientProviderAdapter(client)
+        )
     }
 
     private func persistJoinerProfile(_ result: JoinResult) async {

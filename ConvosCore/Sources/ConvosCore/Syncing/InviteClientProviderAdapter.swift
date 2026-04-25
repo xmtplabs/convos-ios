@@ -1,69 +1,38 @@
 import ConvosInvites
 import ConvosMessagingProtocols
 import Foundation
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
-// adapter exists specifically to bridge `MessagingClient` to
-// `ConvosInvites.InviteClientProvider`, whose protocol surface is
-// defined in XMTPiOS-native types (`XMTPiOS.Conversation`, `Dm`,
-// `ConsentState`, etc.). ConvosInvites is a sibling SwiftPM package
-// that ConvosCore depends on; migrating its protocol surface to
-// `Messaging*` is Stage 4e territory (blocked on the circular import —
-// see directive).
-//
-// Stage 6e Phase B-2: switched the input from `any XMTPClientProvider`
-// to `any MessagingClient`. The adapter downcasts to
-// `XMTPiOSMessagingClient` and reaches for the underlying
-// `XMTPiOS.Client` because the InviteClientProvider surface is
-// fundamentally XMTPiOS-typed. DTU-backed clients cannot conform —
-// the adapter throws an init failure for them.
-//
-// Final-round Agent 2 audit: the only production users of this
-// adapter are creator-side flows (`InviteJoinRequestsManager`'s
-// `processJoinRequest` / `processJoinRequests` / `hasOutgoingJoinRequest`,
-// driven by `StreamProcessor` and `MessagingService+PushNotifications`).
-// `InviteCoordinator.sendJoinRequest` and `createInvite` are NOT used
-// in production code — `ConversationStateMachine.handleJoin` already
-// drives the joiner-side DM creation through `MessagingClient`
-// directly, bypassing the coordinator. The remaining blockers for
-// retiring this adapter are: (a) migrating the coordinator's body
-// off XMTPiOS (Conversation/Dm/Group/DecodedMessage + content codecs),
-// roughly 200+ LOC across packages; OR (b) extracting `Messaging*`
-// to a shared package (Option A) so ConvosInvites can adopt it.
-// Final-round agent 2 declined both within a 90-min budget per the
-// stop rule "If the dep graph requires moving 200+ LOC across
-// packages, take stock + report."
-@preconcurrency import XMTPiOS
 
-/// Adapts ConvosCore's `MessagingClient` to ConvosInvites' `InviteClientProvider`.
+/// Adapts ConvosCore's `MessagingClient` to ConvosInvites'
+/// `InviteClientProvider`.
+///
+/// Stage 6f Step 7 — protocol surface lift:
+///   `InviteClientProvider` was migrated off raw XMTPiOS types
+///   (`XMTPiOS.Conversation`, `XMTPiOS.Dm`, `XMTPiOS.ConsentState`,
+///   `XMTPiOS.ConversationsOrderBy`) onto `Messaging*` equivalents. The
+///   adapter no longer reaches for the underlying `XMTPiOS.Client`; it
+///   simply forwards to the `MessagingClient.conversations` surface,
+///   which is already backend-agnostic. Both XMTPiOS- and DTU-backed
+///   clients can drive this adapter.
+///
+/// Caller surface (production users): creator-side flows
+/// (`InviteJoinRequestsManager`'s `processJoinRequest` /
+/// `processJoinRequests` / `hasOutgoingJoinRequest`, driven by
+/// `StreamProcessor` and `MessagingService+PushNotifications`).
 struct InviteClientProviderAdapter: InviteClientProvider {
-    private let xmtpClient: XMTPiOS.Client
+    private let client: any MessagingClient
 
     init(_ client: any MessagingClient) {
-        // Stage 6e Phase B-2: ConvosInvites' protocol surface is
-        // XMTPiOS-typed (Conversation/Dm/ConsentState). Only the
-        // XMTPiOS-backed MessagingClient can drive it; the DTU adapter
-        // intentionally has no equivalent today (the DTU integration
-        // tests already skip invite-flow tests).
-        if let xmtpiOS = client as? XMTPiOSMessagingClient {
-            self.xmtpClient = xmtpiOS.xmtpClient
-        } else {
-            preconditionFailure(
-                "InviteClientProviderAdapter requires an XMTPiOSMessagingClient; non-XMTPiOS clients (DTU) cannot drive the XMTPiOS-typed InviteClientProvider surface."
-            )
-        }
+        self.client = client
     }
 
-    var inviteInboxId: String { xmtpClient.inboxID }
+    var inviteInboxId: String { client.inboxId }
 
-    func findConversation(conversationId: String) async throws -> XMTPiOS.Conversation? {
-        try await xmtpClient.conversations.findConversation(conversationId: conversationId)
+    func findConversation(conversationId: String) async throws -> MessagingConversation? {
+        try await client.conversations.find(conversationId: conversationId)
     }
 
-    func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
-        try await xmtpClient.conversations.findOrCreateDm(
-            with: inboxId,
-            disappearingMessageSettings: nil
-        )
+    func findOrCreateDm(with inboxId: String) async throws -> any MessagingDm {
+        try await client.conversations.findOrCreateDm(with: inboxId)
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -73,17 +42,18 @@ struct InviteClientProviderAdapter: InviteClientProvider {
         lastActivityBeforeNs: Int64?,
         lastActivityAfterNs: Int64?,
         limit: Int?,
-        consentStates: [XMTPiOS.ConsentState]?,
-        orderBy: XMTPiOS.ConversationsOrderBy
-    ) throws -> [XMTPiOS.Dm] {
-        try xmtpClient.conversations.listDms(
+        consentStates: [MessagingConsentState]?,
+        orderBy: MessagingOrderBy
+    ) async throws -> [any MessagingDm] {
+        let query = MessagingConversationQuery(
             createdAfterNs: createdAfterNs,
             createdBeforeNs: createdBeforeNs,
-            lastActivityBeforeNs: lastActivityBeforeNs,
             lastActivityAfterNs: lastActivityAfterNs,
+            lastActivityBeforeNs: lastActivityBeforeNs,
             limit: limit,
             consentStates: consentStates,
             orderBy: orderBy
         )
+        return try await client.conversations.listDms(query: query)
     }
 }

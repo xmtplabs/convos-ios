@@ -1,24 +1,26 @@
 import ConvosAppData
+import ConvosMessagingProtocols
 import Foundation
 import Security
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because
-// ConvosInvites is a sibling SwiftPM package (ConvosCore depends on
-// it). See `InviteCoordinator.swift` for the full note on the
-// circular-import blocker.
-@preconcurrency import XMTPiOS
 
 // MARK: - Invite Tag Storage Protocol
 
-/// Protocol for reading and writing invite tags in group metadata
+/// Protocol for reading and writing invite tags in group metadata.
+///
+/// Stage 6f Step 7: surface migrated off `XMTPiOS.Group` onto
+/// `any MessagingGroup`, matching the
+/// `InviteClientProvider`/`InviteCoordinator` lift. Methods are now
+/// async to match `MessagingGroup.appData()` /
+/// `MessagingGroup.updateAppData(_:)`.
 public protocol InviteTagStorageProtocol: Sendable {
     /// Get the invite tag for a group
-    func getInviteTag(for group: XMTPiOS.Group) throws -> String
+    func getInviteTag(for group: any MessagingGroup) async throws -> String
 
     /// Set the invite tag for a group
-    func setInviteTag(_ tag: String, for group: XMTPiOS.Group) async throws
+    func setInviteTag(_ tag: String, for group: any MessagingGroup) async throws
 
     /// Generate and set a new random invite tag (revokes existing invites)
-    func regenerateInviteTag(for group: XMTPiOS.Group) async throws -> String
+    func regenerateInviteTag(for group: any MessagingGroup) async throws -> String
 }
 
 // MARK: - Default Implementation
@@ -34,8 +36,8 @@ public struct ProtobufInviteTagStorage: InviteTagStorageProtocol {
 
     public init() {}
 
-    public func getInviteTag(for group: XMTPiOS.Group) throws -> String {
-        let appDataString = try group.appData()
+    public func getInviteTag(for group: any MessagingGroup) async throws -> String {
+        let appDataString = try await group.appData()
         let metadata = ConversationCustomMetadata.parseAppData(appDataString)
 
         guard !metadata.tag.isEmpty else {
@@ -45,16 +47,16 @@ public struct ProtobufInviteTagStorage: InviteTagStorageProtocol {
         return metadata.tag
     }
 
-    public func setInviteTag(_ tag: String, for group: XMTPiOS.Group) async throws {
-        let appDataString = try group.appData()
+    public func setInviteTag(_ tag: String, for group: any MessagingGroup) async throws {
+        let appDataString = try await group.appData()
         var metadata = ConversationCustomMetadata.parseAppData(appDataString)
         metadata.tag = tag
 
         let newAppDataString = try metadata.toCompactString()
-        try await group.updateAppData(appData: newAppDataString)
+        try await group.updateAppData(newAppDataString)
     }
 
-    public func regenerateInviteTag(for group: XMTPiOS.Group) async throws -> String {
+    public func regenerateInviteTag(for group: any MessagingGroup) async throws -> String {
         let newTag = try generateRandomTag()
         try await setInviteTag(newTag, for: group)
         return newTag
