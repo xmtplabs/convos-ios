@@ -36,6 +36,15 @@ private let _configureXMTPEndpoint: Void = {
     }
 }()
 
+/// Centralised skip reason for the DTU lane. Keeps the per-test
+/// `shouldRun(reason:)` calls within the lint line-length limit.
+private let dtuStaticMetadataGap: String = """
+DTU-gap: SleepingInboxMessageChecker drives the static \
+`XMTPStaticOperations.getNewestMessageMetadata` path; the DTU \
+adapter throws `DTUMessagingNotSupportedError` because the engine \
+has no static metadata-lookup path (universe + actor required).
+"""
+
 /// Integration tests for SleepingInboxMessageChecker using real XMTP network (Docker)
 ///
 /// These tests verify that sleeping inboxes are properly woken when they receive
@@ -46,7 +55,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Sleeping inbox wakes when it receives a new message from another client")
     func testSleepingInboxWakesOnNewMessage() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SleepingInboxMessageChecker drives the static `XMTPStaticOperations.getNewestMessageMetadata` path; the DTU adapter throws `DTUMessagingNotSupportedError` because the engine has no static metadata-lookup path (universe + actor required).") else { return }
+        guard LegacyFixtureBackendGuard.shouldRun(reason: dtuStaticMetadataGap) else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create two MessagingClients: sender and receiver. The
@@ -140,7 +149,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Sleeping inbox does NOT wake when no new messages after sleep time")
     func testSleepingInboxDoesNotWakeWithoutNewMessages() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SleepingInboxMessageChecker drives the static `XMTPStaticOperations.getNewestMessageMetadata` path; the DTU adapter throws `DTUMessagingNotSupportedError` because the engine has no static metadata-lookup path (universe + actor required).") else { return }
+        guard LegacyFixtureBackendGuard.shouldRun(reason: dtuStaticMetadataGap) else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create two MessagingClients
@@ -223,7 +232,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Multiple sleeping inboxes: only those with new messages wake")
     func testMultipleSleepingInboxesSelectiveWake() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SleepingInboxMessageChecker drives the static `XMTPStaticOperations.getNewestMessageMetadata` path; the DTU adapter throws `DTUMessagingNotSupportedError` because the engine has no static metadata-lookup path (universe + actor required).") else { return }
+        guard LegacyFixtureBackendGuard.shouldRun(reason: dtuStaticMetadataGap) else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create three clients: sender, receiver1 (will get new message), receiver2 (won't)
