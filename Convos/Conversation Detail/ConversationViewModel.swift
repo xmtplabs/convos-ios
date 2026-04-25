@@ -1260,7 +1260,11 @@ extension ConversationViewModel {
         Task { [weak self] in
             guard let messagingService = self?.messagingService else { return }
             guard let result = try? await messagingService.inboxStateManager.waitForInboxReadyResult() else { return }
-            await InlineAttachmentRecovery.shared.setProvider(result.client.conversationsProvider)
+            // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
+            // `conversationsProvider` lives on the legacy `XMTPClientProvider`
+            // surface; bridge through `legacyProvider` until Phase B retires
+            // `InlineAttachmentRecovery.setProvider`.
+            await InlineAttachmentRecovery.shared.setProvider(result.client.legacyProvider.conversationsProvider)
         }
     }
 

@@ -25,7 +25,10 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func join(conversation: Conversation) async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates `update(consent:for:)` to the abstraction; until
+        // then bridge through `legacyProvider`.
+        let client = try await inboxStateManager.waitForInboxReadyResult().client.legacyProvider
         try await client.update(consent: .allowed, for: conversation.id)
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -39,7 +42,10 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func delete(conversation: Conversation) async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates `update(consent:for:)` to the abstraction; until
+        // then bridge through `legacyProvider`.
+        let client = try await inboxStateManager.waitForInboxReadyResult().client.legacyProvider
         try await client.update(consent: .denied, for: conversation.id)
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -53,7 +59,10 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func deleteAll() async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates `update(consent:for:)` to the abstraction; until
+        // then bridge through `legacyProvider`.
+        let client = try await inboxStateManager.waitForInboxReadyResult().client.legacyProvider
         let inboxId = client.inboxId
         let conversationsToDeny = try await databaseWriter.read { db in
             try DBConversation

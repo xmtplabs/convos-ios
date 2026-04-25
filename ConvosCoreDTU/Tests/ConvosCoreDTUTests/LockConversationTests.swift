@@ -608,7 +608,10 @@ final class LockConversationTests: XCTestCase {
         }
 
         let mockAPIClient = MockAPIClient()
-        let readyResult = InboxReadyResult(client: xmtpClientProvider, apiClient: mockAPIClient)
+        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
+        // Lift the legacy XMTPClientProvider through the existing
+        // `messagingClient` extension.
+        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: xmtpClientProvider,
@@ -711,7 +714,10 @@ final class LockConversationTests: XCTestCase {
         }
 
         let mockAPIClient = MockAPIClient()
-        let readyResult = InboxReadyResult(client: xmtpClientProvider, apiClient: mockAPIClient)
+        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
+        // Lift the legacy XMTPClientProvider through the existing
+        // `messagingClient` extension.
+        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: xmtpClientProvider,
@@ -754,7 +760,10 @@ final class LockConversationTests: XCTestCase {
         let clientId = alice.clientId
 
         let mockAPIClient = MockAPIClient()
-        let readyResult = InboxReadyResult(client: xmtpClientProvider, apiClient: mockAPIClient)
+        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
+        // Lift the legacy XMTPClientProvider through the existing
+        // `messagingClient` extension.
+        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: xmtpClientProvider,
@@ -840,7 +849,10 @@ final class LockConversationTests: XCTestCase {
         }
 
         let mockAPIClient = MockAPIClient()
-        let readyResult = InboxReadyResult(client: xmtpClientProvider, apiClient: mockAPIClient)
+        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
+        // Lift the legacy XMTPClientProvider through the existing
+        // `messagingClient` extension.
+        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: xmtpClientProvider,
@@ -991,7 +1003,10 @@ final class LockConversationTests: XCTestCase {
         )
 
         let mockAPIClient = MockAPIClient()
-        let readyResult = InboxReadyResult(client: xmtpClientProvider, apiClient: mockAPIClient)
+        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
+        // Lift the legacy XMTPClientProvider through the existing
+        // `messagingClient` extension.
+        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
             mockClient: xmtpClientProvider,

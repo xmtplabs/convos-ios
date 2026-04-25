@@ -48,23 +48,30 @@ enum InboxStateError: Error {
 }
 
 public struct InboxReadyResult: @unchecked Sendable {
-    public let client: any XMTPClientProvider
+    /// Stage 6e Phase A: `client` is now the abstraction-layer
+    /// `MessagingClient`. Consumers that still need the legacy
+    /// `XMTPClientProvider` surface route via `client.legacyProvider`
+    /// (the Phase A bridge in `MessagingClient.swift`) until Phase B
+    /// migrates them.
+    public let client: any MessagingClient
     public let apiClient: any ConvosAPIClientProtocol
 
     /// InboxReadyResult is marked @unchecked Sendable because:
-    /// - XMTPClientProvider wraps XMTPiOS.Client which is not Sendable
+    /// - MessagingClient (e.g. XMTPiOSMessagingClient) wraps an
+    ///   XMTPiOS.Client which is not Sendable
     /// - ConvosAPIClient is marked @unchecked Sendable
-    public init(client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) {
+    public init(client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) {
         self.client = client
         self.apiClient = apiClient
     }
 
-    /// Stage 6 bridge: lift the legacy provider into the abstraction
-    /// `MessagingClient` surface for consumers (tests + new code) that
-    /// want to operate against the Stage 5+ surface without rewriting
-    /// InboxStateMachine prod code in this stage. Backed by the
-    /// XMTPClientProvider extension default in XMTPClientProvider.swift.
-    public var messagingClient: any MessagingClient { client.messagingClient }
+    /// Stage 6 bridge: previously lifted the legacy provider into the
+    /// abstraction surface. Post-Phase-A `client` already IS an
+    /// `any MessagingClient`, so this accessor is now an identity. Kept
+    /// to avoid churning the test sites that still call
+    /// `inboxReady.messagingClient`; Phase B removes it together with
+    /// those call sites.
+    public var messagingClient: any MessagingClient { client }
 }
 
 typealias AnySyncingManager = (any SyncingManagerProtocol)
@@ -521,7 +528,14 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 try await handleAuthorized(clientId: clientId, result: result)
 
             case (let .ready(clientId, result), .delete):
-                try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
+                // Stage 6e Phase A: handleDelete still takes
+                // `any XMTPClientProvider` (Phase B retires that). Bridge
+                // through `legacyProvider` at this single boundary.
+                try await handleDelete(
+                    clientId: clientId,
+                    client: result.client.legacyProvider,
+                    apiClient: result.apiClient
+                )
             case (let .error(clientId, _), .delete):
                 try await handleDeleteFromError(clientId: clientId)
             case (let .idle(clientId), .delete),
@@ -692,7 +706,15 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Lift the legacy XMTPClientProvider into the abstraction surface
+        // via the existing `messagingClient` extension accessor.
+        enqueueAction(
+            .authorized(
+                clientId: clientId,
+                result: .init(client: client.messagingClient, apiClient: apiClient)
+            )
+        )
     }
 
     private func handleClientRegistered(clientId: String, client: any XMTPClientProvider) async throws {
@@ -704,11 +726,20 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        // Stage 6e Phase A: same boundary as handleClientAuthorized.
+        enqueueAction(
+            .authorized(
+                clientId: clientId,
+                result: .init(client: client.messagingClient, apiClient: apiClient)
+            )
+        )
     }
 
     private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
-        await syncingManager?.start(with: result.client, apiClient: result.apiClient)
+        // Stage 6e Phase A: SyncingManager.start still takes
+        // `AnyClientProvider` (= any XMTPClientProvider). Bridge via
+        // `legacyProvider` until Phase B migrates SyncingManager.
+        await syncingManager?.start(with: result.client.legacyProvider, apiClient: result.apiClient)
         foregroundRetryCount = 0
         emitStateChange(.ready(clientId: clientId, result: result))
         // Start app lifecycle observation and network monitoring after starting sync
@@ -836,8 +867,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private func handleStop(clientId: String) async throws {
         Log.info("Stopping inbox with clientId \(clientId)...")
 
-        // Capture client reference before state transition
-        let clientToClose: (any XMTPClientProvider)?
+        // Capture client reference before state transition.
+        // Stage 6e Phase A: pulled from `result.client` which is now
+        // `any MessagingClient`; the DB-lifecycle calls below already
+        // route through `MessagingClient` directly.
+        let clientToClose: (any MessagingClient)?
         switch _state {
         case .ready(_, let result), .backgrounded(_, let result):
             clientToClose = result.client
@@ -942,7 +976,14 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Network monitoring already stopped when backgrounded
 
         // Perform common cleanup operations
-        try await performInboxCleanup(clientId: clientId, client: result.client, apiClient: result.apiClient)
+        // Stage 6e Phase A: bridge MessagingClient → legacy provider for
+        // performInboxCleanup which still operates on XMTPClientProvider
+        // until Phase B.
+        try await performInboxCleanup(
+            clientId: clientId,
+            client: result.client.legacyProvider,
+            apiClient: result.apiClient
+        )
     }
 
     /// Performs common cleanup operations when deleting an inbox

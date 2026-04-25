@@ -127,7 +127,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     // MARK: - Public Methods
 
     func getConversationPermissions(for conversationId: String) async throws -> ConversationPermissionPolicySet {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
             throw ConversationPermissionsError.conversationNotFound(conversationId: conversationId)
@@ -160,7 +163,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getMemberRole(memberInboxId: String, in conversationId: String) async throws -> MemberRole {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -221,7 +227,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getConversationMembers(for conversationId: String) async throws -> [ConversationMemberInfo] {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -270,7 +279,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func addAdmin(memberInboxId: String, to conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -281,7 +293,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func removeAdmin(memberInboxId: String, from conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -292,7 +307,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func addSuperAdmin(memberInboxId: String, to conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -303,7 +321,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func removeSuperAdmin(memberInboxId: String, from conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -314,7 +335,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func addMembers(inboxIds: [String], to conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -325,7 +349,10 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func removeMembers(inboxIds: [String], from conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates these XMTPiOS-typed group operations to the
+        // abstraction; until then bridge through `legacyProvider`.
+        let client = try await self.inboxStateManager.waitForInboxReadyResult().client.legacyProvider
 
         guard let conversation = try await client.conversation(with: conversationId),
               case .group(let group) = conversation else {

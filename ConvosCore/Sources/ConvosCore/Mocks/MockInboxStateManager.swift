@@ -26,11 +26,14 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     }
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
-        InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Lift the legacy mock provider via the existing
+        // `XMTPClientProvider.messagingClient` extension.
+        InboxReadyResult(client: mockClient.messagingClient, apiClient: mockAPIClient)
     }
 
     public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
-        InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
+        InboxReadyResult(client: mockClient.messagingClient, apiClient: mockAPIClient)
     }
 
     public func deleteInbox() async throws {

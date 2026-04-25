@@ -648,7 +648,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw PhotoAttachmentError.encryptionFailed
         }
 
-        guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
+        // surface; bridge until Phase B migrates this writer.
+        guard let sender = try await inboxReady.client.legacyProvider.messageSender(for: conversationId) else {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw OutgoingMessageWriterError.missingClientProvider
@@ -921,7 +924,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private func publishText(_ queued: QueuedTextMessage) async throws {
         let perfStart = CFAbsoluteTimeGetCurrent()
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        let client = inboxReady.client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
+        // surface; bridge until Phase B migrates this writer.
+        let client = inboxReady.client.legacyProvider
 
         guard let sender = try await client.messageSender(for: conversationId) else {
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)
@@ -1394,7 +1400,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func publishPreparedMessage(messageId: String, sentContent: String? = nil) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        let client = inboxReady.client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
+        // surface; bridge until Phase B migrates this writer.
+        let client = inboxReady.client.legacyProvider
 
         guard let sender = try await client.messageSender(for: conversationId) else {
             try? await markMessageFailed(messageId: messageId)

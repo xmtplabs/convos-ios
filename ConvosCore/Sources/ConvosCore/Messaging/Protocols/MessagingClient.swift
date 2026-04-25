@@ -164,4 +164,40 @@ public extension MessagingClient {
             "MessagingClient.legacyProvider is a Phase A bridge for XMTPiOS-backed clients only; non-XMTPiOS clients should be migrated to the MessagingClient surface in Phase B."
         )
     }
+
+    /// Stage 6e Phase A compatibility shim: pre-flip, callers reached
+    /// for `inboxReady.client.messagingClient` to lift the legacy
+    /// `XMTPClientProvider` into a `MessagingClient`. Post-flip,
+    /// `inboxReady.client` already IS a `MessagingClient`; this
+    /// accessor returns `self` so the existing call sites keep
+    /// compiling without churn. Phase B removes both this shim and
+    /// the call sites that route through it.
+    var messagingClient: any MessagingClient { self }
+
+    /// Stage 6e Phase A: routes the legacy `messagingConversation(with:)`
+    /// helper (previously defined on `XMTPClientProvider` in
+    /// `XMTPiOSConversationAdapter.swift`) through the abstraction's
+    /// `conversations.find(conversationId:)` so that callers holding
+    /// `inboxReady.client` as `any MessagingClient` keep compiling.
+    /// Backend-agnostic — XMTPiOS and DTU both back `find`.
+    func messagingConversation(
+        with conversationId: String
+    ) async throws -> MessagingConversation? {
+        try await conversations.find(conversationId: conversationId)
+    }
+
+    /// Stage 6e Phase A: convenience for callers that need the
+    /// `MessagingGroup` subtype directly. Returns `nil` for DMs.
+    /// Mirrors the legacy `XMTPClientProvider.messagingGroup(with:)`.
+    func messagingGroup(
+        with conversationId: String
+    ) async throws -> (any MessagingGroup)? {
+        guard let conversation = try await messagingConversation(with: conversationId) else {
+            return nil
+        }
+        if case .group(let group) = conversation {
+            return group
+        }
+        return nil
+    }
 }

@@ -85,7 +85,10 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         action: Action
     ) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        let client = inboxReady.client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // The optimistic-reaction helpers below still take `XMTPClientProvider`;
+        // bridge through `legacyProvider` until Phase B migrates them.
+        let client = inboxReady.client.legacyProvider
 
         switch action {
         case .added:

@@ -249,7 +249,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
         let result = try await inboxStateManager.waitForInboxReadyResult()
-        guard let sender = try await result.client.messageSender(for: conversationId) else {
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
+        // surface; bridge until Phase B migrates this typing-indicator path.
+        guard let sender = try await result.client.legacyProvider.messageSender(for: conversationId) else {
             return
         }
         try await sender.sendTypingIndicator(isTyping: isTyping)

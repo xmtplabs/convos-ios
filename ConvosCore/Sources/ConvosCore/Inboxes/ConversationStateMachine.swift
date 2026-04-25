@@ -455,6 +455,10 @@ public actor ConversationStateMachine {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         Log.info("Inbox ready, creating conversation...")
 
+        // Stage 6e Phase A: `inboxReady.client` is now `any MessagingClient`.
+        // Used directly via the abstraction for `newGroupOptimistic()`
+        // below; bridged through `legacyProvider` for the
+        // `SyncClientParams` construction at the streamProcessor seam.
         let client = inboxReady.client
 
         // Stage 6a: build the optimistic group through the
@@ -467,8 +471,7 @@ public actor ConversationStateMachine {
         // the legacy XMTPiOS-typed `GroupConversationSender`.
         // `MessagingGroup` is `Sendable` so no `nonisolated(unsafe)`
         // bridge is required (unlike the legacy XMTPiOS-typed path).
-        let messagingGroup = try await client.messagingClient
-            .conversations.newGroupOptimistic()
+        let messagingGroup = try await client.conversations.newGroupOptimistic()
 
         // Publish the conversation through the abstraction.
         try await messagingGroup.publish()
@@ -493,7 +496,7 @@ public actor ConversationStateMachine {
         // still takes `any ConversationSender` / `XMTPiOS.Group`. Bridge
         // through the XMTPiOS adapter's `underlyingXMTPiOSGroup` until
         // Stage 6b/6c lifts the stream processor onto `MessagingGroup`.
-        let params = SyncClientParams(client: client, apiClient: inboxReady.apiClient)
+        let params = SyncClientParams(client: client.legacyProvider, apiClient: inboxReady.apiClient)
         if let xmtpAdapter = messagingGroup as? XMTPiOSMessagingGroup {
             try await streamProcessor.processConversation(
                 xmtpAdapter.underlyingXMTPiOSGroup,
@@ -664,10 +667,13 @@ public actor ConversationStateMachine {
             if existingConversation.hasJoined {
                 Log.info("Already joined conversation... moving to ready state.")
                 emitStateChange(.ready(.init(conversationId: existingConversation.id, origin: .existing)))
+                // Stage 6e Phase A: cleanUpPreviousConversationIfNeeded
+                // still takes `any XMTPClientProvider`. Bridge through
+                // `legacyProvider` until Phase B migrates this helper.
                 await cleanUpPreviousConversationIfNeeded(
                     previousResult: previousResult,
                     newConversationId: existingConversation.id,
-                    client: prevInboxReady.client,
+                    client: prevInboxReady.client.legacyProvider,
                     apiClient: prevInboxReady.apiClient
                 )
             } else {
@@ -734,7 +740,10 @@ public actor ConversationStateMachine {
         Log.info("Requesting to join conversation...")
 
         let apiClient = inboxReady.apiClient
-        let client = inboxReady.client
+        // Stage 6e Phase A: `inboxReady.client` is now `any MessagingClient`.
+        // `newConversation(with:)` lives on the legacy provider; bridge
+        // through `legacyProvider` until Phase B migrates this join flow.
+        let client = inboxReady.client.legacyProvider
 
         let inviterInboxId = invite.invitePayload.creatorInboxIdString
 
@@ -892,9 +901,11 @@ extension ConversationStateMachine {
         if let conversationId {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
+            // Stage 6e Phase A: cleanUp still takes `any XMTPClientProvider`.
+            // Bridge through `legacyProvider` until Phase B migrates it.
             try await cleanUp(
                 conversationId: conversationId,
-                client: inboxReady.client,
+                client: inboxReady.client.legacyProvider,
                 apiClient: inboxReady.apiClient,
             )
 

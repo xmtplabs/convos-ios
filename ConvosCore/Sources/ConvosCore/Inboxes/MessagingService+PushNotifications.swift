@@ -42,7 +42,11 @@ extension MessagingService {
         inboxReadyResult: InboxReadyResult,
         payload: PushNotificationPayload
     ) async throws -> DecodedNotificationContent? {
-        let client = inboxReadyResult.client
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        // Phase B migrates `handleProtocolMessage` and the welcome /
+        // group-message helpers in this file to the abstraction; until
+        // then bridge through `legacyProvider`.
+        let client = inboxReadyResult.client.legacyProvider
         let apiClient = inboxReadyResult.apiClient
 
         Log.debug("Processing notification with JWT override: \(payload.apiJWT != nil)")

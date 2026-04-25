@@ -80,6 +80,19 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
     public func dropLocalDatabaseConnection() throws {
         // No-op for mock
     }
+
+    /// Stage 6e Phase A: override the default
+    /// `XMTPClientProvider.messagingClient` accessor so that
+    /// `MockInboxStateManager.waitForInboxReadyResult()` (which now
+    /// returns an `InboxReadyResult` whose `.client` is `any
+    /// MessagingClient`) does not preconditionFail when its mock
+    /// provider is used. Backed by `MockMessagingClient`, whose
+    /// sub-surfaces are stubs — sufficient for preview / mock-driven
+    /// state-manager flows; tests that exercise real messaging surfaces
+    /// continue to use real XMTPiOS clients.
+    public var messagingClient: any MessagingClient {
+        MockMessagingClient(inboxId: inboxId, installationId: installationId)
+    }
 }
 
 /// Mock implementation of ConversationsProvider for testing
