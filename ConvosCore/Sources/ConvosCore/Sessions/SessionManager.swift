@@ -43,7 +43,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let notificationChangeReporter: any NotificationChangeReporterType
     private let platformProviders: PlatformProviders
     private let lifecycleManager: any InboxLifecycleManagerProtocol
-    private let sleepingInboxChecker: SleepingInboxMessageChecker
     private let apiClient: any ConvosAPIClientProtocol
 
     init(databaseWriter: any DatabaseWriter,
@@ -51,7 +50,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          environment: AppEnvironment,
          identityStore: any KeychainIdentityStoreProtocol,
          lifecycleManager: (any InboxLifecycleManagerProtocol)? = nil,
-         sleepingInboxChecker: SleepingInboxMessageChecker? = nil,
          platformProviders: PlatformProviders) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
@@ -75,15 +73,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         self.lifecycleManager = resolvedLifecycleManager
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
 
-        // Initialize sleeping inbox checker
-        let activityRepository = InboxActivityRepository(databaseReader: databaseReader)
-        self.sleepingInboxChecker = sleepingInboxChecker ?? SleepingInboxMessageChecker(
-            environment: environment,
-            activityRepository: activityRepository,
-            lifecycleManager: resolvedLifecycleManager,
-            appLifecycle: platformProviders.appLifecycle
-        )
-
         observe()
 
         initializationTask = Task { [weak self] in
@@ -100,10 +89,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             // Initialize inbox lifecycle manager
             await self.lifecycleManager.initializeOnAppLaunch()
-
-            guard !Task.isCancelled else { return }
-
-            await self.sleepingInboxChecker.startPeriodicChecks()
 
             guard !Task.isCancelled else { return }
             self.unusedInboxPrepTask = Task(priority: .utility) { [weak self] in

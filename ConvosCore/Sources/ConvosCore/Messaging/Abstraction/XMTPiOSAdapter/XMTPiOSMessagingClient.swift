@@ -121,7 +121,7 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         // FIXME(upstream): `FfiMessageMetadata` does not yet surface a
         // sender identity. Until libxmtp adds it, we synthesize empty
         // senderInboxId for each returned entry — only the `sentAtNs`
-        // field is load-bearing for SleepingInboxMessageChecker today.
+        // field is currently load-bearing for newest-message previews.
         return raw.mapValues { xmtpMeta in
             MessagingMessageMetadata(xmtpMeta, senderInboxId: "")
         }
