@@ -122,6 +122,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private var messageStreamTask: Task<Void, Never>?
     private var conversationStreamTask: Task<Void, Never>?
+    private var dmStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
     private var activeConversationId: String?
@@ -177,6 +178,7 @@ actor SyncingManager: SyncingManagerProtocol {
         notificationTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        dmStreamTask?.cancel()
         currentTask?.cancel()
 
         // Remove observers
@@ -332,23 +334,16 @@ actor SyncingManager: SyncingManagerProtocol {
     // MARK: - Action Handlers
 
     private func handleStart(client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) async throws {
-        // Stage 6e Phase C: SyncingManager's stream + sync paths reach
-        // for `client.legacyProvider.conversationsProvider`, which
-        // `preconditionFailure`s for non-XMTPiOS clients (DTU). The
-        // wire-layer migration off `legacyProvider` is the Stage 6f
-        // residual scope (the FIXME(stage6e-residual) note above).
-        // For DTU-backed clients we no-op the streaming + sync path —
-        // tests that drive the full Convos integration end-to-end on
-        // DTU rely on the InboxStateMachine reaching .ready, but they
-        // don't actually exercise the message streams (they use mocks
-        // or skip stream-dependent assertions).
-        if isLegacyProviderUnavailable(client: client) {
-            Log.info("SyncingManager.start: skipping wire-layer streams for non-XMTPiOS client (DTU lane)")
-            // Mirror the XMTPiOS happy-path's terminal state so callers
-            // observing `isSyncReady` see a consistent ready signal.
-            emitStateChange(.ready(SyncClientParams(client: client, apiClient: apiClient)))
-            return
-        }
+        // Gap 2: SyncingManager's stream + sync paths now flow through
+        // the `MessagingClient.conversations` abstraction. The DTU
+        // lane uses the polling-based `streamAllMessages` /
+        // `streamAll` shims in `DTUMessagingConversations` and the
+        // abstraction-typed `processMessage(message:)` /
+        // `processConversation(group:)` overloads on
+        // `StreamProcessor`. The legacy-provider short-circuit that
+        // used to no-op the entire DTU lane has been removed —
+        // DTU-backed clients now run the same code path as
+        // XMTPiOS-backed ones.
         let params = SyncClientParams(client: client, apiClient: apiClient)
         emitStateChange(.starting(params, pauseOnComplete: false))
 
@@ -361,6 +356,7 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.info("Starting message and conversation streams...")
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        dmStreamTask?.cancel()
 
         // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
         // If we create tasks first, they might signal readiness before continuations are set up.
@@ -374,6 +370,18 @@ actor SyncingManager: SyncingManagerProtocol {
         conversationStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runConversationStream(params: params)
+        }
+
+        // Gap 2: XMTPiOS-only DM stream sibling. Spawned at the actor
+        // level so the DM/invite back-channel keeps consuming
+        // `DecodedMessage` directly via the existing
+        // `processMessage(_ message:DecodedMessage,...)` path.
+        // Skipped on DTU since DTU has no DM channel today.
+        if hasLegacyProvider(client: client) {
+            dmStreamTask = Task { [weak self, params] in
+                guard let self else { return }
+                await self.runDmMessageStream(params: params)
+            }
         }
 
         // Wait for streams to enter their async iteration loops before proceeding.
@@ -390,13 +398,15 @@ actor SyncingManager: SyncingManagerProtocol {
             let syncStart = CFAbsoluteTimeGetCurrent()
             do {
                 try Task.checkCancellation()
-                // Stage 6e Phase B-2: see runMessageStream / runConversationStream
-            // for the rationale; sync stays on `legacyProvider.conversationsProvider`
-            // because the test doubles drive their substantive behaviour
-            // through the XMTPiOS-typed surface (TestableMockConversations
-            // tracks syncCallCount on `syncAllConversations`).
-            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
-            _ = try await params.client.legacyProvider.conversationsProvider.syncAllConversations(consentStates: xmtpStates)
+                // Gap 2: route through `MessagingClient.conversations.syncAll`
+                // (XMTPiOS adapter calls `syncAllConversations`, DTU
+                // adapter calls its in-process `sync` action). Test
+                // doubles that double-conform `XMTPClientProvider`
+                // continue to track `syncCallCount` because their
+                // adapter forwards through the same legacy surface.
+                _ = try await params.client.conversations.syncAll(
+                    consentStates: params.consentStates
+                )
                 try Task.checkCancellation()
                 let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
                 Log.info("[PERF] sync.all_conversations: \(syncElapsed)ms")
@@ -419,6 +429,7 @@ actor SyncingManager: SyncingManagerProtocol {
         if pauseOnComplete {
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
+            dmStreamTask?.cancel()
 
             if let task = messageStreamTask {
                 _ = await task.value
@@ -427,6 +438,10 @@ actor SyncingManager: SyncingManagerProtocol {
             if let task = conversationStreamTask {
                 _ = await task.value
                 conversationStreamTask = nil
+            }
+            if let task = dmStreamTask {
+                _ = await task.value
+                dmStreamTask = nil
             }
             emitStateChange(.paused(params))
             Log.debug("syncAllConversations completed, transitioned to paused (pause was requested during starting)")
@@ -462,20 +477,14 @@ actor SyncingManager: SyncingManagerProtocol {
     /// by listing all groups and storing any that aren't already in the DB.
     private func discoverNewConversations(params: SyncClientParams) async {
         do {
-            // Stage 6e Phase B-2: list stays on `legacyProvider.conversationsProvider`
-            // because the existing stream-processor overload is XMTPiOS.Group-typed
-            // and the test doubles drive their substantive behaviour through
-            // the XMTPiOS-typed list surface.
-            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
-            let groups = try params.client.legacyProvider.conversationsProvider.listGroups(
-                createdAfterNs: nil,
-                createdBeforeNs: nil,
-                lastActivityAfterNs: nil,
-                lastActivityBeforeNs: nil,
-                limit: nil,
-                consentStates: xmtpStates,
+            // Gap 2: list via the abstraction so DTU-backed clients
+            // also see their conversations during the post-sync
+            // discovery sweep.
+            let query = MessagingConversationQuery(
+                consentStates: params.consentStates,
                 orderBy: .lastActivity
             )
+            let groups = try await params.client.conversations.listGroups(query: query)
 
             let existingIds: Set<String> = try await databaseReader.read { db in
                 let ids = try String.fetchAll(
@@ -489,12 +498,12 @@ actor SyncingManager: SyncingManagerProtocol {
             for group in groups where !existingIds.contains(group.id) {
                 do {
                     let creatorInboxId = try await group.creatorInboxId()
-                    let memberCount = try await group.members.count
+                    let memberCount = try await group.members().count
                     if creatorInboxId == params.client.inboxId && memberCount <= 1 {
                         Log.debug("Skipping self-created single-member group: \(group.id)")
                         continue
                     }
-                    try await streamProcessor.processConversation(group, params: params)
+                    try await streamProcessor.processConversation(group: group, params: params)
                     discoveredCount += 1
                 } catch {
                     Log.error("Failed to process discovered conversation \(group.id): \(error)")
@@ -602,6 +611,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        dmStreamTask?.cancel()
 
         if let task = messageStreamTask {
             _ = await task.value
@@ -610,6 +620,10 @@ actor SyncingManager: SyncingManagerProtocol {
         if let task = conversationStreamTask {
             _ = await task.value
             conversationStreamTask = nil
+        }
+        if let task = dmStreamTask {
+            _ = await task.value
+            dmStreamTask = nil
         }
 
         emitStateChange(.paused(params))
@@ -627,6 +641,7 @@ actor SyncingManager: SyncingManagerProtocol {
         // Restart streams
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        dmStreamTask?.cancel()
 
         // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
         let streams = setupStreamReadinessTracking()
@@ -641,6 +656,13 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
+        if hasLegacyProvider(client: params.client) {
+            dmStreamTask = Task { [weak self, params] in
+                guard let self else { return }
+                await self.runDmMessageStream(params: params)
+            }
+        }
+
         // Wait for streams to subscribe before transitioning to ready
         Log.debug("Waiting for streams to subscribe after resume...")
         await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
@@ -650,13 +672,12 @@ actor SyncingManager: SyncingManagerProtocol {
         // so groups added while paused would be missed without this.
         do {
             let syncStart = CFAbsoluteTimeGetCurrent()
-            // Stage 6e Phase B-2: see runMessageStream / runConversationStream
-            // for the rationale; sync stays on `legacyProvider.conversationsProvider`
-            // because the test doubles drive their substantive behaviour
-            // through the XMTPiOS-typed surface (TestableMockConversations
-            // tracks syncCallCount on `syncAllConversations`).
-            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
-            _ = try await params.client.legacyProvider.conversationsProvider.syncAllConversations(consentStates: xmtpStates)
+            // Gap 2: route through abstraction. Test doubles still see
+            // a syncAllConversations call because the XMTPiOS adapter
+            // forwards `syncAll` to the legacy provider.
+            _ = try await params.client.conversations.syncAll(
+                consentStates: params.consentStates
+            )
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.resume_conversations: \(syncElapsed)ms")
         } catch {
@@ -677,13 +698,10 @@ actor SyncingManager: SyncingManagerProtocol {
         }
         do {
             let syncStart = CFAbsoluteTimeGetCurrent()
-            // Stage 6e Phase B-2: see runMessageStream / runConversationStream
-            // for the rationale; sync stays on `legacyProvider.conversationsProvider`
-            // because the test doubles drive their substantive behaviour
-            // through the XMTPiOS-typed surface (TestableMockConversations
-            // tracks syncCallCount on `syncAllConversations`).
-            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
-            _ = try await params.client.legacyProvider.conversationsProvider.syncAllConversations(consentStates: xmtpStates)
+            // Gap 2: abstraction-routed sync.
+            _ = try await params.client.conversations.syncAll(
+                consentStates: params.consentStates
+            )
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
             await discoverNewConversations(params: params)
@@ -712,6 +730,7 @@ actor SyncingManager: SyncingManagerProtocol {
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        dmStreamTask?.cancel()
 
         if let task = syncTask {
             _ = await task.value
@@ -724,6 +743,10 @@ actor SyncingManager: SyncingManagerProtocol {
         if let task = conversationStreamTask {
             _ = await task.value
             conversationStreamTask = nil
+        }
+        if let task = dmStreamTask {
+            _ = await task.value
+            dmStreamTask = nil
         }
     }
 
@@ -747,25 +770,27 @@ actor SyncingManager: SyncingManagerProtocol {
                     signalMessageStreamReady()
                 }
 
-                // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
-                // Stage 6e Phase B-2: stream consumption stays on the
-                // XMTPiOS-typed `streamAllMessages` because the writer
-                // surface (storeWithLatestMessages, etc.) and the
-                // join-flow back-channel still consume `DecodedMessage`
-                // directly; round-tripping `MessagingMessage` would lose
-                // the underlying handle the join-flow needs. The bridge
-                // is internal — the public `start(with:)` + SyncClientParams
-                // are MessagingClient-typed.
+                // Gap 2: drive both XMTPiOS and DTU lanes through the
+                // abstraction-typed `streamAllMessages`. The XMTPiOS
+                // adapter still bridges DecodedMessage → MessagingMessage
+                // internally; the DTU adapter polls
+                // `listMessagesAfter` against per-conversation cursors
+                // (see DTUMessagingConversations.streamAllMessages).
+                // For XMTPiOS-backed clients we additionally run a
+                // sibling `runDmMessageStream` task at the actor level
+                // so the DM / invite-flow back-channel — which is
+                // XMTPiOS-only and consumes DecodedMessage directly —
+                // keeps working.
                 var isFirstMessage = true
-                let xmtpStates = params.consentStates.map(\.xmtpConsentState)
-                let stream = params.client.legacyProvider.conversationsProvider.streamAllMessages(
-                    type: .all,
-                    consentStates: xmtpStates,
+                let stream = params.client.conversations.streamAllMessages(
+                    filter: .all,
+                    consentStates: params.consentStates,
                     onClose: {
                         Log.debug("Message stream closed via onClose callback")
                     }
                 )
-                for try await message in stream {
+
+                for try await messagingMessage in stream {
                     // Check cancellation
                     try Task.checkCancellation()
 
@@ -775,9 +800,11 @@ actor SyncingManager: SyncingManagerProtocol {
                         isFirstMessage = false
                     }
 
-                    // Process message
+                    // Process message via abstraction — handles group
+                    // persistence (and skips DM here; DM lane goes
+                    // through `dmStreamTask`).
                     await streamProcessor.processMessage(
-                        message,
+                        message: messagingMessage,
                         params: params,
                         activeConversationId: activeConversationId
                     )
@@ -818,20 +845,19 @@ actor SyncingManager: SyncingManagerProtocol {
                     signalConversationStreamReady()
                 }
 
-                // Stream conversations - the loop will exit when onClose is called
-                // Stage 6e Phase B-2: see runMessageStream for the
-                // identical rationale; stream consumption remains on the
-                // XMTPiOS-typed `stream(type:)` because StreamProcessor
-                // pattern-matches on `XMTPiOS.Conversation` directly.
+                // Gap 2: route conversation streaming through the
+                // abstraction. The XMTPiOS adapter bridges
+                // `XMTPiOS.Conversation.group(_)` → `MessagingConversation.group`
+                // and the DTU adapter polls `listConversations`.
                 var isFirstConversation = true
-                let stream = params.client.legacyProvider.conversationsProvider.stream(
-                    type: .groups,
+                let stream = params.client.conversations.streamAll(
+                    filter: .groups,
                     onClose: {
                         Log.debug("Conversation stream closed via onClose callback")
                     }
                 )
-                for try await conversation in stream {
-                    guard case .group(let conversation) = conversation else {
+                for try await messagingConversation in stream {
+                    guard case .group(let group) = messagingConversation else {
                         continue
                     }
 
@@ -844,16 +870,16 @@ actor SyncingManager: SyncingManagerProtocol {
                         isFirstConversation = false
                     }
 
-                    Log.info("Conversation stream delivered group: \(conversation.id)")
+                    Log.info("Conversation stream delivered group: \(group.id)")
 
                     // Process conversation — catch errors to avoid restarting the stream
                     do {
                         try await streamProcessor.processConversation(
-                            conversation,
+                            group: group,
                             params: params
                         )
                     } catch {
-                        Log.error("Failed processing streamed conversation \(conversation.id): \(error)")
+                        Log.error("Failed processing streamed conversation \(group.id): \(error)")
                     }
                 }
 
@@ -873,6 +899,66 @@ actor SyncingManager: SyncingManagerProtocol {
             Log.error("Conversation stream: max retries (\(maxStreamRetries)) exceeded, giving up")
             enqueueAction(.streamFailed)
         }
+    }
+
+    /// XMTPiOS-only DM/invite back-channel stream. Consumes
+    /// `DecodedMessage` directly so the existing
+    /// `processMessage(_ message:DecodedMessage,...)` path can decode
+    /// invite-error payloads and route join requests through
+    /// `InviteJoinRequestsManager`. Skipped on DTU-backed clients
+    /// (DTU has no DM channel today; spawning is gated by
+    /// `hasLegacyProvider` in `handleStart` / `handleResume`).
+    private func runDmMessageStream(params: SyncClientParams) async {
+        var retryCount = 0
+        while !Task.isCancelled && retryCount < maxStreamRetries {
+            do {
+                if retryCount > 0 {
+                    let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+                Log.debug("Starting DM message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+                let xmtpStates = params.consentStates.map(\.xmtpConsentState)
+                let stream = params.client.legacyProvider.conversationsProvider.streamAllMessages(
+                    type: .dms,
+                    consentStates: xmtpStates,
+                    onClose: {
+                        Log.debug("DM message stream closed via onClose callback")
+                    }
+                )
+                var isFirstMessage = true
+                for try await message in stream {
+                    try Task.checkCancellation()
+                    if isFirstMessage {
+                        retryCount = 0
+                        isFirstMessage = false
+                    }
+                    await streamProcessor.processMessage(
+                        message,
+                        params: params,
+                        activeConversationId: activeConversationId
+                    )
+                }
+                retryCount += 1
+                Log.debug("DM message stream ended")
+            } catch is CancellationError {
+                Log.debug("DM message stream cancelled")
+                break
+            } catch {
+                retryCount += 1
+                Log.error("DM message stream error: \(error)")
+            }
+        }
+    }
+
+    /// True when the client can be driven through the legacy
+    /// `XMTPClientProvider` wire layer — XMTPiOSMessagingClient or a
+    /// double-conforming test double. Mirrors the same shape as the
+    /// `MessagingClient.legacyProvider` extension's check; used to
+    /// decide whether to spawn the DM/invite back-channel stream.
+    private func hasLegacyProvider(client: any MessagingClient) -> Bool {
+        if (client as? XMTPiOSMessagingClient) != nil { return true }
+        if (client as? any XMTPClientProvider) != nil { return true }
+        return false
     }
 
     // MARK: - Mutation
@@ -904,26 +990,5 @@ actor SyncingManager: SyncingManagerProtocol {
             }
         }
         notificationObservers.append(activeConversationObserver)
-    }
-
-    /// Stage 6e Phase C: detect clients that can't be driven through
-    /// the legacy `XMTPClientProvider` wire-layer (i.e. anything that
-    /// isn't an `XMTPiOSMessagingClient` or a test double that
-    /// double-conforms to `XMTPClientProvider`). The `legacyProvider`
-    /// extension on `MessagingClient` `preconditionFailure`s for
-    /// non-XMTPiOS clients; we mirror that detection here so the
-    /// SyncingManager can short-circuit cleanly instead of crashing
-    /// the streaming Task chain.
-    private func isLegacyProviderUnavailable(client: any MessagingClient) -> Bool {
-        // Same shape as `MessagingClient.legacyProvider`'s default impl:
-        // XMTPiOSMessagingClient -> available; double-conforming test
-        // doubles -> available; everything else -> unavailable.
-        if (client as? XMTPiOSMessagingClient) != nil {
-            return false
-        }
-        if (client as? any XMTPClientProvider) != nil {
-            return false
-        }
-        return true
     }
 }

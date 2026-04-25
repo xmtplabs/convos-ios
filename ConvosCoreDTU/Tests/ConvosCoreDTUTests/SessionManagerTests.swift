@@ -614,22 +614,16 @@ struct SessionManagerTests {
             pendingInviteRepository: pendingInviteRepo
         )
 
-        // Create SleepingInboxMessageChecker with the real activity repository
-        let sleepingInboxChecker = SleepingInboxMessageChecker(
-            checkInterval: 5,
-            environment: .tests,
-            activityRepository: activityRepo,
-            lifecycleManager: lifecycleManager,
-            appLifecycle: PlatformProviders.mock.appLifecycle
-        )
-
+        // SleepingInboxMessageChecker was deleted in commit aa6b1e52
+        // (Stage 6f follow-up: orphan post #758) without updating this
+        // test fixture; the integration tests below short-circuit on
+        // every invocation until they're rewritten or deleted.
         let sessionManager = SessionManager(
             databaseWriter: databaseManager.dbWriter,
             databaseReader: databaseManager.dbReader,
             environment: .tests,
             identityStore: identityStore,
             lifecycleManager: lifecycleManager,
-            sleepingInboxChecker: sleepingInboxChecker,
             platformProviders: .mock
         )
 

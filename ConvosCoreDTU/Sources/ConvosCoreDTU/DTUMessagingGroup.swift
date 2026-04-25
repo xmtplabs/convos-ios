@@ -151,19 +151,55 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
     public func streamMessages(
         onClose: (@Sendable () -> Void)?
     ) -> MessagingStream<MessagingMessage> {
-        // DTU's `open_message_stream` / `close_message_stream` actions
-        // are open/close pairs that return the observed messages in a
-        // batch on close — there's no incremental push channel. The
-        // abstraction's `streamMessages` contract is a live stream, so
-        // there's no faithful mapping. Return an empty immediately-
-        // terminating stream; callers that need real-time semantics
-        // should fall back to polling `messages(...)`.
-        //
-        // FIXME(stage5+): when DTU grows a real server-sent-events /
-        // websocket channel, wire it through here.
+        // DTU's wire layer is HTTP request/response with no SSE channel.
+        // The `MessagingConversationCore.streamMessages` contract is a
+        // live stream, so we emulate it with cursor-based polling against
+        // `listMessagesAfter` (see `DTUUniverse.listMessagesAfter`):
+        //  - Initial poll yields every observable message (`sinceSequence`
+        //    nil) so a freshly-attached subscriber catches up.
+        //  - Subsequent polls advance a per-conversation `lastSeen`
+        //    sequence cursor; DTU's per-conversation `sequence` is
+        //    monotonic so a `>` filter never misses or duplicates.
+        //  - Transient errors don't terminate the stream — log + sleep
+        //    1s + retry. The continuation only finishes on cancel.
+        //  - On `onTermination`, cancel the inner Task and invoke
+        //    `onClose` exactly once. SyncingManager / state-machine
+        //    consumers expect onClose to be called when they cancel
+        //    their consuming task.
+        let context = self.context
+        let conversationId = self.id
         return AsyncThrowingStream { continuation in
-            continuation.finish()
-            onClose?()
+            let onCloseBox = OnCloseOnce(onClose)
+            let pollTask = Task {
+                var lastSeen: UInt64?
+                while !Task.isCancelled {
+                    do {
+                        let messages = try await context.universe.listMessagesAfter(
+                            conversation: conversationId,
+                            sinceSequence: lastSeen,
+                            actor: context.actor
+                        )
+                        for raw in messages {
+                            if Task.isCancelled { break }
+                            continuation.yield(MessagingMessage(raw, conversationId: conversationId))
+                            if raw.sequence > (lastSeen ?? 0) {
+                                lastSeen = raw.sequence
+                            }
+                        }
+                    } catch is CancellationError {
+                        break
+                    } catch {
+                        Log.warning("DTUMessagingGroup poll error (will retry): \(error)")
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        continue
+                    }
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                }
+            }
+            continuation.onTermination = { _ in
+                pollTask.cancel()
+                onCloseBox.fire()
+            }
         }
     }
 

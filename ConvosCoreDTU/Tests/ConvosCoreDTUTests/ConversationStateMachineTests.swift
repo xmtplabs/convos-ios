@@ -231,14 +231,11 @@ struct ConversationStateMachineTests {
 
     @Test("Messages queued during creation are sent when ready")
     func testMessageQueueingDuringCreation() async throws {
-        // newGroupOptimistic is wired on DTU now, but this test asserts
-        // that queued messages land in the DB after `ready` — and on
-        // the DTU lane `SyncingManager.start` short-circuits the
-        // wire-layer message stream (see SyncingManager.swift:345),
-        // so messages publish through the engine but never get
-        // persisted by the syncing pipeline. Stays XMTPiOS-only until
-        // a DTU stream-adapter exists.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips wire-layer streams on DTU; messages publish but DB-persistence pipeline is not wired (SyncingManager.swift:345).") else { return }
+        // Gap 2: SyncingManager now flows through the abstraction for
+        // both lanes; DTU-backed clients get polling-based message +
+        // conversation streams via `DTUMessagingConversations`. Queued
+        // messages should land in the DB after `ready` on both backends.
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "Gap 2: DTU stream-adapter polls listMessagesAfter so SyncingManager drives DB persistence on the DTU lane.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -307,13 +304,11 @@ struct ConversationStateMachineTests {
 
     @Test("Delete flow cleans up conversation")
     func testDeleteFlow() async throws {
-        // newGroupOptimistic is wired on DTU now, but this test asserts
-        // the conversation row exists in `DBConversation` after
-        // `ready` — that row only lands when SyncingManager observes
-        // the conversation create on the wire stream. DTU's
-        // SyncingManager.start short-circuits the stream (see
-        // SyncingManager.swift:345), so the row is never written.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips conversation persistence on DTU lane; DBConversation rows are never written (SyncingManager.swift:345).") else { return }
+        // Gap 2: SyncingManager drives conversation persistence on both
+        // lanes via `MessagingClient.conversations.streamAll`. DTU's
+        // polling shim yields the new alias and StreamProcessor writes
+        // the row, so the delete flow has something to clean up.
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "Gap 2: DTU stream-adapter polls listConversations so SyncingManager writes DBConversation rows on the DTU lane.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -398,12 +393,10 @@ struct ConversationStateMachineTests {
 
     @Test("Stop transitions to uninitialized without deleting")
     func testStopFlow() async throws {
-        // newGroupOptimistic is wired on DTU now, but this test asserts
-        // the conversation row exists in `DBConversation` post-stop —
-        // and DTU's SyncingManager skips wire-layer persistence on the
-        // DTU lane (SyncingManager.swift:345), so DBConversation rows
-        // are never written.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips conversation persistence on DTU lane; DBConversation rows are never written (SyncingManager.swift:345).") else { return }
+        // Gap 2: SyncingManager drives conversation persistence on the
+        // DTU lane through the polling-based stream adapter, so the
+        // DBConversation row exists post-stop just like on XMTPiOS.
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "Gap 2: SyncingManager persists DBConversation rows on the DTU lane.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1387,13 +1380,10 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting allows sending messages immediately")
     func testUseExistingWithMessages() async throws {
-        // newGroupOptimistic is wired on DTU now, but this test asserts
-        // queued messages land in `DBMessage` after `useExisting` — on
-        // DTU SyncingManager.start short-circuits the wire-layer
-        // streams (SyncingManager.swift:345), so messages publish
-        // through the engine but the DB-persistence pipeline is not
-        // wired.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips wire-layer streams on DTU; messages publish but DB-persistence pipeline is not wired (SyncingManager.swift:345).") else { return }
+        // Gap 2: with the polling-based stream adapter, messages
+        // queued + published on the DTU lane reach DBMessage through
+        // the same StreamProcessor pipeline as the XMTPiOS lane.
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "Gap 2: DTU stream-adapter polls listMessagesAfter so DBMessage persistence works on both lanes.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache

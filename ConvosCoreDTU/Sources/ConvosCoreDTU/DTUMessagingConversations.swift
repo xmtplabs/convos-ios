@@ -205,12 +205,51 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
         filter: MessagingConversationFilter,
         onClose: (@Sendable () -> Void)?
     ) -> MessagingStream<MessagingConversation> {
-        // DTU doesn't expose a conversation-create stream. Return an
-        // empty immediately-terminating stream; callers who need a
-        // live feed should poll `list(...)`.
-        AsyncThrowingStream { continuation in
-            continuation.finish()
-            onClose?()
+        // DTU's wire layer is HTTP request/response with no SSE channel
+        // for conversation creation. Emulate the abstraction's
+        // `MessagingStream<MessagingConversation>` by polling
+        // `listConversations` against a per-actor seen-set; new aliases
+        // get yielded as `.group(...)` (DTU treats every conversation as
+        // a group on the wire — DM discrimination is a future engine
+        // gap). Cancel = finish stream + invoke onClose exactly once.
+        let context = self.context
+        let conversations = self
+        return AsyncThrowingStream { continuation in
+            let onCloseBox = OnCloseOnce(onClose)
+            let pollTask = Task {
+                var seen: Set<String> = []
+                while !Task.isCancelled {
+                    do {
+                        let entries = try await context.universe.listConversations(
+                            actor: context.actor
+                        )
+                        for entry in entries where !seen.contains(entry.alias) {
+                            if Task.isCancelled { break }
+                            seen.insert(entry.alias)
+                            let group = conversations.handleForGroup(
+                                alias: entry.alias,
+                                creatorInboxId: entry.creatorInboxId.isEmpty
+                                    ? nil
+                                    : entry.creatorInboxId
+                            )
+                            continuation.yield(.group(group))
+                        }
+                    } catch is CancellationError {
+                        break
+                    } catch {
+                        Log.warning(
+                            "DTUMessagingConversations.streamAll poll error (will retry): \(error)"
+                        )
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        continue
+                    }
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                }
+            }
+            continuation.onTermination = { _ in
+                pollTask.cancel()
+                onCloseBox.fire()
+            }
         }
     }
 
@@ -219,9 +258,68 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
         consentStates: [MessagingConsentState]?,
         onClose: (@Sendable () -> Void)?
     ) -> MessagingStream<MessagingMessage> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
-            onClose?()
+        // Cross-conversation polling: every ~150ms enumerate
+        // `listConversations`, then for each known alias call
+        // `listMessagesAfter` with a per-conversation `lastSeen` cursor.
+        // New conversations discovered mid-stream automatically get
+        // their own cursor entry; the cursor map only ever grows. As
+        // with `streamMessages`, transient errors don't terminate the
+        // stream — log + sleep + retry.
+        let context = self.context
+        return AsyncThrowingStream { continuation in
+            let onCloseBox = OnCloseOnce(onClose)
+            let pollTask = Task {
+                var lastSeenByConversation: [String: UInt64] = [:]
+                while !Task.isCancelled {
+                    do {
+                        let entries = try await context.universe.listConversations(
+                            actor: context.actor
+                        )
+                        for entry in entries {
+                            if Task.isCancelled { break }
+                            let conversationId = entry.alias
+                            do {
+                                let messages = try await context.universe.listMessagesAfter(
+                                    conversation: conversationId,
+                                    sinceSequence: lastSeenByConversation[conversationId],
+                                    actor: context.actor
+                                )
+                                for raw in messages {
+                                    if Task.isCancelled { break }
+                                    continuation.yield(
+                                        MessagingMessage(raw, conversationId: conversationId)
+                                    )
+                                    let prior = lastSeenByConversation[conversationId] ?? 0
+                                    if raw.sequence > prior {
+                                        lastSeenByConversation[conversationId] = raw.sequence
+                                    }
+                                }
+                            } catch is CancellationError {
+                                break
+                            } catch {
+                                Log.warning(
+                                    "DTUMessagingConversations.streamAllMessages poll error for "
+                                        + "\(conversationId) (will retry): \(error)"
+                                )
+                            }
+                        }
+                    } catch is CancellationError {
+                        break
+                    } catch {
+                        Log.warning(
+                            "DTUMessagingConversations.streamAllMessages list error (will retry): "
+                                + "\(error)"
+                        )
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        continue
+                    }
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                }
+            }
+            continuation.onTermination = { _ in
+                pollTask.cancel()
+                onCloseBox.fire()
+            }
         }
     }
 

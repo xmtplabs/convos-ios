@@ -39,6 +39,21 @@ class TestableMockClient: XMTPClientProvider, MessagingClient, @unchecked Sendab
     var inboxId: String = "test-inbox-id"
 
     lazy var conversationsProvider: ConversationsProvider = {
+        // `_messagingConversationsBridge` is the single source of truth for
+        // syncCallCount / streamCallCount; the legacy ConversationsProvider
+        // surface and the abstraction-typed MessagingConversations both
+        // forward their substantive work into it so tests can assert on
+        // either lane without losing visibility (Gap 2: SyncingManager
+        // moved off legacyProvider for non-XMTPiOS clients, but XMTPiOS
+        // double-conformers still go through this bridge to keep
+        // existing test assertions intact).
+        _messagingConversationsBridge
+    }()
+
+    // Single shared TestableMockConversations instance; both
+    // `conversationsProvider` (legacy ConversationsProvider) and
+    // `conversations` (MessagingConversations stub) forward to it.
+    lazy var _messagingConversationsBridge: TestableMockConversations = {
         TestableMockConversations(syncBehavior: syncBehavior, streamBehavior: streamBehavior)
     }()
 
@@ -49,7 +64,7 @@ class TestableMockClient: XMTPClientProvider, MessagingClient, @unchecked Sendab
     }
 
     lazy var conversations: any MessagingConversations = {
-        _StubMessagingConversationsTestable()
+        _StubMessagingConversationsTestable(bridge: _messagingConversationsBridge)
     }()
 
     lazy var consent: any MessagingConsent = _StubMessagingConsentTestable()
@@ -165,6 +180,18 @@ class TestableMockClient: XMTPClientProvider, MessagingClient, @unchecked Sendab
 // through `client.legacyProvider.conversationsProvider` (= TestableMockConversations).
 
 private final class _StubMessagingConversationsTestable: MessagingConversations, @unchecked Sendable {
+    /// Bridge into `TestableMockConversations` so `syncAll` /
+    /// `streamAll` / `streamAllMessages` increment the same counters
+    /// the legacy ConversationsProvider surface does. SyncingManager
+    /// after Gap 2 routes these through the abstraction; without this
+    /// forwarding, tests asserting on `syncCallCount` /
+    /// `streamCallCount` would observe zeroes.
+    let bridge: TestableMockConversations
+
+    init(bridge: TestableMockConversations) {
+        self.bridge = bridge
+    }
+
     func list(query: MessagingConversationQuery) async throws -> [MessagingConversation] { [] }
     func listGroups(query: MessagingConversationQuery) async throws -> [any MessagingGroup] { [] }
     func listDms(query: MessagingConversationQuery) async throws -> [any MessagingDm] { [] }
@@ -187,13 +214,38 @@ private final class _StubMessagingConversationsTestable: MessagingConversations,
     }
     func sync() async throws {}
     func syncAll(consentStates: [MessagingConsentState]?) async throws -> MessagingSyncSummary {
-        MessagingSyncSummary(numEligible: 0, numSynced: 0)
+        // Forward into the legacy mock so syncCallCount tracks the call.
+        let xmtpStates = consentStates?.map(\.xmtpConsentState)
+        let summary = try await bridge.syncAllConversations(consentStates: xmtpStates)
+        return MessagingSyncSummary(
+            numEligible: UInt64(summary.numEligible),
+            numSynced: UInt64(summary.numSynced)
+        )
     }
     func streamAll(filter: MessagingConversationFilter, onClose: (@Sendable () -> Void)?) -> MessagingStream<MessagingConversation> {
-        MessagingStream { _ in }
+        // Forward into the legacy mock so streamCallCount increments.
+        // The legacy mock immediately calls onClose and finishes for
+        // most behaviours, so we propagate that signal — this also
+        // keeps the SyncingManager `signalConversationStreamReady`
+        // race shaped correctly for `.empty` / `.emitOneThenClose` etc.
+        _ = bridge.stream(type: .groups, onClose: onClose)
+        return AsyncThrowingStream { continuation in
+            // No real conversation events to forward — the substantive
+            // assertions in the SyncingManager tests look at counts
+            // and state transitions, not delivered elements.
+            continuation.finish()
+        }
     }
     func streamAllMessages(filter: MessagingConversationFilter, consentStates: [MessagingConsentState]?, onClose: (@Sendable () -> Void)?) -> MessagingStream<MessagingMessage> {
-        MessagingStream { _ in }
+        let xmtpStates = consentStates?.map(\.xmtpConsentState)
+        _ = bridge.streamAllMessages(
+            type: .all,
+            consentStates: xmtpStates,
+            onClose: onClose
+        )
+        return AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
     }
 }
 

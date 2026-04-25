@@ -631,6 +631,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 await storeReadReceipt(message, conversationId: conversation.id)
                 continue
             }
+            // Gap 2: skip xmtp.org/group_updated system messages on
+            // backends that don't decode them via the XIP codec
+            // pipeline (DTU). The XMTPiOS adapter's
+            // `MessagingMessage.resolvedPayload()` returns
+            // `.groupUpdated(MessagingGroupUpdatedPayload(...))` for
+            // these, so XMTPiOS messages still flow through the
+            // writer; DTU returns `.unsupported` which would otherwise
+            // trip `DBRepresentationError.unsupportedContentType`.
+            // The conversation member-list reconciliation is owned
+            // by the conversation-stream / list paths, not DBMessage.
+            if message.encodedContent.type.authorityID == "xmtp.org",
+               message.encodedContent.type.typeID == "group_updated",
+               case .unsupported = message.resolvedPayload() {
+                continue
+            }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(
                 message: message,

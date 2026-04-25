@@ -454,8 +454,23 @@ struct InviteJoinRequestIntegrationTests {
             databaseWriter: testDb
         )
 
+        // Stage 6f Step 7 left this assertion calling the XMTPiOS-only
+        // `processJoinRequest(message: DecodedMessage, ...)` overload
+        // even though `dm.messages(query:)` returns `MessagingMessage`.
+        // Recover the underlying `XMTPiOS.DecodedMessage` by reaching
+        // through the XMTPiOSMessagingDm bridge to fetch the raw list,
+        // then matching by id.
+        let xmtpDm = (dm as? XMTPiOSMessagingDm)?.underlyingXMTPiOSDm
+        let decodedJoinRequest = try await xmtpDm?.messages().first {
+            $0.id == joinRequestMessage.id
+        }
+        guard let decodedJoinRequest else {
+            Issue.record("Could not recover DecodedMessage for join request")
+            try? await fixtures.cleanup()
+            return
+        }
         let result = await joinRequestsManager.processJoinRequest(
-            message: joinRequestMessage,
+            message: decodedJoinRequest,
             client: XMTPiOSMessagingClient(xmtpClient: clientA)
         )
 

@@ -51,6 +51,15 @@ protocol StreamProcessorProtocol: Actor {
         activeConversationId: String?
     ) async
 
+    /// Gap 2 abstraction-typed sibling. SyncingManager Phase 3 routes
+    /// `streamAllMessages` through `MessagingClient.conversations` and
+    /// hands every yielded `MessagingMessage` to this overload.
+    func processMessage(
+        message: MessagingMessage,
+        params: SyncClientParams,
+        activeConversationId: String?
+    ) async
+
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
 }
@@ -158,29 +167,82 @@ actor StreamProcessor: StreamProcessorProtocol {
         try await processConversation(group, params: params, clientConversationId: clientConversationId)
     }
 
-    /// Stage 6e Phase B-2 overload: receives the abstraction-typed
-    /// `MessagingGroup`. Convos's stream processing is XMTPiOS-only at
-    /// the wire layer (XIP-payload + native writer surface), so we
-    /// downcast to `XMTPiOSMessagingGroup` and reach the underlying
-    /// `XMTPiOS.Group` via the existing `underlyingXMTPiOSGroup` bridge.
-    /// DTU-backed groups warn-and-skip until Stage 6b lifts the
-    /// processor onto `MessagingGroup` proper.
+    /// Gap 2 (Stage 6f follow-up): the processor now flows on the
+    /// abstraction surface for both XMTPiOS and DTU backings.
+    /// Pre-Gap-2 this overload downcast to `XMTPiOSMessagingGroup` and
+    /// warn-skipped DTU; SyncingManager Phase 3 routes its conversation
+    /// stream through `MessagingClient.conversations.streamAll(...)`
+    /// instead of `legacyProvider.conversationsProvider.stream(...)`,
+    /// so DTU-backed groups arrive here through the same code path
+    /// as XMTPiOS-backed ones. The XMTPiOS-specific bits
+    /// (`ProfileSnapshotBuilder.sendSnapshot` + the
+    /// invite-flow back-channel) downcast at the call site so they
+    /// stay XMTPiOS-only without blocking DTU progress.
     func processConversation(
         group: any MessagingGroup,
         params: SyncClientParams,
         clientConversationId: String? = nil
     ) async throws {
-        guard let xmtpAdapter = group as? XMTPiOSMessagingGroup else {
-            Log.warning(
-                "StreamProcessor: non-XMTPiOS group adapter (likely DTU). " +
-                "Skipping until Stage 6b lifts the processor onto MessagingGroup."
-            )
+        guard try await shouldProcessConversation(group: group, params: params) else {
             return
         }
-        try await processConversation(
-            xmtpAdapter.underlyingXMTPiOSGroup,
-            params: params,
+
+        let creatorInboxId = try await group.creatorInboxId()
+        if creatorInboxId == params.client.inboxId {
+            // We created the conversation: ensure the invite tag and
+            // image-encryption key are in place, then ensure the
+            // add-member permission is `.allow`. DTU's engine doesn't
+            // have these add-on metadata fields; the abstraction-side
+            // helpers handle the cross-backend behaviour
+            // (`ensureInviteTag` / `ensureImageEncryptionKey` are
+            // implemented in `MessagingGroup+CustomMetadata.swift`).
+            try await group.ensureInviteTag()
+            do {
+                try await group.ensureImageEncryptionKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
+            }
+            // Permission policy isn't surfaced uniformly across DTU
+            // (DTU returns `.unknown` until the engine models it).
+            // Update only when both states are known.
+            do {
+                let permissions = try await group.permissionPolicySet()
+                if permissions.addMemberPolicy != .allow,
+                   permissions.addMemberPolicy != .deny,
+                   permissions.addMemberPolicy != .unknown {
+                    try await group.updateAddMemberPermission(.allow)
+                }
+            } catch {
+                // DTU engines without permission-policy support throw
+                // `DTUMessagingNotSupportedError`; that's fine, we
+                // don't need to gate persistence on it.
+                Log.debug("permissionPolicySet/updateAddMemberPermission skipped: \(error)")
+            }
+        }
+
+        let perfStart = CFAbsoluteTimeGetCurrent()
+        Log.info("Syncing conversation: \(group.id)")
+        try await conversationWriter.storeWithLatestMessages(
+            conversation: group,
+            inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
+        )
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(group.id)")
+
+        if creatorInboxId == params.client.inboxId {
+            // ProfileSnapshot send is XMTPiOS-only (XIP-payload +
+            // ConvosProfiles wire layer). DTU-backed groups skip this
+            // until ConvosProfiles migrates off XMTPiOS (FIXME(stage4e)
+            // tracked at `XMTPiOSConversationWriterSupport.swift:432`).
+            await sendInitialProfileSnapshot(group: group)
+        }
+
+        // Subscribe to push notifications
+        await subscribeToConversationTopics(
+            conversationId: group.id,
+            params: params,
+            context: "on stream"
         )
     }
 
@@ -234,6 +296,174 @@ actor StreamProcessor: StreamProcessorProtocol {
             params: params,
             context: "on stream"
         )
+    }
+
+    /// Gap 2 abstraction-typed sibling. Handles a `MessagingMessage`
+    /// that arrived via `MessagingClient.conversations.streamAllMessages(...)`
+    /// (XMTPiOS or DTU) without a round-trip through `DecodedMessage`.
+    /// Skips DM/invite back-channel work (XMTPiOS-only today) and
+    /// otherwise mirrors the XMTPiOS-typed `processMessage`'s group flow
+    /// against the abstraction-side helpers
+    /// (`MessagingMessage.isProfileMessage`, `isTypingIndicator`,
+    /// `isReadReceipt`). XMTPiOS-backed messages use the existing
+    /// `DecodedMessage`-typed path so the join-flow / DM back-channel
+    /// keep their handle.
+    func processMessage(
+        message messagingMessage: MessagingMessage,
+        params: SyncClientParams,
+        activeConversationId: String?
+    ) async {
+        let perfStart = CFAbsoluteTimeGetCurrent()
+        do {
+            guard let messagingConversation = try await params.client
+                .conversations.find(conversationId: messagingMessage.conversationId)
+            else {
+                Log.error("Conversation not found for message")
+                return
+            }
+
+            switch messagingConversation {
+            case .dm:
+                // Invite-flow DM back-channel is XMTPiOS-only; on DTU
+                // we skip. The XMTPiOS lane uses the DecodedMessage-typed
+                // overload below.
+                Log.debug("processMessage(message:): skipping DM message on abstraction lane")
+                return
+            case .group(let messagingGroup):
+                guard try await shouldProcessConversation(
+                    group: messagingGroup,
+                    params: params
+                ) else {
+                    Log.warning("Received invalid group message, skipping...")
+                    return
+                }
+
+                let dbConversation = try await conversationWriter.store(
+                    conversation: messagingGroup,
+                    inboxId: params.client.inboxId
+                )
+
+                // Handle ExplodeSettings — skip storing message if this is
+                // an explode message
+                let explodeSettings = messageWriter.decodeExplodeSettings(from: messagingMessage)
+                if let explodeSettings {
+                    await processExplodeSettings(
+                        explodeSettings,
+                        senderInboxId: messagingMessage.senderInboxId,
+                        group: messagingGroup,
+                        params: params
+                    )
+                }
+                guard explodeSettings == nil else { return }
+
+                if messagingMessage.isProfileMessage {
+                    // ProfileUpdate / ProfileSnapshot processing is
+                    // XMTPiOS-typed (uses ConvosProfiles codecs). DTU
+                    // skips and lets the message land as a regular row;
+                    // the codec doesn't decode there yet, so we drop
+                    // it instead of misclassifying it as application.
+                    Log.debug("processMessage(message:): skipping profile message on abstraction lane")
+                    return
+                }
+
+                if messagingMessage.isTypingIndicator {
+                    // No-op on the DTU lane; the XMTPiOS lane handles
+                    // typing indicators via the DecodedMessage path.
+                    return
+                }
+
+                if messagingMessage.isReadReceipt {
+                    // No-op for the abstraction lane today; receipt
+                    // processing relies on the XMTPiOS senderInboxId
+                    // assertion which `MessagingMessage` already exposes
+                    // — wire it up when DTU integration tests start
+                    // exercising read receipts.
+                    return
+                }
+
+                // System / membership-change messages on the DTU lane
+                // (e.g. xmtp.org/group_updated). The XMTPiOS adapter's
+                // `resolvedPayload()` decodes these via XIP into an
+                // `XMTPiOS.GroupUpdated`; DTU's encoded content for
+                // these system messages doesn't carry an XIP-decoded
+                // `GroupUpdated`, so let the conversation row be the
+                // record-of-truth and skip writing a `DBMessage` row.
+                // The conversation member-list reconciliation is
+                // handled by the conversation-stream / list paths.
+                if messagingMessage.encodedContent.type.authorityID == "xmtp.org",
+                   messagingMessage.encodedContent.type.typeID == "group_updated" {
+                    Log.debug("processMessage(message:): skipping group_updated system message \(messagingMessage.id)")
+                    return
+                }
+
+                let result = try await messageWriter.store(
+                    message: messagingMessage,
+                    for: dbConversation
+                )
+
+                // Mark unread if needed
+                if result.contentType.marksConversationAsUnread,
+                   messagingMessage.conversationId != activeConversationId,
+                   messagingMessage.senderInboxId != params.client.inboxId {
+                    try await localStateWriter.setUnread(
+                        true,
+                        for: messagingMessage.conversationId
+                    )
+                }
+
+                let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+                Log.info("[PERF] message.process: \(perfElapsed)ms id=\(messagingMessage.id)")
+            }
+        } catch {
+            Log.warning("Stopped processing message from error: \(error.localizedDescription)")
+        }
+    }
+
+    /// Gap 2: abstraction-typed sibling for explode-settings handling.
+    /// `processExplodeSettings` only needs the conversation id + name;
+    /// downcast to XMTPiOS for the name lookup when available, fall
+    /// back to `group.name()` (or the abstraction's blank string for
+    /// DTU which doesn't model name) otherwise.
+    private func processExplodeSettings(
+        _ settings: ExplodeSettings,
+        senderInboxId: String,
+        group: any MessagingGroup,
+        params: SyncClientParams
+    ) async {
+        let result = await messageWriter.processExplodeSettings(
+            settings,
+            conversationId: group.id,
+            senderInboxId: senderInboxId,
+            currentInboxId: params.client.inboxId
+        )
+
+        let conversationName: String = await {
+            if let name = try? await group.name(), !name.isEmpty {
+                return name
+            }
+            return "Untitled"
+        }()
+
+        switch result {
+        case .applied:
+            await postExplosionNotification(
+                conversationName: conversationName,
+                conversationId: group.id
+            )
+        case .scheduled(let expiresAt):
+            let senderName = await getSenderDisplayName(
+                senderInboxId: senderInboxId,
+                conversationId: group.id
+            )
+            await postScheduledExplosionNotification(
+                senderName: senderName,
+                conversationName: conversationName,
+                conversationId: group.id,
+                expiresAt: expiresAt
+            )
+        case .fromSelf, .alreadyExpired, .unauthorized:
+            break
+        }
     }
 
     func processMessage(
@@ -583,6 +813,25 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
     }
 
+    /// Gap 2: abstraction-typed sibling that downcasts when an
+    /// XMTPiOS-backed group is on the wire and silently no-ops on DTU.
+    /// The XIP-payload codec layer in `ConvosProfiles` is XMTPiOS-only;
+    /// once it migrates (FIXME(stage4e) at
+    /// `XMTPiOSConversationWriterSupport.swift:432`) the no-op branch
+    /// becomes a real send via `ProfileSnapshotBridge`.
+    private func sendInitialProfileSnapshot(group: any MessagingGroup) async {
+        guard let xmtpAdapter = group as? XMTPiOSMessagingGroup else {
+            // DTU: ProfileSnapshot is a Convos XIP-payload that the
+            // current ConvosProfiles writer only knows how to encode +
+            // send through the XMTPiOS codec pipeline. Skipping is
+            // safe — receivers reconstruct profiles from per-message
+            // ProfileUpdate payloads.
+            Log.debug("sendInitialProfileSnapshot: skipping snapshot for non-XMTPiOS group \(group.id)")
+            return
+        }
+        await sendInitialProfileSnapshot(group: xmtpAdapter.underlyingXMTPiOSGroup)
+    }
+
     private func processExplodeSettings(
         _ settings: ExplodeSettings,
         senderInboxId: String,
@@ -703,6 +952,54 @@ actor StreamProcessor: StreamProcessorProtocol {
             if hasOutgoingJoinRequest {
                 try await conversation.updateConsentState(state: .allowed)
                 consentState = try conversation.consentState()
+            }
+        }
+
+        return consentState == .allowed
+    }
+
+    /// Gap 2 abstraction-typed sibling. Mirrors the XMTPiOS-typed
+    /// version's three-step decision tree (allowed-already → creator-is-self
+    /// → outgoing-invite). The hasOutgoingJoinRequest check still routes
+    /// through the InviteJoinRequestsManager which today demands an
+    /// `XMTPiOS.Group` (DM back-channel is XMTPiOS-only); on DTU we
+    /// short-circuit to "consent is allowed" because the engine has no
+    /// invite-flow back-channel today, so the only meaningful gate is
+    /// whether the local consent state is allowed/unknown.
+    private func shouldProcessConversation(
+        group: any MessagingGroup,
+        params: SyncClientParams
+    ) async throws -> Bool {
+        var consentState = try await group.consentState()
+        guard consentState != .allowed else {
+            return true
+        }
+
+        guard try await group.creatorInboxId() != params.client.inboxId else {
+            return true
+        }
+
+        if consentState == .unknown {
+            // Invite-flow back-channel is XMTPiOS-only today (the
+            // coordinator's DM lookups + signed-invite payloads sit on
+            // top of `ConvosInvites` which still consumes XMTPiOS-typed
+            // DM handles). DTU-backed groups don't generate join
+            // requests in any of the integration tests; treat them as
+            // allowed when consent is unknown so DTU lanes don't get
+            // stuck on a coordinator code path that has no DTU
+            // implementation.
+            if let xmtpAdapter = group as? XMTPiOSMessagingGroup {
+                let hasOutgoingJoinRequest = try await joinRequestsManager.hasOutgoingJoinRequest(
+                    for: xmtpAdapter.underlyingXMTPiOSGroup,
+                    client: params.client
+                )
+                if hasOutgoingJoinRequest {
+                    try await group.updateConsentState(.allowed)
+                    consentState = try await group.consentState()
+                }
+            } else {
+                // DTU: no invite back-channel; treat as ready to process.
+                return true
             }
         }
 
