@@ -249,12 +249,24 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
         let result = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
-        // surface; bridge until Phase B migrates this typing-indicator path.
-        guard let sender = try await result.client.legacyProvider.messageSender(for: conversationId) else {
+        // Stage 6e Phase B-2: route through MessagingClient.conversations.find +
+        // MessagingConversationCore.sendOptimistic. The TypingIndicator codec
+        // is the same wire-format as before; we hand-encode it via
+        // TypingIndicatorCodec().encode(...) and feed the result into the
+        // abstraction's `sendOptimistic` (which maps to XMTPiOS's
+        // `prepareMessage(noSend: false)` — identical to the legacy
+        // MessageSender.sendTypingIndicator path).
+        guard let messagingConversation = try await result.client.conversations
+            .find(conversationId: conversationId)
+        else {
             return
         }
-        try await sender.sendTypingIndicator(isTyping: isTyping)
+        let codec = TypingIndicatorCodec()
+        let encoded = try codec.encode(content: TypingIndicatorContent(isTyping: isTyping))
+        let messagingEncoded = MessagingEncodedContent(encoded)
+        _ = try await messagingConversation.core.sendOptimistic(
+            encodedContent: messagingEncoded,
+            options: nil
+        )
     }
 }

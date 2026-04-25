@@ -84,7 +84,7 @@ struct InviteJoinRequestIntegrationTests {
 
         let result = await joinRequestsManager.processJoinRequest(
             message: joinMessage,
-            client: clientA
+            client: XMTPiOSMessagingClient(xmtpClient: clientA)
         )
 
         #expect(result != nil, "Should have processed the join request")
@@ -151,7 +151,7 @@ struct InviteJoinRequestIntegrationTests {
 
         let results = await joinRequestsManager.processJoinRequests(
             since: nil,
-            client: clientA
+            client: XMTPiOSMessagingClient(xmtpClient: clientA)
         )
 
         #expect(results.isEmpty, "Join request with revoked tag should be rejected")
@@ -240,7 +240,7 @@ struct InviteJoinRequestIntegrationTests {
 
         let result = await joinRequestsManager.processJoinRequest(
             message: joinMessage,
-            client: clientA
+            client: XMTPiOSMessagingClient(xmtpClient: clientA)
         )
 
         #expect(result != nil, "Should have processed the join request")
@@ -332,7 +332,7 @@ struct InviteJoinRequestIntegrationTests {
 
         let result = await joinRequestsManager.processJoinRequest(
             message: joinMessage,
-            client: clientA
+            client: XMTPiOSMessagingClient(xmtpClient: clientA)
         )
 
         #expect(result != nil, "Should have processed the JoinRequestContent join request")
@@ -394,7 +394,7 @@ struct InviteJoinRequestIntegrationTests {
 
         let dm = try await coordinator.sendJoinRequest(
             for: signedInvite,
-            client: InviteClientProviderAdapter(clientB),
+            client: InviteClientProviderAdapter(XMTPiOSMessagingClient(xmtpClient: clientB)),
             profile: JoinRequestProfile(name: "Coordinator User", imageURL: "https://example.com/pic.jpg"),
             metadata: ["deviceName": "iPhone"]
         )
@@ -438,7 +438,7 @@ struct InviteJoinRequestIntegrationTests {
 
         let result = await joinRequestsManager.processJoinRequest(
             message: joinRequestMessage,
-            client: clientA
+            client: XMTPiOSMessagingClient(xmtpClient: clientA)
         )
 
         #expect(result != nil, "Should have processed the join request sent via coordinator")

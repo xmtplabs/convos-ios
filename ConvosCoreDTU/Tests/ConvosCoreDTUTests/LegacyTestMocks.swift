@@ -83,7 +83,7 @@ actor MockSyncingManager: SyncingManagerProtocol {
         isStarted && !isPaused
     }
 
-    func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+    func start(with client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) {
         isStarted = true
         isPaused = false
         startCallCount += 1

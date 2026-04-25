@@ -1260,11 +1260,11 @@ extension ConversationViewModel {
         Task { [weak self] in
             guard let messagingService = self?.messagingService else { return }
             guard let result = try? await messagingService.inboxStateManager.waitForInboxReadyResult() else { return }
-            // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-            // `conversationsProvider` lives on the legacy `XMTPClientProvider`
-            // surface; bridge through `legacyProvider` until Phase B retires
-            // `InlineAttachmentRecovery.setProvider`.
-            await InlineAttachmentRecovery.shared.setProvider(result.client.legacyProvider.conversationsProvider)
+            // Stage 6e Phase B-2: InlineAttachmentRecovery now operates on
+            // the abstraction's `MessagingConversations`. The XIP-payload
+            // resolution path (Attachment / Reply) is still XMTPiOS-typed
+            // because the payload types are codec-owned.
+            await InlineAttachmentRecovery.shared.setProvider(result.client.conversations)
         }
     }
 

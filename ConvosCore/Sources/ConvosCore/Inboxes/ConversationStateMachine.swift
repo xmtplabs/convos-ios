@@ -455,10 +455,10 @@ public actor ConversationStateMachine {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         Log.info("Inbox ready, creating conversation...")
 
-        // Stage 6e Phase A: `inboxReady.client` is now `any MessagingClient`.
+        // Stage 6e Phase B-2: `inboxReady.client` is `any MessagingClient`.
         // Used directly via the abstraction for `newGroupOptimistic()`
-        // below; bridged through `legacyProvider` for the
-        // `SyncClientParams` construction at the streamProcessor seam.
+        // below and for the `SyncClientParams` construction at the
+        // streamProcessor seam (which now takes MessagingClient too).
         let client = inboxReady.client
 
         // Stage 6a: build the optimistic group through the
@@ -492,23 +492,17 @@ public actor ConversationStateMachine {
         // Process the conversation in case the syncing manager
         // has not finished starting the streams, or the streams closed.
         // Pass clientConversationId to store a stable ID for image caching.
-        // FIXME(stage6a-residual): `streamProcessor.processConversation`
-        // still takes `any ConversationSender` / `XMTPiOS.Group`. Bridge
-        // through the XMTPiOS adapter's `underlyingXMTPiOSGroup` until
-        // Stage 6b/6c lifts the stream processor onto `MessagingGroup`.
-        let params = SyncClientParams(client: client.legacyProvider, apiClient: inboxReady.apiClient)
-        if let xmtpAdapter = messagingGroup as? XMTPiOSMessagingGroup {
-            try await streamProcessor.processConversation(
-                xmtpAdapter.underlyingXMTPiOSGroup,
-                params: params,
-                clientConversationId: clientConversationId
-            )
-        } else {
-            Log.warning(
-                "streamProcessor: non-XMTPiOS group adapter (likely DTU). " +
-                "Skipping until 6b lifts stream processor onto MessagingGroup."
-            )
-        }
+        // Stage 6e Phase B-2: SyncClientParams.client is `any MessagingClient`
+        // and StreamProcessor exposes a `processConversation(group:params:)`
+        // overload that accepts `any MessagingGroup` directly. The
+        // adapter still bridges to `XMTPiOS.Group` internally — the
+        // wire-layer behaviour is unchanged.
+        let params = SyncClientParams(client: client, apiClient: inboxReady.apiClient)
+        try await streamProcessor.processConversation(
+            group: messagingGroup,
+            params: params,
+            clientConversationId: clientConversationId
+        )
 
         // Transition to ready state with the real group ID (used for querying)
         // The clientConversationId is stored on DBConversation for stable image caching
@@ -667,13 +661,12 @@ public actor ConversationStateMachine {
             if existingConversation.hasJoined {
                 Log.info("Already joined conversation... moving to ready state.")
                 emitStateChange(.ready(.init(conversationId: existingConversation.id, origin: .existing)))
-                // Stage 6e Phase A: cleanUpPreviousConversationIfNeeded
-                // still takes `any XMTPClientProvider`. Bridge through
-                // `legacyProvider` until Phase B migrates this helper.
+                // Stage 6e Phase B-2: cleanUpPreviousConversationIfNeeded
+                // now takes `any MessagingClient` directly.
                 await cleanUpPreviousConversationIfNeeded(
                     previousResult: previousResult,
                     newConversationId: existingConversation.id,
-                    client: prevInboxReady.client.legacyProvider,
+                    client: prevInboxReady.client,
                     apiClient: prevInboxReady.apiClient
                 )
             } else {
@@ -740,10 +733,12 @@ public actor ConversationStateMachine {
         Log.info("Requesting to join conversation...")
 
         let apiClient = inboxReady.apiClient
-        // Stage 6e Phase A: `inboxReady.client` is now `any MessagingClient`.
-        // `newConversation(with:)` lives on the legacy provider; bridge
-        // through `legacyProvider` until Phase B migrates this join flow.
-        let client = inboxReady.client.legacyProvider
+        // Stage 6e Phase B-2: route the join-flow DM creation through
+        // the MessagingClient abstraction. `findOrCreateDm` mirrors the
+        // legacy `XMTPClientProvider.newConversation(with:)` (which
+        // delegated to `XMTPiOS.Conversations.newConversation` under
+        // the hood, defaulting `disappearingMessageSettings: nil`).
+        let client = inboxReady.client
 
         let inviterInboxId = invite.invitePayload.creatorInboxIdString
 
@@ -751,9 +746,20 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.invalidInviteCodeFormat("Malformed creator inbox ID")
         }
 
-        let dm = try await client.newConversation(with: inviterInboxId)
-        let text = try invite.toURLSafeSlug()
-        _ = try await dm.prepare(text: text)
+        let dm = try await client.conversations.findOrCreateDm(with: inviterInboxId)
+        let slug = try invite.toURLSafeSlug()
+        // TextCodec encoding (XMTPiOS): parameters["encoding"] = "UTF-8",
+        // content = Data(string.utf8). Mirroring it manually here keeps
+        // the join-flow on the abstraction surface — same wire bytes
+        // libxmtp would produce for `prepareMessage(content: String)`.
+        let encodedText = MessagingEncodedContent(
+            type: .text,
+            parameters: ["encoding": "UTF-8"],
+            content: Data(slug.utf8),
+            fallback: nil,
+            compression: nil
+        )
+        _ = try await dm.prepare(encodedContent: encodedText, options: nil)
         try await dm.publish()
 
         Log.info("[PERF] NewConversation.joinRequestSent")
@@ -901,11 +907,10 @@ extension ConversationStateMachine {
         if let conversationId {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-            // Stage 6e Phase A: cleanUp still takes `any XMTPClientProvider`.
-            // Bridge through `legacyProvider` until Phase B migrates it.
+            // Stage 6e Phase B-2: cleanUp now takes `any MessagingClient`.
             try await cleanUp(
                 conversationId: conversationId,
-                client: inboxReady.client.legacyProvider,
+                client: inboxReady.client,
                 apiClient: inboxReady.apiClient,
             )
 
@@ -918,7 +923,7 @@ extension ConversationStateMachine {
     private func cleanUpPreviousConversationIfNeeded(
         previousResult: ConversationReadyResult?,
         newConversationId: String?,
-        client: any XMTPClientProvider,
+        client: any MessagingClient,
         apiClient: any ConvosAPIClientProtocol
     ) async {
         guard let previousResult,
@@ -940,17 +945,18 @@ extension ConversationStateMachine {
 
     private func cleanUp(
         conversationId: String,
-        client: any XMTPClientProvider,
+        client: any MessagingClient,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
-        // Stage 6a: route consent update through the abstraction's
-        // `MessagingConversations.find` + `MessagingConversationCore.updateConsentState`.
-        // Same SDK call as the legacy
-        // `client.conversationsProvider.findConversation`/`updateConsentState(state:)`
-        // pair, but reached through `MessagingConsentState.denied` so the
+        // Stage 6e Phase B-2: route consent update through the
+        // abstraction's `MessagingConversations.find` +
+        // `MessagingConversationCore.updateConsentState`. The same SDK
+        // call as the legacy
+        // `client.conversationsProvider.findConversation`/`updateConsentState(state:)`,
+        // but reached through `MessagingConsentState.denied` so the
         // Convos enum is the boundary, not `XMTPiOS.ConsentState`.
-        if let messagingConversation = try await client.messagingClient
-            .conversations.find(conversationId: conversationId) {
+        if let messagingConversation = try await client.conversations
+            .find(conversationId: conversationId) {
             try await messagingConversation.core.updateConsentState(.denied)
         }
 

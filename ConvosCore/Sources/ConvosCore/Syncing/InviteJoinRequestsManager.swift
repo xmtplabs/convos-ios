@@ -25,15 +25,15 @@ public struct JoinRequestResult: Sendable {
 protocol InviteJoinRequestsManagerProtocol: Sendable {
     func processJoinRequest(
         message: XMTPiOS.DecodedMessage,
-        client: AnyClientProvider
+        client: any MessagingClient
     ) async -> JoinRequestResult?
     func processJoinRequests(
         since: Date?,
-        client: AnyClientProvider
+        client: any MessagingClient
     ) async -> [JoinRequestResult]
     func hasOutgoingJoinRequest(
         for conversation: XMTPiOS.Group,
-        client: AnyClientProvider
+        client: any MessagingClient
     ) async throws -> Bool
 }
 
@@ -57,7 +57,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     func processJoinRequest(
         message: XMTPiOS.DecodedMessage,
-        client: AnyClientProvider
+        client: any MessagingClient
     ) async -> JoinRequestResult? {
         guard let result = await coordinator.processMessage(message, client: InviteClientProviderAdapter(client)) else {
             return nil
@@ -76,7 +76,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     func processJoinRequests(
         since: Date?,
-        client: AnyClientProvider
+        client: any MessagingClient
     ) async -> [JoinRequestResult] {
         var results: [JoinRequestResult] = []
         for joinResult in await coordinator.processJoinRequests(since: since, client: InviteClientProviderAdapter(client)) {
@@ -95,7 +95,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     func hasOutgoingJoinRequest(
         for conversation: XMTPiOS.Group,
-        client: AnyClientProvider
+        client: any MessagingClient
     ) async throws -> Bool {
         try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
     }
@@ -161,13 +161,20 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         ])
     }
 
-    private func sendProfileSnapshotAfterJoin(conversationId: String, client: AnyClientProvider) async {
+    private func sendProfileSnapshotAfterJoin(conversationId: String, client: any MessagingClient) async {
         do {
-            guard let conversation = try await client.conversationsProvider.findConversation(
-                conversationId: conversationId
-            ), case .group(let group) = conversation else {
+            // Stage 6e Phase B-2: route lookup through MessagingClient.
+            // ProfileSnapshotBuilder still operates on XMTPiOS.Group
+            // (XIP-payload + writer surface is XMTPiOS-typed); reach the
+            // underlying handle via the XMTPiOSMessagingGroup adapter.
+            guard let messagingGroup = try await client.messagingGroup(with: conversationId) else {
                 return
             }
+            guard let xmtpAdapter = messagingGroup as? XMTPiOSMessagingGroup else {
+                Log.warning("sendProfileSnapshotAfterJoin: non-XMTPiOS group adapter; skipping snapshot")
+                return
+            }
+            let group = xmtpAdapter.underlyingXMTPiOSGroup
             let allMemberInboxIds = try await group.members.map(\.inboxId)
             try await ProfileSnapshotBuilder.sendSnapshot(
                 group: group,

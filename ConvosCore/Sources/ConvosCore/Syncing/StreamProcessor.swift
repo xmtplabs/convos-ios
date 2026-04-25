@@ -31,6 +31,19 @@ protocol StreamProcessorProtocol: Actor {
         clientConversationId: String?
     ) async throws
 
+    /// Stage 6e Phase B-2 overload: accept the abstraction-typed
+    /// `MessagingGroup` directly. Internally downcasts to
+    /// `XMTPiOSMessagingGroup` and routes through the XMTPiOS-typed
+    /// processor, since the wire-layer behaviour is unchanged. DTU-backed
+    /// groups currently warn-and-skip — Convos's stream processing is
+    /// XMTPiOS-only at the wire level, and DTU streams are not pushed
+    /// yet (Stage 6b lifts the processor proper onto MessagingGroup).
+    func processConversation(
+        group: any MessagingGroup,
+        params: SyncClientParams,
+        clientConversationId: String?
+    ) async throws
+
     func processMessage(
         _ message: DecodedMessage,
         params: SyncClientParams,
@@ -54,6 +67,13 @@ extension StreamProcessorProtocol {
         params: SyncClientParams
     ) async throws {
         try await processConversation(conversation, params: params, clientConversationId: nil)
+    }
+
+    func processConversation(
+        group: any MessagingGroup,
+        params: SyncClientParams
+    ) async throws {
+        try await processConversation(group: group, params: params, clientConversationId: nil)
     }
 }
 
@@ -137,6 +157,32 @@ actor StreamProcessor: StreamProcessorProtocol {
         try await processConversation(group, params: params, clientConversationId: clientConversationId)
     }
 
+    /// Stage 6e Phase B-2 overload: receives the abstraction-typed
+    /// `MessagingGroup`. Convos's stream processing is XMTPiOS-only at
+    /// the wire layer (XIP-payload + native writer surface), so we
+    /// downcast to `XMTPiOSMessagingGroup` and reach the underlying
+    /// `XMTPiOS.Group` via the existing `underlyingXMTPiOSGroup` bridge.
+    /// DTU-backed groups warn-and-skip until Stage 6b lifts the
+    /// processor onto `MessagingGroup` proper.
+    func processConversation(
+        group: any MessagingGroup,
+        params: SyncClientParams,
+        clientConversationId: String? = nil
+    ) async throws {
+        guard let xmtpAdapter = group as? XMTPiOSMessagingGroup else {
+            Log.warning(
+                "StreamProcessor: non-XMTPiOS group adapter (likely DTU). " +
+                "Skipping until Stage 6b lifts the processor onto MessagingGroup."
+            )
+            return
+        }
+        try await processConversation(
+            xmtpAdapter.underlyingXMTPiOSGroup,
+            params: params,
+            clientConversationId: clientConversationId
+        )
+    }
+
     func processConversation(
         _ conversation: XMTPiOS.Group,
         params: SyncClientParams,
@@ -196,14 +242,19 @@ actor StreamProcessor: StreamProcessorProtocol {
     ) async {
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
-            guard let conversation = try await params.client.conversationsProvider.findConversation(
-                conversationId: message.conversationId
-            ) else {
+            // Stage 6e Phase B-2: route the conversation lookup through
+            // the MessagingClient abstraction. Internally we still need
+            // the `XMTPiOS.Group` for `shouldProcessConversation` and
+            // `processExplodeSettings` (XIP-payload + writer surface),
+            // so we reach it via the XMTPiOSMessagingGroup bridge.
+            guard let messagingConversation = try await params.client
+                .conversations.find(conversationId: message.conversationId)
+            else {
                 Log.error("Conversation not found for message")
                 return
             }
 
-            switch conversation {
+            switch messagingConversation {
             case .dm:
                 if let inviteJoinError = decodeInviteJoinError(from: message) {
                     await handleInviteJoinError(inviteJoinError, senderInboxId: message.senderInboxId)
@@ -215,15 +266,20 @@ actor StreamProcessor: StreamProcessorProtocol {
                     client: params.client
                 )
                 Log.debug("Processed potential join request: \(message.id)")
-            case .group(let conversation):
+            case .group(let messagingGroup):
                 do {
+                    guard let xmtpAdapter = messagingGroup as? XMTPiOSMessagingGroup else {
+                        Log.warning("StreamProcessor.processMessage: non-XMTPiOS group adapter; skipping")
+                        return
+                    }
+                    let conversation = xmtpAdapter.underlyingXMTPiOSGroup
                     guard try await shouldProcessConversation(conversation, params: params) else {
                         Log.warning("Received invalid group message, skipping...")
                         return
                     }
 
                     let dbConversation = try await conversationWriter.store(
-                        conversation: XMTPiOSMessagingGroup(xmtpGroup: conversation),
+                        conversation: messagingGroup,
                         inboxId: params.client.inboxId
                     )
 

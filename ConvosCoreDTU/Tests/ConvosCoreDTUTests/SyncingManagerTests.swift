@@ -18,23 +18,66 @@ import XMTPiOS
 // concrete types for assertion access).
 
 /// Testable mock XMTP client that allows controlling syncAllConversations behavior
-class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
-    /// Stage 6 bridge override: TestableMockClient does not wrap an
-    /// `XMTPiOS.Client`, so the default `messagingClient` extension
-    /// would trap. SyncingManager itself doesn't reach into
-    /// `messagingClient` today (consumes only the `XMTPClientProvider`
-    /// surface), so this property is effectively dead code for this
-    /// mock. We trap with an explanatory message to make any future
-    /// regression loud.
-    var messagingClient: any MessagingClient {
-        fatalError("TestableMockClient.messagingClient: this mock does not bridge to MessagingClient; if your test reached this, swap to XMTPiOSMessagingClient(xmtpClient:) instead.")
-    }
+///
+/// Stage 6e Phase B-2: SyncingManager.start now requires `any MessagingClient`.
+/// This mock keeps its substantive behaviour on the legacy
+/// `XMTPClientProvider` / `ConversationsProvider` surface (which is what the
+/// SyncingManager streams + sync calls actually exercise via
+/// `client.legacyProvider.conversationsProvider`), and additionally conforms
+/// to `MessagingClient` with stub sub-surfaces. The `legacyProvider` default
+/// impl in `MessagingClient.swift` returns `self` for conformers that also
+/// conform to `XMTPClientProvider`, so the streaming wire path resolves back
+/// to this mock's `conversationsProvider`.
+class TestableMockClient: XMTPClientProvider, MessagingClient, @unchecked Sendable {
+    /// Stage 6e Phase B-2 self-bridge: this mock IS its own MessagingClient
+    /// — the protocol extension shim returns `self`, but we override
+    /// explicitly here so the test reads naturally.
+    var messagingClient: any MessagingClient { self }
+
     var installationId: String = "test-installation-id"
     var inboxId: String = "test-inbox-id"
 
     lazy var conversationsProvider: ConversationsProvider = {
         TestableMockConversations(syncBehavior: syncBehavior, streamBehavior: streamBehavior)
     }()
+
+    // MARK: - MessagingClient stub sub-surfaces
+
+    var publicIdentity: MessagingIdentity {
+        MessagingIdentity(kind: .ethereum, identifier: "0x0000000000000000000000000000000000000000")
+    }
+
+    lazy var conversations: any MessagingConversations = {
+        _StubMessagingConversationsTestable()
+    }()
+
+    lazy var consent: any MessagingConsent = _StubMessagingConsentTestable()
+    lazy var deviceSync: any MessagingDeviceSync = _StubMessagingDeviceSyncTestable()
+    lazy var installations: any MessagingInstallationsAPI = _StubMessagingInstallationsAPITestable()
+
+    static func create(signer: any MessagingSigner, config: MessagingClientConfig) async throws -> Self {
+        preconditionFailure("TestableMockClient.create is not supported")
+    }
+
+    static func build(identity: MessagingIdentity, inboxId: MessagingInboxID?, config: MessagingClientConfig) async throws -> Self {
+        preconditionFailure("TestableMockClient.build is not supported")
+    }
+
+    static func newestMessageMetadata(conversationIds: [String], config: MessagingClientConfig) async throws -> [String: MessagingMessageMetadata] {
+        preconditionFailure("TestableMockClient.newestMessageMetadata is not supported")
+    }
+
+    static func canMessage(identities: [MessagingIdentity], config: MessagingClientConfig) async throws -> [String: Bool] {
+        preconditionFailure("TestableMockClient.canMessage is not supported")
+    }
+
+    func canMessage(identity: MessagingIdentity) async throws -> Bool { true }
+    func canMessage(identities: [MessagingIdentity]) async throws -> [String: Bool] { [:] }
+    func inboxId(for identity: MessagingIdentity) async throws -> MessagingInboxID? { nil }
+
+    func signWithInstallationKey(_ message: String) throws -> Data { Data() }
+    func verifySignature(_ message: String, signature: Data) throws -> Bool { true }
+    func verifySignature(_ message: String, signature: Data, installationId: MessagingInstallationID) throws -> Bool { true }
 
     // Control syncAllConversations behavior
     var syncBehavior: SyncBehavior = .succeed
@@ -112,6 +155,78 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
 
     func reconnectLocalDatabase() async throws {
     }
+}
+
+// MARK: - Stage 6e Phase B-2 stub MessagingClient sub-surfaces for TestableMockClient
+// These exist solely to make TestableMockClient conform to MessagingClient so
+// SyncingManager.start(with:) (which now requires MessagingClient) accepts the
+// mock. The substantive sync / stream behaviour the tests exercise still flows
+// through `client.legacyProvider.conversationsProvider` (= TestableMockConversations).
+
+private final class _StubMessagingConversationsTestable: MessagingConversations, @unchecked Sendable {
+    func list(query: MessagingConversationQuery) async throws -> [MessagingConversation] { [] }
+    func listGroups(query: MessagingConversationQuery) async throws -> [any MessagingGroup] { [] }
+    func listDms(query: MessagingConversationQuery) async throws -> [any MessagingDm] { [] }
+    func find(conversationId: String) async throws -> MessagingConversation? { nil }
+    func findDmByInboxId(_ inboxId: MessagingInboxID) async throws -> (any MessagingDm)? { nil }
+    func findMessage(messageId: String) async throws -> MessagingMessage? { nil }
+    func findOrCreateDm(with inboxId: MessagingInboxID) async throws -> any MessagingDm {
+        preconditionFailure("TestableMockClient.conversations.findOrCreateDm not supported")
+    }
+    func newGroupOptimistic() async throws -> any MessagingGroup {
+        preconditionFailure("TestableMockClient.conversations.newGroupOptimistic not supported")
+    }
+    func newGroup(
+        withInboxIds inboxIds: [MessagingInboxID],
+        name: String,
+        imageUrl: String,
+        description: String
+    ) async throws -> any MessagingGroup {
+        preconditionFailure("TestableMockClient.conversations.newGroup not supported")
+    }
+    func sync() async throws {}
+    func syncAll(consentStates: [MessagingConsentState]?) async throws -> MessagingSyncSummary {
+        MessagingSyncSummary(numEligible: 0, numSynced: 0)
+    }
+    func streamAll(filter: MessagingConversationFilter, onClose: (@Sendable () -> Void)?) -> MessagingStream<MessagingConversation> {
+        MessagingStream { _ in }
+    }
+    func streamAllMessages(filter: MessagingConversationFilter, consentStates: [MessagingConsentState]?, onClose: (@Sendable () -> Void)?) -> MessagingStream<MessagingMessage> {
+        MessagingStream { _ in }
+    }
+}
+
+private struct _StubMessagingConsentTestable: MessagingConsent {
+    func set(records: [MessagingConsentRecord]) async throws {}
+    func conversationState(id: String) async throws -> MessagingConsentState { .unknown }
+    func inboxIdState(_ inboxId: MessagingInboxID) async throws -> MessagingConsentState { .unknown }
+    func syncPreferences() async throws {}
+}
+
+private struct _StubMessagingDeviceSyncTestable: MessagingDeviceSync {
+    func sendSyncRequest(options: MessagingArchiveOptions, serverUrl: String?) async throws {}
+    func sendSyncArchive(options: MessagingArchiveOptions, serverUrl: String?, pin: String) async throws {}
+    func processSyncArchive(pin: String?) async throws {}
+    func syncAllDeviceSyncGroups() async throws -> MessagingSyncSummary {
+        MessagingSyncSummary(numEligible: 0, numSynced: 0)
+    }
+    func createArchive(path: String, encryptionKey: Data, options: MessagingArchiveOptions) async throws {}
+    func importArchive(path: String, encryptionKey: Data) async throws {}
+}
+
+private struct _StubMessagingInstallationsAPITestable: MessagingInstallationsAPI {
+    func inboxState(refreshFromNetwork: Bool) async throws -> MessagingInbox {
+        preconditionFailure("TestableMockClient.installations.inboxState not supported")
+    }
+    func inboxStates(inboxIds: [MessagingInboxID], refreshFromNetwork: Bool) async throws -> [MessagingInbox] { [] }
+    func revokeInstallations(signer: any MessagingSigner, installationIds: [MessagingInstallationID]) async throws {}
+    func revokeAllOtherInstallations(signer: any MessagingSigner) async throws {}
+    static func revokeInstallations(
+        config: MessagingClientConfig,
+        signer: any MessagingSigner,
+        inboxId: MessagingInboxID,
+        installationIds: [MessagingInstallationID]
+    ) async throws {}
 }
 
 class TestableMockConversations: ConversationsProvider, @unchecked Sendable {

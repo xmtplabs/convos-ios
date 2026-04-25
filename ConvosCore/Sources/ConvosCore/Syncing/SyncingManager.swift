@@ -1,21 +1,24 @@
 import ConvosInvites
 import Foundation
 import GRDB
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
-// actor threads `AnyClientProvider` (= `any XMTPClientProvider`) and
-// `[ConsentState]` throughout its lifecycle surface. `XMTPClientProvider`
-// is the legacy Stage 3 writer-surface protocol; migrating it to
-// `any MessagingClient` (and `ConsentState` to `MessagingConsentState`)
-// is Stage 3 writer work. Stream consumption delegates to
-// `StreamProcessor`, which is where the actual `XMTPiOS.Group` /
-// `DecodedMessage` handling lives (also blocked on Stage 3).
+// FIXME(stage6e-residual): `@preconcurrency import XMTPiOS` remains
+// because the inner stream-processing path still pattern-matches on
+// `XMTPiOS.Conversation` and processes `XMTPiOS.DecodedMessage` directly
+// via the `StreamProcessor`. Stage 6e Phase B-2 migrated the public
+// surface (`start(with:)` and `SyncClientParams.client`) to
+// `any MessagingClient` and routed top-level network operations
+// (`syncAll`, `listGroups`) through the abstraction. The XMTPiOS-typed
+// stream-iteration path remains because converting `streamAllMessages`
+// + `streamProcessor.processMessage(DecodedMessage)` to
+// `MessagingMessage` requires either a round-trip bridge on the value
+// type or a much deeper writer-surface refactor (Stage 6b+).
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol
 
 public protocol SyncingManagerProtocol: Actor {
     var isSyncReady: Bool { get }
-    func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol)
+    func start(with client: any MessagingClient, apiClient: any ConvosAPIClientProtocol)
     func stop() async
     func pause() async
     func resume() async
@@ -27,14 +30,19 @@ public protocol SyncingManagerProtocol: Actor {
 /// Wrapper for client and API client parameters used in state transitions
 ///
 /// Marked @unchecked Sendable because:
-/// - XMTPClientProvider wraps XMTPiOS.Client which is not Sendable
+/// - MessagingClient (e.g. XMTPiOSMessagingClient) wraps an XMTPiOS.Client
+///   which is not Sendable
 /// - ConvosAPIClient is marked @unchecked Sendable
 public struct SyncClientParams: @unchecked Sendable {
-    public let client: AnyClientProvider
+    public let client: any MessagingClient
     public let apiClient: any ConvosAPIClientProtocol
-    public let consentStates: [ConsentState]
+    public let consentStates: [MessagingConsentState]
 
-    public init(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol, consentStates: [ConsentState] = [.allowed, .unknown]) {
+    public init(
+        client: any MessagingClient,
+        apiClient: any ConvosAPIClientProtocol,
+        consentStates: [MessagingConsentState] = [.allowed, .unknown]
+    ) {
         self.client = client
         self.apiClient = apiClient
         self.consentStates = consentStates
@@ -79,7 +87,7 @@ actor SyncingManager: SyncingManagerProtocol {
         case stopping
         case error(Error)
 
-        var client: AnyClientProvider? {
+        var client: (any MessagingClient)? {
             switch self {
             case .idle, .stopping, .error:
                 return nil
@@ -178,7 +186,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     // MARK: - Public Interface
 
-    func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+    func start(with client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) {
         enqueueAction(.start(SyncClientParams(client: client, apiClient: apiClient)))
     }
 
@@ -322,7 +330,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     // MARK: - Action Handlers
 
-    private func handleStart(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
+    private func handleStart(client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) async throws {
         let params = SyncClientParams(client: client, apiClient: apiClient)
         emitStateChange(.starting(params, pauseOnComplete: false))
 
@@ -364,7 +372,13 @@ actor SyncingManager: SyncingManagerProtocol {
             let syncStart = CFAbsoluteTimeGetCurrent()
             do {
                 try Task.checkCancellation()
-                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+                // Stage 6e Phase B-2: see runMessageStream / runConversationStream
+            // for the rationale; sync stays on `legacyProvider.conversationsProvider`
+            // because the test doubles drive their substantive behaviour
+            // through the XMTPiOS-typed surface (TestableMockConversations
+            // tracks syncCallCount on `syncAllConversations`).
+            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
+            _ = try await params.client.legacyProvider.conversationsProvider.syncAllConversations(consentStates: xmtpStates)
                 try Task.checkCancellation()
                 let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
                 Log.info("[PERF] sync.all_conversations: \(syncElapsed)ms")
@@ -430,13 +444,18 @@ actor SyncingManager: SyncingManagerProtocol {
     /// by listing all groups and storing any that aren't already in the DB.
     private func discoverNewConversations(params: SyncClientParams) async {
         do {
-            let groups = try params.client.conversationsProvider.listGroups(
+            // Stage 6e Phase B-2: list stays on `legacyProvider.conversationsProvider`
+            // because the existing stream-processor overload is XMTPiOS.Group-typed
+            // and the test doubles drive their substantive behaviour through
+            // the XMTPiOS-typed list surface.
+            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
+            let groups = try params.client.legacyProvider.conversationsProvider.listGroups(
                 createdAfterNs: nil,
                 createdBeforeNs: nil,
                 lastActivityAfterNs: nil,
                 lastActivityBeforeNs: nil,
                 limit: nil,
-                consentStates: params.consentStates,
+                consentStates: xmtpStates,
                 orderBy: .lastActivity
             )
 
@@ -613,7 +632,13 @@ actor SyncingManager: SyncingManagerProtocol {
         // so groups added while paused would be missed without this.
         do {
             let syncStart = CFAbsoluteTimeGetCurrent()
-            _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            // Stage 6e Phase B-2: see runMessageStream / runConversationStream
+            // for the rationale; sync stays on `legacyProvider.conversationsProvider`
+            // because the test doubles drive their substantive behaviour
+            // through the XMTPiOS-typed surface (TestableMockConversations
+            // tracks syncCallCount on `syncAllConversations`).
+            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
+            _ = try await params.client.legacyProvider.conversationsProvider.syncAllConversations(consentStates: xmtpStates)
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.resume_conversations: \(syncElapsed)ms")
         } catch {
@@ -634,7 +659,13 @@ actor SyncingManager: SyncingManagerProtocol {
         }
         do {
             let syncStart = CFAbsoluteTimeGetCurrent()
-            _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            // Stage 6e Phase B-2: see runMessageStream / runConversationStream
+            // for the rationale; sync stays on `legacyProvider.conversationsProvider`
+            // because the test doubles drive their substantive behaviour
+            // through the XMTPiOS-typed surface (TestableMockConversations
+            // tracks syncCallCount on `syncAllConversations`).
+            let xmtpStates = params.consentStates.map(\.xmtpConsentState)
+            _ = try await params.client.legacyProvider.conversationsProvider.syncAllConversations(consentStates: xmtpStates)
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
             await discoverNewConversations(params: params)
@@ -699,10 +730,19 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
 
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
+                // Stage 6e Phase B-2: stream consumption stays on the
+                // XMTPiOS-typed `streamAllMessages` because the writer
+                // surface (storeWithLatestMessages, etc.) and the
+                // join-flow back-channel still consume `DecodedMessage`
+                // directly; round-tripping `MessagingMessage` would lose
+                // the underlying handle the join-flow needs. The bridge
+                // is internal — the public `start(with:)` + SyncClientParams
+                // are MessagingClient-typed.
                 var isFirstMessage = true
-                let stream = params.client.conversationsProvider.streamAllMessages(
+                let xmtpStates = params.consentStates.map(\.xmtpConsentState)
+                let stream = params.client.legacyProvider.conversationsProvider.streamAllMessages(
                     type: .all,
-                    consentStates: params.consentStates,
+                    consentStates: xmtpStates,
                     onClose: {
                         Log.debug("Message stream closed via onClose callback")
                     }
@@ -761,8 +801,12 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
 
                 // Stream conversations - the loop will exit when onClose is called
+                // Stage 6e Phase B-2: see runMessageStream for the
+                // identical rationale; stream consumption remains on the
+                // XMTPiOS-typed `stream(type:)` because StreamProcessor
+                // pattern-matches on `XMTPiOS.Conversation` directly.
                 var isFirstConversation = true
-                let stream = params.client.conversationsProvider.stream(
+                let stream = params.client.legacyProvider.conversationsProvider.stream(
                     type: .groups,
                     onClose: {
                         Log.debug("Conversation stream closed via onClose callback")

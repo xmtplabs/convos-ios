@@ -736,10 +736,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
-        // Stage 6e Phase A: SyncingManager.start still takes
-        // `AnyClientProvider` (= any XMTPClientProvider). Bridge via
-        // `legacyProvider` until Phase B migrates SyncingManager.
-        await syncingManager?.start(with: result.client.legacyProvider, apiClient: result.apiClient)
+        // Stage 6e Phase B-2: SyncingManager.start now takes
+        // `any MessagingClient` directly. No bridge needed.
+        await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
         emitStateChange(.ready(clientId: clientId, result: result))
         // Start app lifecycle observation and network monitoring after starting sync

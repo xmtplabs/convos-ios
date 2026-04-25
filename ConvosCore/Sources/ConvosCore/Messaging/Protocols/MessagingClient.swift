@@ -148,20 +148,29 @@ public protocol MessagingClient: AnyObject, Sendable {
 public extension MessagingClient {
     /// Stage 6e Phase A bridge: lift this `MessagingClient` back down to
     /// the legacy `XMTPClientProvider` surface for callers that have
-    /// not yet migrated. Phase B removes this accessor.
+    /// not yet migrated. Phase C removes this accessor.
     ///
-    /// The default implementation only supports `XMTPiOSMessagingClient`
-    /// — i.e. the existing XMTPiOS-backed path that all currently-passing
-    /// tests already exercise. Non-XMTPiOS conformers (DTU) deliberately
-    /// `preconditionFailure` here; Phase B+C migrate the remaining
-    /// consumers off `XMTPClientProvider` and unskip the DTU integration
-    /// tests at that point.
+    /// The default implementation handles two cases that pass tests today:
+    /// 1. `XMTPiOSMessagingClient` (the prod XMTPiOS-backed path) — return the
+    ///    underlying `XMTPiOS.Client`.
+    /// 2. The conformer is *also* an `XMTPClientProvider` directly —
+    ///    return `self`. This case exists for the test mocks (e.g.
+    ///    `TestableMockClient` in `SyncingManagerTests.swift`) that
+    ///    historically conformed to `XMTPClientProvider` and now
+    ///    additionally conform to `MessagingClient` for the public
+    ///    SyncingManager surface.
+    /// Non-XMTPiOS conformers (DTU) deliberately `preconditionFailure`
+    /// here; Phase C retires the legacy provider entirely and the DTU
+    /// integration tests are unskipped at that point.
     var legacyProvider: any XMTPClientProvider {
         if let xmtpiOS = self as? XMTPiOSMessagingClient {
             return xmtpiOS.xmtpClient
         }
+        if let direct = self as? any XMTPClientProvider {
+            return direct
+        }
         preconditionFailure(
-            "MessagingClient.legacyProvider is a Phase A bridge for XMTPiOS-backed clients only; non-XMTPiOS clients should be migrated to the MessagingClient surface in Phase B."
+            "MessagingClient.legacyProvider is a Phase A bridge for XMTPiOS-backed clients (or test doubles that double-conform to XMTPClientProvider). Non-XMTPiOS clients should be migrated to the MessagingClient surface in Phase B/C."
         )
     }
 

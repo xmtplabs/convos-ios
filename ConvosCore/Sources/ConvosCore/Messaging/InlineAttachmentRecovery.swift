@@ -1,12 +1,11 @@
 import Foundation
-// FIXME(stage4): Stage 4 migration is partial for this file. The
-// `ConversationsProvider` protocol, `Attachment`, and `Reply` types
-// are XMTPiOS-owned and still consumed here because Stage 4 does not
-// migrate the XMTPClientProvider / legacy writer surface or the XIP
-// payload types (audit §5 Stage 3/6). Once `ConversationsProvider` is
-// replaced by `MessagingConversations.findMessage(...)` and the XIP
-// payloads move under `MessagingMessagePayload`, this file can drop
-// the XMTPiOS import and migrate fully.
+// FIXME(stage6e-residual): `@preconcurrency import XMTPiOS` remains
+// because the inline-attachment recovery path resolves the message's
+// decoded content as XIP-typed `Attachment` / `Reply` payloads (the
+// codec output types are XMTPiOS-owned). The provider entry-point has
+// migrated to `MessagingConversations.findMessage` (Stage 6e Phase B-2);
+// when the XIP payload types move under `MessagingMessagePayload` the
+// XMTPiOS import drops.
 @preconcurrency import XMTPiOS
 
 public enum InlineAttachmentRecoveryError: Error {
@@ -18,20 +17,25 @@ public enum InlineAttachmentRecoveryError: Error {
 public actor InlineAttachmentRecovery {
     public static let shared: InlineAttachmentRecovery = .init()
 
-    private var provider: (any ConversationsProvider)?
+    private var provider: (any MessagingConversations)?
 
     private init() {}
 
-    public func setProvider(_ provider: (any ConversationsProvider)?) {
+    /// Stage 6e Phase B-2: provider migrated from the legacy
+    /// `ConversationsProvider` (XMTPiOS-typed) to the abstraction's
+    /// `MessagingConversations`. The XIP-payload resolution still uses
+    /// XMTPiOS-typed `Attachment` / `Reply` content because the codec
+    /// payload types are owned by XMTPiOS.
+    public func setProvider(_ provider: (any MessagingConversations)?) {
         self.provider = provider
     }
 
-    public func recoverData(messageId: String) throws -> Data {
+    public func recoverData(messageId: String) async throws -> Data {
         guard let provider else {
             throw InlineAttachmentRecoveryError.noProviderAvailable
         }
 
-        guard let decoded = try provider.findMessage(messageId: messageId) else {
+        guard let decoded = try await provider.findMessage(messageId: messageId) else {
             throw InlineAttachmentRecoveryError.messageNotFound
         }
 

@@ -42,11 +42,13 @@ extension MessagingService {
         inboxReadyResult: InboxReadyResult,
         payload: PushNotificationPayload
     ) async throws -> DecodedNotificationContent? {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Phase B migrates `handleProtocolMessage` and the welcome /
-        // group-message helpers in this file to the abstraction; until
-        // then bridge through `legacyProvider`.
-        let client = inboxReadyResult.client.legacyProvider
+        // Stage 6e Phase B-2: handleProtocolMessage and the welcome /
+        // group-message helpers in this file now operate on
+        // `any MessagingClient`. The XMTPiOS-typed wire-layer reach
+        // (XMTPiOS.Group / DecodedMessage / ProfileSnapshotBuilder)
+        // remains internal — bridged via XMTPiOSMessagingGroup +
+        // MessagingConversation.processMessage(bytes:).
+        let client = inboxReadyResult.client
         let apiClient = inboxReadyResult.apiClient
 
         Log.debug("Processing notification with JWT override: \(payload.apiJWT != nil)")
@@ -62,7 +64,7 @@ extension MessagingService {
     /// Handles protocol message notifications
     private func handleProtocolMessage(
         payload: PushNotificationPayload,
-        client: any XMTPClientProvider,
+        client: any MessagingClient,
         apiClient: any ConvosAPIClientProtocol
     ) async throws -> DecodedNotificationContent? {
         guard let protocolData = payload.notificationData?.protocolData else {
@@ -121,7 +123,7 @@ extension MessagingService {
     /// This handler processes both cases: join requests from others and detecting new groups we've joined.
     private func handleWelcomeMessage(
         contentTopic: String,
-        client: any XMTPClientProvider,
+        client: any MessagingClient,
         userInfo: [AnyHashable: Any]
     ) async throws -> DecodedNotificationContent? {
         Log.debug("Syncing conversations after receiving welcome message")
@@ -144,7 +146,7 @@ extension MessagingService {
         )
 
         // Sync all conversations - this will fetch any groups we've been added to
-        _ = try await client.conversationsProvider.syncAllConversations(consentStates: [.unknown])
+        _ = try await client.conversations.syncAll(consentStates: [.unknown])
 
         // Case 1: Process join requests (others accepting our invites)
         let joinRequestResults = await joinRequestsManager.processJoinRequests(since: lastProcessed, client: client)
@@ -206,15 +208,12 @@ extension MessagingService {
         return .droppedMessage
     }
 
-    private func getExistingGroupIds(client: any XMTPClientProvider) async throws -> Set<String> {
-        let groups = try client.conversationsProvider.listGroups(
-            createdAfterNs: nil,
-            createdBeforeNs: nil,
-            lastActivityAfterNs: nil,
-            lastActivityBeforeNs: nil,
-            limit: nil,
-            consentStates: nil,
-            orderBy: .createdAt
+    private func getExistingGroupIds(client: any MessagingClient) async throws -> Set<String> {
+        let groups = try await client.conversations.listGroups(
+            query: MessagingConversationQuery(
+                consentStates: nil,
+                orderBy: .createdAt
+            )
         )
         return Set(groups.map { $0.id })
     }
@@ -226,22 +225,28 @@ extension MessagingService {
     }
 
     private func findNewGroupWeJoined(
-        client: any XMTPClientProvider,
+        client: any MessagingClient,
         existingGroupIds: Set<String>
     ) async throws -> NewGroupInfo? {
-        let currentGroups = try client.conversationsProvider.listGroups(
-            createdAfterNs: nil,
-            createdBeforeNs: nil,
-            lastActivityAfterNs: nil,
-            lastActivityBeforeNs: nil,
-            limit: nil,
-            consentStates: [.unknown, .allowed],
-            orderBy: .createdAt
+        // Stage 6e Phase B-2: list through the abstraction; the
+        // XMTPiOS-typed `NewGroupInfo` keeps storing the underlying
+        // `XMTPiOS.Group` because the downstream NSE writer chain
+        // (storeConversation, processProfileMessageInNSE) is XMTPiOS-typed.
+        let currentGroups = try await client.conversations.listGroups(
+            query: MessagingConversationQuery(
+                consentStates: [.unknown, .allowed],
+                orderBy: .createdAt
+            )
         )
 
-        for group in currentGroups where !existingGroupIds.contains(group.id) {
-            let creatorInboxId = try await group.creatorInboxId()
+        for messagingGroup in currentGroups where !existingGroupIds.contains(messagingGroup.id) {
+            let creatorInboxId = try await messagingGroup.creatorInboxId()
             if creatorInboxId != client.inboxId {
+                guard let xmtpAdapter = messagingGroup as? XMTPiOSMessagingGroup else {
+                    Log.warning("findNewGroupWeJoined: non-XMTPiOS group adapter; skipping")
+                    continue
+                }
+                let group = xmtpAdapter.underlyingXMTPiOSGroup
                 let name = try? group.name()
                 return NewGroupInfo(group: group, conversationId: group.id, conversationName: name)
             }
@@ -256,7 +261,7 @@ extension MessagingService {
         contentTopic: String,
         currentInboxId: String,
         userInfo: [AnyHashable: Any],
-        client: any XMTPClientProvider
+        client: any MessagingClient
     ) async throws -> DecodedNotificationContent? {
         // Extract conversation ID from topic path
         guard let conversationId = contentTopic.conversationIdFromXMTPGroupTopic else {
@@ -264,8 +269,13 @@ extension MessagingService {
             return nil
         }
 
-        // Find the conversation
-        guard let conversation = try await client.conversationsProvider.findConversation(conversationId: conversationId) else {
+        // Stage 6e Phase B-2: route through MessagingClient.conversations.find;
+        // the wire-format `processMessage(bytes:)` lives on the abstraction
+        // (XMTPiOSMessagingConversation routes to native processMessage,
+        // DTU adapter throws since it has no wire format yet).
+        guard let messagingConversation = try await client.conversations
+            .find(conversationId: conversationId)
+        else {
             Log.warning("Conversation not found for topic: \(contentTopic), extracted ID: \(conversationId)")
             return nil
         }
@@ -276,13 +286,33 @@ extension MessagingService {
             return nil
         }
 
-        // Process the message
-        guard let decodedMessage = try await conversation.processMessage(messageBytes: messageBytes) else {
+        // The NSE chain still consumes XMTPiOS.DecodedMessage downstream
+        // (joinRequestsManager.processJoinRequest, codec decoding for
+        // body text). Reach the underlying XMTPiOS.Conversation via the
+        // adapter to re-use the existing `processMessage(messageBytes:)`
+        // path that returns a raw `DecodedMessage`.
+        let xmtpConversation: XMTPiOS.Conversation
+        switch messagingConversation {
+        case .dm(let dm):
+            guard let xmtpAdapter = dm as? XMTPiOSMessagingDm else {
+                Log.warning("decodeTextMessageWithSender: non-XMTPiOS dm adapter; skipping")
+                return nil
+            }
+            xmtpConversation = .dm(xmtpAdapter.underlyingXMTPiOSDm)
+        case .group(let group):
+            guard let xmtpAdapter = group as? XMTPiOSMessagingGroup else {
+                Log.warning("decodeTextMessageWithSender: non-XMTPiOS group adapter; skipping")
+                return nil
+            }
+            xmtpConversation = .group(xmtpAdapter.underlyingXMTPiOSGroup)
+        }
+
+        guard let decodedMessage = try await xmtpConversation.processMessage(messageBytes: messageBytes) else {
             Log.warning("Failed to process message bytes")
             return nil
         }
 
-        switch conversation {
+        switch messagingConversation {
         case .dm:
             // Check if message is from self - DMs from self should be dropped
             if decodedMessage.senderInboxId == currentInboxId {
@@ -320,9 +350,13 @@ extension MessagingService {
             // Not a valid join request or already processed - drop the notification
             // Note: Invalid requests are already blocked by processJoinRequest
             return .droppedMessage
-        case .group(let group):
+        case .group(let messagingGroup):
+            guard let xmtpAdapter = messagingGroup as? XMTPiOSMessagingGroup else {
+                Log.warning("decodeTextMessageWithSender: non-XMTPiOS group adapter; skipping")
+                return .droppedMessage
+            }
             return try await handleGroupMessage(
-                group: group,
+                group: xmtpAdapter.underlyingXMTPiOSGroup,
                 decodedMessage: decodedMessage,
                 conversationId: conversationId,
                 currentInboxId: currentInboxId,
