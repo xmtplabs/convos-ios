@@ -48,11 +48,11 @@ enum InboxStateError: Error {
 }
 
 public struct InboxReadyResult: @unchecked Sendable {
-    /// Stage 6e Phase A: `client` is now the abstraction-layer
-    /// `MessagingClient`. Consumers that still need the legacy
-    /// `XMTPClientProvider` surface route via `client.legacyProvider`
-    /// (the Phase A bridge in `MessagingClient.swift`) until Phase B
-    /// migrates them.
+    /// Stage 6e Phase B-2: `client` is the abstraction-layer
+    /// `MessagingClient`; the prod state-machine + service layer no
+    /// longer reach for the legacy `XMTPClientProvider` surface (the
+    /// `legacyProvider` bridge stays only as a Phase C transition shim
+    /// for storage writers + test mocks).
     public let client: any MessagingClient
     public let apiClient: any ConvosAPIClientProtocol
 
@@ -96,13 +96,13 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 /// and maintains state through idle → authorizing/registering → authenticating → ready → deleting → stopping.
 public actor InboxStateMachine: InboxStateManagerProtocol {
     /// @unchecked Sendable: Most cases contain only Sendable values (String). Cases with
-    /// XMTPClientProvider (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
+    /// MessagingClient (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
     /// contain protocol references that wrap thread-safe XMTP types designed for async/await use.
     enum Action: @unchecked Sendable {
         case authorize(inboxId: String, clientId: String),
              register(clientId: String),
-             clientAuthorized(clientId: String, client: any XMTPClientProvider),
-             clientRegistered(clientId: String, client: any XMTPClientProvider),
+             clientAuthorized(clientId: String, client: any MessagingClient),
+             clientRegistered(clientId: String, client: any MessagingClient),
              authorized(clientId: String, result: InboxReadyResult),
              enterBackground,
              enterForeground,
@@ -528,12 +528,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 try await handleAuthorized(clientId: clientId, result: result)
 
             case (let .ready(clientId, result), .delete):
-                // Stage 6e Phase A: handleDelete still takes
-                // `any XMTPClientProvider` (Phase B retires that). Bridge
-                // through `legacyProvider` at this single boundary.
+                // Stage 6e Phase B-2: handleDelete now takes `any MessagingClient`.
                 try await handleDelete(
                     clientId: clientId,
-                    client: result.client.legacyProvider,
+                    client: result.client,
                     apiClient: result.apiClient
                 )
             case (let .error(clientId, _), .delete):
@@ -609,10 +607,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         let keys = identity.clientKeys
         let config = messagingClientConfig(keys: keys)
-        // Stage 6e Phase A: factory now returns `any MessagingClient`.
-        // The action enum and `InboxReadyResult` still take
-        // `any XMTPClientProvider` until Phase B; bridge via
-        // `legacyProvider` at the seam below.
+        // Stage 6e Phase B-2: factory + Action enum + InboxReadyResult are
+        // all on `any MessagingClient`. No bridge needed.
         let messagingClient: any MessagingClient
         do {
             try Task.checkCancellation()
@@ -635,19 +631,16 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 throw InboxStateError.clientIdInboxInconsistency
             }
         }
-        // Phase A bridge: hand the legacy `XMTPClientProvider` view to
-        // the existing action / state-machine pipeline.
-        let client: any XMTPClientProvider = messagingClient.legacyProvider
 
         try Task.checkCancellation()
 
         // Ensure inbox is saved to database when authorizing
         // (in case it was registered as unused but is now being used)
         let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-        try await inboxWriter.save(inboxId: client.inboxId, clientId: identity.clientId)
-        Log.info("Saved inbox to database: \(client.inboxId)")
+        try await inboxWriter.save(inboxId: messagingClient.inboxId, clientId: identity.clientId)
+        Log.info("Saved inbox to database: \(messagingClient.inboxId)")
 
-        enqueueAction(.clientAuthorized(clientId: clientId, client: client))
+        enqueueAction(.clientAuthorized(clientId: clientId, client: messagingClient))
     }
 
     private func handleRegister(clientId: String) async throws {
@@ -662,29 +655,26 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Stage 6e Phase A: factory returns `any MessagingClient`; the
-        // action enum + `InboxReadyResult` remain on `XMTPClientProvider`
-        // until Phase B, so we bridge via `legacyProvider`.
+        // Stage 6e Phase B-2: factory + Action enum on `any MessagingClient`.
         let messagingClient = try await messagingClientFactory.createClient(
             signer: keys.signingKey,
             config: messagingClientConfig(keys: keys),
             xmtpCodecs: Self.defaultXMTPCodecs()
         )
-        let client: any XMTPClientProvider = messagingClient.legacyProvider
 
         try Task.checkCancellation()
 
-        Log.info("Generated clientId: \(clientId) for inboxId: \(client.inboxId)")
+        Log.info("Generated clientId: \(clientId) for inboxId: \(messagingClient.inboxId)")
 
         // Save to keychain with clientId
-        _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
+        _ = try await identityStore.save(inboxId: messagingClient.inboxId, clientId: clientId, keys: keys)
 
         try Task.checkCancellation()
 
         // Save to database
         do {
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try await inboxWriter.save(inboxId: client.inboxId, clientId: clientId)
+            try await inboxWriter.save(inboxId: messagingClient.inboxId, clientId: clientId)
             Log.info("Saved inbox to database with clientId: \(clientId)")
         } catch {
             // Rollback keychain entry on database failure to maintain consistency
@@ -693,10 +683,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             throw error
         }
 
-        enqueueAction(.clientRegistered(clientId: clientId, client: client))
+        enqueueAction(.clientRegistered(clientId: clientId, client: messagingClient))
     }
 
-    private func handleClientAuthorized(clientId: String, client: any XMTPClientProvider) async throws {
+    private func handleClientAuthorized(clientId: String, client: any MessagingClient) async throws {
         try Task.checkCancellation()
 
         emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
@@ -706,18 +696,16 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Lift the legacy XMTPClientProvider into the abstraction surface
-        // via the existing `messagingClient` extension accessor.
+        // Stage 6e Phase B-2: client + InboxReadyResult both on MessagingClient.
         enqueueAction(
             .authorized(
                 clientId: clientId,
-                result: .init(client: client.messagingClient, apiClient: apiClient)
+                result: .init(client: client, apiClient: apiClient)
             )
         )
     }
 
-    private func handleClientRegistered(clientId: String, client: any XMTPClientProvider) async throws {
+    private func handleClientRegistered(clientId: String, client: any MessagingClient) async throws {
         try Task.checkCancellation()
 
         emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
@@ -726,11 +714,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Stage 6e Phase A: same boundary as handleClientAuthorized.
+        // Stage 6e Phase B-2: same boundary as handleClientAuthorized.
         enqueueAction(
             .authorized(
                 clientId: clientId,
-                result: .init(client: client.messagingClient, apiClient: apiClient)
+                result: .init(client: client, apiClient: apiClient)
             )
         )
     }
@@ -750,7 +738,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         }
     }
 
-    private func handleDelete(clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
+    private func handleDelete(clientId: String, client: any MessagingClient, apiClient: any ConvosAPIClientProtocol) async throws {
         try Task.checkCancellation()
 
         Log.info("Deleting inbox with clientId: \(clientId)...")
@@ -888,14 +876,12 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         await syncingManager?.stop()
 
         // Drop database connection after sync is stopped
-        // This releases SQLCipher connections in the Rust layer (LibXMTP)
-        // Stage 6a: route DB lifecycle through `messagingClient` so the
-        // operation lands on `MessagingClient.dropLocalDatabaseConnection`
-        // — the same SDK call, but reached through the abstraction seam
-        // instead of the legacy `XMTPClientProvider` extension method.
+        // This releases SQLCipher connections in the Rust layer (LibXMTP).
+        // Stage 6e Phase B-2: `clientToClose` is `any MessagingClient`;
+        // call directly without the `messagingClient` shim.
         if let client = clientToClose {
             do {
-                try client.messagingClient.dropLocalDatabaseConnection()
+                try client.dropLocalDatabaseConnection()
                 Log.debug("Dropped local database connection for \(clientId)")
             } catch {
                 Log.error("Failed to drop database connection for \(clientId): \(error)")
@@ -917,8 +903,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Pause the syncing manager
         await syncingManager?.pause()
 
-        // Stage 6a: route DB lifecycle through `messagingClient`.
-        try result.client.messagingClient.dropLocalDatabaseConnection()
+        // Stage 6e Phase B-2: result.client is `any MessagingClient`;
+        // call directly.
+        try result.client.dropLocalDatabaseConnection()
 
         emitStateChange(.backgrounded(clientId: clientId, result: result))
         Log.info("Inbox backgrounded successfully")
@@ -927,8 +914,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private func handleEnterForeground(clientId: String, result: InboxReadyResult) async throws {
         Log.info("App entering foreground, resuming sync for clientId \(clientId)...")
 
-        // Stage 6a: route DB lifecycle through `messagingClient`.
-        try await result.client.messagingClient.reconnectLocalDatabase()
+        // Stage 6e Phase B-2: result.client is `any MessagingClient`.
+        try await result.client.reconnectLocalDatabase()
 
         // Restart network monitoring
         await startNetworkMonitoring()
@@ -975,12 +962,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Network monitoring already stopped when backgrounded
 
         // Perform common cleanup operations
-        // Stage 6e Phase A: bridge MessagingClient → legacy provider for
-        // performInboxCleanup which still operates on XMTPClientProvider
-        // until Phase B.
+        // Stage 6e Phase B-2: performInboxCleanup now takes `any MessagingClient`.
         try await performInboxCleanup(
             clientId: clientId,
-            client: result.client.legacyProvider,
+            client: result.client,
             apiClient: result.apiClient
         )
     }
@@ -988,7 +973,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     /// Performs common cleanup operations when deleting an inbox
     private func performInboxCleanup(
         clientId: String,
-        client: any XMTPClientProvider,
+        client: any MessagingClient,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
         try Task.checkCancellation()
@@ -1043,9 +1028,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         // Delete XMTP local database
         // Try SDK method first, fall back to manual file deletion if it fails
-        // Stage 6a: route DB lifecycle through `messagingClient`.
+        // Stage 6e Phase B-2: client is MessagingClient; deleteLocalDatabase
+        // is on the protocol directly.
         do {
-            try client.messagingClient.deleteLocalDatabase()
+            try client.deleteLocalDatabase()
             Log.debug("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
         } catch {
             Log.warning("SDK deleteLocalDatabase failed, attempting manual file deletion: \(error)")
