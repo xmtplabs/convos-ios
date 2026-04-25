@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
 // builder returns `ClientOptions.Api` for the static-op path

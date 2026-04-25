@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 
 /// Normalized decoded-payload shapes for the content types that the

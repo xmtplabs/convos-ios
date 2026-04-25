@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
 // service encrypts+uploads photo attachments using the XIP-native

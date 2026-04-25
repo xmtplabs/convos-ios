@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage6e-residual): `@preconcurrency import XMTPiOS` remains
 // because the inline-attachment recovery path resolves the message's

@@ -1,4 +1,5 @@
 import Combine
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS

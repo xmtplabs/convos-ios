@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 
 /// Maps the abstraction-layer `MessagingDeliveryStatus` to the

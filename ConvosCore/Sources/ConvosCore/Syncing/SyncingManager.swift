@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 // FIXME(stage6e-residual): `@preconcurrency import XMTPiOS` remains

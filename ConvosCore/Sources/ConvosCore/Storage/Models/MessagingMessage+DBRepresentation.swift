@@ -1,4 +1,5 @@
 import ConvosAppData
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 import UniformTypeIdentifiers

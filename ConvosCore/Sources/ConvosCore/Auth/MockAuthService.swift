@@ -1,5 +1,6 @@
 import Combine
 import ConvosAppData
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage4): `@preconcurrency import XMTPiOS` remains for the
 // underlying `PrivateKey` (secp256k1) handle used by the mock. The

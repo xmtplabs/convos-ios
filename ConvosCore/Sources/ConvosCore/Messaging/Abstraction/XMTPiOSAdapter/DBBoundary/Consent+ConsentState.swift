@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import XMTPiOS
 
 /// Stage 2 migration (audit §5, §1.4).

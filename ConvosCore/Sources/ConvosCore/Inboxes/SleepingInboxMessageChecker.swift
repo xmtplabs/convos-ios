@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 // FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this

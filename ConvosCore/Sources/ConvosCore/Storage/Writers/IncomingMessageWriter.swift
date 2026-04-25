@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 

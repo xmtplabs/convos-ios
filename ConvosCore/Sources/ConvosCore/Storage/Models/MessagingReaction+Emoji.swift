@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 
 /// Projects a `MessagingReaction` onto the user-visible emoji glyph

@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage4): Stage 4 migration is partial for this file. The
 // `RemoteAttachment` and `AttachmentCodec` references are XMTPiOS-

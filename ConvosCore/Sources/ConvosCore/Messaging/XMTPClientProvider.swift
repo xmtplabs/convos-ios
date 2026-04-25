@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosMessagingProtocols
 import Foundation
 @preconcurrency import XMTPiOS
 

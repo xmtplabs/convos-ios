@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 
 /// Convos-owned mirrors of the XIP-spec standard content types.

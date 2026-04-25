@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosMessagingProtocols
 import ConvosProfiles
 import Foundation
 import GRDB

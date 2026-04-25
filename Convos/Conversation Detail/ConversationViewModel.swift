@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMessagingProtocols
 import Observation
 import SwiftUI
 import UIKit

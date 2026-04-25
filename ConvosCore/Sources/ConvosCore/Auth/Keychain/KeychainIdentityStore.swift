@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import CryptoKit
 import Foundation
 import LocalAuthentication

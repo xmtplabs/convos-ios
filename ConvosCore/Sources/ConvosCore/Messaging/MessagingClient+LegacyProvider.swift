@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 
 // MARK: - Stage 6e Phase A bridge

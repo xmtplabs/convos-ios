@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 
 /// Bridges Convos' user-facing `Consent` enum (GRDB / UI model) and

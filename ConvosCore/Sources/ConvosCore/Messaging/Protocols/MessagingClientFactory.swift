@@ -1,3 +1,4 @@
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage6e): `@preconcurrency import XMTPiOS` remains because this
 // factory still exposes `ClientOptions.Api` for legacy static-op

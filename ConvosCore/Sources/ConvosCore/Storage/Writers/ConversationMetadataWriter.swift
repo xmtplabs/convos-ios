@@ -1,5 +1,6 @@
 import Combine
 import ConvosAppData
+import ConvosMessagingProtocols
 import ConvosProfiles
 import Foundation
 import GRDB

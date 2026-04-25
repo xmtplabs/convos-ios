@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
 // adapter exists specifically to bridge `MessagingClient` to
