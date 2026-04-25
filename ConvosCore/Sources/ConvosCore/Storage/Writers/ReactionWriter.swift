@@ -85,10 +85,12 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         action: Action
     ) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // The optimistic-reaction helpers below still take `XMTPClientProvider`;
-        // bridge through `legacyProvider` until Phase B migrates them.
-        let client = inboxReady.client.legacyProvider
+        // Stage 6e Phase B: routes through the `MessagingClient`
+        // abstraction. The reaction helpers only need `inboxId` and
+        // `messagingConversation(with:)`, both of which live on the
+        // `MessagingClient` surface, so the legacy `XMTPClientProvider`
+        // bridge is no longer required.
+        let client = inboxReady.client
 
         switch action {
         case .added:
@@ -113,7 +115,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         emoji: String,
         to messageId: String,
         in conversationId: String,
-        client: any XMTPClientProvider
+        client: any MessagingClient
     ) async throws {
         let date = Date()
         let reactionClientMessageId = UUID().uuidString
@@ -218,7 +220,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         emoji: String,
         from messageId: String,
         in conversationId: String,
-        client: any XMTPClientProvider
+        client: any MessagingClient
     ) async throws {
         let inboxId = client.inboxId
 
