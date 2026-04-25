@@ -1,12 +1,4 @@
 import ConvosMessagingProtocols
-// FIXME(stage6f-step8): `@preconcurrency import XMTPiOS` remains because
-// `InviteCoordinator.swift`'s body still drives sends/decoding through
-// XMTPiOS-native APIs (`dm.send(content:options:)`, `message.content()`,
-// `message.encodedContent.type`). Stage 6f Step 7 lifted the
-// `InviteClientProvider` protocol surface onto `Messaging*` types so the
-// adapter (DTU) becomes structurally possible; the coordinator body
-// migration is deferred to Step 8.
-@preconcurrency import XMTPiOS
 
 /// Minimal client interface needed by InviteCoordinator.
 ///
