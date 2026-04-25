@@ -12,17 +12,19 @@ final class DeepLinkHandlerTests: XCTestCase {
         ConfigManager.shared.associatedDomain
     }
 
-    override func setUp() {
-        super.setUp()
+    @MainActor
+    override func setUp() async throws {
+        try await super.setUp()
         // Most tests in this file exercise the connection-grant path, which is
         // gated on FeatureFlags.shared.isCloudConnectionsEnabled. Flip it on for
         // the suite; individual flag-off cases override below.
         FeatureFlags.shared.isCloudConnectionsEnabled = true
     }
 
-    override func tearDown() {
+    @MainActor
+    override func tearDown() async throws {
         FeatureFlags.shared.isCloudConnectionsEnabled = false
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Connection Grant Deep Links (custom scheme)
