@@ -8,8 +8,25 @@ import Testing
 
 // Stage 6f: migrated from
 // `ConvosCore/Tests/ConvosCoreTests/SleepingInboxMessageCheckerIntegrationTests.swift`.
-// Integration test that needs Docker XMTP and the legacy
-// XMTPClientProvider surface; skips cleanly on DTU lane.
+//
+// Final round (Stage 6f Phase D): the test bodies were rewritten to
+// drop the legacy `XMTPiOS.Client` cast and operate on
+// `any MessagingClient` / `any MessagingGroup` instead. The
+// `IntegrationTestFixtures` helper now produces
+// `XMTPiOSMessagingClient` instances directly via the abstraction's
+// `MessagingClient.create(...)` static, matching the dual-backend
+// pattern in `LegacyTestFixtures` / `DualBackendTestFixtures`.
+//
+// DTU-gap: the test still skips on the DTU lane because the
+// production code under test (`SleepingInboxMessageChecker`) calls
+// the static `XMTPStaticOperations.getNewestMessageMetadata` path,
+// which is XMTPiOS-only — the DTU adapter's
+// `DTUMessagingClient.newestMessageMetadata(...)` deliberately throws
+// `DTUMessagingNotSupportedError` because DTU's engine requires a
+// universe + actor and has no static metadata-lookup path. See
+// `DTUMessagingClient.swift:182-194`. Once the abstraction grows a
+// per-instance metadata accessor (and Convos refactors the checker
+// to use it), this guard can be replaced with `shouldRunDualBackend`.
 
 // Set custom XMTP endpoint at module load time (before any async code)
 // @preconcurrency import suppresses strict concurrency warnings for XMTP static properties
@@ -29,22 +46,23 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Sleeping inbox wakes when it receives a new message from another client")
     func testSleepingInboxWakesOnNewMessage() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "SleepingInboxMessageChecker integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SleepingInboxMessageChecker drives the static `XMTPStaticOperations.getNewestMessageMetadata` path; the DTU adapter throws `DTUMessagingNotSupportedError` because the engine has no static metadata-lookup path (universe + actor required).") else { return }
         let fixtures = IntegrationTestFixtures()
 
-        // Create two XMTP clients: sender and receiver
-        let (senderClientProvider, _, _) = try await fixtures.createClient()
-        let (receiverClientProvider, receiverClientId, _) = try await fixtures.createClient()
+        // Create two MessagingClients: sender and receiver. The
+        // abstraction surface is backend-agnostic; this XMTPiOS-only
+        // path is selected by the legacy guard above. Phase A of Stage 6e
+        // already lifted MessagingClient creation off the raw
+        // XMTPiOS.Client cast.
+        let (senderClient, _, _) = try await fixtures.createClient()
+        let (receiverClient, receiverClientId, _) = try await fixtures.createClient()
 
-        // Cast to concrete Client type for full XMTP SDK access
-        guard let senderClient = senderClientProvider as? Client,
-              let receiverClient = receiverClientProvider as? Client else {
-            throw IntegrationTestError.failedToCastClient
-        }
-
-        // Sender creates a group conversation with receiver
+        // Sender creates a group conversation with receiver via
+        // `MessagingConversations.newGroup(withInboxIds:)` — replaces
+        // the legacy `senderClient.conversations.newGroup(with:)` raw
+        // XMTPiOS call.
         let group = try await senderClient.conversations.newGroup(
-            with: [receiverClient.inboxID],
+            withInboxIds: [receiverClient.inboxId],
             name: "Test Group",
             imageUrl: "",
             description: ""
@@ -54,10 +72,10 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await receiverClient.conversations.sync()
 
         // Save receiver's inbox to database
-        try await fixtures.saveInbox(clientId: receiverClientId, inboxId: receiverClient.inboxID)
+        try await fixtures.saveInbox(clientId: receiverClientId, inboxId: receiverClient.inboxId)
 
         // Save the conversation to database (so activity repository can find it)
-        try await fixtures.saveConversation(id: group.id, clientId: receiverClientId, inboxId: receiverClient.inboxID)
+        try await fixtures.saveConversation(id: group.id, clientId: receiverClientId, inboxId: receiverClient.inboxId)
 
         // Create lifecycle manager and mark receiver as sleeping (slept 1 hour ago)
         let sleepTime = Date().addingTimeInterval(-3600)
@@ -69,7 +87,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         activityRepo.activities = [
             InboxActivity(
                 clientId: receiverClientId,
-                inboxId: receiverClient.inboxID,
+                inboxId: receiverClient.inboxId,
                 lastActivity: sleepTime.addingTimeInterval(-1800),
                 conversationCount: 1
             )
@@ -78,7 +96,9 @@ struct SleepingInboxMessageCheckerIntegrationTests {
             receiverClientId: [group.id]
         ]
 
-        // Create the checker with real XMTP static operations
+        // Create the checker with real XMTP static operations.
+        // `Client.self` is still XMTPiOS-bound here because the static
+        // metadata path is XMTPiOS-only (see DTU-gap note above).
         let appLifecycle = MockAppLifecycleProvider(
             didEnterBackgroundNotification: .init("TestBackground"),
             willEnterForegroundNotification: .init("TestForeground"),
@@ -94,8 +114,9 @@ struct SleepingInboxMessageCheckerIntegrationTests {
             xmtpStaticOperations: Client.self
         )
 
-        // Sender sends a message (this happens AFTER the sleep time)
-        try await group.send(content: "Hello from sender!")
+        // Sender sends a message via the abstraction's optimistic
+        // send + explicit publish (replaces raw `group.send(content:)`).
+        try await sendText(group: group, text: "Hello from sender!")
 
         // Wait for message to propagate through XMTP network before checking
         // Uses polling instead of fixed delay for reliability across different CI environments
@@ -119,21 +140,16 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Sleeping inbox does NOT wake when no new messages after sleep time")
     func testSleepingInboxDoesNotWakeWithoutNewMessages() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "SleepingInboxMessageChecker integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SleepingInboxMessageChecker drives the static `XMTPStaticOperations.getNewestMessageMetadata` path; the DTU adapter throws `DTUMessagingNotSupportedError` because the engine has no static metadata-lookup path (universe + actor required).") else { return }
         let fixtures = IntegrationTestFixtures()
 
-        // Create two XMTP clients
-        let (senderClientProvider, _, _) = try await fixtures.createClient()
-        let (receiverClientProvider, receiverClientId, _) = try await fixtures.createClient()
-
-        guard let senderClient = senderClientProvider as? Client,
-              let receiverClient = receiverClientProvider as? Client else {
-            throw IntegrationTestError.failedToCastClient
-        }
+        // Create two MessagingClients
+        let (senderClient, _, _) = try await fixtures.createClient()
+        let (receiverClient, receiverClientId, _) = try await fixtures.createClient()
 
         // Sender creates a group with receiver
         let group = try await senderClient.conversations.newGroup(
-            with: [receiverClient.inboxID],
+            withInboxIds: [receiverClient.inboxId],
             name: "Test Group",
             imageUrl: "",
             description: ""
@@ -143,7 +159,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await receiverClient.conversations.sync()
 
         // Sender sends a message BEFORE we mark receiver as sleeping
-        try await group.send(content: "Old message before sleep")
+        try await sendText(group: group, text: "Old message before sleep")
 
         // Wait for message to propagate through XMTP network before continuing
         // Uses polling instead of fixed delay for reliability across different CI environments
@@ -155,8 +171,8 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         )
 
         // Save receiver's inbox and conversation to database
-        try await fixtures.saveInbox(clientId: receiverClientId, inboxId: receiverClient.inboxID)
-        try await fixtures.saveConversation(id: group.id, clientId: receiverClientId, inboxId: receiverClient.inboxID)
+        try await fixtures.saveInbox(clientId: receiverClientId, inboxId: receiverClient.inboxId)
+        try await fixtures.saveConversation(id: group.id, clientId: receiverClientId, inboxId: receiverClient.inboxId)
 
         // Now mark receiver as sleeping (AFTER the message was sent)
         // Add 5 second buffer for clock skew between test machine and XMTP backend
@@ -170,7 +186,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         activityRepo.activities = [
             InboxActivity(
                 clientId: receiverClientId,
-                inboxId: receiverClient.inboxID,
+                inboxId: receiverClient.inboxId,
                 lastActivity: sleepTime.addingTimeInterval(-5),
                 conversationCount: 1
             )
@@ -207,30 +223,24 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
     @Test("Multiple sleeping inboxes: only those with new messages wake")
     func testMultipleSleepingInboxesSelectiveWake() async throws {
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "SleepingInboxMessageChecker integration needs real Docker XMTP + XMTPiOS-only flow.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SleepingInboxMessageChecker drives the static `XMTPStaticOperations.getNewestMessageMetadata` path; the DTU adapter throws `DTUMessagingNotSupportedError` because the engine has no static metadata-lookup path (universe + actor required).") else { return }
         let fixtures = IntegrationTestFixtures()
 
         // Create three clients: sender, receiver1 (will get new message), receiver2 (won't)
-        let (senderClientProvider, _, _) = try await fixtures.createClient()
-        let (receiver1ClientProvider, receiver1ClientId, _) = try await fixtures.createClient()
-        let (receiver2ClientProvider, receiver2ClientId, _) = try await fixtures.createClient()
-
-        guard let senderClient = senderClientProvider as? Client,
-              let receiver1Client = receiver1ClientProvider as? Client,
-              let receiver2Client = receiver2ClientProvider as? Client else {
-            throw IntegrationTestError.failedToCastClient
-        }
+        let (senderClient, _, _) = try await fixtures.createClient()
+        let (receiver1Client, receiver1ClientId, _) = try await fixtures.createClient()
+        let (receiver2Client, receiver2ClientId, _) = try await fixtures.createClient()
 
         // Sender creates two groups
         let group1 = try await senderClient.conversations.newGroup(
-            with: [receiver1Client.inboxID],
+            withInboxIds: [receiver1Client.inboxId],
             name: "Group 1",
             imageUrl: "",
             description: ""
         )
 
         let group2 = try await senderClient.conversations.newGroup(
-            with: [receiver2Client.inboxID],
+            withInboxIds: [receiver2Client.inboxId],
             name: "Group 2",
             imageUrl: "",
             description: ""
@@ -241,7 +251,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await receiver2Client.conversations.sync()
 
         // Send old message to group2 BEFORE sleep
-        try await group2.send(content: "Old message to group 2")
+        try await sendText(group: group2, text: "Old message to group 2")
 
         // Wait for message to propagate through XMTP network before continuing
         // Uses polling instead of fixed delay for reliability across different CI environments
@@ -252,10 +262,10 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         )
 
         // Save inboxes and conversations
-        try await fixtures.saveInbox(clientId: receiver1ClientId, inboxId: receiver1Client.inboxID)
-        try await fixtures.saveInbox(clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
-        try await fixtures.saveConversation(id: group1.id, clientId: receiver1ClientId, inboxId: receiver1Client.inboxID)
-        try await fixtures.saveConversation(id: group2.id, clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
+        try await fixtures.saveInbox(clientId: receiver1ClientId, inboxId: receiver1Client.inboxId)
+        try await fixtures.saveInbox(clientId: receiver2ClientId, inboxId: receiver2Client.inboxId)
+        try await fixtures.saveConversation(id: group1.id, clientId: receiver1ClientId, inboxId: receiver1Client.inboxId)
+        try await fixtures.saveConversation(id: group2.id, clientId: receiver2ClientId, inboxId: receiver2Client.inboxId)
 
         // Wait for clock skew buffer before setting sleep time.
         // This ensures the "old" message timestamp from the XMTP backend
@@ -271,7 +281,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await Task.sleep(for: .seconds(5))
 
         // Send NEW message only to group1 (AFTER sleep)
-        try await group1.send(content: "New message to group 1 after sleep!")
+        try await sendText(group: group1, text: "New message to group 1 after sleep!")
 
         // Wait for message to propagate through XMTP network before checking
         try await waitForMessagePropagation(
@@ -285,13 +295,13 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         activityRepo.activities = [
             InboxActivity(
                 clientId: receiver1ClientId,
-                inboxId: receiver1Client.inboxID,
+                inboxId: receiver1Client.inboxId,
                 lastActivity: nil,
                 conversationCount: 1
             ),
             InboxActivity(
                 clientId: receiver2ClientId,
-                inboxId: receiver2Client.inboxID,
+                inboxId: receiver2Client.inboxId,
                 lastActivity: nil,
                 conversationCount: 1
             )
@@ -330,20 +340,21 @@ struct SleepingInboxMessageCheckerIntegrationTests {
     }
 }
 
-// MARK: - Integration Test Helpers
-
-enum IntegrationTestError: Error {
-    case failedToCastClient
-}
-
 // MARK: - Integration Test Fixtures
 
-/// Test fixtures for integration tests using real XMTP network
-private class IntegrationTestFixtures {
+/// Test fixtures for integration tests using real XMTP network.
+///
+/// Final round (Stage 6f Phase D): rewritten to expose
+/// `any MessagingClient` instead of the legacy
+/// `any XMTPClientProvider`. Construction still goes through
+/// XMTPiOS (`XMTPiOSMessagingClient.create(...)`) because the
+/// SleepingInboxMessageChecker static path is XMTPiOS-only — see the
+/// DTU-gap note at the top of this file.
+private final class IntegrationTestFixtures {
     let environment: AppEnvironment
     let identityStore: MockKeychainIdentityStore
     let databaseManager: MockDatabaseManager
-    private var createdClients: [any XMTPClientProvider] = []
+    private var createdClients: [any MessagingClient] = []
 
     init() {
         self.environment = .tests
@@ -357,7 +368,11 @@ private class IntegrationTestFixtures {
         // XMTP endpoint is configured at module load time via _configureXMTPEndpoint
     }
 
-    func createClient() async throws -> (client: any XMTPClientProvider, clientId: String, keys: KeychainIdentityKeys) {
+    func createClient() async throws -> (
+        client: any MessagingClient,
+        clientId: String,
+        keys: KeychainIdentityKeys
+    ) {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
@@ -368,33 +383,25 @@ private class IntegrationTestFixtures {
             isSecure = false
         }
 
-        let clientOptions = ClientOptions(
-            api: .init(
-                env: .local,
-                isSecure: isSecure,
-                appVersion: "convos-tests/1.0.0"
-            ),
-            codecs: [
-                TextCodec(),
-                ReplyCodec(),
-                ReactionV2Codec(),
-                ReactionCodec(),
-                AttachmentCodec(),
-                RemoteAttachmentCodec(),
-                GroupUpdatedCodec(),
-                ExplodeSettingsCodec(),
-                ProfileUpdateCodec(),
-                ProfileSnapshotCodec(),
-                TypingIndicatorCodec()
-            ],
+        // Use the abstraction's `MessagingClientConfig` shape; the
+        // XMTPiOS adapter (`XMTPiOSMessagingClient.create(...)`) builds
+        // the underlying `ClientOptions` from these fields and registers
+        // the same codec set the legacy path used.
+        let config = MessagingClientConfig(
+            apiEnv: .local,
+            customLocalAddress: ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"],
+            isSecure: isSecure,
+            appVersion: "convos-tests/1.0.0",
             dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbDirectory: environment.defaultDatabasesDirectory,
+            deviceSyncEnabled: false,
+            codecs: []
         )
 
-        // Stage 4f migrated `keys.signingKey` to MessagingSigner;
-        // wrap through the adapter for the legacy `Client.create` path.
-        let signingKey = XMTPiOSSigningKeyAdapter(keys.signingKey)
-        let client = try await Client.create(account: signingKey, options: clientOptions)
+        let client: any MessagingClient = try await XMTPiOSMessagingClient.create(
+            signer: keys.signingKey,
+            config: config
+        )
         createdClients.append(client)
 
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
@@ -435,19 +442,46 @@ private class IntegrationTestFixtures {
     }
 }
 
-// MARK: - Message Propagation Helper
+// MARK: - Send + propagation helpers
 
-/// Waits for messages to propagate through the XMTP network by polling the receiver's conversations.
-/// This replaces fixed delays with explicit verification, making tests more reliable across
-/// different CI environments (local Docker, ephemeral Fly.io backends, etc.).
+/// Sends a plain-text message through the abstraction's optimistic
+/// send + explicit publish path. Replaces the legacy raw
+/// `XMTPiOS.Conversation.send(content:)` call site.
+///
+/// XMTPiOS's `sendOptimistic` stores locally with delivery status
+/// `.unpublished`; `publish()` flushes any pending optimistic messages
+/// to the network. This matches the dual-step pattern already used by
+/// `CreateGroupSendListCrossBackendTests`.
+private func sendText(group: any MessagingGroup, text: String) async throws {
+    let encoded = MessagingEncodedContent(
+        type: .text,
+        parameters: [:],
+        content: Data(text.utf8),
+        fallback: nil,
+        compression: nil
+    )
+    _ = try await group.sendOptimistic(encodedContent: encoded, options: nil)
+    try await group.publish()
+}
+
+/// Waits for messages to propagate through the XMTP network by
+/// polling the receiver's conversations.
+///
+/// Final round: takes `any MessagingClient` instead of the raw
+/// `XMTPiOS.Client` so the helper compiles backend-agnostically. Uses
+/// the abstraction's `MessagingConversations.listGroups(query:)` and
+/// `MessagingConversationCore.messages(query:)` instead of the legacy
+/// XMTPiOS calls — both are backed by libxmtp on the XMTPiOS adapter
+/// and by the DTU engine on the DTU adapter, but only XMTPiOS is
+/// exercised here because the legacy guard skips DTU.
 ///
 /// - Parameters:
-///   - client: The XMTP client to check for received messages
+///   - client: The MessagingClient to check for received messages
 ///   - expectedMessageCount: Minimum number of messages expected (default: 1)
 ///   - timeout: Maximum time to wait for propagation (default: 10 seconds)
 /// - Throws: TimeoutError if messages don't propagate within timeout
 private func waitForMessagePropagation(
-    client: Client,
+    client: any MessagingClient,
     expectedMessageCount: Int = 1,
     timeout: Duration = .seconds(10)
 ) async throws {
@@ -456,12 +490,14 @@ private func waitForMessagePropagation(
         try? await client.conversations.sync()
 
         // Check if any conversation has the expected number of messages
-        let conversations = try? client.conversations.listGroups()
+        let conversations = try? await client.conversations.listGroups(
+            query: MessagingConversationQuery()
+        )
         guard let conversations else { return false }
 
         for conversation in conversations {
             try? await conversation.sync()
-            let messages = try? await conversation.messages()
+            let messages = try? await conversation.messages(query: MessagingMessageQuery())
             if let messages, messages.count >= expectedMessageCount {
                 return true
             }
