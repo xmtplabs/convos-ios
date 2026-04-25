@@ -142,3 +142,26 @@ public protocol MessagingClient: AnyObject, Sendable {
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
 }
+
+// MARK: - Stage 6e Phase A bridge
+
+public extension MessagingClient {
+    /// Stage 6e Phase A bridge: lift this `MessagingClient` back down to
+    /// the legacy `XMTPClientProvider` surface for callers that have
+    /// not yet migrated. Phase B removes this accessor.
+    ///
+    /// The default implementation only supports `XMTPiOSMessagingClient`
+    /// — i.e. the existing XMTPiOS-backed path that all currently-passing
+    /// tests already exercise. Non-XMTPiOS conformers (DTU) deliberately
+    /// `preconditionFailure` here; Phase B+C migrate the remaining
+    /// consumers off `XMTPClientProvider` and unskip the DTU integration
+    /// tests at that point.
+    var legacyProvider: any XMTPClientProvider {
+        if let xmtpiOS = self as? XMTPiOSMessagingClient {
+            return xmtpiOS.xmtpClient
+        }
+        preconditionFailure(
+            "MessagingClient.legacyProvider is a Phase A bridge for XMTPiOS-backed clients only; non-XMTPiOS clients should be migrated to the MessagingClient surface in Phase B."
+        )
+    }
+}

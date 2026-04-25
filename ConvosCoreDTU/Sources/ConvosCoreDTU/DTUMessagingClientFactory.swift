@@ -6,17 +6,22 @@ import XMTPDTU
 ///
 /// Parallels `XMTPiOSMessagingClientFactory`: same conceptual shape (a
 /// factory that builds a messaging client from a per-instance
-/// `MessagingClientConfig`), but the `MessagingClientFactory` protocol
-/// today returns `any XMTPClientProvider` — a legacy XMTPiOS-specific
-/// type — which means the DTU factory can't conform to the existing
-/// protocol without depending on XMTPiOS.
+/// `MessagingClientConfig`). Stage 6e Phase A flipped the
+/// `MessagingClientFactory` return type from `any XMTPClientProvider`
+/// to `any MessagingClient`, so the factories now agree on their
+/// conceptual return type.
 ///
-/// Rather than pulling XMTPiOS in (which would defeat the whole point of
-/// the separate `ConvosCoreDTU` package), this factory exposes its own
-/// narrower entry points: `createClient(...)` and `buildClient(...)`,
-/// both returning `DTUMessagingClient` directly. When Stage 6 retires
-/// `XMTPClientProvider` from the `MessagingClientFactory` return types,
-/// `DTUMessagingClientFactory` can conform to the protocol cleanly.
+/// The DTU factory still does NOT conform to the `MessagingClientFactory`
+/// protocol because that protocol's `apiOptions(_:)` and `xmtpCodecs`
+/// parameters are XMTPiOS-typed (`ClientOptions.Api`,
+/// `[any ContentCodec]`). Pulling XMTPiOS in would defeat the purpose
+/// of the separate `ConvosCoreDTU` package. Phase B retires both of
+/// those XMTPiOS leftovers from the protocol; at that point the DTU
+/// factory can conform.
+///
+/// In the meantime, this factory exposes its own narrower entry points:
+/// `createClient(...)` and `buildClient(...)`, both returning
+/// `DTUMessagingClient` directly (which IS an `any MessagingClient`).
 ///
 /// The factory stores a reference to a `DTUUniverse`. Callers own
 /// universe creation + teardown; the factory is a thin handle registry

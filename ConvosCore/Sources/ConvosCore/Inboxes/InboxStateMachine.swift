@@ -595,10 +595,14 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         let keys = identity.clientKeys
         let config = messagingClientConfig(keys: keys)
-        let client: any XMTPClientProvider
+        // Stage 6e Phase A: factory now returns `any MessagingClient`.
+        // The action enum and `InboxReadyResult` still take
+        // `any XMTPClientProvider` until Phase B; bridge via
+        // `legacyProvider` at the seam below.
+        let messagingClient: any MessagingClient
         do {
             try Task.checkCancellation()
-            client = try await messagingClientFactory.buildClient(
+            messagingClient = try await messagingClientFactory.buildClient(
                 inboxId: identity.inboxId,
                 identity: keys.signingKey.identity,
                 config: config,
@@ -607,16 +611,19 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         } catch {
             try Task.checkCancellation()
             Log.info("Error building client, trying create...")
-            client = try await messagingClientFactory.createClient(
+            messagingClient = try await messagingClientFactory.createClient(
                 signer: keys.signingKey,
                 config: config,
                 xmtpCodecs: Self.defaultXMTPCodecs()
             )
-            guard client.inboxId == identity.inboxId else {
+            guard messagingClient.inboxId == identity.inboxId else {
                 Log.error("Created client with mis-matched inboxId")
                 throw InboxStateError.clientIdInboxInconsistency
             }
         }
+        // Phase A bridge: hand the legacy `XMTPClientProvider` view to
+        // the existing action / state-machine pipeline.
+        let client: any XMTPClientProvider = messagingClient.legacyProvider
 
         try Task.checkCancellation()
 
@@ -641,11 +648,15 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        let client = try await messagingClientFactory.createClient(
+        // Stage 6e Phase A: factory returns `any MessagingClient`; the
+        // action enum + `InboxReadyResult` remain on `XMTPClientProvider`
+        // until Phase B, so we bridge via `legacyProvider`.
+        let messagingClient = try await messagingClientFactory.createClient(
             signer: keys.signingKey,
             config: messagingClientConfig(keys: keys),
             xmtpCodecs: Self.defaultXMTPCodecs()
         )
+        let client: any XMTPClientProvider = messagingClient.legacyProvider
 
         try Task.checkCancellation()
 

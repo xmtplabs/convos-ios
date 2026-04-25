@@ -53,16 +53,20 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         signer: any MessagingSigner,
         config: MessagingClientConfig
     ) async throws -> Self {
-        let xmtpProvider = try await XMTPiOSMessagingClientFactory.shared.createClient(
+        // Stage 6e Phase A: factory now returns `any MessagingClient`.
+        // It hands back an `XMTPiOSMessagingClient` for the XMTPiOS path;
+        // we downcast back to the concrete type so that `Self`-typed
+        // returns remain valid.
+        let messagingClient = try await XMTPiOSMessagingClientFactory.shared.createClient(
             signer: signer,
             config: config,
             xmtpCodecs: Self.defaultXMTPCodecs()
         )
-        guard let xmtpClient = xmtpProvider as? XMTPiOS.Client else {
+        guard let xmtpiOSClient = messagingClient as? XMTPiOSMessagingClient else {
             throw XMTPiOSMessagingClientError.unexpectedProviderType
         }
         // swiftlint:disable:next force_cast
-        return Self(xmtpClient: xmtpClient) as! Self
+        return Self(xmtpClient: xmtpiOSClient.xmtpClient) as! Self
     }
 
     public static func build(
@@ -76,17 +80,18 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         // `Client.build` directly — it will resolve the inbox via
         // `getOrCreateInboxId` under the hood.
         if let inboxId {
-            let xmtpProvider = try await XMTPiOSMessagingClientFactory.shared.buildClient(
+            // Stage 6e Phase A: factory now returns `any MessagingClient`.
+            let messagingClient = try await XMTPiOSMessagingClientFactory.shared.buildClient(
                 inboxId: inboxId,
                 identity: identity,
                 config: config,
                 xmtpCodecs: Self.defaultXMTPCodecs()
             )
-            guard let xmtpClient = xmtpProvider as? XMTPiOS.Client else {
+            guard let xmtpiOSClient = messagingClient as? XMTPiOSMessagingClient else {
                 throw XMTPiOSMessagingClientError.unexpectedProviderType
             }
             // swiftlint:disable:next force_cast
-            return Self(xmtpClient: xmtpClient) as! Self
+            return Self(xmtpClient: xmtpiOSClient.xmtpClient) as! Self
         } else {
             // Direct SDK fallback for the no-inbox-id flow (getOrCreateInboxId).
             let options = try await Self.clientOptions(for: config)

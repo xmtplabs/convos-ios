@@ -22,7 +22,7 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
         signer: any MessagingSigner,
         config: MessagingClientConfig,
         xmtpCodecs: [any ContentCodec]
-    ) async throws -> any XMTPClientProvider {
+    ) async throws -> any MessagingClient {
         applyLocalAddressOverride(config: config)
         let options = clientOptions(config: config, xmtpCodecs: xmtpCodecs)
         Log.info("Creating XMTP client...")
@@ -32,7 +32,10 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
         let signingKey = XMTPiOSSigningKeyAdapter(signer)
         let client = try await Client.create(account: signingKey, options: options)
         Log.info("XMTP Client created with app version: convos/\(Bundle.appVersion)")
-        return client
+        // Stage 6e Phase A: factory now returns `any MessagingClient`.
+        // Wrap the native XMTPiOS client in the abstraction adapter so
+        // downstream consumers stay on the Stage 5/6a surface.
+        return XMTPiOSMessagingClient(xmtpClient: client)
     }
 
     public func buildClient(
@@ -40,7 +43,7 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
         identity: MessagingIdentity,
         config: MessagingClientConfig,
         xmtpCodecs: [any ContentCodec]
-    ) async throws -> any XMTPClientProvider {
+    ) async throws -> any MessagingClient {
         applyLocalAddressOverride(config: config)
         let options = clientOptions(config: config, xmtpCodecs: xmtpCodecs)
         Log.debug("Building XMTP client for \(inboxId)...")
@@ -50,7 +53,8 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
             inboxId: inboxId
         )
         Log.debug("XMTP Client built.")
-        return client
+        // Stage 6e Phase A: factory now returns `any MessagingClient`.
+        return XMTPiOSMessagingClient(xmtpClient: client)
     }
 
     public func apiOptions(config: MessagingClientConfig) -> ClientOptions.Api {
