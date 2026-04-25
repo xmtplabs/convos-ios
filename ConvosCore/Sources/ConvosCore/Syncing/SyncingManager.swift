@@ -377,7 +377,7 @@ actor SyncingManager: SyncingManagerProtocol {
         // `DecodedMessage` directly via the existing
         // `processMessage(_ message:DecodedMessage,...)` path.
         // Skipped on DTU since DTU has no DM channel today.
-        if hasLegacyProvider(client: client) {
+        if isXMTPiOSBacked(client: client) {
             dmStreamTask = Task { [weak self, params] in
                 guard let self else { return }
                 await self.runDmMessageStream(params: params)
@@ -656,7 +656,7 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
-        if hasLegacyProvider(client: params.client) {
+        if isXMTPiOSBacked(client: params.client) {
             dmStreamTask = Task { [weak self, params] in
                 guard let self else { return }
                 await self.runDmMessageStream(params: params)
@@ -907,8 +907,19 @@ actor SyncingManager: SyncingManagerProtocol {
     /// invite-error payloads and route join requests through
     /// `InviteJoinRequestsManager`. Skipped on DTU-backed clients
     /// (DTU has no DM channel today; spawning is gated by
-    /// `hasLegacyProvider` in `handleStart` / `handleResume`).
+    /// `isXMTPiOSBacked` in `handleStart` / `handleResume`).
     private func runDmMessageStream(params: SyncClientParams) async {
+        // The DM/invite back-channel is XMTPiOS-only; the spawn gate
+        // (`isXMTPiOSBacked`) ensures we only get here for clients
+        // backed by `XMTPiOSMessagingClient`. Reach the XMTPiOS
+        // `Conversations.streamAllMessages` directly so we can keep
+        // consuming `DecodedMessage` (still required for invite-error
+        // payload decode + join-request routing).
+        guard let xmtpiOS = params.client as? XMTPiOSMessagingClient else {
+            Log.debug("DM stream skipped: client is not XMTPiOS-backed")
+            return
+        }
+        let xmtpConversations = xmtpiOS.xmtpClient.conversations
         var retryCount = 0
         while !Task.isCancelled && retryCount < maxStreamRetries {
             do {
@@ -918,7 +929,7 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
                 Log.debug("Starting DM message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
                 let xmtpStates = params.consentStates.map(\.xmtpConsentState)
-                let stream = params.client.legacyProvider.conversationsProvider.streamAllMessages(
+                let stream = xmtpConversations.streamAllMessages(
                     type: .dms,
                     consentStates: xmtpStates,
                     onClose: {
@@ -950,15 +961,12 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
-    /// True when the client can be driven through the legacy
-    /// `XMTPClientProvider` wire layer — XMTPiOSMessagingClient or a
-    /// double-conforming test double. Mirrors the same shape as the
-    /// `MessagingClient.legacyProvider` extension's check; used to
-    /// decide whether to spawn the DM/invite back-channel stream.
-    private func hasLegacyProvider(client: any MessagingClient) -> Bool {
-        if (client as? XMTPiOSMessagingClient) != nil { return true }
-        if (client as? any XMTPClientProvider) != nil { return true }
-        return false
+    /// True when the client is XMTPiOS-backed and can therefore drive
+    /// the DM/invite back-channel stream (which still consumes
+    /// `DecodedMessage` directly). DTU-backed clients return false —
+    /// DTU has no DM channel today.
+    private func isXMTPiOSBacked(client: any MessagingClient) -> Bool {
+        return (client as? XMTPiOSMessagingClient) != nil
     }
 
     // MARK: - Mutation
