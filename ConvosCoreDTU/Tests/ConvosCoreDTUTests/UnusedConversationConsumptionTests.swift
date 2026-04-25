@@ -51,7 +51,7 @@ struct UnusedConversationConsumptionTests {
         // UnusedConversationCache calls newGroupOptimistic during
         // prepareUnusedConversationIfNeeded; DTU does not implement
         // that path. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationConsumption — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -87,7 +87,7 @@ struct UnusedConversationConsumptionTests {
         // UnusedConversationCache calls newGroupOptimistic during
         // prepareUnusedConversationIfNeeded; DTU does not implement
         // that path. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationConsumption — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -139,7 +139,7 @@ struct UnusedConversationConsumptionTests {
         // UnusedConversationCache calls newGroupOptimistic during
         // prepareUnusedConversationIfNeeded; DTU does not implement
         // that path. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationConsumption — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -205,7 +205,7 @@ struct UnusedConversationConsumptionTests {
         // UnusedConversationCache calls newGroupOptimistic during
         // prepareUnusedConversationIfNeeded; DTU does not implement
         // that path. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationConsumption — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -302,7 +302,7 @@ struct UnusedConversationConsumptionTests {
         // UnusedConversationCache calls newGroupOptimistic during
         // prepareUnusedConversationIfNeeded; DTU does not implement
         // that path. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationConsumption — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -369,7 +369,7 @@ struct UnusedConversationConsumptionTests {
         // UnusedConversationCache calls newGroupOptimistic during
         // prepareUnusedConversationIfNeeded; DTU does not implement
         // that path. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationConsumption drives newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationConsumption — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 

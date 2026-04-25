@@ -40,7 +40,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -73,7 +73,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -113,7 +113,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -154,7 +154,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -193,7 +193,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -237,7 +237,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -264,7 +264,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -298,7 +298,7 @@ struct ConsumeInboxOnlyTests {
         // the full consumeInboxOnly flow needs newGroupOptimistic
         // which DTU's MessagingConversations adapter does not
         // implement. Test stays gated on XMTPiOS until Stage 6f.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConsumeInboxOnly drives UnusedConversationCache which calls newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConsumeInboxOnly drives UnusedConversationCache — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 

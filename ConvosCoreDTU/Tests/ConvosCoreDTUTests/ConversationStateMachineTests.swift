@@ -83,7 +83,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -151,7 +151,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -230,13 +230,14 @@ struct ConversationStateMachineTests {
 
     @Test("Messages queued during creation are sent when ready")
     func testMessageQueueingDuringCreation() async throws {
-        // Stage 6e Phase C: ConversationStateMachine drives
-        // UnusedConversationCache + per-step group/dm creation, both of
-        // which DTU's MessagingConversations adapter does not yet
-        // implement (newGroupOptimistic / findOrCreateDm). Test stays
-        // gated on XMTPiOS until Stage 6f closes the conversation-
-        // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        // newGroupOptimistic is wired on DTU now, but this test asserts
+        // that queued messages land in the DB after `ready` — and on
+        // the DTU lane `SyncingManager.start` short-circuits the
+        // wire-layer message stream (see SyncingManager.swift:345),
+        // so messages publish through the engine but never get
+        // persisted by the syncing pipeline. Stays XMTPiOS-only until
+        // a DTU stream-adapter exists.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips wire-layer streams on DTU; messages publish but DB-persistence pipeline is not wired (SyncingManager.swift:345).") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -305,13 +306,13 @@ struct ConversationStateMachineTests {
 
     @Test("Delete flow cleans up conversation")
     func testDeleteFlow() async throws {
-        // Stage 6e Phase C: ConversationStateMachine drives
-        // UnusedConversationCache + per-step group/dm creation, both of
-        // which DTU's MessagingConversations adapter does not yet
-        // implement (newGroupOptimistic / findOrCreateDm). Test stays
-        // gated on XMTPiOS until Stage 6f closes the conversation-
-        // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        // newGroupOptimistic is wired on DTU now, but this test asserts
+        // the conversation row exists in `DBConversation` after
+        // `ready` — that row only lands when SyncingManager observes
+        // the conversation create on the wire stream. DTU's
+        // SyncingManager.start short-circuits the stream (see
+        // SyncingManager.swift:345), so the row is never written.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips conversation persistence on DTU lane; DBConversation rows are never written (SyncingManager.swift:345).") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -396,13 +397,12 @@ struct ConversationStateMachineTests {
 
     @Test("Stop transitions to uninitialized without deleting")
     func testStopFlow() async throws {
-        // Stage 6e Phase C: ConversationStateMachine drives
-        // UnusedConversationCache + per-step group/dm creation, both of
-        // which DTU's MessagingConversations adapter does not yet
-        // implement (newGroupOptimistic / findOrCreateDm). Test stays
-        // gated on XMTPiOS until Stage 6f closes the conversation-
-        // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        // newGroupOptimistic is wired on DTU now, but this test asserts
+        // the conversation row exists in `DBConversation` post-stop —
+        // and DTU's SyncingManager skips wire-layer persistence on the
+        // DTU lane (SyncingManager.swift:345), so DBConversation rows
+        // are never written.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips conversation persistence on DTU lane; DBConversation rows are never written (SyncingManager.swift:345).") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -491,7 +491,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -600,7 +600,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1057,7 +1057,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         let unusedInboxCache = try await fixtures.unusedConversationCache(
@@ -1136,7 +1136,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1210,7 +1210,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1275,7 +1275,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1373,13 +1373,13 @@ struct ConversationStateMachineTests {
 
     @Test("UseExisting allows sending messages immediately")
     func testUseExistingWithMessages() async throws {
-        // Stage 6e Phase C: ConversationStateMachine drives
-        // UnusedConversationCache + per-step group/dm creation, both of
-        // which DTU's MessagingConversations adapter does not yet
-        // implement (newGroupOptimistic / findOrCreateDm). Test stays
-        // gated on XMTPiOS until Stage 6f closes the conversation-
-        // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        // newGroupOptimistic is wired on DTU now, but this test asserts
+        // queued messages land in `DBMessage` after `useExisting` — on
+        // DTU SyncingManager.start short-circuits the wire-layer
+        // streams (SyncingManager.swift:345), so messages publish
+        // through the engine but the DB-persistence pipeline is not
+        // wired.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: SyncingManager skips wire-layer streams on DTU; messages publish but DB-persistence pipeline is not wired (SyncingManager.swift:345).") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1488,7 +1488,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1606,7 +1606,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         // Get a real messaging service from the cache
@@ -1990,7 +1990,7 @@ struct ConversationStateMachineTests {
         // implement (newGroupOptimistic / findOrCreateDm). Test stays
         // gated on XMTPiOS until Stage 6f closes the conversation-
         // creation gap.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: ConversationStateMachine end-to-end requires newGroupOptimistic; DTU does not implement that path.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "ConversationStateMachine end-to-end — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
 
         let unusedInboxCache = try await fixtures.unusedConversationCache(

@@ -75,7 +75,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -118,7 +118,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -151,7 +151,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -213,7 +213,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -257,7 +257,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -310,7 +310,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -374,7 +374,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -423,7 +423,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -485,7 +485,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -533,7 +533,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -597,7 +597,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
@@ -662,7 +662,7 @@ struct UnusedConversationCacheTests {
         // because the DTU engine has no optimistic-create flow
         // (see `DTUMessagingConversations.swift`). Until that gap is
         // closed (Stage 6f scope), the test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: UnusedConversationCache.prepareUnusedConversationIfNeeded calls newGroupOptimistic which DTU does not implement.") else { return }
+        guard LegacyFixtureBackendGuard.shouldRunDualBackend(reason: "UnusedConversationCache.prepareUnusedConversationIfNeeded — newGroupOptimistic now wired on DTU.") else { return }
         let fixtures = LegacyTestFixtures()
         let cache = try await fixtures.unusedConversationCache()
 
