@@ -30,4 +30,17 @@ public enum ConnectionServiceNaming {
         }
         return slug
     }
+
+    /// Humanize a canonical service id (or server-supplied service name) into
+    /// something user-readable. `google_calendar` → `Google Calendar`. The
+    /// optional `fallbackFrom` is used when `serviceName` is empty (e.g. a
+    /// server response with no name field) — pass the canonical id.
+    public static func displayName(for serviceName: String, fallbackFrom serviceId: String = "") -> String {
+        let base = serviceName.isEmpty ? serviceId : serviceName
+        return base
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
 }

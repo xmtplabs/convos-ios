@@ -170,12 +170,7 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     }
 
     private func displayName(for serviceName: String, fallbackFrom serviceId: String) -> String {
-        let base = serviceName.isEmpty ? serviceId : serviceName
-        return base
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        ConnectionServiceNaming.displayName(for: serviceName, fallbackFrom: serviceId)
     }
 }
 

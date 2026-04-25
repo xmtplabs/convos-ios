@@ -5,10 +5,13 @@ public final class MockConnectionManager: ConnectionManagerProtocol, Sendable {
     public init() {}
 
     public func connect(serviceId: String) async throws -> Connection {
+        // Derive the display name from the input serviceId via the same helper
+        // the real ConnectionManager uses, so test assertions on per-service
+        // naming reflect production behavior.
         Connection(
             id: "mock-\(UUID().uuidString)",
             serviceId: serviceId,
-            serviceName: "Google Calendar",
+            serviceName: ConnectionServiceNaming.displayName(for: serviceId),
             provider: .composio,
             composioEntityId: "convos_mock",
             composioConnectionId: "mock_conn",
