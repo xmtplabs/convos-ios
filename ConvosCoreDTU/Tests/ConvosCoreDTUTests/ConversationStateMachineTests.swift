@@ -685,12 +685,25 @@ struct ConversationStateMachineTests {
     )
     func testJoinConversationOnline() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        // Stage 6e Phase C: same DTU gap as the create-flow tests —
-        // the join flow needs newGroupOptimistic plus invite
-        // coordination through the XMTPiOS-typed InviteClientProvider
-        // surface (`InviteClientProviderAdapter` requires XMTPiOS).
-        // Test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow drives newGroupOptimistic + InviteClientProvider; DTU has neither path yet.") else { return }
+        // Stage 6e Phase C / Final-round Agent 2 audit: the actual DTU
+        // blockers for this test are engine-side, not protocol-typing:
+        //  1. Inviter side calls `newGroupOptimistic()` on
+        //     `MessagingConversations`; DTU throws `DTUMessagingNotSupportedError`
+        //     ("DTU engine has no optimistic-create flow").
+        //  2. Joiner side calls `findOrCreateDm(with:)` from
+        //     `ConversationStateMachine.handleJoin` (already on the
+        //     `MessagingClient` abstraction); DTU throws
+        //     `DTUMessagingNotSupportedError` ("DTU engine does not yet
+        //     model DM conversations as a first-class kind").
+        // The previously-cited `InviteClientProvider` typing is NOT a
+        // blocker for the join test path: CSM's `handleJoin` bypasses
+        // `InviteCoordinator.sendJoinRequest` entirely and drives the
+        // joiner-side DM creation directly through `MessagingClient`.
+        // `InviteClientProviderAdapter` only ever runs on the creator
+        // side (StreamProcessor / push notifications), which DTU can't
+        // reach until (1) above is implemented anyway. Test stays
+        // gated on XMTPiOS until DTU grows DM + optimistic-create paths.
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow needs DTU `newGroupOptimistic` (creator) + DTU `findOrCreateDm` (joiner); both engine-side gaps.") else { return }
         let inviterFixtures = LegacyTestFixtures()
         let joinerFixtures = LegacyTestFixtures()
 
@@ -860,12 +873,12 @@ struct ConversationStateMachineTests {
     )
     func testJoinConversationOffline() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        // Stage 6e Phase C: same DTU gap as the create-flow tests —
-        // the join flow needs newGroupOptimistic plus invite
-        // coordination through the XMTPiOS-typed InviteClientProvider
-        // surface (`InviteClientProviderAdapter` requires XMTPiOS).
-        // Test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow drives newGroupOptimistic + InviteClientProvider; DTU has neither path yet.") else { return }
+        // Stage 6e Phase C / Final-round Agent 2 audit: same engine-side
+        // DTU gaps as `testJoinConversationOnline`. `InviteClientProvider`
+        // typing is NOT the blocker here — see the longer note on that
+        // test. Real blockers: `newGroupOptimistic` (creator) +
+        // `findOrCreateDm` (joiner).
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow needs DTU `newGroupOptimistic` (creator) + DTU `findOrCreateDm` (joiner); both engine-side gaps.") else { return }
         let inviterFixtures = LegacyTestFixtures()
         let joinerFixtures = LegacyTestFixtures()
 
@@ -1706,12 +1719,12 @@ struct ConversationStateMachineTests {
     )
     func testMessageSyncAfterNetworkReconnection() async throws {
         // Create separate fixtures for inviter and joiner so they have different databases
-        // Stage 6e Phase C: same DTU gap as the create-flow tests —
-        // the join flow needs newGroupOptimistic plus invite
-        // coordination through the XMTPiOS-typed InviteClientProvider
-        // surface (`InviteClientProviderAdapter` requires XMTPiOS).
-        // Test stays gated on XMTPiOS.
-        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow drives newGroupOptimistic + InviteClientProvider; DTU has neither path yet.") else { return }
+        // Stage 6e Phase C / Final-round Agent 2 audit: same engine-side
+        // DTU gaps as `testJoinConversationOnline`. `InviteClientProvider`
+        // typing is NOT the blocker here — see the longer note on that
+        // test. Real blockers: `newGroupOptimistic` (creator) +
+        // `findOrCreateDm` (joiner).
+        guard LegacyFixtureBackendGuard.shouldRun(reason: "DTU-gap: join flow needs DTU `newGroupOptimistic` (creator) + DTU `findOrCreateDm` (joiner); both engine-side gaps.") else { return }
         let inviterFixtures = LegacyTestFixtures()
         let joinerFixtures = LegacyTestFixtures()
 

@@ -15,6 +15,22 @@ import Foundation
 // `XMTPiOS.Client` because the InviteClientProvider surface is
 // fundamentally XMTPiOS-typed. DTU-backed clients cannot conform —
 // the adapter throws an init failure for them.
+//
+// Final-round Agent 2 audit: the only production users of this
+// adapter are creator-side flows (`InviteJoinRequestsManager`'s
+// `processJoinRequest` / `processJoinRequests` / `hasOutgoingJoinRequest`,
+// driven by `StreamProcessor` and `MessagingService+PushNotifications`).
+// `InviteCoordinator.sendJoinRequest` and `createInvite` are NOT used
+// in production code — `ConversationStateMachine.handleJoin` already
+// drives the joiner-side DM creation through `MessagingClient`
+// directly, bypassing the coordinator. The remaining blockers for
+// retiring this adapter are: (a) migrating the coordinator's body
+// off XMTPiOS (Conversation/Dm/Group/DecodedMessage + content codecs),
+// roughly 200+ LOC across packages; OR (b) extracting `Messaging*`
+// to a shared package (Option A) so ConvosInvites can adopt it.
+// Final-round agent 2 declined both within a 90-min budget per the
+// stop rule "If the dep graph requires moving 200+ LOC across
+// packages, take stock + report."
 @preconcurrency import XMTPiOS
 
 /// Adapts ConvosCore's `MessagingClient` to ConvosInvites' `InviteClientProvider`.
