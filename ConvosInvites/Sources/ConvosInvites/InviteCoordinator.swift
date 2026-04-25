@@ -2,13 +2,18 @@ import ConvosInvitesCore
 import ConvosMessagingProtocols
 import Foundation
 // FIXME(stage6f-step8): `@preconcurrency import XMTPiOS` remains because
-// `InviteTagStorageProtocol` is still typed against `XMTPiOS.Group`,
-// `createInvite`/`revokeInvites` take `XMTPiOS.Group` directly, and
-// the `JoinRequestCodec` / `InviteJoinErrorCodec` content-type IDs are
-// XMTPiOS-native (`ContentTypeID`). The protocol surface lift in
-// Stage 6f Step 7 unblocked DTU for the production-callsite paths
-// (`processMessage`, `processJoinRequests`, `hasOutgoingJoinRequest`);
-// the tag-storage and codec migrations are deferred to Step 8.
+// `processMessage(_:client:)` is still typed against
+// `XMTPiOS.DecodedMessage` (its production caller in
+// `InviteJoinRequestsManager.processJoinRequest` passes the raw
+// XMTPiOS-decoded message), and the
+// `XMTPiOS.ContentTypeID.asMessagingContentType` bridge below is
+// scoped to the existing codec constants
+// (`ContentTypeJoinRequest`, `ContentTypeInviteJoinError`). Stage 6f
+// Step 7 lifted the InviteClientProvider surface and the coordinator's
+// `findConversation` / `findOrCreateDm` / `listDms` callsites onto
+// Messaging* types so DTU adapters become structurally possible. The
+// remaining XMTPiOS-typed boundary (DecodedMessage in / content-type
+// bridge) is deferred to Step 8.
 @preconcurrency import XMTPiOS
 
 // MARK: - Private Key Provider
