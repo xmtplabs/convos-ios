@@ -26,13 +26,9 @@ import XCTest
 ///    run on both backends.
 ///  - **ConversationMetadataWriter tests** (lock/unlock DB updates,
 ///    creator-super-admin cycle, DB member role cycle, throw-on-missing):
-///    the writer depends on `InboxStateManager` → `InboxReadyResult` →
-///    `any XMTPClientProvider`. On XMTPiOS the adapter's underlying
-///    `XMTPiOS.Client` is itself an `XMTPClientProvider`, so these
-///    remain green on the XMTPiOS lane. DTU has no `XMTPClientProvider`
-///    conformer for its `MessagingClient`, so these are skipped on
-///    DTU (scope would creep into Stage 6 / `XMTPClientProvider`
-///    retirement to migrate further).
+///    the writer's underlying flow is still XMTPiOS-only. These are
+///    skipped on DTU until the metadata-writer path is migrated to
+///    the abstraction (tracked outside this file).
 ///
 /// Test count: 11. XMTPiOS runs all 11; DTU runs the 6 abstraction
 /// tests that don't transit the writer.
@@ -70,20 +66,21 @@ final class LockConversationTests: XCTestCase {
         }
     }
 
-    /// Returns the underlying `XMTPClientProvider` for the ConversationMetadataWriter
-    /// tests, or skips if we're on DTU (which has no XMTPClientProvider conformer).
-    private func xmtpClientOrSkip(
+    /// Skips the ConversationMetadataWriter unit tests on DTU. They
+    /// need an XMTPiOS-backed `MessagingClient` because the
+    /// metadata-writer flow they exercise is still wired through the
+    /// XMTPiOS adapter under the hood.
+    private func skipIfNotXMTPiOS(
         _ client: any MessagingClient,
         backend: DualBackendTestFixtures.Backend
-    ) throws -> any XMTPClientProvider {
-        guard let xmtpiosClient = (client as? XMTPiOSMessagingClient)?.xmtpClient else {
+    ) throws {
+        guard (client as? XMTPiOSMessagingClient) != nil else {
             throw XCTSkip(
                 "[\(backend.rawValue)] ConversationMetadataWriter tests require an "
-                    + "XMTPClientProvider; only the XMTPiOS adapter conforms today. "
-                    + "DTU equivalent tracks Stage 6 / XMTPClientProvider retirement."
+                    + "XMTPiOS-backed MessagingClient; only the XMTPiOS adapter "
+                    + "supports the metadata-writer flow today."
             )
         }
-        return xmtpiosClient
     }
 
     // MARK: - Integration Tests (Pure-abstraction; run on both lanes)
@@ -557,7 +554,7 @@ final class LockConversationTests: XCTestCase {
         self.fixtures = fixture
 
         let alice = try await fixture.createClient()
-        let xmtpClientProvider = try xmtpClientOrSkip(alice.client, backend: backend)
+        try skipIfNotXMTPiOS(alice.client, backend: backend)
 
         let group = try await alice.client.conversations.newGroup(
             withInboxIds: [],
@@ -609,13 +606,10 @@ final class LockConversationTests: XCTestCase {
         }
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPClientProvider through the existing
-        // `messagingClient` extension.
-        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
+        let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: xmtpClientProvider,
+            mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
 
@@ -661,7 +655,7 @@ final class LockConversationTests: XCTestCase {
         self.fixtures = fixture
 
         let alice = try await fixture.createClient()
-        let xmtpClientProvider = try xmtpClientOrSkip(alice.client, backend: backend)
+        try skipIfNotXMTPiOS(alice.client, backend: backend)
 
         let group = try await alice.client.conversations.newGroup(
             withInboxIds: [],
@@ -715,13 +709,10 @@ final class LockConversationTests: XCTestCase {
         }
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPClientProvider through the existing
-        // `messagingClient` extension.
-        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
+        let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: xmtpClientProvider,
+            mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
 
@@ -757,17 +748,14 @@ final class LockConversationTests: XCTestCase {
         self.fixtures = fixture
 
         let alice = try await fixture.createClient()
-        let xmtpClientProvider = try xmtpClientOrSkip(alice.client, backend: backend)
+        try skipIfNotXMTPiOS(alice.client, backend: backend)
         let clientId = alice.clientId
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPClientProvider through the existing
-        // `messagingClient` extension.
-        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
+        let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: xmtpClientProvider,
+            mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
 
@@ -799,7 +787,7 @@ final class LockConversationTests: XCTestCase {
         self.fixtures = fixture
 
         let alice = try await fixture.createClient()
-        let xmtpClientProvider = try xmtpClientOrSkip(alice.client, backend: backend)
+        try skipIfNotXMTPiOS(alice.client, backend: backend)
 
         let group = try await alice.client.conversations.newGroup(
             withInboxIds: [],
@@ -850,13 +838,10 @@ final class LockConversationTests: XCTestCase {
         }
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPClientProvider through the existing
-        // `messagingClient` extension.
-        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
+        let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: xmtpClientProvider,
+            mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()
@@ -931,7 +916,7 @@ final class LockConversationTests: XCTestCase {
         self.fixtures = fixture
 
         let alice = try await fixture.createClient()
-        let xmtpClientProvider = try xmtpClientOrSkip(alice.client, backend: backend)
+        try skipIfNotXMTPiOS(alice.client, backend: backend)
 
         let group = try await alice.client.conversations.newGroup(
             withInboxIds: [],
@@ -1004,13 +989,10 @@ final class LockConversationTests: XCTestCase {
         )
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPClientProvider through the existing
-        // `messagingClient` extension.
-        let readyResult = InboxReadyResult(client: xmtpClientProvider.messagingClient, apiClient: mockAPIClient)
+        let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: xmtpClientProvider,
+            mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()

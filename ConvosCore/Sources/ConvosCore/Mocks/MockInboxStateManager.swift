@@ -9,7 +9,7 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     public var isSyncReady: Bool = true
 
     private var observers: [WeakStateObserver] = []
-    private let mockClient: any XMTPClientProvider
+    private let mockClient: any MessagingClient
     private let mockAPIClient: any ConvosAPIClientProtocol
 
     private struct WeakStateObserver {
@@ -18,23 +18,20 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
 
     public init(
         initialState: InboxStateMachine.State? = nil,
-        mockClient: (any XMTPClientProvider)? = nil,
+        mockClient: (any MessagingClient)? = nil,
         mockAPIClient: (any ConvosAPIClientProtocol)? = nil
     ) {
-        self.mockClient = mockClient ?? MockXMTPClientProvider()
+        self.mockClient = mockClient ?? MockMessagingClient()
         self.mockAPIClient = mockAPIClient ?? MockAPIClient()
         self.currentState = initialState ?? .idle(clientId: "mock-client-id")
     }
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // Lift the legacy mock provider via the existing
-        // `XMTPClientProvider.messagingClient` extension.
-        InboxReadyResult(client: mockClient.messagingClient, apiClient: mockAPIClient)
+        InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
     }
 
     public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
-        InboxReadyResult(client: mockClient.messagingClient, apiClient: mockAPIClient)
+        InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
     }
 
     public func deleteInbox() async throws {

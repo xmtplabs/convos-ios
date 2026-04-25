@@ -199,13 +199,13 @@ struct LockConversationTests {
 
         // Create mock inbox state manager that returns the real client
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPiOS.Client through the existing
-        // `XMTPClientProvider.messagingClient` extension.
-        let readyResult = InboxReadyResult(client: clientA.messagingClient, apiClient: mockAPIClient)
+        // Lift the legacy XMTPClientProvider into a MessagingClient via
+        // the bridge extension so MockInboxStateManager can hold it.
+        let messagingClient = clientA.messagingClient
+        let readyResult = InboxReadyResult(client: messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: clientA,
+            mockClient: messagingClient,
             mockAPIClient: mockAPIClient
         )
 
@@ -296,13 +296,13 @@ struct LockConversationTests {
         }
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPiOS.Client through the existing
-        // `XMTPClientProvider.messagingClient` extension.
-        let readyResult = InboxReadyResult(client: clientA.messagingClient, apiClient: mockAPIClient)
+        // Lift the legacy XMTPClientProvider into a MessagingClient via
+        // the bridge extension so MockInboxStateManager can hold it.
+        let messagingClient = clientA.messagingClient
+        let readyResult = InboxReadyResult(client: messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: clientA,
+            mockClient: messagingClient,
             mockAPIClient: mockAPIClient
         )
 
@@ -340,13 +340,13 @@ struct LockConversationTests {
         let clientId = fixtures.clientIdA ?? "test-client"
 
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPiOS.Client through the existing
-        // `XMTPClientProvider.messagingClient` extension.
-        let readyResult = InboxReadyResult(client: clientA.messagingClient, apiClient: mockAPIClient)
+        // Lift the legacy XMTPClientProvider into a MessagingClient via
+        // the bridge extension so MockInboxStateManager can hold it.
+        let messagingClient = clientA.messagingClient
+        let readyResult = InboxReadyResult(client: messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: clientA,
+            mockClient: messagingClient,
             mockAPIClient: mockAPIClient
         )
 
@@ -475,13 +475,13 @@ struct LockConversationTests {
 
         // Create mock dependencies
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPiOS.Client through the existing
-        // `XMTPClientProvider.messagingClient` extension.
-        let readyResult = InboxReadyResult(client: clientA.messagingClient, apiClient: mockAPIClient)
+        // Lift the legacy XMTPClientProvider into a MessagingClient via
+        // the bridge extension so MockInboxStateManager can hold it.
+        let messagingClient = clientA.messagingClient
+        let readyResult = InboxReadyResult(client: messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: clientA,
+            mockClient: messagingClient,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()
@@ -624,13 +624,13 @@ struct LockConversationTests {
 
         // Create mock dependencies
         let mockAPIClient = MockAPIClient()
-        // Stage 6e Phase A: InboxReadyResult.client is `any MessagingClient`.
-        // Lift the legacy XMTPiOS.Client through the existing
-        // `XMTPClientProvider.messagingClient` extension.
-        let readyResult = InboxReadyResult(client: clientA.messagingClient, apiClient: mockAPIClient)
+        // Lift the legacy XMTPClientProvider into a MessagingClient via
+        // the bridge extension so MockInboxStateManager can hold it.
+        let messagingClient = clientA.messagingClient
+        let readyResult = InboxReadyResult(client: messagingClient, apiClient: mockAPIClient)
         let mockInboxStateManager = MockInboxStateManager(
             initialState: .ready(clientId: clientId, result: readyResult),
-            mockClient: clientA,
+            mockClient: messagingClient,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()
