@@ -17,6 +17,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../ConvosAppData"),
+        .package(path: "../ConvosMessagingProtocols"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
             revision: "ios-4.9.0-dev.88ddfad"
@@ -28,6 +29,7 @@ let package = Package(
             name: "ConvosProfiles",
             dependencies: [
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
+                .product(name: "ConvosMessagingProtocols", package: "ConvosMessagingProtocols"),
                 .product(name: "XMTPiOS", package: "libxmtp"),
             ],
             path: "Sources/ConvosProfiles"

@@ -28,6 +28,7 @@ let package = Package(
             revision: "ios-4.9.0-dev.88ddfad"
         ),
         .package(path: "../ConvosAppData"),
+        .package(path: "../ConvosMessagingProtocols"),
     ],
     targets: [
         // Core crypto layer - no XMTP dependency
@@ -46,6 +47,7 @@ let package = Package(
                 "ConvosInvitesCore",
                 "ConvosAppData",
                 .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "ConvosMessagingProtocols", package: "ConvosMessagingProtocols"),
             ],
             path: "Sources/ConvosInvites"
         ),
