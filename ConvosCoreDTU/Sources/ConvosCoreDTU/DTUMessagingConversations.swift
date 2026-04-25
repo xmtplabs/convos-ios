@@ -142,10 +142,21 @@ public final class DTUMessagingConversations: MessagingConversations, @unchecked
     // MARK: - Create
 
     public func newGroupOptimistic() async throws -> any MessagingGroup {
-        throw DTUMessagingNotSupportedError(
-            method: "MessagingConversations.newGroupOptimistic",
-            reason: "DTU engine has no optimistic-create flow; use newGroup(withInboxIds:...)"
+        // DTU note: optimistic semantics collapse to immediate create — no
+        // network delay to optimize for. XMTPiOS's `newGroupOptimistic`
+        // creates a `Group` locally without contacting peers (the publish
+        // happens later when members or messages are added). DTU's engine
+        // is in-process and `create_group` has no failure mode that a
+        // deferred publish would resolve, so we mirror `newGroup`'s body
+        // with an empty member set. The resulting handle behaves the same
+        // for the abstraction's purposes.
+        let alias = nextGroupAlias()
+        _ = try await context.universe.createGroup(
+            alias: alias,
+            members: [],
+            actor: context.actor
         )
+        return handleForGroup(alias: alias, creatorInboxId: context.inboxAlias)
     }
 
     public func newGroup(
