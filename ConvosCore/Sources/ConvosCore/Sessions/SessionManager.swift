@@ -653,12 +653,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: - Connections
 
     public func connectionManager(
-        oauthProvider: any OAuthSessionProvider,
         callbackURLScheme: String
     ) -> any ConnectionManagerProtocol {
         ConnectionManager(
             apiClient: apiClient,
-            oauthProvider: oauthProvider,
+            oauthProvider: platformProviders.oauthSessionProvider,
             databaseWriter: databaseWriter,
             callbackURLScheme: callbackURLScheme,
             grantWriterProvider: { [weak self] in

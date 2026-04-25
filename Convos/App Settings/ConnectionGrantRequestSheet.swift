@@ -1,6 +1,5 @@
 import Combine
 import ConvosCore
-import ConvosCoreiOS
 import SwiftUI
 
 struct PendingGrantRequest: Identifiable, Hashable {
@@ -38,10 +37,8 @@ final class ConnectionGrantRequestSheetViewModel {
         self.conversation = conversation
         self.session = session
 
-        let oauthProvider: any OAuthSessionProvider = IOSOAuthSessionProvider()
         let callbackScheme = ConfigManager.shared.appUrlScheme
         self.connectionManager = session.connectionManager(
-            oauthProvider: oauthProvider,
             callbackURLScheme: callbackScheme
         )
         self.connectionRepository = session.connectionRepository()

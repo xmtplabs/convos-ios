@@ -84,7 +84,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     // MARK: Connections
 
-    func connectionManager(oauthProvider: any OAuthSessionProvider, callbackURLScheme: String) -> any ConnectionManagerProtocol
+    func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol
     func connectionRepository() -> any ConnectionRepositoryProtocol
 }
 

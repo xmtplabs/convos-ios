@@ -168,7 +168,6 @@ public final class MockInboxesService: SessionManagerProtocol {
     // MARK: - Connections
 
     public func connectionManager(
-        oauthProvider: any OAuthSessionProvider,
         callbackURLScheme: String
     ) -> any ConnectionManagerProtocol {
         MockConnectionManager()

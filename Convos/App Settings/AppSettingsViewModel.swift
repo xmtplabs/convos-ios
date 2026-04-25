@@ -1,5 +1,4 @@
 import ConvosCore
-import ConvosCoreiOS
 import Foundation
 import Observation
 
@@ -20,11 +19,9 @@ final class AppSettingsViewModel {
     init(session: any SessionManagerProtocol) {
         self.session = session
 
-        let oauthProvider: any OAuthSessionProvider = IOSOAuthSessionProvider()
         let callbackScheme = ConfigManager.shared.appUrlScheme
 
         let manager = session.connectionManager(
-            oauthProvider: oauthProvider,
             callbackURLScheme: callbackScheme
         )
         let repository = session.connectionRepository()
