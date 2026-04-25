@@ -1,6 +1,7 @@
 import ConvosAppData
 @testable import ConvosCore
 @testable import ConvosCoreDTU
+import ConvosMessagingProtocols
 import Foundation
 import XCTest
 

@@ -1,5 +1,6 @@
 import ConvosAppData
 @testable import ConvosCore
+import ConvosMessagingProtocols
 import ConvosProfiles
 import Foundation
 import GRDB

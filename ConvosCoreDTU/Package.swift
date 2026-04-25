@@ -49,6 +49,7 @@ let package = Package(
         // `import ConvosAppData` without reaching through internal
         // transitive module names.
         .package(path: "../ConvosAppData"),
+        .package(path: "../ConvosMessagingProtocols"),
         // XMTPDTU lives in a sibling `xmtp-dtu` workspace folder (see
         // project CLAUDE.md). Relative path anchors at the task-D clone
         // parent so `xmtp-dtu/clients/swift/` resolves cleanly.
@@ -59,6 +60,7 @@ let package = Package(
             name: "ConvosCoreDTU",
             dependencies: [
                 .product(name: "ConvosCore", package: "ConvosCore"),
+                .product(name: "ConvosMessagingProtocols", package: "ConvosMessagingProtocols"),
                 .product(name: "XMTPDTU", package: "XMTPDTU"),
             ],
             swiftSettings: [
@@ -72,6 +74,7 @@ let package = Package(
                 "ConvosCoreDTU",
                 .product(name: "ConvosCore", package: "ConvosCore"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
+                .product(name: "ConvosMessagingProtocols", package: "ConvosMessagingProtocols"),
                 .product(name: "XMTPDTU", package: "XMTPDTU"),
             ],
             swiftSettings: [

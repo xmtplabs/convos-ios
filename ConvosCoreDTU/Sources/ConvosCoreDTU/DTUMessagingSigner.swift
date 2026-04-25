@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMessagingProtocols
 import Foundation
 
 /// Passthrough adapter between the abstraction's `MessagingSigner` and

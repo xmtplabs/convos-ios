@@ -1,6 +1,7 @@
 @preconcurrency @testable import ConvosCore
 @testable import ConvosCoreDTU
 import ConvosInvites
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 import Testing

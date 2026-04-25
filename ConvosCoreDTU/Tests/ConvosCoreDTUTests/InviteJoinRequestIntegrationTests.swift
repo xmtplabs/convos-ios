@@ -2,6 +2,7 @@
 @testable import ConvosCoreDTU
 import ConvosInvites
 import ConvosInvitesCore
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 import Testing

@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosMessagingProtocols
 import Foundation
 import Testing
 

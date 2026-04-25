@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosMessagingProtocols
 import Foundation
 
 /// Shared mocks for Phase 2 ConvosCoreDTU migrations. Centralising these

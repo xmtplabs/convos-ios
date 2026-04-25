@@ -1,5 +1,6 @@
 import ConvosCore
 @testable import ConvosCoreDTU
+import ConvosMessagingProtocols
 import XCTest
 import XMTPDTU
 
