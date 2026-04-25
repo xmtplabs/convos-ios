@@ -14,8 +14,11 @@ final class GlobalConvoDefaultsTests: XCTestCase {
     }
 
     func testDefaultValuesWhenUnset() {
+        // autoRevealPhotos defaults to false (blur incoming photos by default).
+        // includeInfoWithInvites defaults to true (invites carry name/description
+        // unless the user opts out per-invite).
         XCTAssertFalse(GlobalConvoDefaults.shared.autoRevealPhotos)
-        XCTAssertFalse(GlobalConvoDefaults.shared.includeInfoWithInvites)
+        XCTAssertTrue(GlobalConvoDefaults.shared.includeInfoWithInvites)
     }
 
     func testPersistsUpdatedValues() {
@@ -28,11 +31,11 @@ final class GlobalConvoDefaultsTests: XCTestCase {
 
     func testResetRestoresDefaults() {
         GlobalConvoDefaults.shared.autoRevealPhotos = true
-        GlobalConvoDefaults.shared.includeInfoWithInvites = true
+        GlobalConvoDefaults.shared.includeInfoWithInvites = false
 
         GlobalConvoDefaults.shared.reset()
 
         XCTAssertFalse(GlobalConvoDefaults.shared.autoRevealPhotos)
-        XCTAssertFalse(GlobalConvoDefaults.shared.includeInfoWithInvites)
+        XCTAssertTrue(GlobalConvoDefaults.shared.includeInfoWithInvites)
     }
 }
