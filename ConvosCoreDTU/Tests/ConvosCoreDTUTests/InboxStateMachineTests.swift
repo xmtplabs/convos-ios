@@ -276,7 +276,8 @@ struct InboxStateMachineTests {
         // Register and wait for ready
         await stateMachine.register(clientId: clientId)
 
-        var client: (any XMTPClientProvider)?
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        var client: (any MessagingClient)?
         for await state in await stateMachine.stateSequence {
             if case .ready(_, let result) = state {
                 client = result.client
@@ -563,7 +564,8 @@ struct InboxStateMachineTests {
         await stateMachine.register(clientId: clientId)
 
         // Wait for ready, then queue stop
-        var client: (any XMTPClientProvider)?
+        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
+        var client: (any MessagingClient)?
         for await state in await stateMachine.stateSequence {
             if case .ready(_, let result) = state {
                 client = result.client
