@@ -524,8 +524,8 @@ public actor ConversationStateMachine {
             // Convos-owned enum (`group(any MessagingGroup) | dm(any MessagingDm)`)
             // so the `case .group(...)` pattern keeps working without
             // touching `XMTPiOS.Conversation` directly.
-            if let conversation = try await inboxReady.client.messagingClient
-                .conversations.find(conversationId: conversationId),
+            if let conversation = try await inboxReady.client.conversations
+                .find(conversationId: conversationId),
                 case let .group(messagingGroup) = conversation {
                 _ = try await messagingGroup.ensureConversationEmoji(
                     seed: clientConversationId

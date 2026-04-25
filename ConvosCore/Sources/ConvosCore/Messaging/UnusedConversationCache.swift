@@ -919,7 +919,7 @@ extension UnusedConversationCache {
             // typed `MessagingGroup`, so the legacy
             // `GroupConversationSender` -> `XMTPiOS.Group` downcast is
             // unnecessary.
-            let messagingGroup = try await client.messagingClient.conversations.newGroupOptimistic()
+            let messagingGroup = try await client.conversations.newGroupOptimistic()
             let conversationId = messagingGroup.id
             let identity = try await identityStore.identity(for: inboxId)
 

@@ -2,16 +2,13 @@ import ConvosMessagingProtocols
 import Foundation
 @preconcurrency import XMTPiOS
 
-// Stage 6e Phase A: minimal stub `MessagingClient` used by
-// `MockXMTPClientProvider.messagingClient` so that
-// `MockInboxStateManager.waitForInboxReadyResult()` can hand back an
-// `InboxReadyResult` whose `.client: any MessagingClient` is non-nil
-// without preconditionFailing at construction.
+// Minimal stub `MessagingClient` used by `MockInboxStateManager`
+// to hand back an `InboxReadyResult` whose `.client: any MessagingClient`
+// is non-nil without preconditionFailing at construction.
 //
 // All sub-surfaces preconditionFail on access — the existing mock
-// state manager flows do not exercise them. Phase B replaces this
-// stub with proper sub-surface mocks once the remaining XMTPClientProvider
-// consumers are migrated.
+// state manager flows do not exercise them. Replace with proper
+// sub-surface mocks if a future test path needs them.
 
 public final class MockMessagingClient: MessagingClient, @unchecked Sendable {
     public let inboxId: MessagingInboxID

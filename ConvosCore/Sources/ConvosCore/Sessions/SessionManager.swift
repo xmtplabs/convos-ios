@@ -8,7 +8,6 @@ public extension Notification.Name {
 }
 
 public typealias AnyMessagingService = any MessagingServiceProtocol
-public typealias AnyClientProvider = any XMTPClientProvider
 
 enum SessionManagerError: Error {
     case inboxNotFound
