@@ -1,7 +1,6 @@
 import ConvosAppData
 import ConvosMessagingProtocols
 import Foundation
-import XMTPiOS
 
 public struct ConversationMetadataDebugInfo: Sendable {
     public let conversationId: String
@@ -22,29 +21,29 @@ public struct ConversationMetadataDebugInfo: Sendable {
     }
 }
 
-public extension XMTPClientProvider {
+public enum ConversationMetadataDebugError: Error {
+    case conversationNotFound(id: String)
+}
+
+public extension MessagingClient {
     func conversationMetadataDebugInfo(
         conversationId: String,
         clientConversationId: String
     ) async throws -> ConversationMetadataDebugInfo {
-        guard let xmtpConversation = try await conversation(with: conversationId),
-              case .group(let group) = xmtpConversation else {
-            throw XMTPClientProviderError.conversationNotFound(id: conversationId)
+        guard let conversation = try await messagingConversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataDebugError.conversationNotFound(id: conversationId)
         }
-
-        // Stage 3 migration: the XMTPiOS.Group custom-metadata shim is
-        // gone — read via the MessagingGroup adapter.
-        let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(xmtpGroup: group)
-        let rawAppData = try group.appData()
+        let rawAppData = try await group.appData()
         let snapshot = ConversationCustomMetadataDebugSnapshot(rawAppData: rawAppData)
-        let xmtpInviteTag = (try? await messagingGroup.inviteTag()) ?? "<error>"
-        let xmtpExpiresAtDescription = (try? await messagingGroup.expiresAt())?.description ?? "<nil>"
+        let inviteTag = (try? await group.inviteTag()) ?? "<error>"
+        let expiresAtDescription = (try? await group.expiresAt())?.description ?? "<nil>"
 
         return ConversationMetadataDebugInfo(
             conversationId: conversationId,
             clientConversationId: clientConversationId,
-            xmtpInviteTag: xmtpInviteTag,
-            xmtpExpiresAtDescription: xmtpExpiresAtDescription,
+            xmtpInviteTag: inviteTag,
+            xmtpExpiresAtDescription: expiresAtDescription,
             snapshot: snapshot
         )
     }
