@@ -111,8 +111,17 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
             )
         }
 
+        // Idempotent: GRDB's deleteOne returns false when the row is already
+        // gone (it doesn't throw). Two concurrent disconnects of the same
+        // connectionId are therefore safe — both end with the same DB state.
+        // Log the second one so concurrent disconnects are observable.
         try await databaseWriter.write { db in
-            _ = try DBConnection.deleteOne(db, key: connectionId)
+            let deleted = try DBConnection.deleteOne(db, key: connectionId)
+            if !deleted {
+                Log.warning(
+                    "[CloudConnections] disconnect found connection \(connectionId) already deleted; another disconnect path likely raced with this one"
+                )
+            }
         }
     }
 
