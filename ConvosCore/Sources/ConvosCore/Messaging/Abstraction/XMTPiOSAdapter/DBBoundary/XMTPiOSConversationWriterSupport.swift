@@ -338,14 +338,39 @@ enum MessagingWriterBridge {
         )
     }
 
+    /// Prepare an outgoing plain-text message for a
+    /// `MessagingConversation`. Downcasts to the XMTPiOS adapter so the
+    /// XIP `prepareMessage(content: String)` call stays SDK-side; throws
+    /// on non-XMTPiOS backends. Returns the opaque prepared message id.
+    /// FIXME(stage6): once the text codec lives on the abstraction this
+    /// can route through `MessagingConversationCore.prepare(encodedContent:options:)`.
+    static func prepareText(
+        conversation: MessagingConversation,
+        text: String
+    ) async throws -> String {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "prepareText"
+            )
+        }
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        return try await unsafeConversation.prepare(text: text)
+    }
+
     /// Prepare an outgoing remote-attachment message (optionally a
-    /// reply) through `MessageSender.prepare(...)`. The `sender` stays
-    /// XMTPiOS-side; returns the opaque prepared message id.
+    /// reply) for a `MessagingConversation`. Downcasts to the XMTPiOS
+    /// adapter so the XIP codec construction stays SDK-side; throws
+    /// on non-XMTPiOS backends. Returns the opaque prepared message id.
     static func prepareRemoteAttachment(
-        sender: any MessageSender,
+        conversation: MessagingConversation,
         stored: StoredRemoteAttachment,
         replyParentDbId: String?
     ) async throws -> String {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "prepareRemoteAttachment"
+            )
+        }
         let remoteAttachment = try XMTPiOS.RemoteAttachment(
             url: stored.url,
             contentDigest: stored.contentDigest,
@@ -356,29 +381,37 @@ enum MessagingWriterBridge {
             contentLength: nil,
             filename: stored.filename
         )
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
         if let replyParentDbId {
             let reply = XMTPiOS.Reply(
                 reference: replyParentDbId,
                 content: remoteAttachment,
                 contentType: XMTPiOS.ContentTypeRemoteAttachment
             )
-            return try await sender.prepare(reply: reply)
+            return try await unsafeConversation.prepare(reply: reply)
         }
-        return try await sender.prepare(remoteAttachment: remoteAttachment)
+        return try await unsafeConversation.prepare(remoteAttachment: remoteAttachment)
     }
 
-    /// Prepare an outgoing text reply through `MessageSender.prepare(reply:)`.
+    /// Prepare an outgoing text reply for a `MessagingConversation`.
+    /// Downcasts to the XMTPiOS adapter; throws on non-XMTPiOS backends.
     static func prepareTextReply(
-        sender: any MessageSender,
+        conversation: MessagingConversation,
         text: String,
         replyParentDbId: String
     ) async throws -> String {
+        guard let xmtpConversation = conversation.underlyingXMTPiOSConversation else {
+            throw MessagingWriterBridgeError.notSupportedOnBackend(
+                operation: "prepareTextReply"
+            )
+        }
         let reply = XMTPiOS.Reply(
             reference: replyParentDbId,
             content: text,
             contentType: XMTPiOS.ContentTypeText
         )
-        return try await sender.prepare(reply: reply)
+        nonisolated(unsafe) let unsafeConversation = xmtpConversation
+        return try await unsafeConversation.prepare(reply: reply)
     }
 }
 
@@ -450,27 +483,35 @@ extension OutgoingMessageWriter {
         )
     }
 
+    func prepareTextViaBridge(
+        conversation: MessagingConversation,
+        text: String
+    ) async throws -> String {
+        try await MessagingWriterBridge.prepareText(
+            conversation: conversation,
+            text: text
+        )
+    }
+
     func prepareRemoteAttachmentViaBridge(
-        sender: any MessageSender,
+        conversation: MessagingConversation,
         stored: StoredRemoteAttachment,
         replyParentDbId: String?
     ) async throws -> String {
-        nonisolated(unsafe) let unsafeSender = sender
-        return try await MessagingWriterBridge.prepareRemoteAttachment(
-            sender: unsafeSender,
+        try await MessagingWriterBridge.prepareRemoteAttachment(
+            conversation: conversation,
             stored: stored,
             replyParentDbId: replyParentDbId
         )
     }
 
     func prepareTextReplyViaBridge(
-        sender: any MessageSender,
+        conversation: MessagingConversation,
         text: String,
         replyParentDbId: String
     ) async throws -> String {
-        nonisolated(unsafe) let unsafeSender = sender
-        return try await MessagingWriterBridge.prepareTextReply(
-            sender: unsafeSender,
+        try await MessagingWriterBridge.prepareTextReply(
+            conversation: conversation,
             text: text,
             replyParentDbId: replyParentDbId
         )

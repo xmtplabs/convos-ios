@@ -648,10 +648,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw PhotoAttachmentError.encryptionFailed
         }
 
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
-        // surface; bridge until Phase B migrates this writer.
-        guard let sender = try await inboxReady.client.legacyProvider.messageSender(for: conversationId) else {
+        // Stage 6e Phase B: route conversation lookup through the
+        // `MessagingClient` abstraction. `prepareRemoteAttachmentViaBridge`
+        // accepts `MessagingConversation` and downcasts to the XMTPiOS
+        // adapter SDK-side.
+        guard let conversation = try await inboxReady.client.messagingConversation(
+            with: conversationId
+        ) else {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw OutgoingMessageWriterError.missingClientProvider
@@ -659,10 +662,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         do {
             // Stage 3 migration: delegate RemoteAttachment + Reply
-            // construction + `MessageSender.prepare(...)` dispatch to
-            // the Stage 6 XIP bridge.
+            // construction + prepare dispatch to the Stage 6 XIP bridge.
             let messageId = try await prepareRemoteAttachmentViaBridge(
-                sender: sender,
+                conversation: conversation,
                 stored: storedAttachment,
                 replyParentDbId: replyContext?.parentDbId
             )
@@ -691,8 +693,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             try await attachmentLocalStateWriter.migrateKey(from: trackingKey, to: json)
 
-            nonisolated(unsafe) let unsafeSender = sender
-            try await unsafeSender.publish()
+            // Stage 6e Phase B: `MessagingConversationCore.publish()`
+            // mirrors the legacy `MessageSender.publish()` semantics
+            // (publishes every unpublished message on the conversation).
+            try await conversation.core.publish()
 
             ImageCacheContainer.shared.removeImage(for: trackingKey)
 
@@ -924,27 +928,30 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private func publishText(_ queued: QueuedTextMessage) async throws {
         let perfStart = CFAbsoluteTimeGetCurrent()
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
-        // surface; bridge until Phase B migrates this writer.
-        let client = inboxReady.client.legacyProvider
-
-        guard let sender = try await client.messageSender(for: conversationId) else {
+        // Stage 6e Phase B: route conversation lookup through the
+        // `MessagingClient` abstraction. The text-prepare and
+        // text-reply-prepare paths still need an XMTPiOS-side codec,
+        // so they go through `MessagingWriterBridge` (which downcasts
+        // to the XMTPiOS adapter SDK-side).
+        guard let conversation = try await inboxReady.client.messagingConversation(
+            with: conversationId
+        ) else {
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)
             throw OutgoingMessageWriterError.missingClientProvider
         }
 
         let xmtpMessageId: String
         if let replyContext = queued.replyContext {
-            // Stage 3 migration: delegate XIP Reply construction to
-            // the Stage 6 bridge.
             xmtpMessageId = try await prepareTextReplyViaBridge(
-                sender: sender,
+                conversation: conversation,
                 text: queued.text,
                 replyParentDbId: replyContext.parentDbId
             )
         } else {
-            xmtpMessageId = try await sender.prepare(text: queued.text)
+            xmtpMessageId = try await prepareTextViaBridge(
+                conversation: conversation,
+                text: queued.text
+            )
         }
         Log.debug("Text prepare() returned xmtpMessageId=\(xmtpMessageId), clientMessageId=\(queued.clientMessageId), same=\(xmtpMessageId == queued.clientMessageId)")
 
@@ -985,8 +992,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         do {
-            nonisolated(unsafe) let unsafeSender = sender
-            try await unsafeSender.publish()
+            // Stage 6e Phase B: `MessagingConversationCore.publish()`
+            // mirrors the legacy `MessageSender.publish()` semantics
+            // (publishes every unpublished message on the conversation).
+            try await conversation.core.publish()
         } catch {
             Log.error("Failed publishing text message: \(error)")
             try? await markMessageFailed(messageId: xmtpMessageId)
@@ -1400,18 +1409,18 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func publishPreparedMessage(messageId: String, sentContent: String? = nil) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
-        // `messageSender(for:)` lives on the legacy `XMTPClientProvider`
-        // surface; bridge until Phase B migrates this writer.
-        let client = inboxReady.client.legacyProvider
-
-        guard let sender = try await client.messageSender(for: conversationId) else {
+        // Stage 6e Phase B: route conversation lookup through the
+        // `MessagingClient` abstraction. `MessagingConversationCore.publish(messageId:)`
+        // mirrors the legacy `MessageSender.publishMessage(messageId:)`.
+        guard let conversation = try await inboxReady.client.messagingConversation(
+            with: conversationId
+        ) else {
             try? await markMessageFailed(messageId: messageId)
             throw OutgoingMessageWriterError.missingClientProvider
         }
 
         do {
-            try await sender.publishMessage(messageId: messageId)
+            try await conversation.core.publish(messageId: messageId)
         } catch {
             Log.error("Failed publishing prepared message: \(error)")
             try? await markMessageFailed(messageId: messageId)
