@@ -1,20 +1,6 @@
 import ConvosInvitesCore
 import ConvosMessagingProtocols
 import Foundation
-// FIXME(stage6f-step8): `@preconcurrency import XMTPiOS` remains because
-// `processMessage(_:client:)` is still typed against
-// `XMTPiOS.DecodedMessage` (its production caller in
-// `InviteJoinRequestsManager.processJoinRequest` passes the raw
-// XMTPiOS-decoded message), and the
-// `XMTPiOS.ContentTypeID.asMessagingContentType` bridge below is
-// scoped to the existing codec constants
-// (`ContentTypeJoinRequest`, `ContentTypeInviteJoinError`). Stage 6f
-// Step 7 lifted the InviteClientProvider surface and the coordinator's
-// `findConversation` / `findOrCreateDm` / `listDms` callsites onto
-// Messaging* types so DTU adapters become structurally possible. The
-// remaining XMTPiOS-typed boundary (DecodedMessage in / content-type
-// bridge) is deferred to Step 8.
-@preconcurrency import XMTPiOS
 
 // MARK: - Private Key Provider
 
@@ -135,14 +121,14 @@ public final class InviteCoordinator: @unchecked Sendable {
         )
         let joinRequestBytes = try JSONEncoder().encode(joinRequest)
         let joinRequestEncoded = MessagingEncodedContent(
-            type: ContentTypeJoinRequest.asMessagingContentType,
+            type: .joinRequest,
             content: joinRequestBytes,
             fallback: slug
         )
         _ = try await dm.sendOptimistic(
             encodedContent: joinRequestEncoded,
             options: MessagingSendOptions(
-                contentType: ContentTypeJoinRequest.asMessagingContentType
+                contentType: .joinRequest
             )
         )
 
@@ -163,21 +149,38 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     // MARK: - Join Request Processing (Creator Side)
 
+    /// Processes a `MessagingMessage` for a join-request payload.
+    ///
+    /// Stage 6f Step 8 retyped this from `XMTPiOS.DecodedMessage` onto
+    /// `MessagingMessage` so the coordinator's public surface is
+    /// independent of the underlying messaging SDK. The XMTPiOS adapter
+    /// supplies a `MessagingMessage` via `MessagingMessage(decoded)`;
+    /// the DTU adapter populates the same struct natively. Decoded
+    /// content is read directly off `encodedContent` (raw bytes) rather
+    /// than via `DecodedMessage.content()` so this overload works
+    /// regardless of whether the content has been registered with the
+    /// codec registry on the underlying SDK.
     public func processMessage(
-        _ message: XMTPiOS.DecodedMessage,
+        _ message: MessagingMessage,
         client: any InviteClientProvider
     ) async -> JoinResult? {
         guard message.senderInboxId != client.inviteInboxId else { return nil }
 
+        let contentType = message.encodedContent.type
         let slug: String
         var profile: JoinRequestProfile?
         var metadata: [String: String]?
 
-        if let joinRequest: JoinRequestContent = try? message.content() {
+        if contentType == .joinRequest {
+            guard let joinRequest = try? JSONDecoder().decode(
+                JoinRequestContent.self,
+                from: message.encodedContent.content
+            ) else { return nil }
             slug = joinRequest.inviteSlug
             profile = joinRequest.profile
             metadata = joinRequest.metadata
-        } else if let text: String = try? message.content() {
+        } else if contentType == .text {
+            guard let text = String(data: message.encodedContent.content, encoding: .utf8) else { return nil }
             slug = text
         } else {
             return nil
@@ -385,8 +388,8 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         let candidates = messages.filter { message in
             let contentType = message.encodedContent.type
-            let isInviteContent = contentType == ContentTypeText.asMessagingContentType
-                || contentType == ContentTypeJoinRequest.asMessagingContentType
+            let isInviteContent = contentType == .text
+                || contentType == .joinRequest
             return isInviteContent && message.senderInboxId != client.inviteInboxId
         }
 
@@ -397,51 +400,6 @@ public final class InviteCoordinator: @unchecked Sendable {
             }
         }
         return nil
-    }
-
-    /// Stage 6f Step 7 internal overload for the
-    /// `processDm`/`processMessage` on-Messaging-types path. Decodes the
-    /// abstraction-layer `MessagingMessage` content via the codec to
-    /// produce the `JoinRequestContent` / `String`-text payloads
-    /// previously consumed via XMTPiOS's content-type registry.
-    private func processMessage(
-        _ message: MessagingMessage,
-        client: any InviteClientProvider
-    ) async -> JoinResult? {
-        guard message.senderInboxId != client.inviteInboxId else { return nil }
-
-        let contentType = message.encodedContent.type
-        let slug: String
-        var profile: JoinRequestProfile?
-        var metadata: [String: String]?
-
-        if contentType == ContentTypeJoinRequest.asMessagingContentType {
-            guard let joinRequest = try? JSONDecoder().decode(
-                JoinRequestContent.self,
-                from: message.encodedContent.content
-            ) else { return nil }
-            slug = joinRequest.inviteSlug
-            profile = joinRequest.profile
-            metadata = joinRequest.metadata
-        } else if contentType == ContentTypeText.asMessagingContentType {
-            guard let text = String(data: message.encodedContent.content, encoding: .utf8) else { return nil }
-            slug = text
-        } else {
-            return nil
-        }
-
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else { return nil }
-
-        let request = JoinRequest(
-            joinerInboxId: message.senderInboxId,
-            dmConversationId: message.conversationId,
-            signedInvite: signedInvite,
-            messageId: message.id,
-            profile: profile,
-            metadata: metadata
-        )
-
-        return await processJoinRequest(request, client: client)
     }
 
     private func blockSpammer(
@@ -477,7 +435,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         let codec = InviteJoinErrorCodec()
         guard let encodedJoinError = try? codec.encode(content: error) else { return }
         let messagingEncoded = MessagingEncodedContent(
-            type: ContentTypeInviteJoinError.asMessagingContentType,
+            type: .inviteJoinError,
             parameters: encodedJoinError.parameters,
             content: encodedJoinError.content,
             fallback: try? codec.fallback(content: error)
@@ -485,7 +443,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         _ = try? await conversation.core.sendOptimistic(
             encodedContent: messagingEncoded,
             options: MessagingSendOptions(
-                contentType: ContentTypeInviteJoinError.asMessagingContentType
+                contentType: .inviteJoinError
             )
         )
     }
@@ -529,13 +487,13 @@ extension MessagingDm {
 
         let contentType = lastMessage.encodedContent.type
         let slug: String
-        if contentType == ContentTypeJoinRequest.asMessagingContentType {
+        if contentType == .joinRequest {
             guard let joinRequest = try? JSONDecoder().decode(
                 JoinRequestContent.self,
                 from: lastMessage.encodedContent.content
             ) else { return nil }
             slug = joinRequest.inviteSlug
-        } else if contentType == ContentTypeText.asMessagingContentType {
+        } else if contentType == .text {
             guard let text = String(data: lastMessage.encodedContent.content, encoding: .utf8) else { return nil }
             slug = text
         } else {
@@ -546,31 +504,41 @@ extension MessagingDm {
     }
 }
 
-// MARK: - Content Type Bridges
+// MARK: - Content Type Constants
 
-/// Stage 6f Step 7 bridge: converts an XMTPiOS `ContentTypeID` to the
-/// abstraction-layer `MessagingContentType` so codec-typed
-/// constants (`ContentTypeJoinRequest`, `ContentTypeInviteJoinError`,
-/// XMTPiOS's `ContentTypeText`) can be compared against
-/// `MessagingMessage.encodedContent.type`.
-extension XMTPiOS.ContentTypeID {
-    var asMessagingContentType: MessagingContentType {
-        MessagingContentType(
-            authorityID: authorityID,
-            typeID: typeID,
-            versionMajor: Int(versionMajor),
-            versionMinor: Int(versionMinor)
-        )
-    }
-}
-
+/// Abstraction-layer mirrors of the XIP / Convos content-type tuples
+/// the coordinator dispatches on. These are duplicated here from
+/// `ConvosCore.MessagingContentType+XIP.swift` (text) and the codec
+/// files (`JoinRequestCodec` / `InviteJoinErrorCodec` define the
+/// authoritative XMTPiOS-typed constants) because `ConvosInvites`
+/// cannot import either ConvosCore (circular) or its own codec
+/// constants without re-importing XMTPiOS at this file's top level.
+/// Keeping the wire-format tuples in lockstep across both surfaces is
+/// asserted by the codec tests in
+/// `ConvosInvitesTests/ContentTypes/*CodecTests.swift`.
 extension MessagingContentType {
-    /// `xmtp.org/text:1.0` — duplicated here from
-    /// `ConvosCore`'s `MessagingContentType+XIP.swift` because
-    /// `ConvosInvites` cannot import ConvosCore (circular).
+    /// `xmtp.org/text:1.0`
     static let text: MessagingContentType = MessagingContentType(
         authorityID: "xmtp.org",
         typeID: "text",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+
+    /// `convos.org/join_request:1.0` — mirrors
+    /// `ContentTypeJoinRequest` from `JoinRequestCodec.swift`.
+    static let joinRequest: MessagingContentType = MessagingContentType(
+        authorityID: "convos.org",
+        typeID: "join_request",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+
+    /// `convos.org/invite_join_error:1.0` — mirrors
+    /// `ContentTypeInviteJoinError` from `InviteJoinErrorCodec.swift`.
+    static let inviteJoinError: MessagingContentType = MessagingContentType(
+        authorityID: "convos.org",
+        typeID: "invite_join_error",
         versionMajor: 1,
         versionMinor: 0
     )

@@ -60,7 +60,15 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         message: XMTPiOS.DecodedMessage,
         client: any MessagingClient
     ) async -> JoinRequestResult? {
-        guard let result = await coordinator.processMessage(message, client: InviteClientProviderAdapter(client)) else {
+        // Stage 6f Step 8: `InviteCoordinator.processMessage` is now
+        // typed against the abstraction-side `MessagingMessage`. Wrap
+        // the XMTPiOS-side `DecodedMessage` once at this boundary so
+        // ConvosInvites no longer needs an XMTPiOS dependency on its
+        // public coordinator surface.
+        guard let messagingMessage = try? MessagingMessage(message) else {
+            return nil
+        }
+        guard let result = await coordinator.processMessage(messagingMessage, client: InviteClientProviderAdapter(client)) else {
             return nil
         }
         logAccepted(result)
