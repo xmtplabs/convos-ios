@@ -1467,7 +1467,8 @@ extension ConversationViewModel {
         do {
             let messagingService = try await session.messagingService(for: clientId, inboxId: requestedBy)
             let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-            guard let xmtpConversation = try await inboxResult.client.conversation(with: conversationId) else {
+            guard let xmtpConversation = try await inboxResult.client
+                .messagingConversation(with: conversationId)?.underlyingXMTPiOSConversation else {
                 Log.warning("Could not find XMTP conversation to broadcast assistant join request")
                 return
             }
@@ -1554,8 +1555,7 @@ extension ConversationViewModel {
         )
         let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
         let client = inboxResult.client
-        guard let xmtpConversation = try await client.conversation(with: conversation.id),
-              case .group(let group) = xmtpConversation else {
+        guard let group = try await client.messagingGroup(with: conversation.id) else {
             throw NSError(domain: "ConversationViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "XMTP group not found"])
         }
 
@@ -1575,7 +1575,8 @@ extension ConversationViewModel {
                 )
                 let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
                 let client = inboxResult.client
-                guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
+                guard let xmtpConversation = try await client
+                    .messagingConversation(with: conversation.id)?.underlyingXMTPiOSConversation else {
                     return nil
                 }
                 return try await xmtpConversation.exportDebugLogs()
