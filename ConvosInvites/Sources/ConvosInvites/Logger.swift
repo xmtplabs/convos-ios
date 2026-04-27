@@ -6,9 +6,7 @@ import Logging
 ///
 /// Internal so it does not collide with `ConvosCore.Log` for downstream consumers.
 enum Log {
-    private static var logger: Logging.Logger {
-        Logging.Logger(label: "convos")
-    }
+    private static let logger: Logging.Logger = Logging.Logger(label: "convos")
 
     static func debug(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
         logger.debug("[ConvosInvites] \(message)", source: makeSource(file: file, function: function, line: line))

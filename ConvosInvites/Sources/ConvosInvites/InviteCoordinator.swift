@@ -301,7 +301,7 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         let consent = (try? conversation.consentState()) ?? .unknown
         guard consent == .allowed else {
-            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent=\(consent)")
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state '\(consent)' is not .allowed")
             await sendJoinError(.consentNotAllowed, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .consentNotAllowed(conversationId, consent))
             return nil
