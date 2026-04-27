@@ -16,11 +16,9 @@ enum ExplodeSettingsResult: Sendable {
     case scheduled(expiresAt: Date)
 }
 
-// Stage 3 migration (audit §5.3): the writer surface now operates on
-// `MessagingMessage` rather than `XMTPiOS.DecodedMessage`. Callers that
-// still hold raw `XMTPiOS.DecodedMessage` wrap through
-// `MessagingMessage(decoded)` at the call site; the writer file itself
-// no longer imports XMTPiOS.
+// The writer surface operates on `MessagingMessage`. Callers that still
+// hold raw `XMTPiOS.DecodedMessage` wrap through `MessagingMessage(decoded)`
+// at the call site; the writer file itself does not import XMTPiOS.
 protocol IncomingMessageWriterProtocol: Sendable {
     func store(message: MessagingMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult
@@ -46,12 +44,6 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
     func store(message messagingMessage: MessagingMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
-        // Stage 3 migration (audit §5.3): the writer now takes a
-        // Convos-owned `MessagingMessage`. Callers that still hold
-        // `XMTPiOS.DecodedMessage` wrap it at the call site via
-        // `MessagingMessage(decoded)` — the XMTPiOS → abstraction
-        // boundary lives beside the rest of the adapter code in
-        // `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/`.
         let payload = messagingMessage.resolvedPayload()
 
         if case .reaction(let reaction) = payload {
@@ -269,8 +261,6 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
     }
 
     func decodeExplodeSettings(from message: MessagingMessage) -> ExplodeSettings? {
-        // Stage 3 migration: dispatch on the abstraction-layer content
-        // type rather than the XMTPiOS `ContentTypeID` constant.
         guard message.encodedContent.type == .explodeSettings else {
             return nil
         }

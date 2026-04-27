@@ -16,11 +16,9 @@ enum ReactionWriterError: Error {
     case unknownReactionAction
 }
 
-// Stage 3 migration (audit §5.3): the writer no longer imports
-// XMTPiOS. The XIP `Reaction` codec still lives on the XMTPiOS side
-// so reactions flow through the Stage-6 codec bridge
-// (`MessagingWriterBridge.sendReaction`). Once the codec migrates to
-// the abstraction this can reduce to
+// The XIP `Reaction` codec still lives in the XMTPiOS layer, so
+// reactions flow through `MessagingWriterBridge.sendReaction`. Once the
+// codec migrates onto the abstraction this can reduce to
 // `conversation.core.sendOptimistic(encodedContent:options:)`.
 final class ReactionWriter: ReactionWriterProtocol, Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
@@ -86,11 +84,6 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         action: Action
     ) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase B: routes through the `MessagingClient`
-        // abstraction. The reaction helpers only need `inboxId` and
-        // `messagingConversation(with:)`, both of which live on the
-        // `MessagingClient` surface, so the legacy `XMTPClientProvider`
-        // bridge is no longer required.
         let client = inboxReady.client
 
         switch action {

@@ -10,12 +10,11 @@ enum ConversationWriterError: Error {
     case invalidInvite(String)
 }
 
-// Stage 3 migration (audit §5.3): the writer surface now operates on
-// `any MessagingGroup` instead of `XMTPiOS.Group`. Stage 4 callers
-// that still hold a raw `XMTPiOS.Group` wrap it via
-// `XMTPiOSMessagingGroup(xmtpGroup:)` at the call site; the writer
-// file itself no longer imports XMTPiOS. XMTPiOS-specific helpers
-// moved to
+// The writer surface operates on `any MessagingGroup`. Callers that
+// still hold a raw `XMTPiOS.Group` wrap it via
+// `XMTPiOSMessagingGroup(xmtpGroup:)` at the call site; this file does
+// not import XMTPiOS. XMTPiOS-specific helpers live beside the rest of
+// the adapter code in
 // `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/XMTPiOSConversationWriterSupport.swift`.
 protocol ConversationWriterProtocol: Sendable {
     @discardableResult
@@ -705,8 +704,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 if contentType == .profileUpdate {
                     // ProfileUpdateCodec consumes the XMTPiOS-level
                     // `EncodedContent`; bridge via
-                    // `MessagingEncodedContent.xmtpEncodedContent`. Codec
-                    // migration tracked as Stage 6.
+                    // `MessagingEncodedContent.xmtpEncodedContent` until
+                    // the codec migrates onto the abstraction.
                     guard let update = try? ProfileUpdateCodec().decode(
                         content: message.encodedContent.xmtpEncodedContent
                     ) else { continue }

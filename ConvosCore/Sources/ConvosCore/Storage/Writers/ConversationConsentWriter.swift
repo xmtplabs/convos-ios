@@ -27,11 +27,6 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func join(conversation: Conversation) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction. `messagingConversation(with:)` looks up the
-        // `MessagingConversation`; the `.core.updateConsentState(_:)`
-        // call replaces the legacy `client.update(consent:for:)`
-        // helper that XMTPClientProvider exposed.
         let client = try await inboxStateManager.waitForInboxReadyResult().client
         try await updateMessagingConsent(
             using: client,
@@ -50,8 +45,6 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func delete(conversation: Conversation) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction (see `join(...)` above for rationale).
         let client = try await inboxStateManager.waitForInboxReadyResult().client
         try await updateMessagingConsent(
             using: client,
@@ -70,8 +63,6 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func deleteAll() async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await inboxStateManager.waitForInboxReadyResult().client
         let inboxId = client.inboxId
         let conversationsToDeny = try await databaseWriter.read { db in

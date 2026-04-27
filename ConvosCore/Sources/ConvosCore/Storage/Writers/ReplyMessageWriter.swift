@@ -10,12 +10,10 @@ enum ReplyWriterError: Error {
     case conversationNotFound(conversationId: String)
 }
 
-// Stage 3 migration (audit §5.3): the writer no longer imports
-// XMTPiOS. The reply-send flow still reaches into the XMTPiOS XIP
-// `Reply` codec via the `MessagingWriterBridge.sendTextReply` bridge
-// (Stage 6 codec migration). Conversation lookup flows through the
-// `messagingConversation(with:)` convenience, keeping the writer's
-// call site abstraction-aware.
+// The reply-send flow reaches the XMTPiOS XIP `Reply` codec through the
+// `MessagingWriterBridge.sendTextReply` bridge (the codec still lives
+// in the XMTPiOS layer). Conversation lookup flows through
+// `messagingConversation(with:)`, keeping this file XMTPiOS-free.
 final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
@@ -94,7 +92,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
         var currentDbId = clientMessageId
 
         do {
-            // FIXME(stage6): `Reply(...) / ContentTypeText / ContentTypeReply`
+            // FIXME: `Reply(...) / ContentTypeText / ContentTypeReply`
             // are XMTPiOS XIP codec values. Until the codecs migrate to
             // the abstraction layer, bridge through the XMTPiOS adapter.
             let preparedMessageId = try await sendTextReplyViaBridge(

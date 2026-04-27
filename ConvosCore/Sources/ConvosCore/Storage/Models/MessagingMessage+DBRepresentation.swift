@@ -30,15 +30,14 @@ extension String {
 
 // MARK: - Translator
 
-/// Stage 3 migration (audit §5): the content-type dispatch that
-/// produces a `DBMessage` from an incoming message now operates on
-/// `MessagingMessage` (and its resolved `MessagingMessagePayload`)
-/// rather than on `XMTPiOS.DecodedMessage` directly.
+/// Content-type dispatch that produces a `DBMessage` from an incoming
+/// message. Operates on `MessagingMessage` + its resolved
+/// `MessagingMessagePayload`.
 ///
-/// The boundary from XMTPiOS -> abstraction lives in
-/// `Storage/XMTP DB Representations/MessagingMessage+XMTPiOS.swift`.
-/// This file is Foundation-only and contains the abstraction-side
-/// logic — what DTU will also exercise in Stage 5.
+/// The XMTPiOS -> abstraction boundary lives in
+/// `Storage/XMTP DB Representations/MessagingMessage+XMTPiOS.swift`;
+/// this file is Foundation-only and contains the abstraction-side
+/// logic the DTU adapter also exercises.
 extension MessagingMessage {
     enum DBRepresentationError: Error {
         case mismatchedContentType
@@ -65,9 +64,6 @@ extension MessagingMessage {
     /// Accepting it as an argument lets this file stay Foundation-only
     /// — the XIP decoding step is performed outside.
     func dbRepresentation(payload: MessagingMessagePayload) throws -> DBMessage {
-        // Stage 2 migration: derive the DB status from the
-        // abstraction-layer `MessagingDeliveryStatus` rather than from
-        // `XMTPiOS.MessageDeliveryStatus` directly.
         let status: MessageStatus = deliveryStatus.status
 
         let components: DBMessageComponents
@@ -265,9 +261,6 @@ extension MessagingMessage {
     private static func handleReactionContent(
         reaction: MessagingReaction
     ) -> DBMessageComponents {
-        // Stage 2 migration: derive the emoji glyph through the
-        // abstraction-layer `MessagingReaction` rather than from
-        // `XMTPiOS.Reaction` directly.
         DBMessageComponents(
             messageType: .reaction,
             contentType: .emoji,

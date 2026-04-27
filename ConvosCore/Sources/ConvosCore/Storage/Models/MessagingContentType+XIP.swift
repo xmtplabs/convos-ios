@@ -3,24 +3,18 @@ import Foundation
 
 /// Convos-owned mirrors of the XIP-spec standard content types.
 ///
-/// Stage 3 migration (audit §5): the prior dispatch in
-/// `Storage/XMTP DB Representations/DecodedMessage+DBRepresentation.swift`
-/// compared `encodedContent.type` against XMTPiOS's top-level
-/// `ContentTypeText` / `ContentTypeReply` / ... constants. After this
-/// migration the dispatch is expressed against `MessagingContentType`
-/// values, which the abstraction layer owns. The XIP authority/type/
-/// major/minor tuples are preserved exactly so
-/// `MessagingEncodedContent.type` (built from either the XMTPiOS
-/// adapter or a future DTU adapter) compares equal to these constants.
+/// Storage-side dispatch is expressed against `MessagingContentType`
+/// values, which the abstraction layer owns. The XIP
+/// authority/type/major/minor tuples match the libxmtp constants
+/// exactly so `MessagingEncodedContent.type` (built from either the
+/// XMTPiOS adapter or a DTU adapter) compares equal to these.
 ///
-/// These constants are intentionally declared as `static let` members
-/// of `MessagingContentType` rather than free functions so that call
-/// sites reading one of these read as `MessagingContentType.text`
-/// rather than `ContentTypeText` and avoid colliding with the
-/// XMTPiOS-level `ContentTypeText` (which still exists for now because
-/// `Custom Content Types/*Codec.swift` and the outgoing-message path
-/// in `OutgoingMessageWriter.swift` have not yet migrated — that is a
-/// later Stage 3/4 scope).
+/// These constants are declared as `static let` members of
+/// `MessagingContentType` (rather than free functions) so call sites
+/// read as `MessagingContentType.text` and avoid colliding with the
+/// XMTPiOS-level `ContentTypeText`, which still exists because the
+/// outgoing-message + custom-codec paths still live in the XMTPiOS
+/// layer.
 public extension MessagingContentType {
     /// `xmtp.org/text:1.0`
     static let text: MessagingContentType = MessagingContentType(
@@ -147,13 +141,9 @@ public extension MessagingContentType {
 
 // MARK: - MessagingMessage convenience predicates
 
-/// Stage 3 migration (audit §5.3): the profile / typing-indicator /
-/// read-receipt predicates used to live on `XMTPiOS.DecodedMessage`
-/// (see `Storage/Writers/ConversationWriter.swift:7-24` pre-Stage 3).
-/// The Storage layer now dispatches on `MessagingMessage` so the
-/// predicates must be available on the abstraction side. Keeping them
-/// in one place beside the content-type constants makes the
-/// authority/type-ID lookup obvious.
+/// Profile / typing-indicator / read-receipt predicates on
+/// `MessagingMessage`. Kept beside the content-type constants so the
+/// authority/type-ID lookup is obvious.
 public extension MessagingMessage {
     /// True when the message carries a `ProfileUpdate` or
     /// `ProfileSnapshot` XIP payload. Used by sync / storage to skip

@@ -13,12 +13,12 @@ enum MyProfileWriterError: Error {
     case imageCompressionFailed
 }
 
-// Stage 3 migration (audit §5.3): the writer no longer imports
-// XMTPiOS. Conversation lookup uses `messagingGroup(with:)`, and the
+// Conversation lookup uses `messagingGroup(with:)`, and the
 // `group.updateProfile(_:)` / `group.ensureImageEncryptionKey()` calls
 // dispatch onto the `MessagingGroup+CustomMetadata` extension. Sending
-// the `ProfileUpdate` codec payload still goes through the Stage-6
-// `ProfileSnapshotBridge.sendProfileUpdate` bridge.
+// the `ProfileUpdate` codec payload goes through the
+// `ProfileSnapshotBridge.sendProfileUpdate` bridge because the codec
+// still lives in the XMTPiOS layer.
 class MyProfileWriter: MyProfileWriterProtocol {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
@@ -188,8 +188,8 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         do {
-            // FIXME(stage4e): `ProfileUpdateCodec` still lives on the
-            // XMTPiOS side; flow through the Stage-4e bridge until
+            // FIXME: `ProfileUpdateCodec` still lives on the XMTPiOS
+            // side; flow through `ProfileSnapshotBridge` until
             // ConvosProfiles migrates onto the abstraction.
             try await ProfileSnapshotBridge.sendProfileUpdate(update, on: group)
             Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")

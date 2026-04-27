@@ -4,11 +4,7 @@ import Foundation
 /// Normalized decoded-payload shapes for the content types that the
 /// storage layer needs to translate into `DBMessage`.
 ///
-/// Stage 3 migration (audit §5): the prior dispatch in
-/// `Storage/XMTP DB Representations/DecodedMessage+DBRepresentation.swift`
-/// performed `content() as Reply` / `as Attachment` / ... casts
-/// directly against XMTPiOS's XIP payload structs. After the migration
-/// the storage-side translator
+/// The storage-side translator
 /// (`MessagingMessage+DBRepresentation.swift`) only sees the Convos-
 /// owned values below; the boundary that decodes XIP structs into
 /// these shapes lives in `XMTP DB Representations/MessagingMessage+XMTPiOS.swift`.
@@ -18,9 +14,9 @@ import Foundation
 /// `MessagingService+PushNotifications.swift`, outgoing-message path
 /// in `OutgoingMessageWriter.swift`) still pull the raw XIP payloads
 /// via `MessagingMessage.content<T>()`. Generalising this enum into a
-/// full Convos-owned codec surface is tracked under Stage 6 (audit
-/// §5); for now the narrow shape keeps the DB translator XMTPiOS-free
-/// without re-stating every XIP payload.
+/// full Convos-owned codec surface is the next iteration; for now the
+/// narrow shape keeps the DB translator XMTPiOS-free without re-stating
+/// every XIP payload.
 public enum MessagingMessagePayload: Sendable {
     /// XIP `text:1.0` — a raw string body.
     case text(String)
@@ -109,9 +105,8 @@ public enum MessagingReplyInnerPayload: Sendable {
     case other
 }
 
-/// Inline attachment payload — matches the fields read from
-/// `XMTPiOS.Attachment` by `DecodedMessage+DBRepresentation.swift`
-/// before the migration.
+/// Inline attachment payload — mirrors the subset of
+/// `XMTPiOS.Attachment` the DB translator reads.
 public struct MessagingAttachmentPayload: Sendable {
     public let data: Data
     public let filename: String
@@ -124,10 +119,9 @@ public struct MessagingAttachmentPayload: Sendable {
     }
 }
 
-/// Remote attachment payload — matches the fields read from
-/// `XMTPiOS.RemoteAttachment` by `DecodedMessage+DBRepresentation.swift`
-/// before the migration. `filename` is optional because
-/// `RemoteAttachment.filename` is too.
+/// Remote attachment payload — mirrors the subset of
+/// `XMTPiOS.RemoteAttachment` the DB translator reads. `filename` is
+/// optional because `RemoteAttachment.filename` is too.
 public struct MessagingRemoteAttachmentPayload: Sendable {
     public let url: String
     public let contentDigest: String

@@ -53,15 +53,12 @@ enum ConversationMetadataError: LocalizedError {
 
 // MARK: - Conversation Metadata Writer Implementation
 
-/// Stage 3 migration (audit §5.3): the writer no longer imports
-/// XMTPiOS. Conversation lookups flow through the abstraction-layer
+/// Conversation lookups flow through the abstraction-layer
 /// `messagingGroup(with:)` convenience, and every `group.xxx` call
 /// resolves to either:
 /// - the protocol method on `MessagingGroup`, or
 /// - the extension defined on `MessagingGroup` in
-///   `Invites & Custom Metadata/MessagingGroup+CustomMetadata.swift`
-///   (which is a behavioural 1:1 of the legacy XMTPGroup+CustomMetadata
-///   shim).
+///   `Invites & Custom Metadata/MessagingGroup+CustomMetadata.swift`.
 ///
 /// @unchecked Sendable: All stored properties are immutable references (`let`).
 /// DatabaseWriter is thread-safe (internal serial queue). InboxStateManager and

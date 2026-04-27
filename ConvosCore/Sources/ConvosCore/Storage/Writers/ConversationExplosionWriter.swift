@@ -20,10 +20,6 @@ enum ConversationExplosionError: LocalizedError {
     }
 }
 
-// Stage 3 migration (audit §5.3): the writer no longer imports
-// XMTPiOS. Conversation lookup uses `messagingConversation(with:)` and
-// the `sendExplode(expiresAt:)` call goes through the Stage-6
-// ExplodeSettings codec bridge.
 final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @unchecked Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol

@@ -5,14 +5,12 @@ import Foundation
 import GRDB
 import UniformTypeIdentifiers
 
-// Stage 3 migration (audit §5.3): the writer no longer imports
-// XMTPiOS directly. The XIP send flow still lives on XMTPiOS (Reply,
-// RemoteAttachment, Attachment, AttachmentCodec, ContentTypeText,
-// ContentTypeRemoteAttachment, MessageSender.prepare(...)) so Stage 3
-// routes every XIP-layer call through per-op bridges in
-// `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/
-// XMTPiOSConversationWriterSupport.swift`. The writer file itself
-// stays Foundation + GRDB only.
+// The XIP send flow still lives on XMTPiOS (Reply, RemoteAttachment,
+// Attachment, AttachmentCodec, ContentTypeText, ContentTypeRemoteAttachment,
+// MessageSender.prepare(...)), so every XIP-layer call here routes
+// through per-op bridges in
+// `Messaging/Abstraction/XMTPiOSAdapter/DBBoundary/XMTPiOSConversationWriterSupport.swift`.
+// This file itself stays Foundation + GRDB only.
 
 public protocol OutgoingMessageWriterProtocol: Sendable {
     var sentMessage: AnyPublisher<String, Never> { get }
@@ -538,8 +536,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
             let fileData = try Data(contentsOf: params.dataURL)
-            // Stage 3 migration: delegate Attachment + AttachmentCodec
-            // construction to the Stage 6 XIP bridge.
+            // Delegate Attachment + AttachmentCodec construction to the
+            // XIP bridge — these codecs still live in the XMTPiOS layer.
             let encrypted = try encodeEncryptedAttachmentViaBridge(
                 filename: params.filename,
                 mimeType: params.mimeType,
@@ -649,10 +647,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw PhotoAttachmentError.encryptionFailed
         }
 
-        // Stage 6e Phase B: route conversation lookup through the
-        // `MessagingClient` abstraction. `prepareRemoteAttachmentViaBridge`
-        // accepts `MessagingConversation` and downcasts to the XMTPiOS
-        // adapter SDK-side.
+        // `prepareRemoteAttachmentViaBridge` accepts `MessagingConversation`
+        // and downcasts to the XMTPiOS adapter SDK-side.
         guard let conversation = try await inboxReady.client.messagingConversation(
             with: conversationId
         ) else {
@@ -662,8 +658,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         do {
-            // Stage 3 migration: delegate RemoteAttachment + Reply
-            // construction + prepare dispatch to the Stage 6 XIP bridge.
+            // RemoteAttachment + Reply construction and the prepare
+            // dispatch live on the XIP bridge because the codecs still
+            // live in the XMTPiOS layer.
             let messageId = try await prepareRemoteAttachmentViaBridge(
                 conversation: conversation,
                 stored: storedAttachment,
@@ -694,9 +691,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             try await attachmentLocalStateWriter.migrateKey(from: trackingKey, to: json)
 
-            // Stage 6e Phase B: `MessagingConversationCore.publish()`
-            // mirrors the legacy `MessageSender.publish()` semantics
-            // (publishes every unpublished message on the conversation).
+            // `MessagingConversationCore.publish()` publishes every
+            // unpublished message on the conversation.
             try await conversation.core.publish()
 
             ImageCacheContainer.shared.removeImage(for: trackingKey)
@@ -929,11 +925,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private func publishText(_ queued: QueuedTextMessage) async throws {
         let perfStart = CFAbsoluteTimeGetCurrent()
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase B: route conversation lookup through the
-        // `MessagingClient` abstraction. The text-prepare and
-        // text-reply-prepare paths still need an XMTPiOS-side codec,
-        // so they go through `MessagingWriterBridge` (which downcasts
-        // to the XMTPiOS adapter SDK-side).
+        // The text-prepare and text-reply-prepare paths still need an
+        // XMTPiOS-side codec, so they go through `MessagingWriterBridge`
+        // (which downcasts to the XMTPiOS adapter SDK-side).
         guard let conversation = try await inboxReady.client.messagingConversation(
             with: conversationId
         ) else {
@@ -993,9 +987,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         do {
-            // Stage 6e Phase B: `MessagingConversationCore.publish()`
-            // mirrors the legacy `MessageSender.publish()` semantics
-            // (publishes every unpublished message on the conversation).
+            // `MessagingConversationCore.publish()` publishes every
+            // unpublished message on the conversation.
             try await conversation.core.publish()
         } catch {
             Log.error("Failed publishing text message: \(error)")
@@ -1410,9 +1403,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func publishPreparedMessage(messageId: String, sentContent: String? = nil) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-        // Stage 6e Phase B: route conversation lookup through the
-        // `MessagingClient` abstraction. `MessagingConversationCore.publish(messageId:)`
-        // mirrors the legacy `MessageSender.publishMessage(messageId:)`.
         guard let conversation = try await inboxReady.client.messagingConversation(
             with: conversationId
         ) else {

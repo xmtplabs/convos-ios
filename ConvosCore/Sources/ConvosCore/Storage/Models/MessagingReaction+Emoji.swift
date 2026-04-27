@@ -4,11 +4,10 @@ import Foundation
 /// Projects a `MessagingReaction` onto the user-visible emoji glyph
 /// Convos stores in `DBMessage.emoji`.
 ///
-/// Stage 2 migration (audit §5): this replaces the pre-existing
-/// `extension XMTPiOS.Reaction { var emoji }` so the rendering rule
-/// (U+XXXX hex-code -> UnicodeScalar for `.unicode`-schema reactions,
-/// raw content otherwise) lives on the Convos-owned struct. The
-/// XMTPiOS boundary now only carries the shape conversion — see
+/// The rendering rule (U+XXXX hex-code -> UnicodeScalar for
+/// `.unicode`-schema reactions, raw content otherwise) lives on the
+/// Convos-owned struct so it is shared between adapters. The XMTPiOS
+/// boundary only carries the shape conversion — see
 /// `Storage/XMTP DB Representations/Reaction+DBRepresentation.swift`.
 extension MessagingReaction {
     /// Returns the glyph Convos wants to display for this reaction.

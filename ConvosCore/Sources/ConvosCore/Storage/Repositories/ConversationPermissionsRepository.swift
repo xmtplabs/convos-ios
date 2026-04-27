@@ -127,10 +127,6 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     // MARK: - Public Methods
 
     func getConversationPermissions(for conversationId: String) async throws -> ConversationPermissionPolicySet {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction. `messagingConversation(with:)` returns a
-        // `MessagingConversation`; admin / super-admin checks live on
-        // `MessagingGroup`. No XMTPiOS types in this file.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
 
@@ -171,8 +167,6 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getMemberRole(memberInboxId: String, in conversationId: String) async throws -> MemberRole {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction (see `getConversationPermissions(for:)` above).
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
 
@@ -230,10 +224,6 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getConversationMembers(for conversationId: String) async throws -> [ConversationMemberInfo] {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction. `MessagingMember.consentState` is already
-        // `MessagingConsentState`, which maps to `Consent` via the
-        // `MessagingConsentState.consent` boundary helper.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
 
@@ -265,48 +255,36 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func addAdmin(memberInboxId: String, to conversationId: String) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addAdmin(inboxId: memberInboxId)
     }
 
     func removeAdmin(memberInboxId: String, from conversationId: String) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeAdmin(inboxId: memberInboxId)
     }
 
     func addSuperAdmin(memberInboxId: String, to conversationId: String) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addSuperAdmin(inboxId: memberInboxId)
     }
 
     func removeSuperAdmin(memberInboxId: String, from conversationId: String) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeSuperAdmin(inboxId: memberInboxId)
     }
 
     func addMembers(inboxIds: [String], to conversationId: String) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addMembers(inboxIds: inboxIds)
     }
 
     func removeMembers(inboxIds: [String], from conversationId: String) async throws {
-        // Stage 6e Phase B: route through the `MessagingClient`
-        // abstraction.
         let client = try await self.inboxStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeMembers(inboxIds: inboxIds)
