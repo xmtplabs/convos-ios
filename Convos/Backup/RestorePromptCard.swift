@@ -61,6 +61,9 @@ struct RestorePromptCard: View {
                     Button(action: chooseAction) {
                         Text("Choose backup")
                             .font(.footnote.weight(.medium))
+                            .foregroundStyle(.colorTextSecondary)
+                            .padding(.horizontal, DesignConstants.Spacing.step12x)
+                            .padding(.vertical, DesignConstants.Spacing.step2x)
                     }
                     .accessibilityIdentifier("restore-prompt-choose-backup-button")
                 }
