@@ -35,7 +35,6 @@ extension PlatformProviders {
     /// - `IOSDeviceInfo` for device information
     /// - `IOSPushNotificationRegistrar` for push notification management
     ///
-    /// Also sets up the legacy singleton accessors for backwards compatibility.
     /// Must be called from the main actor (typically during app initialization).
     @MainActor
     public static var iOS: PlatformProviders {
@@ -43,8 +42,6 @@ extension PlatformProviders {
         let deviceInfo = IOSDeviceInfo()
         let pushNotificationRegistrar = IOSPushNotificationRegistrar()
 
-        // Configure legacy singletons for code that doesn't use dependency injection
-        // (e.g., DebugView accessing PushNotificationRegistrar.token)
         DeviceInfo.configure(deviceInfo)
         PushNotificationRegistrar.configure(pushNotificationRegistrar)
         ImageCompression.configure(IOSImageCompression())
@@ -55,7 +52,8 @@ extension PlatformProviders {
             deviceInfo: deviceInfo,
             pushNotificationRegistrar: pushNotificationRegistrar,
             notificationCenter: UNUserNotificationCenter.current(),
-            backgroundUploadManager: BackgroundUploadManager.shared
+            backgroundUploadManager: BackgroundUploadManager.shared,
+            oauthSessionProvider: IOSOAuthSessionProvider()
         )
     }
 
@@ -74,6 +72,5 @@ extension PlatformProviders {
     }
 }
 
-// Re-export types from ConvosCore for convenience
 @_exported import ConvosCore
 #endif

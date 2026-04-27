@@ -189,8 +189,6 @@ final class PendingPhotoUploadTests: XCTestCase {
     static func makeDBConversation(id: String) -> DBConversation {
         DBConversation(
             id: id,
-            inboxId: "test-inbox",
-            clientId: "test-client",
             clientConversationId: id,
             inviteTag: "invite-\(id)",
             creatorId: "test-inbox",
@@ -211,7 +209,7 @@ final class PendingPhotoUploadTests: XCTestCase {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAssistant: false,
         )
     }
 }

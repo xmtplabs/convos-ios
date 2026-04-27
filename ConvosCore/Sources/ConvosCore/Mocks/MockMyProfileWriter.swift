@@ -1,4 +1,3 @@
-import ConvosProfiles
 import Foundation
 
 /// Mock implementation of MyProfileWriterProtocol for testing
@@ -6,6 +5,8 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
     public var updatedDisplayNames: [(name: String, conversationId: String)] = []
     public var updatedAvatars: [(image: ImageType?, conversationId: String)] = []
     public var updatedMetadata: [(metadata: ProfileMetadata?, conversationId: String)] = []
+    public var publishedMetadata: [(metadata: ProfileMetadata?, conversationId: String)] = []
+    public var publishError: (any Error)?
 
     public init() {}
 
@@ -19,5 +20,12 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
 
     public func update(metadata: ProfileMetadata?, conversationId: String) async throws {
         updatedMetadata.append((metadata: metadata, conversationId: conversationId))
+    }
+
+    public func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws {
+        publishedMetadata.append((metadata: metadata, conversationId: conversationId))
+        if let publishError {
+            throw publishError
+        }
     }
 }

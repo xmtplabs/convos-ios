@@ -10,7 +10,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
          attachments([HydratedAttachment]),
          update(ConversationUpdate),
          linkPreview(LinkPreview),
-         assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String)
+         assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String),
+         connectionGrantRequest(ConnectionGrantRequest)
 
     public var showsInMessagesList: Bool {
         switch self {
@@ -41,7 +42,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
 
     public var showsSender: Bool {
         switch self {
-        case .update, .assistantJoinRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest:
             false
         default:
             true
@@ -51,6 +52,15 @@ public enum MessageContent: Hashable, Codable, Sendable {
     public var isAssistantJoinRequest: Bool {
         switch self {
         case .assistantJoinRequest:
+            true
+        default:
+            false
+        }
+    }
+
+    public var isConnectionGrantRequest: Bool {
+        switch self {
+        case .connectionGrantRequest:
             true
         default:
             false

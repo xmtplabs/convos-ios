@@ -35,7 +35,7 @@ struct AvatarView: View {
                     .scaledToFit()
                     .aspectRatio(contentMode: .fill)
             } else if let placeholderEmoji, !placeholderEmoji.isEmpty {
-                EmojiAvatarView(emoji: placeholderEmoji)
+                EmojiAvatarView(emoji: placeholderEmoji, agentVerification: agentVerification)
             } else if let placeholderImageName {
                 Image(systemName: placeholderImageName)
                     .resizable()
@@ -108,7 +108,9 @@ struct ConversationAvatarView: View {
             MonogramView(name: conversation.computedDisplayName)
         case let .profile(profile, verification):
             if let emoji = profile.profileEmoji, !emoji.isEmpty {
-                EmojiAvatarView(emoji: emoji)
+                EmojiAvatarView(emoji: emoji, agentVerification: verification)
+            } else if verification == .unverified {
+                EmojiAvatarView(emoji: conversation.defaultEmoji)
             } else {
                 MonogramView(name: profile.displayName, agentVerification: verification)
             }
@@ -138,7 +140,7 @@ struct MessageAvatarView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else if let emoji = profile.profileEmoji, !emoji.isEmpty {
-                EmojiAvatarView(emoji: emoji)
+                EmojiAvatarView(emoji: emoji, agentVerification: profile.isAgent ? agentVerification : .unverified)
             } else {
                 MonogramView(name: profile.displayName, agentVerification: profile.isAgent ? agentVerification : .unverified)
             }

@@ -1,6 +1,5 @@
 import ConvosAppData
 import ConvosMessagingProtocols
-import ConvosProfiles
 import Foundation
 
 // swiftlint:disable:next orphaned_doc_comment
@@ -83,6 +82,45 @@ struct ConversationCustomMetadataEngine {
             return nil
         }
         return metadata.encryptedGroupImage
+    }
+
+    // MARK: - Connections (per-sender-profile)
+
+    /// Returns the JSON grants payload stored on a specific sender's profile.
+    /// The runtime reads grants from `profile.metadata.connections` per sender,
+    /// so each member's grants live under their own profile entry.
+    func senderConnections(forInboxId inboxId: String) async throws -> String? {
+        let metadata = try await currentCustomMetadata()
+        guard let profile = metadata.findProfile(inboxId: inboxId),
+              profile.hasConnections,
+              !profile.connections.isEmpty else {
+            return nil
+        }
+        return profile.connections
+    }
+
+    func updateSenderConnections(_ json: String, senderInboxId: String) async throws {
+        guard let seedProfile = ConversationProfile(inboxIdString: senderInboxId) else {
+            throw ConversationCustomMetadataError.invalidInboxIdHex(senderInboxId)
+        }
+        try await atomicUpdateMetadata(operation: "updateSenderConnections") { metadata in
+            var profile = metadata.findProfile(inboxId: senderInboxId) ?? seedProfile
+            profile.connections = json
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            metadata.findProfile(inboxId: senderInboxId)?.connections == json
+        }
+    }
+
+    func clearSenderConnections(senderInboxId: String) async throws {
+        try await atomicUpdateMetadata(operation: "clearSenderConnections") { metadata in
+            guard var profile = metadata.findProfile(inboxId: senderInboxId) else { return }
+            profile.clearConnections()
+            metadata.upsertProfile(profile)
+        } verify: { metadata in
+            let profile = metadata.findProfile(inboxId: senderInboxId)
+            return profile == nil || !(profile?.hasConnections ?? false)
+        }
     }
 
     func memberProfiles(withKey groupKey: Data?) async throws -> [DBMemberProfile] {
@@ -426,5 +464,19 @@ extension MessagingGroup {
 
     public func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {
         try await customMetadataEngine.updateMetadata(metadata)
+    }
+
+    // MARK: Connections (per-sender-profile)
+
+    public func senderConnections(forInboxId inboxId: String) async throws -> String? {
+        try await customMetadataEngine.senderConnections(forInboxId: inboxId)
+    }
+
+    public func updateSenderConnections(_ json: String, senderInboxId: String) async throws {
+        try await customMetadataEngine.updateSenderConnections(json, senderInboxId: senderInboxId)
+    }
+
+    public func clearSenderConnections(senderInboxId: String) async throws {
+        try await customMetadataEngine.clearSenderConnections(senderInboxId: senderInboxId)
     }
 }

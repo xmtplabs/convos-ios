@@ -97,7 +97,8 @@ final class FocusCoordinator {
             return nil
 
         case (.displayName, .quickEditor),
-            (.conversationName, .quickEditor):
+            (.conversationName, .quickEditor),
+            (.sideConvoName, .quickEditor):
             // In quickEditor context, return to whatever was focused before
             // If nothing was tracked, fall back to message field or default
             return previousFocus ?? defaultFocus ?? .message
@@ -121,14 +122,20 @@ final class FocusCoordinator {
             // Message field and voice memo keeper end editing, go to default
             return defaultFocus
 
+        case (.sideConvoName, _):
+            // Any non-quickEditor end of side-convo name editing falls through to default
+            return defaultFocus
+
         default:
             return defaultFocus
         }
     }
 
-    /// Moves focus to `message` if we're currently focusing the displayName or conversationName
+    /// Moves focus to `message` if we're currently focusing a quick-editor field
     func dismissQuickEditor() {
-        guard currentFocus == .displayName || currentFocus == .conversationName else {
+        guard currentFocus == .displayName
+            || currentFocus == .conversationName
+            || currentFocus == .sideConvoName else {
             return
         }
 
@@ -262,11 +269,19 @@ final class FocusCoordinator {
 
     /// Called when user manually dismisses keyboard - should return to default or stay nil
     func handleManualDismissal(viewIsAlreadyAt viewFocus: MessagesViewInputFocus? = nil) {
-        // Ignore if we're in the middle of ANY transition
+        // Ignore if we're in the middle of any transition
         // This prevents false positives when SwiftUI temporarily sets focus to nil
         // while transitioning between text fields
         guard !isProgrammaticTransition && !isSwiftUITransition else {
             Log.info("Ignoring manual dismissal during transition (programmatic: \(isProgrammaticTransition), swiftUI: \(isSwiftUITransition))")
+            return
+        }
+
+        // Don't treat a nil-sync as manual dismissal while actively editing a quick-editor field.
+        // SwiftUI can momentarily drive focus to nil while the composer re-renders around the
+        // inline card, and collapsing the bar would yank the user out of their edit.
+        if currentFocus == .sideConvoName {
+            Log.info("Ignoring manual dismissal while editing side convo name")
             return
         }
 
@@ -292,7 +307,7 @@ final class FocusCoordinator {
 
     private func updateFocusForSizeClassChange() {
         // Only auto-adjust if we're currently at nil, .message, or .voiceMemoRecording
-        // Don't interrupt active editing of displayName or conversationName
+        // Don't interrupt active editing of displayName, conversationName, or sideConvoName
         guard currentFocus == nil || currentFocus == .message || currentFocus == .voiceMemoRecording else {
             return
         }
@@ -408,7 +423,7 @@ final class FocusCoordinator {
 
         // If keyboard type changed, update current focus to match new default
         // Only do this if we're currently at nil
-        // Don't interrupt active editing of displayName or conversationName
+        // Don't interrupt active editing of displayName, conversationName, or sideConvoName
         guard currentFocus == nil else { return }
         let newDefault = defaultFocus
 

@@ -1,10 +1,14 @@
-import ConvosProfiles
 import Foundation
 
 public struct Profile: Codable, Identifiable, Hashable, Sendable {
-    public var id: String { inboxId }
+    public var id: String { "\(inboxId)@\(conversationId)" }
     public let inboxId: String
-    public let conversationId: String?
+    /// Always conversation-scoped — a member's display name, avatar, and
+    /// metadata are per-conversation (`DBMemberProfile` is keyed on
+    /// `(conversationId, inboxId)`). Carrying this on `Profile` itself
+    /// keeps the image cache key non-colliding and makes it impossible to
+    /// construct a profile that would be cached by bare `inboxId`.
+    public let conversationId: String
     public let name: String?
     public let avatar: String?
     public let avatarSalt: Data?
@@ -19,7 +23,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     public init(
         inboxId: String,
-        conversationId: String? = nil,
+        conversationId: String,
         name: String?,
         avatar: String?,
         avatarSalt: Data? = nil,
@@ -42,7 +46,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.inboxId = try container.decode(String.self, forKey: .inboxId)
-        self.conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+        self.conversationId = try container.decode(String.self, forKey: .conversationId)
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
         self.avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
         self.avatarSalt = try container.decodeIfPresent(Data.self, forKey: .avatarSalt)
@@ -163,17 +167,23 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         )
     }
 
-    public static func empty(inboxId: String = "") -> Profile {
+    public static func empty(inboxId: String = "", conversationId: String = "") -> Profile {
         .init(
             inboxId: inboxId,
+            conversationId: conversationId,
             name: nil,
             avatar: nil
         )
     }
 
-    public static func mock(inboxId: String = "", name: String = "Jane Doe") -> Profile {
+    public static func mock(
+        inboxId: String = "mock-inbox-id",
+        conversationId: String = "mock-conversation-id",
+        name: String = "Jane Doe"
+    ) -> Profile {
         .init(
             inboxId: inboxId,
+            conversationId: conversationId,
             name: name,
             avatar: "https://example.com/avatar.jpg"
         )

@@ -238,6 +238,50 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(testConversationId)"))
     }
 
+    // MARK: - Completed Onboarding Tests
+
+    func testStart_HasCompletedOnboarding_NewConversation_SurfacesQuicknameState() async {
+        mockNotificationCenter.authStatus = .authorized
+        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+
+        let newConversationId = "new-convo-after-onboarding"
+        await coordinator.start(for: newConversationId)
+
+        switch coordinator.state {
+        case .setupQuickname, .addQuickname:
+            XCTAssertTrue(true, "New convo after onboarding should surface a quickname state")
+        default:
+            XCTFail("Expected a quickname state, got \(coordinator.state)")
+        }
+
+        XCTAssertTrue(
+            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)"),
+            "Entry into startQuicknameFlow should mark the per-conversation flag"
+        )
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+    }
+
+    func testStart_HasCompletedOnboarding_ReopensSameConversation_Skips() async {
+        mockNotificationCenter.authStatus = .authorized
+        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+
+        let conversationId = "convo-seen-before"
+        UserDefaults.standard.set(true, forKey: "hasSetQuicknameForConversation_\(conversationId)")
+
+        await coordinator.start(for: conversationId)
+
+        switch coordinator.state {
+        case .setupQuickname, .addQuickname:
+            XCTFail("Re-opening a convo with the per-conversation flag set must not re-prompt")
+        default:
+            break
+        }
+
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversationId)")
+    }
+
     // MARK: - App Lifecycle Tests
 
     func testAppBecomesActive_CompletedState_NotificationsDenied_ShowsDeniedState() async {

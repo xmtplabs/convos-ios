@@ -104,6 +104,14 @@ public extension MessagingContentType {
         versionMinor: 0
     )
 
+    /// `convos.org/connection_grant_request:1.0`
+    static let connectionGrantRequest: MessagingContentType = MessagingContentType(
+        authorityID: "convos.org",
+        typeID: "connection_grant_request",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+
     /// `convos.org/typing_indicator:1.0`
     ///
     /// Mirror of `Custom Content Types/TypingIndicatorCodec.swift`'s

@@ -2,6 +2,8 @@
 
 Verify that when a joiner navigates away from a pending invite conversation, the invite is still detected and the conversation transitions to active after the inviter approves.
 
+> **Single-inbox model (C10).** Pending-invite recovery now keys off the singleton inbox rather than a per-conversation inbox. The repository's previously-clientId-scoped queries are gone (`hasPendingInvites(clientId:)` etc.), so any debug/diagnostics tooling that displayed per-clientId tallies should now report a single tally for the user. The user-facing behavior — invite stays pending until inviter approves — is unchanged.
+
 ## Prerequisites
 
 - The app is running and past onboarding on the simulator (this is the joiner's device).

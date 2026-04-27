@@ -32,23 +32,43 @@ convos init --env production
 
 # overwrite existing config
 convos init --force
+
+# initialize with a custom data directory (useful for multiple agents)
+convos init --home /path/to/agent1-data
+
+# or use the CONVOS_HOME environment variable
+CONVOS_HOME=/path/to/agent1-data convos init
 ```
 
 This creates a `.env` file with:
 
 - `CONVOS_ENV` - Network environment (local, dev, production)
-- `CONVOS_UPLOAD_PROVIDER` - Upload provider for attachments (e.g., `pinata`)
-- `CONVOS_UPLOAD_PROVIDER_TOKEN` - Authentication token for upload provider
-- `CONVOS_UPLOAD_PROVIDER_GATEWAY` - Custom gateway URL for upload provider
+- `CONVOS_API_KEY` - Agent API key for uploads (auto-selects `convos-api` provider)
+- `CONVOS_UPLOAD_PROVIDER` - Upload provider override (`convos-api`, `pinata`, `s3`)
 
 **Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
+
+### Custom Data Directory
+
+By default, all data is stored in `~/.convos/`. To use a different directory (e.g., when running multiple agents on one machine), use the `--home` flag or the `CONVOS_HOME` environment variable:
+
+```bash
+# via flag (works on any command)
+convos conversations list --home /path/to/agent-data
+
+# via environment variable
+export CONVOS_HOME=/path/to/agent-data
+convos conversations list
+```
+
+Priority: `--home` flag > `CONVOS_HOME` env var > `~/.convos`
 
 ### Configuration Loading Priority
 
 1. CLI flags (highest priority)
 2. Explicit `--env-file <path>`
 3. `.env` in the current working directory
-4. `~/.convos/.env` (global default)
+4. `<convos-home>/.env` (default: `~/.convos/.env`)
 
 ## Command Structure
 
@@ -136,19 +156,20 @@ convos conversation send-reply <conversation-id> <message-id> --file ./photo.jpg
 
 # reply with a large file (auto-uploaded via provider)
 convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
-```
 
-### Send Typing Indicators
+# send a read receipt (silent — no visible message, no push notification)
+convos conversation send-read-receipt <conversation-id>
 
-```bash
-# send a typing indicator (isTyping=true)
+# query last read times per member (nanosecond timestamps)
+convos conversation last-read-times <conversation-id>
+convos conversation last-read-times <conversation-id> --sync --json
+
+# send a typing indicator (silent — notifies others you are typing)
 convos conversation send-typing-indicator <conversation-id>
 
-# send a stop-typing indicator (isTyping=false)
+# stop typing indicator
 convos conversation send-typing-indicator <conversation-id> --stop
 ```
-
-Typing indicators are silent — they do not appear as messages and do not trigger push notifications. The iOS app auto-expires typing indicators after 15 seconds, so send `isTyping=true` periodically while actively typing.
 
 ### Send Attachments
 
@@ -184,16 +205,13 @@ convos conversation download-attachment <conversation-id> <message-id> --output 
 convos conversation download-attachment <conversation-id> <message-id> --raw
 ```
 
-To enable automatic upload for large files, configure a provider in your `.env`:
+To enable automatic upload for large files, set your agent API key in `.env`:
 
 ```bash
-CONVOS_UPLOAD_PROVIDER=pinata
-CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
-# Optional: custom gateway URL
-CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+CONVOS_API_KEY=<your-agent-api-key>
 ```
 
-Supported upload providers: `pinata`
+This auto-selects the `convos-api` upload provider. Other providers (`pinata`, `s3`) are also available via `CONVOS_UPLOAD_PROVIDER`.
 
 ### Read Messages
 
@@ -234,6 +252,21 @@ Convos uses a serverless invite system. The creator generates a cryptographic in
 
 The creator must process join requests *after* the person has opened/scanned the invite. If you don't know when that will happen, use `--watch` with a timeout to stream and process requests as they arrive.
 
+#### Inspect an Invite
+
+```bash
+# decode and inspect an invite without joining (useful for debugging)
+convos conversations inspect-invite <invite-slug>
+
+# inspect a full invite URL
+convos conversations inspect-invite "https://dev.convos.org/v2?i=<slug>"
+
+# output as JSON
+convos conversations inspect-invite <slug> --json
+```
+
+This displays the invite's tag, creator inbox ID, conversation name, expiration dates, signature validity, and whether the invite is expired — without creating any identities or sending join requests.
+
 #### Create an Invite
 
 ```bash
@@ -269,6 +302,12 @@ convos conversations join "https://dev.convos.org/v2?i=<slug>"
 
 # join with a display name
 convos conversations join <slug> --profile-name "Bob"
+
+# join with a display name and avatar image
+convos conversations join <slug> --profile-name "Bot" --profile-image "https://example.com/avatar.jpg"
+
+# join with custom metadata
+convos conversations join <slug> --metadata role=assistant --metadata version=2
 
 # send join request without waiting for acceptance
 convos conversations join <slug> --no-wait
@@ -405,6 +444,55 @@ convos conversation explode <conversation-id> --scheduled "2025-03-01T00:00:00Z"
 
 When scheduled, the ExplodeSettings message is sent with a future `expiresAt` date. Members are notified but not removed — clients handle cleanup when the time arrives. When immediate (no `--scheduled`), members are removed and the local identity is destroyed right away.
 
+### Assistant Attestation
+
+Cryptographically verify that an agent was provisioned by the Convos backend. Attestations use Ed25519 signatures over `sha256(inboxId || timestamp)`.
+
+```bash
+# generate a test attestation (creates a key pair, signs, outputs JWKS)
+convos attestation generate <inbox-id>
+convos attestation generate <inbox-id> --kid my-key-2026 --json
+
+# verify an attestation against a JWKS endpoint
+convos attestation verify <inbox-id> \
+  --attestation <base64url-sig> \
+  --attestation-ts <iso8601> \
+  --attestation-kid <kid>
+
+# verify against a raw public key
+convos attestation verify <inbox-id> \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --public-key <base64url-pubkey>
+
+# verify against a local JWKS file
+convos attestation verify <inbox-id> \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --attestation-kid <kid> \
+  --jwks-file ./agents.json
+```
+
+Agents include attestation in their profile metadata when joining:
+
+```bash
+# agent serve with attestation (typically provided by the backend)
+convos agent serve --name "Bot" \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --attestation-kid <kid>
+
+# or via environment variables
+CONVOS_ATTESTATION=<sig> CONVOS_ATTESTATION_TS=<ts> CONVOS_ATTESTATION_KID=<kid> \
+  convos agent serve --name "Bot"
+
+# join with attestation
+convos conversations join <slug> \
+  --attestation <sig> \
+  --attestation-ts <ts> \
+  --attestation-kid <kid>
+```
+
 ### Sync Data from Network
 
 ```bash
@@ -446,6 +534,7 @@ The agent uses an **ndjson** (newline-delimited JSON) protocol:
 | ----- | ----------- | ---------- |
 | `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
 | `message` | New message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `typing` | Member typing status changed | `senderInboxId`, `isTyping`, `conversationId` |
 | `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
 | `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
 | `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
@@ -465,6 +554,9 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 {"type":"attach","file":"./photo.jpg","mimeType":"image/jpeg"}
 {"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
 {"type":"rename","name":"New Group Name"}
+{"type":"read-receipt"}
+{"type":"typing"}
+{"type":"typing","isTyping":false}
 {"type":"lock"}
 {"type":"unlock"}
 {"type":"explode"}
@@ -479,6 +571,8 @@ Messages with `catchup: true` were fetched during stream reconnection (missed wh
 | `attach` | `file` (local path) | `mimeType`, `replyTo` |
 | `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
 | `rename` | `name` | — |
+| `read-receipt` | — | — |
+| `typing` | — | `isTyping` (bool, default: `true`) |
 | `lock` | — | — |
 | `unlock` | — | — |
 | `explode` | — | `scheduled` (ISO8601 date) |
@@ -554,7 +648,7 @@ Every conversation has its own:
 - **XMTP inbox** (unique inbox ID)
 - **Local database** (SQLite)
 
-Identities are stored in `~/.convos/identities/<id>.json`. Databases are stored in `~/.convos/db/<env>/<id>.db3`.
+Identities are stored in `<convos-home>/identities/<id>.json`. Databases are stored in `<convos-home>/db/<env>/<id>.db3`. The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`.
 
 ### Invite Flow
 
@@ -579,7 +673,7 @@ Profiles support typed **metadata** — arbitrary key-value pairs where values c
 Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
 
 Supported upload providers:
-- **Convos API:** `CONVOS_UPLOAD_PROVIDER=convos-api`, `CONVOS_API_KEY=<key>`, optional `CONVOS_API_BASE_URL=<url>` (auto-derived from XMTP env: dev → `https://api.dev.convos.xyz/api`, production → `https://api.convos.xyz/api`). Uses the same presigned S3 URL flow as iOS. Requires the backend to accept API key auth on `POST /v2/auth/token` via `X-API-Key` header.
+- **Convos API:** `CONVOS_UPLOAD_PROVIDER=convos-api`, `CONVOS_API_KEY=<agent-assets-api-key>`, optional `CONVOS_API_BASE_URL=<url>` (auto-derived from XMTP env: dev → `https://api.dev.convos.xyz/api`, production → `https://api.prod.convos.xyz/api`). Uses the agent asset upload endpoint (`GET /v2/agents/assets/presigned`) with `X-Agent-API-Key` header auth — no JWT step needed.
 - **Pinata (IPFS):** `CONVOS_UPLOAD_PROVIDER=pinata`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>`, optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<url>`
 - **S3 (direct):** `CONVOS_UPLOAD_PROVIDER=s3`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>`, `CONVOS_S3_BUCKET=<bucket>`, optional `CONVOS_S3_REGION=<region>` (default: us-east-1), optional `CONVOS_S3_ENDPOINT=<url>` (for S3-compatible services like MinIO, R2), optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<public-url-prefix>`
 
@@ -609,8 +703,10 @@ The CLI sets `memberKind: "agent"` by default on all join requests so the creato
 
 ### Data Directory
 
+The data directory defaults to `~/.convos/` but can be overridden with `--home` or `CONVOS_HOME`:
+
 ```
-~/.convos/
+<convos-home>/              # default: ~/.convos/
 ├── .env                    # Global config (env only)
 ├── identities/
 │   ├── <id-1>.json         # Identity: wallet key, db key, conversation link

@@ -14,7 +14,7 @@ protocol AuthorizeInboxOperationProtocol {
 /// Set is only modified during initialization. All task operations use `cancelAndReplaceTask`
 /// which acquires the lock before any mutation.
 final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked Sendable {
-    let stateMachine: InboxStateMachine
+    let stateMachine: SessionStateMachine
     private var cancellables: Set<AnyCancellable> = []
     private let taskLock: NSLock = NSLock()
     private var _task: Task<Void, Never>?
@@ -62,7 +62,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             apiClient: apiClient,
             messagingClientFactory: messagingClientFactory
         )
-        operation.authorize(inboxId: inboxId, clientId: clientId)
+        operation.authorize(inboxId: inboxId)
         return operation
     }
 
@@ -92,7 +92,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             apiClient: apiClient,
             messagingClientFactory: messagingClientFactory
         )
-        operation.register(clientId: clientId)
+        operation.register()
         return operation
     }
 
@@ -119,11 +119,14 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             notificationCenter: platformProviders.notificationCenter
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
-        // Factory injection lets tests (and the DTU lane) swap the
-        // messaging-client factory; production defaults to
-        // `XMTPiOSMessagingClientFactory.shared`.
-        let resolvedFactory: any MessagingClientFactory = messagingClientFactory ?? XMTPiOSMessagingClientFactory.shared
-        stateMachine = InboxStateMachine(
+        // Note: `messagingClientFactory` is currently unused; dev's
+        // post-merge SessionStateMachine talks directly to
+        // `XMTPiOS.Client.create` / `Client.build` and wraps the result
+        // in `XMTPiOSMessagingClient`. The factory hook is preserved on
+        // this initializer so the eventual DTU-lane re-wiring can land
+        // without a public API change.
+        _ = messagingClientFactory
+        stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: identityStore,
             invitesRepository: invitesRepository,
@@ -133,8 +136,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             environment: environment,
             appLifecycle: platformProviders.appLifecycle,
-            apiClient: apiClient,
-            messagingClientFactory: resolvedFactory
+            apiClient: apiClient
         )
     }
 
@@ -150,18 +152,18 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         _task = newTask
     }
 
-    private func authorize(inboxId: String, clientId: String) {
+    private func authorize(inboxId: String) {
         let newTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await stateMachine.authorize(inboxId: inboxId, clientId: clientId)
+            await stateMachine.authorize(inboxId: inboxId)
         }
         cancelAndReplaceTask(with: newTask)
     }
 
-    private func register(clientId: String) {
+    private func register() {
         let newTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await stateMachine.register(clientId: clientId)
+            await stateMachine.register()
         }
         cancelAndReplaceTask(with: newTask)
     }

@@ -43,9 +43,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         try DBConversation(
             id: conversationId,
-            inboxId: currentInboxId,
-            clientId: clientId,
-            clientConversationId: "client-conv-\(conversationId)",
+                        clientConversationId: "client-conv-\(conversationId)",
             inviteTag: "tag-\(conversationId)",
             creatorId: creatorInboxId,
             kind: .group,
@@ -62,8 +60,10 @@ struct MessagesRepositoryBenchmarkTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
+            hasHadVerifiedAssistant: false,
         ).insert(db)
 
         try ConversationLocalState(
@@ -196,7 +196,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 50
         )
 
@@ -235,7 +235,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 150
         )
 
@@ -274,7 +274,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 50
         )
 
@@ -378,12 +378,12 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo50 = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 50
         )
         let repo150 = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId,
+            conversationId: conversationId, currentInboxId: "",
             pageSize: 150
         )
 
@@ -430,7 +430,7 @@ struct MessagesRepositoryBenchmarkTests {
 
         let repo = MessagesRepository(
             dbReader: dbQueue,
-            conversationId: conversationId
+            conversationId: conversationId, currentInboxId: ""
         )
 
         var times: [Double] = []
@@ -668,7 +668,7 @@ struct MessagesRepositoryBenchmarkTests {
 
             let repo = MessagesRepository(
                 dbReader: dbQueue,
-                conversationId: conversationId
+                conversationId: conversationId, currentInboxId: ""
             )
 
             var times: [Double] = []
@@ -707,7 +707,7 @@ struct MessagesRepositoryBenchmarkTests {
         var oldPathTimes: [Double] = []
         for _ in 0..<10 {
             let start = CFAbsoluteTimeGetCurrent()
-            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, pageSize: 150)
+            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, currentInboxId: "", pageSize: 150)
             _ = try repo.fetchInitial()
             try dbQueue.read { db in
                 _ = try DBConversation
@@ -721,7 +721,7 @@ struct MessagesRepositoryBenchmarkTests {
         var newPathTimes: [Double] = []
         for _ in 0..<10 {
             let start = CFAbsoluteTimeGetCurrent()
-            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, pageSize: 50)
+            let repo = MessagesRepository(dbReader: dbQueue, conversationId: conversationId, currentInboxId: "", pageSize: 50)
             _ = try repo.fetchInitial()
             newPathTimes.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
         }

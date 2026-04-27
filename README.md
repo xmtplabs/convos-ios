@@ -22,46 +22,41 @@ Learn more at [convos.org](https://convos.org).
 ### Prerequisites
 
 - macOS with Xcode 16+
-- Ruby 3.3.3
 - Homebrew
+- Docker (required for running the test suite via `./dev/up`)
 
 ### Quick Start
 
 ```bash
-# Run the setup script
-./Scripts/setup.sh
+# 1. Install dependencies and configure your environment
+./Scripts/setup.sh        # or: make setup
+
+# 2. Create your local .env from the template
+cp .env.example .env
+
+# 3. (Optional) Add a Firebase App Check debug token to .env
+#    See .env comments, or generate one at:
+#    https://console.firebase.google.com/project/convos-otr/appcheck
 ```
 
 The setup script will:
-- Install Git hooks for code quality checks
+- Configure the repo's Git hooks (`core.hooksPath` → `Scripts/hooks/`), which works for both regular clones and `git worktree`s
 - Configure Xcode defaults for consistent development
 - Install required dependencies:
-  - SwiftLint (code linting)
+  - SwiftLint (code linting, pinned version for compatibility)
   - SwiftFormat (code formatting)
   - swift-protobuf (Protocol Buffer support)
   - GitHub CLI (for release automation)
-  - Bundler and Ruby gems
 
 ### Manual Setup
 
-If you prefer to set up components individually:
+If you prefer to install dependencies individually, run:
 
 ```bash
-# Install SwiftLint
-brew install swiftlint
-
-# Install SwiftFormat
-brew install swiftformat
-
-# Install swift-protobuf
-brew install swift-protobuf
-
-# Install GitHub CLI (optional, for releases)
-brew install gh
-
-# Install Ruby dependencies
-bundle install
+brew install swiftformat swift-protobuf gh
 ```
+
+Then run `./Scripts/setup.sh` once to install the pinned SwiftLint version, configure git hooks, and apply Xcode defaults.
 
 ### Configuration
 
@@ -70,6 +65,18 @@ The setup script configures Xcode with:
 - 120-character page guide
 - Build operation duration display
 - Disabled plugin fingerprint validation for development
+
+For build environments (Local, Dev, Production), bundle IDs, and secrets handling, see [ENVIRONMENTS.md](ENVIRONMENTS.md).
+
+### Useful Make Targets
+
+```bash
+make setup           # Run Scripts/setup.sh
+make status          # Show version, secrets, git, and .env status
+make secrets-local   # Regenerate Convos/Config/Secrets.swift for Local builds
+make protobuf        # Regenerate Swift code from .proto files
+make clean           # Remove generated secrets and build artifacts
+```
 
 ## Project Structure
 
@@ -100,9 +107,22 @@ Open `Convos.xcodeproj` in Xcode and build normally. The project uses Swift Pack
 
 ### Testing
 
-Run tests in Xcode or via command line:
+Most ConvosCore tests require Docker to run a local XMTP node.
+
 ```bash
-xcodebuild test -project Convos.xcodeproj -scheme Convos
+# Full suite — starts Docker, runs tests, stops Docker
+./dev/test
+
+# Or manage Docker manually:
+./dev/up                                             # start local XMTP node
+swift test --package-path ConvosCore                 # run ConvosCore tests
+./dev/down                                           # stop when finished
+
+# iOS app tests via xcodebuild (use a scheme that includes the environment)
+xcodebuild test \
+  -project Convos.xcodeproj \
+  -scheme "Convos (Local)" \
+  -destination "platform=iOS Simulator,name=iPhone 17"
 ```
 
 ### Code Quality

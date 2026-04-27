@@ -55,10 +55,21 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     func deleteFailedMessage(id: String) async throws
 }
 
-enum OutgoingMessageWriterError: Error {
-    case missingClientProvider
+enum OutgoingMessageWriterError: Error, CustomStringConvertible {
+    case conversationNotFound(conversationId: String)
     case eagerUploadNotFound
     case parentMessageNotFound
+
+    var description: String {
+        switch self {
+        case .conversationNotFound(let conversationId):
+            return "Conversation not found in XMTP local store: \(conversationId)"
+        case .eagerUploadNotFound:
+            return "Eager upload not found"
+        case .parentMessageNotFound:
+            return "Parent message not found"
+        }
+    }
 }
 
 // swiftlint:disable:next type_body_length
@@ -125,7 +136,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         case eagerPhoto(QueuedEagerPhoto)
     }
 
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let conversationId: String
     private let photoService: any PhotoAttachmentServiceProtocol
@@ -146,7 +157,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter,
         conversationId: String,
         photoService: any PhotoAttachmentServiceProtocol,
@@ -154,7 +165,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         backgroundUploadManager: any BackgroundUploadManagerProtocol,
         attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
         self.conversationId = conversationId
         self.photoService = photoService
@@ -270,7 +281,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let prepared: PreparedBackgroundUpload
         do {
@@ -435,7 +446,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.publishing, for: trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let queued = QueuedPhotoMessage(
             clientMessageId: state.clientMessageId,
             image: state.image,
@@ -533,7 +544,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         tracker.setStage(.preparing, for: trackingKey)
 
         do {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
             let fileData = try Data(contentsOf: params.dataURL)
             // Delegate Attachment + AttachmentCodec construction to the
@@ -654,7 +665,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         ) else {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: clientMessageId)
-            throw OutgoingMessageWriterError.missingClientProvider
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
         }
 
         do {
@@ -817,12 +828,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func saveTextToDatabase(clientMessageId: String, text: String, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
-        if case .ready(_, let result) = inboxStateManager.currentState {
+        if case .ready(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
-        } else if case .backgrounded(_, let result) = inboxStateManager.currentState {
+        } else if case .backgrounded(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
         } else {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             senderId = inboxReady.client.inboxId
         }
 
@@ -877,12 +888,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func savePhotoToDatabase(clientMessageId: String, localCacheURL: URL, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
-        if case .ready(_, let result) = inboxStateManager.currentState {
+        if case .ready(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
-        } else if case .backgrounded(_, let result) = inboxStateManager.currentState {
+        } else if case .backgrounded(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
         } else {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             senderId = inboxReady.client.inboxId
         }
 
@@ -924,7 +935,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     private func publishText(_ queued: QueuedTextMessage) async throws {
         let perfStart = CFAbsoluteTimeGetCurrent()
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         // The text-prepare and text-reply-prepare paths still need an
         // XMTPiOS-side codec, so they go through `MessagingWriterBridge`
         // (which downcasts to the XMTPiOS adapter SDK-side).
@@ -932,7 +943,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             with: conversationId
         ) else {
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)
-            throw OutgoingMessageWriterError.missingClientProvider
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
         }
 
         let xmtpMessageId: String
@@ -1013,7 +1024,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         tracker.setStage(.preparing, for: trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let prepared: PreparedBackgroundUpload
         do {
@@ -1087,7 +1098,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: queued.trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let videoData = try Data(contentsOf: queued.localCacheURL)
         let encrypted = try encodeEncryptedAttachmentViaBridge(
@@ -1163,7 +1174,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: queued.trackingKey)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         let audioData = try Data(contentsOf: queued.localCacheURL)
         let encrypted = try encodeEncryptedAttachmentViaBridge(
@@ -1402,12 +1413,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     private func publishPreparedMessage(messageId: String, sentContent: String? = nil) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.messagingConversation(
             with: conversationId
         ) else {
             try? await markMessageFailed(messageId: messageId)
-            throw OutgoingMessageWriterError.missingClientProvider
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationId)
         }
 
         do {

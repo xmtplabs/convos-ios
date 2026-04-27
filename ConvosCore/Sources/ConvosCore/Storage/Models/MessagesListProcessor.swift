@@ -10,7 +10,7 @@ public final class MessagesListProcessor: Sendable {
         memberProfiles: [String: MemberProfileInfo] = [:],
         currentOtherMemberCount: Int = 0,
         sendReadReceipts: Bool = true,
-        previousReadByProfiles: [Profile] = []
+        previousReadByMembers: [ConversationMember] = []
     ) -> [MessagesListItemType] {
         return processMessages(
             messages,
@@ -19,7 +19,7 @@ public final class MessagesListProcessor: Sendable {
             memberProfiles: memberProfiles,
             currentOtherMemberCount: currentOtherMemberCount,
             sendReadReceipts: sendReadReceipts,
-            previousReadByProfiles: previousReadByProfiles
+            previousReadByMembers: previousReadByMembers
         )
     }
 
@@ -31,7 +31,7 @@ public final class MessagesListProcessor: Sendable {
         memberProfiles: [String: MemberProfileInfo] = [:],
         currentOtherMemberCount: Int = 0,
         sendReadReceipts: Bool = true,
-        previousReadByProfiles: [Profile] = []
+        previousReadByMembers: [ConversationMember] = []
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -228,29 +228,42 @@ public final class MessagesListProcessor: Sendable {
                         .map(\.inboxId)
                 )
 
-                let resolveProfile: (String) -> Profile? = { inboxId in
-                    if let info = memberProfiles[inboxId] {
-                        return Profile(inboxId: info.inboxId, name: info.name, avatar: info.avatar)
+                let resolveMember: (String) -> ConversationMember? = { inboxId in
+                    if let member = messages.lazy
+                        .compactMap({ $0.sender.profile.inboxId == inboxId ? $0.sender : nil })
+                        .first {
+                        return member
                     }
-                    return messages.lazy
-                        .compactMap { $0.sender.profile.inboxId == inboxId ? $0.sender.profile : nil }
-                        .first
+                    if let info = memberProfiles[inboxId] {
+                        let profile = Profile(
+                            inboxId: info.inboxId,
+                            conversationId: info.conversationId,
+                            name: info.name,
+                            avatar: info.avatar
+                        )
+                        return ConversationMember(
+                            profile: profile,
+                            role: .member,
+                            isCurrentUser: false
+                        )
+                    }
+                    return nil
                 }
 
                 if !currentReaderInboxIds.isEmpty {
-                    let keptInboxIds = previousReadByProfiles
-                        .map(\.inboxId)
+                    let keptInboxIds = previousReadByMembers
+                        .map(\.profile.inboxId)
                         .filter { currentReaderInboxIds.contains($0) }
-                    let kept = keptInboxIds.compactMap(resolveProfile)
-                    let keptIds = Set(kept.map(\.inboxId))
+                    let kept = keptInboxIds.compactMap(resolveMember)
+                    let keptIds = Set(kept.map(\.profile.inboxId))
                     let newInboxIds = currentReaderInboxIds.subtracting(keptIds)
                         .sorted { lhs, rhs in
                             let lhsNs = readReceipts.first { $0.inboxId == lhs }?.readAtNs ?? 0
                             let rhsNs = readReceipts.first { $0.inboxId == rhs }?.readAtNs ?? 0
                             return lhsNs != rhsNs ? lhsNs > rhsNs : lhs < rhs
                         }
-                    let newProfiles = newInboxIds.compactMap(resolveProfile)
-                    let profiles: [Profile] = kept + newProfiles
+                    let newMembers = newInboxIds.compactMap(resolveMember)
+                    let members: [ConversationMember] = kept + newMembers
                     group = MessagesGroup(
                         id: group.id,
                         sender: group.sender,
@@ -259,7 +272,7 @@ public final class MessagesListProcessor: Sendable {
                         isLastGroupSentByCurrentUser: true,
                         showsTypingIndicator: group.showsTypingIndicator,
                         allTypingMembers: group.allTypingMembers,
-                        readByProfiles: profiles,
+                        readByMembers: members,
                         onlyVisibleToSender: group.onlyVisibleToSender,
                         isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
                         voiceMemoTranscripts: group.voiceMemoTranscripts

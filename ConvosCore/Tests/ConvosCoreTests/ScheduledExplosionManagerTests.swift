@@ -272,8 +272,6 @@ private class ScheduledExplosionTestFixtures {
         try await databaseManager.dbWriter.write { db in
             let conversation = DBConversation(
                 id: convId,
-                inboxId: inbxId,
-                clientId: clId,
                 clientConversationId: convId,
                 inviteTag: "test-invite-tag",
                 creatorId: inbxId,
@@ -291,8 +289,10 @@ private class ScheduledExplosionTestFixtures {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
+                hasHadVerifiedAssistant: false,
             )
             try conversation.insert(db)
         }

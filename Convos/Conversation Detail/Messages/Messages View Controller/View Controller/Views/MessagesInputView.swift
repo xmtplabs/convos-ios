@@ -222,6 +222,7 @@ struct MessagesInputView: View {
                 convoName: $pendingInviteConvoName,
                 convoImage: $pendingInviteImage,
                 explodeDuration: pendingInviteExplodeDuration,
+                focusState: $focusState,
                 onSetExplodeDuration: onSetInviteExplodeDuration,
                 onNameEditingEnded: onInviteConvoNameEditingEnded
             )
@@ -423,6 +424,7 @@ private struct ComposerSideConvoCard: View {
     @Binding var convoName: String
     @Binding var convoImage: UIImage?
     var explodeDuration: ExplodeDuration?
+    @FocusState.Binding var focusState: MessagesViewInputFocus?
     var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onNameEditingEnded: ((String) -> Void)?
 
@@ -508,6 +510,7 @@ private struct ComposerSideConvoCard: View {
     @ViewBuilder
     private var nameField: some View {
         TextField("Convo name", text: $convoName)
+            .focused($focusState, equals: .sideConvoName)
             .font(.callout)
             .foregroundStyle(.colorTextPrimary)
             .padding(.horizontal, DesignConstants.Spacing.step3x)

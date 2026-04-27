@@ -828,7 +828,7 @@ struct MessagesListProcessorAssistantJoinTests {
     func hiddenAfterAgentJoined() {
         let now = Date()
         let agentMember = ConversationMember(
-            profile: Profile(inboxId: "agent-1", name: "Convos Assistant", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Convos Assistant", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,
@@ -867,7 +867,7 @@ struct MessagesListProcessorAssistantJoinTests {
         // real assistant.
         let now = Date()
         let unverifiedAgent = ConversationMember(
-            profile: Profile(inboxId: "cli-bot-1", name: "CLI Bot", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "cli-bot-1", conversationId: "test-conv", name: "CLI Bot", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,
@@ -971,5 +971,116 @@ struct MessagesListProcessorEdgeCaseTests {
         for i in 0..<count {
             #expect(ids[i] == "msg-\(i)")
         }
+    }
+}
+
+// MARK: - Read Receipt Tests
+
+struct MessagesListProcessorReadReceiptTests {
+    @Test("Read-by member preserves agentVerification for verified Convos assistant")
+    func readByMemberPreservesVerification() {
+        let now = Date()
+        let assistant: ConversationMember = .mock(
+            isCurrentUser: false,
+            name: "Convos Assistant",
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+        let messages = [
+            makeMessage(id: "asst-1", sender: assistant, text: "Hi there", date: now),
+            makeMessage(id: "me-1", sender: currentUser, text: "Hi back", date: now.addingTimeInterval(10)),
+        ]
+        let readAtNs = Int64(now.addingTimeInterval(20).timeIntervalSince1970 * 1_000_000_000)
+        let receipts = [
+            ReadReceiptEntry(inboxId: assistant.profile.inboxId, readAtNs: readAtNs),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            readReceipts: receipts,
+            currentOtherMemberCount: 1
+        )
+        let g = groups(from: result)
+        let lastCurrentUserGroup = g.last { $0.isLastGroupSentByCurrentUser }
+        #expect(lastCurrentUserGroup != nil)
+        let readers = lastCurrentUserGroup?.readByMembers ?? []
+        #expect(readers.count == 1)
+        #expect(readers.first?.profile.inboxId == assistant.profile.inboxId)
+        #expect(readers.first?.agentVerification == .verified(.convos))
+    }
+
+    @Test("Read-by members carry mixed verification end-to-end")
+    func readByMembersMixedVerification() {
+        let now = Date()
+        let assistant: ConversationMember = .mock(
+            isCurrentUser: false,
+            name: "Convos Assistant",
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+        let oauthAgent: ConversationMember = .mock(
+            isCurrentUser: false,
+            name: "OAuth Agent",
+            isAgent: true,
+            agentVerification: .verified(.userOAuth)
+        )
+        let regular: ConversationMember = .mock(isCurrentUser: false, name: "Alice")
+        let messages = [
+            makeMessage(id: "asst-1", sender: assistant, text: "asst hi", date: now),
+            makeMessage(id: "oauth-1", sender: oauthAgent, text: "oauth hi", date: now.addingTimeInterval(1)),
+            makeMessage(id: "reg-1", sender: regular, text: "reg hi", date: now.addingTimeInterval(2)),
+            makeMessage(id: "me-1", sender: currentUser, text: "Hi all", date: now.addingTimeInterval(10)),
+        ]
+        let readAtNs = Int64(now.addingTimeInterval(20).timeIntervalSince1970 * 1_000_000_000)
+        let receipts = [
+            ReadReceiptEntry(inboxId: assistant.profile.inboxId, readAtNs: readAtNs),
+            ReadReceiptEntry(inboxId: oauthAgent.profile.inboxId, readAtNs: readAtNs + 1),
+            ReadReceiptEntry(inboxId: regular.profile.inboxId, readAtNs: readAtNs + 2),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            readReceipts: receipts,
+            currentOtherMemberCount: 3
+        )
+        let g = groups(from: result)
+        let lastCurrentUserGroup = g.last { $0.isLastGroupSentByCurrentUser }
+        let readers = lastCurrentUserGroup?.readByMembers ?? []
+        #expect(readers.count == 3)
+        let byInbox = Dictionary(uniqueKeysWithValues: readers.map { ($0.profile.inboxId, $0.agentVerification) })
+        #expect(byInbox[assistant.profile.inboxId] == .verified(.convos))
+        #expect(byInbox[oauthAgent.profile.inboxId] == .verified(.userOAuth))
+        #expect(byInbox[regular.profile.inboxId] == .unverified)
+    }
+
+    @Test("Read-by members fall back to memberProfiles cache as unverified")
+    func readByMembersFallbackToCache() {
+        let now = Date()
+        let conversationId = "conv-1"
+        let absentInboxId = "absent-reader"
+        let messages = [
+            makeMessage(id: "me-1", sender: currentUser, text: "Hello", date: now),
+        ]
+        let readAtNs = Int64(now.addingTimeInterval(5).timeIntervalSince1970 * 1_000_000_000)
+        let receipts = [
+            ReadReceiptEntry(inboxId: absentInboxId, readAtNs: readAtNs),
+        ]
+        let memberProfiles: [String: MemberProfileInfo] = [
+            absentInboxId: MemberProfileInfo(
+                inboxId: absentInboxId,
+                conversationId: conversationId,
+                name: "Absent Reader",
+                avatar: nil
+            ),
+        ]
+        let result = MessagesListProcessor.process(
+            messages,
+            readReceipts: receipts,
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: 1
+        )
+        let g = groups(from: result)
+        let readers = g.last { $0.isLastGroupSentByCurrentUser }?.readByMembers ?? []
+        #expect(readers.count == 1)
+        #expect(readers.first?.profile.inboxId == absentInboxId)
+        #expect(readers.first?.agentVerification == .unverified)
     }
 }

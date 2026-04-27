@@ -133,14 +133,12 @@ private func seedConversationStub(
         try db.execute(
             sql: """
                 INSERT OR IGNORE INTO conversation (
-                    id, inboxId, clientId, clientConversationId, inviteTag, creatorId,
+                    id, clientConversationId, inviteTag, creatorId,
                     kind, consent, createdAt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             arguments: [
                 conversationId,
-                "inbox-1",
-                "client-1",
                 "client-conversation-\(conversationId)",
                 "invite-\(conversationId)",
                 "inbox-1",

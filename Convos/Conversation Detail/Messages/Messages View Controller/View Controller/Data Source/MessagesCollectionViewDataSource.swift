@@ -13,11 +13,13 @@ final class MessagesCollectionViewDataSource: NSObject {
         }
     }
 
+    var conversationId: String = ""
     var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
+    var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState?
     var onPhotoRevealed: ((String) -> Void)?
@@ -75,6 +77,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
         let config = CellConfig(
+            conversationId: conversationId,
             shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
                 Log.debug("Tapped invite: \(invite)")
@@ -88,6 +91,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onReaction: { [weak self] emoji, messageId in
                 self?.onReaction?(emoji, messageId)
+            },
+            onToggleReaction: { [weak self] emoji, messageId in
+                self?.onToggleReaction?(emoji, messageId)
             },
             onReply: { [weak self] message in
                 self?.onReply?(message)

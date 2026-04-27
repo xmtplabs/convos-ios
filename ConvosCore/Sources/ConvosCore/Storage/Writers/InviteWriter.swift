@@ -4,7 +4,7 @@ import GRDB
 
 protocol InviteWriterProtocol {
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite
-    func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite
+    func update(for conversationId: String) async throws -> Invite
     func delete(for conversationId: String) async throws
 }
 
@@ -29,10 +29,15 @@ class InviteWriter: InviteWriterProtocol {
         expiresAt: Date? = nil,
         expiresAfterUse: Bool = false
     ) async throws -> Invite {
+        guard let identity = try await identityStore.load() else {
+            throw KeychainIdentityStoreError.identityNotFound("No identity available to sign invite for conversation \(conversation.id)")
+        }
+        let currentInboxId = identity.inboxId
+
         if let existingInvite = try? await self.databaseWriter.read({ db in
             try? DBInvite
                 .filter(DBInvite.Columns.conversationId == conversation.id)
-                .filter(DBInvite.Columns.creatorInboxId == conversation.inboxId)
+                .filter(DBInvite.Columns.creatorInboxId == currentInboxId)
                 .fetchOne(db)
         }) {
             if inviteTagMatches(slug: existingInvite.urlSlug, tag: conversation.inviteTag) {
@@ -43,27 +48,27 @@ class InviteWriter: InviteWriterProtocol {
         }
 
         do {
-            let identity = try await identityStore.identity(for: conversation.inboxId)
             let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
             let urlSlug = try SignedInvite.slug(
                 for: conversation,
+                creatorInboxId: currentInboxId,
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse,
                 privateKey: privateKey
             )
 
             let dbInvite = DBInvite(
-                creatorInboxId: conversation.inboxId,
+                creatorInboxId: currentInboxId,
                 conversationId: conversation.id,
                 urlSlug: urlSlug,
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse
             )
             try await databaseWriter.write { db in
-                try DBMember(inboxId: conversation.inboxId).save(db, onConflict: .ignore)
+                try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
                 try DBConversationMember(
                     conversationId: conversation.id,
-                    inboxId: conversation.inboxId,
+                    inboxId: currentInboxId,
                     role: .member,
                     consent: .allowed,
                     createdAt: Date(),
@@ -72,7 +77,7 @@ class InviteWriter: InviteWriterProtocol {
                 .insert(db, onConflict: .ignore)
                 let memberProfile = DBMemberProfile(
                     conversationId: conversation.id,
-                    inboxId: conversation.inboxId,
+                    inboxId: currentInboxId,
                     name: nil,
                     avatar: nil
                 )
@@ -86,29 +91,28 @@ class InviteWriter: InviteWriterProtocol {
         }
     }
 
-    func update(
-        for conversationId: String,
-        name: String?,
-        description: String?,
-        imageURL: String?
-    ) async throws -> Invite {
+    func update(for conversationId: String) async throws -> Invite {
         guard let conversation = try await databaseWriter.read({ db in
             try DBConversation
                 .fetchOne(db, key: conversationId)
         }) else {
             throw InviteWriterError.conversationNotFound
         }
+        guard let identity = try await identityStore.load() else {
+            throw KeychainIdentityStoreError.identityNotFound("No identity available to update invite for conversation \(conversation.id)")
+        }
+        let currentInboxId = identity.inboxId
         let invite = try await databaseWriter.read { db in
             try DBInvite
                 .filter(DBInvite.Columns.conversationId == conversation.id)
-                .filter(DBInvite.Columns.creatorInboxId == conversation.inboxId)
+                .filter(DBInvite.Columns.creatorInboxId == currentInboxId)
                 .fetchOne(db)
         }
         guard let invite else { throw InviteWriterError.inviteNotFound }
-        let identity = try await identityStore.identity(for: conversation.inboxId)
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
         let urlSlug = try SignedInvite.slug(
             for: conversation,
+            creatorInboxId: currentInboxId,
             expiresAt: invite.expiresAt,
             expiresAfterUse: invite.expiresAfterUse,
             privateKey: privateKey

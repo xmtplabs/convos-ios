@@ -40,11 +40,14 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
 
 extension Array where Element == DBConversationDetails {
     func composeConversations(from database: Database) throws -> [Conversation] {
+        // Empty string when no inbox is authorized yet — hydration treats
+        // that as "no member is current user".
+        let currentInboxId = try DBInbox.fetchAll(database).first?.inboxId ?? ""
         let dbConversations: [DBConversationDetails] = self
 
         let conversations: [Conversation] = dbConversations
             .compactMap { dbConversationDetails in
-            dbConversationDetails.hydrateConversation()
+            dbConversationDetails.hydrateConversation(currentInboxId: currentInboxId)
         }
 
         return conversations
@@ -85,7 +88,7 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
         ).forKey("conversationAssistantJoinRequest")
 
         return self
-            .including(optional: DBConversation.invite)
+            .including(all: DBConversation.invites)
             .including(
                 required: DBConversation.creator
                     .forKey("conversationCreator")

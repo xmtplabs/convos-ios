@@ -42,8 +42,10 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         self.databaseWriter = databaseWriter
     }
 
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
     func store(message messagingMessage: MessagingMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
+        let encodedContentType = messagingMessage.encodedContent.type
         let payload = messagingMessage.resolvedPayload()
 
         if case .reaction(let reaction) = payload {
@@ -71,21 +73,31 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             }
         }
 
-        let result = try await databaseWriter.write { db in
-            let sender = DBMember(inboxId: messagingMessage.senderInboxId)
-            try sender.save(db)
-            let senderProfile = DBMemberProfile(
+        let result = try await databaseWriter.write { db -> IncomingMessageWriterResult? in
+            let senderVerified = try Self.bootstrapSenderProfile(
+                db: db,
                 conversationId: conversation.id,
-                inboxId: messagingMessage.senderInboxId,
-                name: nil,
-                avatar: nil
+                senderInboxId: messagingMessage.senderInboxId
             )
-            try? senderProfile.insert(db)
+
+            // Defense against unverified or spoofed ConnectionGrantRequest senders:
+            // only persist grant requests whose sender is a verified Convos assistant
+            // in this conversation. Anything else gets dropped silently with a warning
+            // so the UI never has a chance to render the deep-link card.
+            if encodedContentType == .connectionGrantRequest, !senderVerified {
+                Log.warning("Dropping ConnectionGrantRequest from unverified sender \(messagingMessage.senderInboxId) in \(conversation.id)")
+                return nil
+            }
+
             let message = try messagingMessage.dbRepresentation(payload: payload)
 
             let messageExistsInDB = try DBMessage.exists(db, key: message.id)
-            // @jarodl temporary, this should happen somewhere else more explicitly
-            let wasRemovedFromConversation = message.update?.removedInboxIds.contains(conversation.inboxId) ?? false
+            // @jarodl temporary, this should happen somewhere else more explicitly.
+            let localInboxId = try DBInbox.fetchAll(db).first?.inboxId
+            let wasRemovedFromConversation: Bool = {
+                guard let localInboxId, let removed = message.update?.removedInboxIds else { return false }
+                return removed.contains(localInboxId)
+            }()
 
             Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
             if !message.attachmentUrls.isEmpty {
@@ -168,6 +180,17 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 contentType: message.contentType,
                 wasRemovedFromConversation: wasRemovedFromConversation,
                 messageAlreadyExists: messageExistsInDB
+            )
+        }
+
+        // Dropped messages (e.g. unverified-sender ConnectionGrantRequests) return
+        // nil from the write block so the rest of the ingest pipeline treats them
+        // as a no-op rather than a new message.
+        guard let result else {
+            return IncomingMessageWriterResult(
+                contentType: .connectionGrantRequest,
+                wasRemovedFromConversation: false,
+                messageAlreadyExists: true
             )
         }
 
@@ -277,6 +300,34 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
         Log.error("Failed to extract ExplodeSettings content")
         return nil
+    }
+
+    /// Ensures the sender has a row in `DBMember` and a `DBMemberProfile` for the
+    /// conversation. Returns true when the existing profile is already marked as a
+    /// verified Convos assistant — used to gate persisting sensitive content types
+    /// whose rendering assumes the sender is trusted.
+    static func bootstrapSenderProfile(
+        db: Database,
+        conversationId: String,
+        senderInboxId: String
+    ) throws -> Bool {
+        let sender = DBMember(inboxId: senderInboxId)
+        try sender.save(db)
+        let existingProfile = try DBMemberProfile.fetchOne(
+            db,
+            conversationId: conversationId,
+            inboxId: senderInboxId
+        )
+        if existingProfile == nil {
+            let newProfile = DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: senderInboxId,
+                name: nil,
+                avatar: nil
+            )
+            try? newProfile.insert(db)
+        }
+        return existingProfile?.agentVerification.isConvosAssistant ?? false
     }
 
     /// Computes a sortId that places the message in chronological order within the conversation.

@@ -1,6 +1,5 @@
 import ConvosInvites
 import ConvosMessagingProtocols
-import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
@@ -688,6 +687,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
                 }
 
+                let priorMemberKind = profile.memberKind
                 profile = profile.with(memberKind: update.memberKind.dbMemberKind)
 
                 let profileMetadata = update.profileMetadata
@@ -695,7 +695,14 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                 if profile.isAgent {
                     let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                    if verification.isVerified {
+                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                    }
+                }
+
+                if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
+                   !profile.agentVerification.isVerified {
+                    profile = profile.with(memberKind: priorMemberKind)
                 }
 
                 try profile.save(db)
@@ -752,6 +759,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         )
                     }
 
+                    let priorMemberKind = profile.memberKind
                     profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
 
                     let snapshotMetadata = memberProfile.profileMetadata
@@ -759,7 +767,14 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     if profile.isAgent {
                         let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                        if verification.isVerified {
+                            profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                        }
+                    }
+
+                    if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
+                       !profile.agentVerification.isVerified {
+                        profile = profile.with(memberKind: priorMemberKind)
                     }
 
                     try profile.save(db)
@@ -1006,7 +1021,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         let conversationTopic = conversationId.xmtpGroupTopicFormat
         let welcomeTopic = params.client.installationId.xmtpWelcomeTopicFormat
 
-        guard let identity = try? await identityStore.identity(for: params.client.inboxId) else {
+        guard let identity = try? await identityStore.load(), identity.inboxId == params.client.inboxId else {
             Log.warning("Identity not found, skipping push notification subscription")
             return
         }

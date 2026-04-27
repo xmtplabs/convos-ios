@@ -10,7 +10,6 @@ public protocol ReactionWriterProtocol: Sendable {
 }
 
 enum ReactionWriterError: Error {
-    case missingClientProvider
     case conversationNotFound(conversationId: String)
     case messageNotFound(messageId: String)
     case unknownReactionAction
@@ -21,14 +20,14 @@ enum ReactionWriterError: Error {
 // codec migrates onto the abstraction this can reduce to
 // `conversation.core.sendOptimistic(encodedContent:options:)`.
 final class ReactionWriter: ReactionWriterProtocol, Sendable {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
@@ -41,7 +40,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
     }
 
     func toggleReaction(emoji: String, to messageId: String, in conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let currentInboxId = inboxReady.client.inboxId
 
         // messageId from UI is clientMessageId - look up the actual DB id
@@ -83,7 +82,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         in conversationId: String,
         action: Action
     ) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
 
         switch action {

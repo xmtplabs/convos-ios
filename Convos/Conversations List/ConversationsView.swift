@@ -216,6 +216,10 @@ struct ConversationsView: View {
                 if viewModel.selectedConversationViewModel != nil {
                     preferredColumn = .detail
                 }
+                viewModel.onAppear()
+            }
+            .onDisappear {
+                viewModel.onDisappear()
             }
             .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
                 preferredColumn = isNil ? .sidebar : .detail
@@ -282,6 +286,14 @@ private struct ConversationsSheetModifier: ViewModifier {
                 .navigationTransition(
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
+            }
+            .sheet(item: $viewModel.pendingGrantRequest) { request in
+                let dismissAction = { viewModel.pendingGrantRequest = nil }
+                ConnectionGrantRequestSheet(
+                    viewModel: viewModel.makeGrantRequestSheetViewModel(for: request),
+                    onDismiss: dismissAction
+                )
+                .presentationDetents([.medium])
             }
             .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
                 ExplodeInfoView()

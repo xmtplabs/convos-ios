@@ -14,6 +14,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
@@ -65,6 +66,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onReaction = onReaction
+        messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onReply = onReply
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
@@ -135,6 +137,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onLoadPreviousMessages: {},
         onTapInvite: { _ in },
         onReaction: { _, _ in },
+        onToggleReaction: { _, _ in },
         onTapReactions: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),

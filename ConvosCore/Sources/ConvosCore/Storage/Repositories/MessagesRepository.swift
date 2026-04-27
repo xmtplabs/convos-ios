@@ -12,11 +12,13 @@ public struct ConversationMessagesResult: Sendable {
 
 public struct MemberProfileInfo: Sendable {
     public let inboxId: String
+    public let conversationId: String
     public let name: String?
     public let avatar: String?
 
-    public init(inboxId: String, name: String?, avatar: String?) {
+    public init(inboxId: String, conversationId: String, name: String?, avatar: String?) {
         self.inboxId = inboxId
+        self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
     }
@@ -107,19 +109,47 @@ class MessagesRepository: MessagesRepositoryProtocol {
         set { stateQueue.sync(flags: .barrier) { self._isLoadingPrevious = newValue } }
     }
 
-    init(dbReader: any DatabaseReader, conversationId: String, pageSize: Int = 50) {
+    /// Caller-supplied identity for the "is this message from me?" decision.
+    /// Passing the current-user inbox id at init avoids a fragile lookup
+    /// through `conversation.members` that silently flipped every bubble to
+    /// `.incoming` when the member list hadn't loaded yet.
+    private let currentInboxId: String
+
+    /// Synchronous helper for call sites that need to construct a
+    /// `MessagesRepository` but don't already have an inbox id in scope.
+    /// Returns an empty string when no identity is registered yet (e.g.
+    /// the split second between fresh install and first session bootstrap);
+    /// in that window there are no messages anyway, so the unoccupied slot
+    /// is harmless.
+    static func currentInboxId(from dbReader: any DatabaseReader) -> String {
+        (try? dbReader.read { db in
+            try DBInbox.fetchAll(db).first?.inboxId
+        }) ?? ""
+    }
+
+    init(
+        dbReader: any DatabaseReader,
+        conversationId: String,
+        currentInboxId: String,
+        pageSize: Int = 50
+    ) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
+        self.currentInboxId = currentInboxId
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
     }
 
-    init(dbReader: any DatabaseReader,
-         conversationId: String,
-         conversationIdPublisher: AnyPublisher<String, Never>,
-         pageSize: Int = 25) {
+    init(
+        dbReader: any DatabaseReader,
+        conversationId: String,
+        currentInboxId: String,
+        conversationIdPublisher: AnyPublisher<String, Never>,
+        pageSize: Int = 25
+    ) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
+        self.currentInboxId = currentInboxId
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
         conversationIdCancellable = conversationIdPublisher
@@ -162,6 +192,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
             // Pass isInitialLoad = true to mark all messages as .existing
             let (messages, updatedSeenIds) = try db.composeMessages(
                 for: self.conversationId,
+                currentInboxId: self.currentInboxId,
                 limit: self.currentLimit,
                 seenMessageIds: currentSeenIds,
                 isInitialLoad: true,
@@ -201,6 +232,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
             let (messages, updatedSeenIds) = try db.composeMessages(
                 for: self.conversationId,
+                currentInboxId: self.currentInboxId,
                 limit: self.currentLimit,
                 seenMessageIds: currentSeenIds,
                 isInitialLoad: true,
@@ -315,6 +347,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
                         let (messages, updatedSeenIds) = try db.composeMessages(
                             for: conversationId,
+                            currentInboxId: unsafeSelf.currentInboxId,
                             limit: limit,
                             prefetchedLocalStates: allLocalStates,
                             seenMessageIds: currentState.seenIds,
@@ -365,7 +398,12 @@ class MessagesRepository: MessagesRepositoryProtocol {
             .fetchAll(db)
         var result: [String: MemberProfileInfo] = [:]
         for row in rows {
-            result[row.inboxId] = MemberProfileInfo(inboxId: row.inboxId, name: row.name, avatar: row.avatar)
+            result[row.inboxId] = MemberProfileInfo(
+                inboxId: row.inboxId,
+                conversationId: conversationId,
+                name: row.name,
+                avatar: row.avatar
+            )
         }
         return result
     }
@@ -373,6 +411,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
 extension Array where Element == DBMessage {
     func composeMessages(in conversation: Conversation,
+                         currentInboxId: String,
                          memberProfileCache: MemberProfileCache,
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
@@ -387,7 +426,7 @@ extension Array where Element == DBMessage {
                 ?? ConversationMember(
                     profile: .empty(inboxId: dbMessage.senderId),
                     role: .member,
-                    isCurrentUser: dbMessage.senderId == conversation.inboxId
+                    isCurrentUser: !currentInboxId.isEmpty && dbMessage.senderId == currentInboxId
                 )
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
             let reactions = (reactionsBySourceId[dbMessage.id] ?? []).hydrateReactions(
@@ -438,7 +477,7 @@ extension Array where Element == DBMessage {
                             ?? ConversationMember(
                                 profile: .empty(inboxId: inboxId),
                                 role: .member,
-                                isCurrentUser: inboxId == conversation.inboxId
+                                isCurrentUser: !currentInboxId.isEmpty && inboxId == currentInboxId
                             )
                     }
                     var metadataChanges: [ConversationUpdate.MetadataChange] = update.metadataChanges
@@ -471,6 +510,14 @@ extension Array where Element == DBMessage {
                 case .assistantJoinRequest:
                     let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
                     messageContent = .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
+                case .connectionGrantRequest:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let request = try? JSONDecoder().decode(ConnectionGrantRequest.self, from: data) {
+                        messageContent = .connectionGrantRequest(request)
+                    } else {
+                        messageContent = .text("")
+                    }
                 }
 
                 let message = Message(
@@ -532,7 +579,7 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest:
             return nil
         }
 
@@ -569,7 +616,7 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text(sourceDBMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest:
             parentContent = .text("[Update]")
         }
 
@@ -665,7 +712,7 @@ private extension Array where Element == DBMessage {
 // MARK: - Lightweight Conversation Query for Message Composition
 
 fileprivate extension Database {
-    func fetchLightweightConversation(for conversationId: String) throws -> Conversation? {
+    func fetchLightweightConversation(for conversationId: String, currentInboxId: String) throws -> Conversation? {
         try DBConversation
             .filter(DBConversation.Columns.id == conversationId)
             .including(
@@ -687,7 +734,7 @@ fileprivate extension Database {
             )
             .asRequest(of: LightweightConversationDetails.self)
             .fetchOne(self)?
-            .hydrateConversation()
+            .hydrateConversation(currentInboxId: currentInboxId)
     }
 }
 
@@ -704,9 +751,9 @@ private struct LightweightConversationDetails: Codable, FetchableRecord, Hashabl
 }
 
 private extension LightweightConversationDetails {
-    func hydrateConversation() -> Conversation {
+    func hydrateConversation(currentInboxId: String) -> Conversation {
         let members = conversationMembers.map {
-            $0.hydrateConversationMember(currentInboxId: conversation.inboxId)
+            $0.hydrateConversationMember(currentInboxId: currentInboxId)
         }
         let creator: ConversationMember
         if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
@@ -715,7 +762,7 @@ private extension LightweightConversationDetails {
             creator = ConversationMember(
                 profile: hydratedProfile,
                 role: creatorDetails.role,
-                isCurrentUser: profile.inboxId == conversation.inboxId,
+                isCurrentUser: profile.inboxId == currentInboxId,
                 isAgent: isAgent,
                 agentVerification: profile.agentVerification
             )
@@ -723,7 +770,7 @@ private extension LightweightConversationDetails {
             creator = ConversationMember(
                 profile: .empty(inboxId: conversation.creatorId),
                 role: .superAdmin,
-                isCurrentUser: conversation.creatorId == conversation.inboxId
+                isCurrentUser: conversation.creatorId == currentInboxId
             )
         }
         let otherMember: ConversationMember?
@@ -742,8 +789,6 @@ private extension LightweightConversationDetails {
         return Conversation(
             id: conversation.id,
             clientConversationId: conversation.clientConversationId,
-            inboxId: conversation.inboxId,
-            clientId: conversation.clientId,
             creator: creator,
             createdAt: conversation.createdAt,
             consent: conversation.consent,
@@ -778,13 +823,17 @@ private extension LightweightConversationDetails {
 fileprivate extension Database {
     func composeMessages(
         for conversationId: String,
+        currentInboxId: String,
         limit: Int? = nil,
         prefetchedLocalStates: [AttachmentLocalState]? = nil,
         seenMessageIds: Set<String>,
         isInitialLoad: Bool = false,
         isPaginating: Bool = false
     ) throws -> ([AnyMessage], Set<String>) {
-        guard let conversation = try fetchLightweightConversation(for: conversationId) else {
+        guard let conversation = try fetchLightweightConversation(
+            for: conversationId,
+            currentInboxId: currentInboxId
+        ) else {
             return ([], .init())
         }
 
@@ -806,7 +855,7 @@ fileprivate extension Database {
         let memberProfileCache = MemberProfileCache(
             activeProfiles: activeMemberProfiles,
             allProfiles: historicalMemberProfiles,
-            currentInboxId: conversation.inboxId
+            currentInboxId: currentInboxId
         )
 
         var query = DBMessage
@@ -865,6 +914,7 @@ fileprivate extension Database {
         let chronologicalMessages = rawMessages.reversed()
         let result = Array(chronologicalMessages).composeMessages(
             in: conversation,
+            currentInboxId: currentInboxId,
             memberProfileCache: memberProfileCache,
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,

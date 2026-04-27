@@ -38,6 +38,23 @@ struct AppSettingsView: View {
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
 
+    @ViewBuilder
+    private var connectionsSection: some View {
+        if FeatureFlags.shared.isCloudConnectionsEnabled {
+            Section {
+                NavigationLink {
+                    ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+                } label: {
+                    Text("Connections")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+            } footer: {
+                Text("Share services with conversations")
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -114,6 +131,8 @@ struct AppSettingsView: View {
                         Text("Optional AI for groups")
                     }
                 }
+
+                connectionsSection
 
                 Section {
                     NavigationLink {

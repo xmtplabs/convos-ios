@@ -51,9 +51,8 @@ secrets: ## Generate Secrets.swift (auto-detects CI environment)
 		echo "🔧 CI/CD environment detected, generating minimal secrets..."; \
 		./Scripts/generate-secrets-secure.sh; \
 	else \
-		echo "🏠 Local environment detected, generating minimal secrets..."; \
-		echo "💡 Tip: Use 'make secrets-local' for IP detection, or just build - the build phase handles it automatically"; \
-		./Scripts/generate-secrets-secure.sh; \
+		echo "🏠 Local environment detected, generating secrets with IP detection..."; \
+		./Scripts/generate-secrets-local.sh; \
 	fi
 
 .PHONY: secrets-local

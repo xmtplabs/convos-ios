@@ -54,6 +54,11 @@ public enum MessagingMessagePayload: Sendable {
     /// Convos-owned content type.
     case assistantJoinRequest(AssistantJoinRequest)
 
+    /// `convos.org/connection_grant_request:1.0` — Cloud Connections
+    /// per-conversation OAuth-grant request, sent by a verified
+    /// assistant. Convos-owned content type.
+    case connectionGrantRequest(ConnectionGrantRequest)
+
     /// XIP `readReceipt:1.0` — intentionally unsupported by the DB
     /// translator; the caller threw
     /// `.unsupportedContentType` for these before the migration.

@@ -5,6 +5,9 @@ import Foundation
 
 /// Builds XMTP API options for the given environment.
 ///
+/// This extracts the API options construction from SessionStateMachine so it
+/// can be reused anywhere XMTP API options are needed.
+///
 /// The actual `XMTPEnvironment.customLocalAddress` write is delegated
 /// to the `MessagingClientFactory` adapter so that the global mutable
 /// state lives behind a single boundary file. Callers here pass an

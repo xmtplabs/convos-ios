@@ -20,6 +20,7 @@ extension ConvosClient {
         LinkPreviewWriter.shared = LinkPreviewWriter(dbWriter: databaseWriter)
         let expiredConversationsWorker = ExpiredConversationsWorker(
             databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
             sessionManager: sessionManager,
             appLifecycle: platformProviders.appLifecycle
         )

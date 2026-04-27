@@ -1,6 +1,6 @@
 @testable import ConvosCore
 import ConvosInvites
-import ConvosProfiles
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 import Testing
@@ -36,12 +36,12 @@ func waitUntil(
     throw TimeoutError()
 }
 
-/// Helper to wait for InboxStateMachine to reach a specific state with timeout
+/// Helper to wait for SessionStateMachine to reach a specific state with timeout
 func waitForState(
-    _ stateMachine: InboxStateMachine,
+    _ stateMachine: SessionStateMachine,
     timeout: TimeInterval = 30,
-    condition: @escaping @Sendable (InboxStateMachine.State) -> Bool
-) async throws -> InboxStateMachine.State {
+    condition: @escaping @Sendable (SessionStateMachine.State) -> Bool
+) async throws -> SessionStateMachine.State {
     try await withTimeout(seconds: timeout) {
         for await state in await stateMachine.stateSequence {
             if condition(state) {
@@ -59,9 +59,9 @@ class TestFixtures {
     let keychainService: MockKeychainService
     let databaseManager: MockDatabaseManager
 
-    var clientA: (any XMTPClientProvider)?
-    var clientB: (any XMTPClientProvider)?
-    var clientC: (any XMTPClientProvider)?
+    var clientA: (any MessagingClient)?
+    var clientB: (any MessagingClient)?
+    var clientC: (any MessagingClient)?
 
     var clientIdA: String?
     var clientIdB: String?
@@ -87,7 +87,7 @@ class TestFixtures {
     }
 
     /// Create a new XMTP client for testing
-    func createClient() async throws -> (client: any XMTPClientProvider, clientId: String, keys: KeychainIdentityKeys) {
+    func createClient() async throws -> (client: any MessagingClient, clientId: String, keys: KeychainIdentityKeys) {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
@@ -124,9 +124,14 @@ class TestFixtures {
             dbDirectory: environment.defaultDatabasesDirectory
         )
 
-        let client = try await Client.create(account: keys.signingKey, options: clientOptions)
+        let xmtpClient = try await Client.create(account: keys.privateKey, options: clientOptions)
+        // Wrap the native handle in our MessagingClient adapter so the
+        // returned tuple matches the post-refactor `any MessagingClient` typing.
+        let client: any MessagingClient = XMTPiOSMessagingClient(xmtpClient: xmtpClient)
 
-        // Save to mock identity store
+        // Save to mock identity store. In the single-inbox model there is only one
+        // slot; multi-client fixtures overwrite each other and the tests that rely
+        // on that coupling will be rewritten in C13.
         _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
 
         return (client, clientId, keys)
@@ -158,8 +163,33 @@ class TestFixtures {
             try? client.deleteLocalDatabase()
         }
 
-        try await identityStore.deleteAll()
+        try await identityStore.delete()
         try databaseManager.erase()
+    }
+
+    /// Builds a fresh MessagingService for tests that previously used
+    /// `UnusedConversationCache.consumeOrCreateMessagingService` as a
+    /// bootstrap. Registers a new XMTP identity for the fixture.
+    func makeFreshMessagingService(
+        platformProviders: PlatformProviders = .mock
+    ) -> MessagingService {
+        let authorizationOperation = AuthorizeInboxOperation.register(
+            identityStore: identityStore,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            environment: environment,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: nil,
+            apiClient: nil
+        )
+        return MessagingService(
+            authorizationOperation: authorizationOperation,
+            databaseWriter: databaseManager.dbWriter,
+            databaseReader: databaseManager.dbReader,
+            identityStore: identityStore,
+            environment: environment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
+        )
     }
 }
 

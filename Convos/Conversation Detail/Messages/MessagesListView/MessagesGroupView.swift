@@ -4,11 +4,13 @@ import SwiftUI
 
 struct MessagesGroupView: View {
     let group: MessagesGroup
+    let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
@@ -192,6 +194,7 @@ struct MessagesGroupView: View {
 
             MessagesGroupItemView(
                 message: message,
+                conversationId: conversationId,
                 bubbleType: bubbleType,
                 shouldBlurPhotos: shouldBlurPhotos,
                 onTapAvatar: onTapAvatar,
@@ -203,6 +206,7 @@ struct MessagesGroupView: View {
                 onOpenFile: onOpenFile,
                 onTapReactions: onTapReactions,
                 onReaction: onReaction,
+                onToggleReaction: onToggleReaction,
                 voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
                 voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
                 onRetryTranscript: onRetryTranscript,
@@ -288,10 +292,10 @@ struct MessagesGroupView: View {
                         useSystemPlaceholder: false
                     )
                     .frame(width: 16, height: 16)
-                } else if !group.readByProfiles.isEmpty {
+                } else if !group.readByMembers.isEmpty {
                     Text("Read")
                         .font(.caption)
-                    ReadReceiptAvatarsView(profiles: group.readByProfiles)
+                    ReadReceiptAvatarsView(members: group.readByMembers)
                 } else {
                     Text("Sent")
                         .font(.caption)
@@ -310,9 +314,9 @@ struct MessagesGroupView: View {
             .accessibilityLabel(
                 group.onlyVisibleToSender
                     ? "Only visible to you"
-                    : (group.readByProfiles.isEmpty
+                    : (group.readByMembers.isEmpty
                         ? "Message sent"
-                        : "Message read by \(group.readByProfiles.count) \(group.readByProfiles.count == 1 ? "member" : "members")")
+                        : "Message read by \(group.readByMembers.count) \(group.readByMembers.count == 1 ? "member" : "members")")
             )
         }
     }
@@ -724,11 +728,13 @@ struct MessagesGroupView: View {
             ForEach(groups) { group in
                 MessagesGroupView(
                     group: group,
+                    conversationId: "preview-conversation",
                     shouldBlurPhotos: true,
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
                     onReaction: { _, _ in },
+                    onToggleReaction: { _, _ in },
                     onReply: { _ in },
                     onPhotoRevealed: { _ in },
                     onPhotoHidden: { _ in },

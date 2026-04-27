@@ -1,1076 +1,286 @@
-import ConvosMessagingProtocols
 import Foundation
 import GRDB
-
-// This actor drives the optimistic-create flow through
-// `MessagingClient.conversations.newGroupOptimistic()` and operates
-// purely on the `MessagingGroup` abstraction.
+@preconcurrency import XMTPiOS
 
 // MARK: - UnusedConversationCacheProtocol
 
-/// Protocol for managing pre-created unused conversations for faster user onboarding
+/// Pre-creates an XMTP group on the authorized messaging service so the first
+/// "new conversation" a user taps into is already published. The pre-created
+/// group lives as a `DBConversation` row with `isUnused = true`; callers either
+/// consume one via `consumeUnusedConversationId` or get `nil` and create a
+/// conversation on demand.
 public protocol UnusedConversationCacheProtocol: Actor {
-    /// Prepares an unused conversation (inbox + conversation + invite) if needed
-    func prepareUnusedConversationIfNeeded(
+    /// Schedules pre-creation of an unused conversation on `service`. Idempotent:
+    /// no-op if a preparation task is already in flight or an unused row already
+    /// exists in the DB.
+    func prepareUnusedConversation(
+        service: any MessagingServiceProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async
 
-    /// Consumes the unused conversation if available, returns ready-to-use service + conversation ID
-    /// - Returns: A tuple containing the messaging service and optional conversation ID.
-    ///            The conversation ID is non-nil when an unused conversation was consumed,
-    ///            nil when created fresh (requiring conversation creation on demand).
-    func consumeOrCreateMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?)
+    /// Atomically claims any available unused conversation: flips `isUnused`
+    /// to `false` and returns its id, or returns `nil` if no unused row exists.
+    func consumeUnusedConversationId(
+        databaseWriter: any DatabaseWriter
+    ) async -> String?
 
-    /// Consumes only the inbox (messaging service) from the cache, discarding any pre-created conversation.
-    /// Used for join flows where we want a fast inbox but will use a different conversation.
-    /// - Returns: A messaging service (from cache or freshly created). conversationId is always nil.
-    func consumeInboxOnly(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> any MessagingServiceProtocol
-
-    /// Checks if the given conversation ID is the unused conversation
-    func isUnusedConversation(_ conversationId: String) -> Bool
-
-    /// Checks if the given inbox ID is the unused inbox
-    func isUnusedInbox(_ inboxId: String) -> Bool
-
-    /// Clears unused inbox and conversation from keychain
-    func clearUnusedFromKeychain()
-
-    /// Checks if there is an unused conversation available
-    func hasUnusedConversation() -> Bool
+    /// Cancels any in-flight preparation task and awaits its unwind. Call
+    /// during inbox teardown so a late-resolving prewarm can't land a stale
+    /// row in a fresh DB after teardown returns.
+    func cancel() async
 }
 
 // MARK: - UnusedConversationCache
 
-/// Manages pre-created unused conversations for faster user onboarding
-///
-/// UnusedConversationCache implements an optimization pattern where XMTP inboxes,
-/// conversations, and invites are pre-created and cached before users need them,
-/// reducing perceived latency when creating new conversations. The cache:
-/// - Pre-creates a single "unused" inbox in the background
-/// - Creates an XMTP conversation published to the network
-/// - Generates an invite with signed slug
-/// - Stores inbox ID and conversation ID in keychain
-/// - Marks the conversation with isUnused = true in the database
-/// - Automatically creates a new unused conversation after consumption
-///
-/// This allows the app to skip expensive XMTP client creation and conversation
-/// publishing when users create their first conversation, making the UX feel instant.
-///
-/// Graceful degradation: If conversation or invite creation fails after inbox creation,
-/// the inbox is kept. On consumption, the app uses what succeeded and creates the
-/// rest on-demand.
 public actor UnusedConversationCache: UnusedConversationCacheProtocol {
-    // MARK: - Properties
-
-    private let keychainService: any KeychainServiceProtocol
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let platformProviders: PlatformProviders
-    private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
-    private let apiClient: (any ConvosAPIClientProtocol)?
-    /// Optional factory injection for tests that drive
-    /// `consumeOrCreateMessagingService` against an alternate backend.
-    /// Production code passes `nil`; the XMTPiOS default takes over
-    /// inside `AuthorizeInboxOperation.init`.
-    private let messagingClientFactory: (any MessagingClientFactory)?
-    private var unusedMessagingService: MessagingService?
-    private var isCreatingUnused: Bool = false
     private var backgroundCreationTask: Task<Void, Never>?
-    private var cleanupTask: Task<Void, Never>?
     private var lastPreparationFailure: Date?
     private static let preparationCooldown: TimeInterval = 30
 
-    // MARK: - Initialization
-
-    public init(
-        keychainService: any KeychainServiceProtocol = KeychainService(),
-        identityStore: any KeychainIdentityStoreProtocol,
-        platformProviders: PlatformProviders,
-        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil,
-        messagingClientFactory: (any MessagingClientFactory)? = nil
-    ) {
-        self.keychainService = keychainService
+    public init(identityStore: any KeychainIdentityStoreProtocol) {
         self.identityStore = identityStore
-        self.platformProviders = platformProviders
-        self.deviceRegistrationManager = deviceRegistrationManager
-        self.apiClient = apiClient
-        self.messagingClientFactory = messagingClientFactory
     }
 
-    // MARK: - Public Methods
+    // MARK: - Public
 
-    /// Checks if an unused conversation is available and prepares one if needed
-    public func prepareUnusedConversationIfNeeded(
+    public func prepareUnusedConversation(
+        service: any MessagingServiceProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async {
-        guard unusedMessagingService == nil else {
-            Log.debug("Unused messaging service already exists")
+        if backgroundCreationTask != nil {
+            Log.debug("Unused conversation preparation already in flight, skipping...")
             return
         }
-
         if let lastFailure = lastPreparationFailure,
            Date().timeIntervalSince(lastFailure) < Self.preparationCooldown {
-            Log.debug("Skipping unused conversation preparation — cooldown active (\(Int(Self.preparationCooldown - Date().timeIntervalSince(lastFailure)))s remaining)")
+            let remaining = Int(Self.preparationCooldown - Date().timeIntervalSince(lastFailure))
+            Log.debug("Skipping unused conversation preparation — cooldown active (\(remaining)s remaining)")
             return
         }
 
-        if let unusedConversationId = getUnusedConversationFromKeychain() {
-            Log.debug("Found unused conversation ID in keychain: \(unusedConversationId)")
-            let conversationExists = await validateUnusedConversationExists(
-                conversationId: unusedConversationId,
-                databaseReader: databaseReader
-            )
-            if !conversationExists {
-                Log.warning("Unused conversation not found in database, clearing and recreating")
-                clearUnusedFromKeychain()
-            } else if let unusedInboxId = getUnusedInboxFromKeychain() {
-                do {
-                    try await authorizeUnusedInbox(
-                        inboxId: unusedInboxId,
-                        databaseWriter: databaseWriter,
-                        databaseReader: databaseReader,
-                        environment: environment
-                    )
-                    return
-                } catch {
-                    Log.error("Failed authorizing unused inbox: \(error.localizedDescription)")
-                    clearUnusedFromKeychain()
-                }
-            } else {
-                Log.warning("Unused conversation exists but inbox ID missing, cleaning up orphan")
-                await cleanupOrphanedConversation(
-                    conversationId: unusedConversationId,
-                    databaseWriter: databaseWriter
-                )
-                clearUnusedFromKeychain()
-            }
-        } else if let unusedInboxId = getUnusedInboxFromKeychain() {
-            Log.debug("Found unused inbox ID in keychain (no conversation): \(unusedInboxId)")
-            do {
-                try await authorizeUnusedInbox(
-                    inboxId: unusedInboxId,
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-                await createConversationForExistingInbox(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
+        backgroundCreationTask = Task(priority: .background) { [weak self] in
+            guard let self else { return }
+            if await self.hasUnusedConversationInDatabase(databaseReader: databaseReader) {
+                Log.debug("Unused conversation already cached, skipping...")
+                await self.clearBackgroundCreationTask()
                 return
-            } catch {
-                Log.error("Failed authorizing unused inbox: \(error.localizedDescription)")
-                clearUnusedFromKeychain()
             }
-        }
-
-        Log.debug("No unused conversation found, creating new one")
-        await createNewUnusedConversation(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-    }
-
-    /// Consumes the unused conversation if available, or creates a new messaging service
-    public func consumeOrCreateMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        let result = await _consumeOrCreateMessagingService(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-        await result.service.inboxStateManager.ensureForeground()
-        return result
-    }
-
-    private func _consumeOrCreateMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        if isCreatingUnused {
-            if let task = backgroundCreationTask {
-                Log.debug("Waiting for in-flight unused conversation creation to complete...")
-                await task.value
-            } else {
-                Log.debug("Unused conversation creation in progress without waitable task, creating fresh")
-                let service = await createFreshMessagingService(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-                return (service: service, conversationId: nil)
-            }
-        }
-
-        if let unusedService = unusedMessagingService,
-           let unusedConversationId = getUnusedConversationFromKeychain() {
-            if let result = await handleStaleUnusedConversation(
-                conversationId: unusedConversationId,
+            await self.runPreparation(
+                service: service,
                 databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            ) {
-                return result
-            }
-            return await consumeFullUnusedConversation(
-                service: unusedService,
-                conversationId: unusedConversationId,
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
                 environment: environment
             )
         }
-
-        if let unusedService = unusedMessagingService {
-            return await consumeInboxOnlyService(
-                service: unusedService,
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-        }
-
-        if let unusedInboxId = getUnusedInboxFromKeychain() {
-            return await consumeKeychainInbox(
-                inboxId: unusedInboxId,
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-        }
-
-        Log.debug("No unused inbox available, creating new one")
-        let service = await createFreshMessagingService(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-        return (service: service, conversationId: nil)
     }
 
-    public func clearUnusedFromKeychain() {
-        backgroundCreationTask?.cancel()
+    private func clearBackgroundCreationTask() {
         backgroundCreationTask = nil
-        cleanupTask?.cancel()
-        cleanupTask = nil
+    }
 
-        if let service = unusedMessagingService {
-            unusedMessagingService = nil
-            cleanupTask = Task {
-                await service.stopAndDelete()
-            }
-            Log.debug("Scheduled cleanup of in-memory unused messaging service")
-        }
-
+    public func consumeUnusedConversationId(
+        databaseWriter: any DatabaseWriter
+    ) async -> String? {
+        let now = Date()
         do {
-            try keychainService.delete(account: KeychainAccount.unusedConversation)
-            Log.debug("Cleared unused conversation from keychain")
+            return try await databaseWriter.write { db -> String? in
+                guard let row = try DBConversation
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchOne(db) else {
+                    return nil
+                }
+                try db.execute(
+                    sql: "UPDATE conversation SET isUnused = ?, createdAt = ? WHERE id = ?",
+                    arguments: [false, now, row.id]
+                )
+                return row.id
+            }
         } catch {
-            Log.warning("Failed to clear unused conversation from keychain: \(error)")
-        }
-
-        do {
-            try keychainService.delete(account: KeychainAccount.unusedInbox)
-            Log.debug("Cleared unused inbox from keychain")
-        } catch {
-            Log.warning("Failed to clear unused inbox from keychain: \(error)")
-        }
-    }
-
-    public func consumeInboxOnly(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> any MessagingServiceProtocol {
-        let service = await _consumeInboxOnly(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-        await service.inboxStateManager.ensureForeground()
-        return service
-    }
-
-    private func _consumeInboxOnly(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> any MessagingServiceProtocol {
-        if isCreatingUnused {
-            if let task = backgroundCreationTask {
-                Log.debug("Waiting for in-flight unused conversation creation to complete (inbox-only)...")
-                await task.value
-            } else {
-                Log.debug("Unused conversation creation in progress without waitable task, creating fresh (inbox-only)")
-                return await createFreshMessagingService(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-            }
-        }
-
-        if let unusedService = unusedMessagingService {
-            Log.debug("Consuming cached inbox only")
-            unusedMessagingService = nil
-
-            clearUnusedFromKeychain()
-
-            do {
-                let result = try await unusedService.inboxStateManager.waitForInboxReadyResult()
-                let inboxId = result.client.inboxId
-                let identity = try await identityStore.identity(for: inboxId)
-                let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-                try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-                Log.debug("Saved consumed inbox-only: \(inboxId)")
-            } catch {
-                Log.error("Cached inbox failed, discarding and creating fresh: \(error)")
-                await unusedService.stopAndDelete()
-                let fresh = await createFreshMessagingService(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-                return fresh
-            }
-
-            scheduleBackgroundCreation(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-
-            return unusedService
-        }
-
-        if let unusedInboxId = getUnusedInboxFromKeychain() {
-            Log.debug("Consuming keychain inbox only: \(unusedInboxId)")
-
-            clearUnusedFromKeychain()
-
-            do {
-                let identity = try await identityStore.identity(for: unusedInboxId)
-                let authorizationOperation = AuthorizeInboxOperation.authorize(
-                    inboxId: unusedInboxId,
-                    clientId: identity.clientId,
-                    identityStore: identityStore,
-                    databaseReader: databaseReader,
-                    databaseWriter: databaseWriter,
-                    environment: environment,
-                    startsStreamingServices: true,
-                    platformProviders: platformProviders,
-                    deviceRegistrationManager: deviceRegistrationManager,
-                    apiClient: apiClient,
-                    messagingClientFactory: messagingClientFactory
-                )
-
-                let messagingService = MessagingService(
-                    authorizationOperation: authorizationOperation,
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    identityStore: identityStore,
-                    environment: environment,
-                    backgroundUploadManager: UnavailableBackgroundUploadManager()
-                )
-
-                _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-                let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-                try await inboxWriter.save(inboxId: unusedInboxId, clientId: identity.clientId)
-                Log.debug("Saved consumed keychain inbox-only: \(unusedInboxId)")
-
-                scheduleBackgroundCreation(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-
-                return messagingService
-            } catch {
-                Log.error("Failed to authorize keychain inbox-only: \(error)")
-            }
-        }
-
-        Log.debug("No cached inbox available, creating fresh (inbox-only)")
-        return await createFreshMessagingService(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-    }
-
-    public func isUnusedConversation(_ conversationId: String) -> Bool {
-        return getUnusedConversationFromKeychain() == conversationId
-    }
-
-    public func isUnusedInbox(_ inboxId: String) -> Bool {
-        return getUnusedInboxFromKeychain() == inboxId
-    }
-
-    public func hasUnusedConversation() -> Bool {
-        return unusedMessagingService != nil || getUnusedConversationFromKeychain() != nil
-    }
-}
-
-// MARK: - Consumption Helpers
-
-extension UnusedConversationCache {
-    func handleStaleUnusedConversation(
-        conversationId: String,
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?)? {
-        let isActuallyUnused = await validateConversationIsUnused(
-            conversationId: conversationId,
-            databaseReader: databaseReader
-        )
-        guard !isActuallyUnused else {
+            Log.error("Failed to consume unused conversation: \(error)")
             return nil
         }
-
-        Log.warning("Conversation \(conversationId) in keychain is not marked as unused in DB, clearing and creating fresh")
-        clearUnusedFromKeychain()
-        let service = await createFreshMessagingService(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-        return (service: service, conversationId: nil)
     }
 
-    func consumeFullUnusedConversation(
-        service: MessagingService,
-        conversationId: String,
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        Log.debug("Using pre-created unused conversation: \(conversationId)")
-
-        unusedMessagingService = nil
-
-        do {
-            let result = try await service.inboxStateManager.waitForInboxReadyResult()
-            let inboxId = result.client.inboxId
-
-            // Verify the conversation was actually created by this inbox (defense against
-            // actor reentrancy race where keychain inbox and conversation get mismatched)
-            let conversationInboxId = try await databaseWriter.read { db in
-                try DBConversation.fetchOne(db, key: conversationId)?.inboxId
-            }
-            if let conversationInboxId, conversationInboxId != inboxId {
-                Log.warning("Unused conversation \(conversationId) belongs to inbox \(conversationInboxId), not \(inboxId) — discarding and creating fresh")
-                await cleanupOrphanedConversation(conversationId: conversationId, databaseWriter: databaseWriter)
-                clearUnusedFromKeychain()
-
-                scheduleBackgroundCreation(
-                    databaseWriter: databaseWriter,
-                    databaseReader: databaseReader,
-                    environment: environment
-                )
-
-                return (service: service, conversationId: nil)
-            }
-
-            let identity = try await identityStore.identity(for: inboxId)
-            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-
-            try await markConversationAsUsed(
-                conversationId: conversationId,
-                databaseWriter: databaseWriter
-            )
-
-            clearUnusedFromKeychain()
-            Log.debug("Consumed unused conversation: \(conversationId)")
-        } catch {
-            Log.error("Failed to finalize consumed conversation, keeping keychain state for retry: \(error)")
-        }
-
-        scheduleBackgroundCreation(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-
-        return (service: service, conversationId: conversationId)
+    public func cancel() async {
+        let task = backgroundCreationTask
+        backgroundCreationTask = nil
+        task?.cancel()
+        await task?.value
     }
 
-    func consumeInboxOnlyService(
-        service: MessagingService,
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        Log.debug("Using pre-created unused inbox (no conversation)")
+    // MARK: - Private
 
-        unusedMessagingService = nil
-        clearUnusedFromKeychain()
-
-        do {
-            let result = try await service.inboxStateManager.waitForInboxReadyResult()
-            let inboxId = result.client.inboxId
-            let identity = try await identityStore.identity(for: inboxId)
-            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-            Log.debug("Saved consumed unused inbox: \(inboxId)")
-        } catch {
-            Log.error("Cached inbox failed, discarding and creating fresh: \(error)")
-            await service.stopAndDelete()
-            let fresh = await createFreshMessagingService(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-            return (service: fresh, conversationId: nil)
-        }
-
-        scheduleBackgroundCreation(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-
-        return (service: service, conversationId: nil)
-    }
-
-    func consumeKeychainInbox(
-        inboxId: String,
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        let unusedConversationId = getUnusedConversationFromKeychain()
-        Log.debug("Using unused inbox from keychain: \(inboxId), conversation: \(unusedConversationId ?? "none")")
-
-        if let conversationId = unusedConversationId {
-            if let result = await handleStaleUnusedConversation(
-                conversationId: conversationId,
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            ) {
-                return result
-            }
-        }
-
-        clearUnusedFromKeychain()
-
-        do {
-            let identity = try await identityStore.identity(for: inboxId)
-            let authorizationOperation = AuthorizeInboxOperation.authorize(
-                inboxId: inboxId,
-                clientId: identity.clientId,
-                identityStore: identityStore,
-                databaseReader: databaseReader,
-                databaseWriter: databaseWriter,
-                environment: environment,
-                startsStreamingServices: true,
-                platformProviders: platformProviders,
-                deviceRegistrationManager: deviceRegistrationManager,
-                apiClient: apiClient,
-                messagingClientFactory: messagingClientFactory
-            )
-
-            let messagingService = MessagingService(
-                authorizationOperation: authorizationOperation,
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                identityStore: identityStore,
-                environment: environment,
-                backgroundUploadManager: UnavailableBackgroundUploadManager()
-            )
-
-            _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-            Log.debug("Saved consumed keychain inbox: \(inboxId)")
-
-            if let conversationId = unusedConversationId {
-                try await markConversationAsUsed(
-                    conversationId: conversationId,
-                    databaseWriter: databaseWriter
-                )
-            }
-
-            scheduleBackgroundCreation(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-
-            return (service: messagingService, conversationId: unusedConversationId)
-        } catch {
-            Log.error("Failed to look up identity for unused inbox: \(error)")
-        }
-
-        let service = await createFreshMessagingService(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-        return (service: service, conversationId: nil)
-    }
-}
-
-// MARK: - Validation & Lifecycle Helpers
-
-extension UnusedConversationCache {
-    func validateUnusedConversationExists(
-        conversationId: String,
+    private func hasUnusedConversationInDatabase(
         databaseReader: any DatabaseReader
     ) async -> Bool {
         do {
-            let exists = try await databaseReader.read { db in
-                try DBConversation.fetchOne(db, key: conversationId) != nil
-            }
-            return exists
-        } catch {
-            Log.error("Failed to validate unused conversation exists: \(error)")
-            return false
-        }
-    }
-
-    func validateConversationIsUnused(
-        conversationId: String,
-        databaseReader: any DatabaseReader
-    ) async -> Bool {
-        do {
-            let isUnused = try await databaseReader.read { db in
+            return try await databaseReader.read { db in
                 try DBConversation
-                    .filter(DBConversation.Columns.id == conversationId)
-                    .fetchOne(db)?
-                    .isUnused ?? false
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchCount(db) > 0
             }
-            return isUnused
         } catch {
-            Log.error("Failed to validate conversation is unused: \(error)")
+            Log.error("Failed to query existing unused conversation: \(error)")
             return false
         }
     }
 
-    func markConversationAsUsed(
-        conversationId: String,
-        databaseWriter: any DatabaseWriter
-    ) async throws {
-        let now = Date()
-        let changesCount = try await databaseWriter.write { db -> Int in
-            try db.execute(
-                sql: "UPDATE conversation SET isUnused = ?, createdAt = ? WHERE id = ?",
-                arguments: [false, now, conversationId]
-            )
-            return db.changesCount
-        }
-        if changesCount == 0 {
-            Log.warning("markConversationAsUsed: no conversation found with id \(conversationId)")
-        } else {
-            Log.debug("Marked conversation as used: \(conversationId)")
-        }
-    }
-
-    func cleanupOrphanedConversation(
-        conversationId: String,
-        databaseWriter: any DatabaseWriter
+    private func runPreparation(
+        service: any MessagingServiceProtocol,
+        databaseWriter: any DatabaseWriter,
+        environment: AppEnvironment
     ) async {
+        defer { backgroundCreationTask = nil }
+
+        // Explicit `Task.checkCancellation()` checkpoints at each boundary
+        // so `cancel()` (called during `tearDownInbox`) propagates through
+        // deterministically. Relying on the underlying XMTP/GRDB awaits to
+        // honor cancellation is not reliable — libxmtp's FFI wrappers and
+        // GRDB's serial writer both tend to run to completion. A cancelled
+        // task post-publish must hit the catch block so the network group
+        // and any DB row are rolled back in tandem.
+        let inboxId: String
+        let group: XMTPiOS.Group
         do {
-            try await databaseWriter.write { db in
-                try db.execute(
-                    sql: "DELETE FROM conversation WHERE id = ? AND isUnused = ?",
-                    arguments: [conversationId, true]
-                )
-            }
-            Log.debug("Cleaned up orphaned unused conversation: \(conversationId)")
-        } catch {
-            Log.error("Failed to clean up orphaned conversation: \(error)")
-        }
-    }
-
-    func createFreshMessagingService(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async -> MessagingService {
-        let authorizationOperation = AuthorizeInboxOperation.register(
-            identityStore: identityStore,
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            environment: environment,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            messagingClientFactory: messagingClientFactory
-        )
-
-        let service = MessagingService(
-            authorizationOperation: authorizationOperation,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            identityStore: identityStore,
-            environment: environment,
-            backgroundUploadManager: UnavailableBackgroundUploadManager()
-        )
-
-        scheduleDeferredBackgroundCreation(
-            after: service,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-
-        return service
-    }
-
-    func scheduleDeferredBackgroundCreation(
-        after service: MessagingService,
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) {
-        backgroundCreationTask?.cancel()
-        backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader, weak service] in
-            guard let service else { return }
-            do {
-                _ = try await service.inboxStateManager.waitForInboxReadyResult()
-            } catch {
+            try Task.checkCancellation()
+            let inboxReady = try await service.sessionStateManager.waitForInboxReadyResult()
+            try Task.checkCancellation()
+            let client = inboxReady.client
+            inboxId = client.inboxId
+            // Mirror the pre-refactor `prepareConversation` flow: build an
+            // optimistic group on the messaging-client abstraction, publish
+            // it, and downcast to the XMTPiOS-side handle for the post-
+            // publish writer work that still uses raw SDK methods.
+            let messagingGroup = try await client.conversations.newGroupOptimistic()
+            try await messagingGroup.publish()
+            try Task.checkCancellation()
+            guard let xmtpGroup = (messagingGroup as? XMTPiOSMessagingGroup)?.xmtpGroup else {
+                Log.error("Pre-created conversation was not an XMTPiOS group; abandoning")
+                lastPreparationFailure = Date()
                 return
             }
-            guard let self,
-                  let databaseWriter,
-                  let databaseReader else { return }
-            await createNewUnusedConversation(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-        }
-    }
-
-    func scheduleBackgroundCreation(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) {
-        backgroundCreationTask?.cancel()
-        backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader] in
-            guard let self,
-                  let databaseWriter,
-                  let databaseReader else { return }
-            await createNewUnusedConversation(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
-        }
-    }
-
-    func authorizeUnusedInbox(
-        inboxId: String,
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async throws {
-        var identity: KeychainIdentity
-        do {
-            identity = try await identityStore.identity(for: inboxId)
-        } catch {
-            clearUnusedFromKeychain()
-            throw error
-        }
-
-        let authorizationOperation = AuthorizeInboxOperation.authorize(
-            inboxId: inboxId,
-            clientId: identity.clientId,
-            identityStore: identityStore,
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            environment: environment,
-            startsStreamingServices: true,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            messagingClientFactory: messagingClientFactory
-        )
-
-        let messagingService = MessagingService(
-            authorizationOperation: authorizationOperation,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            identityStore: identityStore,
-            environment: environment,
-            backgroundUploadManager: UnavailableBackgroundUploadManager()
-        )
-
-        do {
-            _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-            unusedMessagingService = messagingService
-            Log.debug("Successfully authorized unused inbox: \(inboxId)")
-        } catch {
-            Log.error("Failed to authorize unused inbox: \(error)")
-            clearUnusedFromKeychain()
-            await messagingService.stopAndDelete()
-            throw error
-        }
-    }
-
-    func createNewUnusedConversation(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async {
-        guard !isCreatingUnused else {
-            Log.debug("Already creating an unused conversation, skipping...")
+            group = xmtpGroup
+        } catch is CancellationError {
+            // Teardown asked us to stop; no cooldown because this isn't a
+            // real failure, and nothing to roll back since publish was the
+            // only network side effect and it either didn't run or ran to
+            // completion (in which case the post-publish branch below owns
+            // rollback).
             return
-        }
-
-        guard unusedMessagingService == nil else {
-            Log.debug("Unused messaging service exists, skipping...")
-            return
-        }
-
-        guard getUnusedInboxFromKeychain() == nil else {
-            Log.debug("Unused inbox exists in keychain, skipping...")
-            return
-        }
-
-        isCreatingUnused = true
-        defer { isCreatingUnused = false }
-
-        Log.debug("Creating new unused conversation in background")
-
-        let authorizationOperation = AuthorizeInboxOperation.register(
-            identityStore: identityStore,
-            databaseReader: databaseReader,
-            databaseWriter: databaseWriter,
-            environment: environment,
-            platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            messagingClientFactory: messagingClientFactory
-        )
-
-        let tempMessagingService = MessagingService(
-            authorizationOperation: authorizationOperation,
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            identityStore: identityStore,
-            environment: environment,
-            backgroundUploadManager: UnavailableBackgroundUploadManager()
-        )
-
-        do {
-            let result = try await tempMessagingService.inboxStateManager.waitForInboxReadyResult()
-            let inboxId = result.client.inboxId
-
-            saveUnusedInboxToKeychain(inboxId)
-            unusedMessagingService = tempMessagingService
-            lastPreparationFailure = nil
-
-            Log.debug("Successfully created unused inbox: \(inboxId)")
-
-            await createConversationForExistingInbox(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader,
-                environment: environment
-            )
         } catch {
-            Log.error("Failed to create unused inbox: \(error)")
+            Log.error("Failed to pre-create unused conversation: \(error)")
             lastPreparationFailure = Date()
-            await tempMessagingService.stopAndDelete()
-        }
-    }
-
-    func createConversationForExistingInbox(
-        databaseWriter: any DatabaseWriter,
-        databaseReader: any DatabaseReader,
-        environment: AppEnvironment
-    ) async {
-        guard let messagingService = unusedMessagingService else {
-            Log.warning("No messaging service available for conversation creation")
             return
         }
 
+        // Post-publish work: the group is live on the XMTP network. Any
+        // failure past this point must leave both sides in sync —
+        // `leaveGroup()` to get off the network, and the DB row deleted
+        // (if we already wrote it) so `consumeUnusedConversationId` can't
+        // hand out an id pointing to a group we already left.
+        var dbRowWritten = false
         do {
-            let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-            let client = inboxReady.client
-            let inboxId = client.inboxId
-
-            // `newGroupOptimistic()` returns a fully-typed
-            // `MessagingGroup`; no XMTPiOS-side downcast needed.
-            let messagingGroup = try await client.conversations.newGroupOptimistic()
-            let conversationId = messagingGroup.id
-            let identity = try await identityStore.identity(for: inboxId)
-
-            // Reserve the conversation in the database before publishing so the conversation
-            // stream processor finds it with isUnused=true and preserves that flag.
-            try await reserveUnusedConversation(
-                conversationId: conversationId,
-                inboxId: inboxId,
-                clientId: identity.clientId,
-                databaseWriter: databaseWriter
-            )
-
-            try await messagingGroup.publish()
-            Log.debug("Created unused conversation: \(conversationId)")
-
-            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-
-            try await messagingGroup.ensureInviteTag()
+            try Task.checkCancellation()
+            try await group.ensureInviteTag()
+            try Task.checkCancellation()
             do {
-                try await messagingGroup.ensureImageEncryptionKey()
+                try await group.ensureImageEncryptionKey()
             } catch {
                 Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
             }
+            try Task.checkCancellation()
 
-            try await saveUnusedConversationToDatabase(
-                conversation: messagingGroup,
+            let dbConversation = try await writeUnusedConversation(
+                conversation: group,
                 inboxId: inboxId,
-                clientId: identity.clientId,
                 databaseWriter: databaseWriter
             )
-
-            // After all async work, verify the service hasn't been swapped out by a consumer.
-            // Actor reentrancy during the await points above can allow consumeOrCreateMessagingService
-            // to take our service, clear keychain, and schedule a new background creation that sets a
-            // different unusedMessagingService. If we save our conversation to keychain now, it would
-            // be paired with the wrong inbox.
-            guard unusedMessagingService === messagingService else {
-                Log.warning("Unused service was consumed during conversation creation, cleaning up orphan: \(conversationId) (expected inbox: \(inboxId))")
-                await cleanupOrphanedConversation(conversationId: conversationId, databaseWriter: databaseWriter)
-                return
-            }
+            dbRowWritten = true
+            try Task.checkCancellation()
 
             let inviteWriter = InviteWriter(
                 identityStore: identityStore,
                 databaseWriter: databaseWriter
             )
-            let dbConversation = try await databaseWriter.read { db in
-                try DBConversation.fetchOne(db, key: conversationId)
-            }
-            if let dbConversation {
-                _ = try await inviteWriter.generate(
-                    for: dbConversation,
-                    expiresAt: nil,
-                    expiresAfterUse: false
-                )
-                Log.debug("Generated invite for unused conversation: \(conversationId)")
-            }
+            _ = try await inviteWriter.generate(for: dbConversation)
 
-            saveUnusedConversationToKeychain(conversationId)
             lastPreparationFailure = nil
-            Log.debug("Successfully created unused conversation with invite: \(conversationId)")
+            Log.debug("Pre-created unused conversation: \(group.id)")
         } catch {
-            Log.error("Failed to create conversation for unused inbox (keeping inbox): \(error)")
-            lastPreparationFailure = Date()
-        }
-    }
-}
-
-// MARK: - Database Helpers
-
-extension UnusedConversationCache {
-    private func reserveUnusedConversation(
-        conversationId: String,
-        inboxId: String,
-        clientId: String,
-        databaseWriter: any DatabaseWriter
-    ) async throws {
-        try await databaseWriter.write { db in
-            let member = DBMember(inboxId: inboxId)
-            try member.save(db, onConflict: .ignore)
-
-            let dbConversation = DBConversation(
-                id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
-                clientConversationId: conversationId,
-                inviteTag: "pending-\(conversationId)",
-                creatorId: inboxId,
-                kind: .group,
-                consent: .allowed,
-                createdAt: Date(),
-                name: nil,
-                description: nil,
-                imageURLString: nil,
-                publicImageURLString: nil,
-                includeInfoInPublicPreview: true,
-                expiresAt: nil,
-                debugInfo: .empty,
-                isLocked: false,
-                imageSalt: nil,
-                imageNonce: nil,
-                imageEncryptionKey: nil,
-                conversationEmoji: nil,
-                imageLastRenewed: nil,
-                isUnused: true,
-                hasHadVerifiedAssistant: false
-            )
-            try dbConversation.save(db)
-
-            let localState = ConversationLocalState(
-                conversationId: conversationId,
-                isPinned: false,
-                isUnread: false,
-                isUnreadUpdatedAt: Date.distantPast,
-                isMuted: false,
-                pinnedOrder: nil
-            )
-            try localState.save(db)
-
-            Log.debug("Reserved unused conversation in database: \(conversationId)")
+            let isCancellation = error is CancellationError
+            if isCancellation {
+                Log.debug("Unused conversation preparation cancelled post-publish; rolling back.")
+            } else {
+                Log.error("Failed to finish unused conversation setup post-publish: \(error). Rolling back to keep state consistent.")
+                lastPreparationFailure = Date()
+            }
+            // Log leave-group failures at error level so telemetry can
+            // detect orphaned MLS groups (live on the XMTP network with no
+            // local record). Low-probability — we're the sole member and
+            // the group hasn't been shared yet — but a persistent stream
+            // of these would point to a libxmtp reconnect issue worth
+            // investigating. Group id is included so the orphan can be
+            // matched against XMTP-side state if needed.
+            do {
+                try await group.leaveGroup()
+            } catch {
+                Log.error("Failed to leave unused-conversation group \(group.id) after post-publish rollback: \(error). Group may remain live on the XMTP network.")
+            }
+            if dbRowWritten {
+                let conversationId = group.id
+                try? await databaseWriter.write { db in
+                    try ConversationLocalState
+                        .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                    try DBMemberProfile
+                        .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                    try DBConversationMember
+                        .filter(DBConversationMember.Columns.conversationId == conversationId)
+                        .deleteAll(db)
+                    try DBConversation.deleteOne(db, key: conversationId)
+                }
+            }
         }
     }
 
-    private func saveUnusedConversationToDatabase(
-        conversation: any MessagingGroup,
+    /// Writes the freshly-published group to GRDB in one pass, using the real
+    /// invite tag from the MLS group. Called once per preparation after
+    /// `publish()` and `ensureInviteTag()` have resolved. Treats a pre-existing
+    /// row with the same id as a benign collision (carry its local state, flip
+    /// `isUnused` back to true) rather than a surprise — callers of the cache
+    /// may have touched the row in flight.
+    private func writeUnusedConversation(
+        conversation: XMTPiOS.Group,
         inboxId: String,
-        clientId: String,
         databaseWriter: any DatabaseWriter
-    ) async throws {
+    ) async throws -> DBConversation {
         let conversationId = conversation.id
         let creatorInboxId = try await conversation.creatorInboxId()
-        let inviteTag = try await conversation.inviteTag()
-        // Convert nanosecond timestamp from the abstraction back to a
-        // `Date` for `DBConversation`.
-        let createdAt = Date(timeIntervalSince1970: TimeInterval(conversation.createdAtNs) / 1_000_000_000)
+        let inviteTag = try await conversation.inviteTag
 
-        try await databaseWriter.write { db in
-            let member = DBMember(inboxId: inboxId)
-            try member.save(db, onConflict: .ignore)
+        return try await databaseWriter.write { db in
+            try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
 
+            let dbConversation: DBConversation
             if let existing = try DBConversation.fetchOne(db, key: conversationId) {
-                let updated = existing.with(isUnused: true)
-                try updated.update(db)
-                Log.debug("Conversation already exists from sync, marked as unused: \(conversationId)")
+                dbConversation = existing
+                    .with(isUnused: true)
+                    .with(inviteTag: inviteTag)
+                try dbConversation.update(db)
             } else {
-                let dbConversation = DBConversation(
+                dbConversation = DBConversation(
                     id: conversationId,
-                    inboxId: inboxId,
-                    clientId: clientId,
                     clientConversationId: conversationId,
                     inviteTag: inviteTag,
                     creatorId: creatorInboxId,
                     kind: .group,
                     consent: .allowed,
-                    createdAt: createdAt,
+                    createdAt: conversation.createdAt,
                     name: nil,
                     description: nil,
                     imageURLString: nil,
@@ -1090,61 +300,32 @@ extension UnusedConversationCache {
                 try dbConversation.save(db)
             }
 
-            let conversationMember = DBConversationMember(
+            try DBConversationMember(
                 conversationId: conversationId,
                 inboxId: inboxId,
                 role: .superAdmin,
                 consent: .allowed,
                 createdAt: Date(),
                 invitedByInboxId: nil
-            )
-            try conversationMember.save(db)
+            ).save(db, onConflict: .ignore)
 
-            let memberProfile = DBMemberProfile(
+            try DBMemberProfile(
                 conversationId: conversationId,
                 inboxId: inboxId,
                 name: nil,
                 avatar: nil
-            )
-            try memberProfile.save(db, onConflict: .ignore)
+            ).save(db, onConflict: .ignore)
 
-            let localState = ConversationLocalState(
+            try ConversationLocalState(
                 conversationId: conversationId,
                 isPinned: false,
                 isUnread: false,
                 isUnreadUpdatedAt: Date.distantPast,
                 isMuted: false,
                 pinnedOrder: nil
-            )
-            try localState.save(db)
+            ).save(db, onConflict: .ignore)
 
-            Log.debug("Saved unused conversation to database: \(conversationId)")
+            return dbConversation
         }
-    }
-}
-
-// MARK: - Keychain Helpers
-
-extension UnusedConversationCache {
-    private func getUnusedInboxFromKeychain() -> String? {
-        try? keychainService.retrieveString(account: KeychainAccount.unusedInbox)
-    }
-
-    private func getUnusedConversationFromKeychain() -> String? {
-        try? keychainService.retrieveString(account: KeychainAccount.unusedConversation)
-    }
-
-    private func saveUnusedInboxToKeychain(_ inboxId: String) {
-        do {
-            try keychainService.saveString(inboxId, account: KeychainAccount.unusedInbox)
-            Log.debug("Saved unused inbox to keychain: \(inboxId)")
-        } catch { Log.error("Failed to save unused inbox to keychain: \(error)") }
-    }
-
-    private func saveUnusedConversationToKeychain(_ conversationId: String) {
-        do {
-            try keychainService.saveString(conversationId, account: KeychainAccount.unusedConversation)
-            Log.debug("Saved unused conversation to keychain: \(conversationId)")
-        } catch { Log.error("Failed to save unused conversation to keychain: \(error)") }
     }
 }

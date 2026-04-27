@@ -1,3 +1,4 @@
+import ConvosInvites
 import ConvosMessagingProtocols
 import Foundation
 @preconcurrency import XMTPiOS
@@ -186,8 +187,29 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
 
     // MARK: - Private helpers
 
-    private static func defaultXMTPCodecs() -> [any ContentCodec] {
-        InboxStateMachine.defaultXMTPCodecs()
+    /// The set of XMTPiOS codecs Convos registers at client-construction
+    /// time. Move this list into `MessagingClientConfig.codecs` once the
+    /// codecs migrate onto `MessagingCodec`; the XMTPiOS-native codec
+    /// argument drops out of the factory at that point.
+    static func defaultXMTPCodecs() -> [any ContentCodec] {
+        [
+            TextCodec(),
+            ReplyCodec(),
+            ReactionV2Codec(),
+            ReactionCodec(),
+            AttachmentCodec(),
+            RemoteAttachmentCodec(),
+            GroupUpdatedCodec(),
+            ExplodeSettingsCodec(),
+            InviteJoinErrorCodec(),
+            ProfileUpdateCodec(),
+            ProfileSnapshotCodec(),
+            JoinRequestCodec(),
+            AssistantJoinRequestCodec(),
+            TypingIndicatorCodec(),
+            ReadReceiptCodec(),
+            ConnectionGrantRequestCodec()
+        ]
     }
 
     /// Build `ClientOptions` purely for the static-build fallback path

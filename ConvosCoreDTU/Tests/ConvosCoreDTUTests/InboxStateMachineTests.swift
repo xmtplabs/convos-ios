@@ -17,7 +17,7 @@ import XMTPiOS
 
 private let testAppLifecycle = MockAppLifecycleProvider()
 
-/// Comprehensive tests for InboxStateMachine
+/// Comprehensive tests for SessionStateMachine
 ///
 /// Tests cover:
 /// - Registration flow (idle → registering → authenticating → ready)
@@ -27,8 +27,8 @@ private let testAppLifecycle = MockAppLifecycleProvider()
 /// - Stop flow (ready → stopping → idle)
 /// - Database cleanup on deletion
 /// - Keychain management
-@Suite("InboxStateMachine Tests", .serialized, .timeLimit(.minutes(2)))
-struct InboxStateMachineTests {
+@Suite("SessionStateMachine Tests", .serialized, .timeLimit(.minutes(2)))
+struct SessionStateMachineTests {
     // MARK: - Registration Tests
 
     @Test("Register creates new client and reaches ready state")
@@ -41,7 +41,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -56,10 +56,11 @@ struct InboxStateMachineTests {
 
         // Start in idle state
         let initialState = await stateMachine.state
-        #expect(initialState.clientId == clientId)
+        if case .idle = initialState {} else { Issue.record("Expected idle initial state, got \(initialState)") }
+        #expect(await stateMachine.initialClientId == clientId)
 
         // Register
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state (with timeout)
         let state = try await waitForState(stateMachine, timeout: 30) { state in
@@ -68,8 +69,8 @@ struct InboxStateMachineTests {
             return false
         }
 
-        guard case .ready(_, let result) = state else {
-            if case .error(_, let error) = state {
+        guard case .ready(let result) = state else {
+            if case .error(let error) = state {
                 Issue.record("Registration failed: \(error)")
             }
             Issue.record("Did not reach ready state")
@@ -80,7 +81,11 @@ struct InboxStateMachineTests {
         #expect(await mockSync.startCallCount == 1)
 
         // Verify identity was saved
-        let savedIdentity = try await fixtures.identityStore.identity(for: result.client.inboxId)
+        guard let savedIdentity = try await fixtures.identityStore.load() else {
+            Issue.record("No singleton identity saved")
+            return
+        }
+        #expect(savedIdentity.inboxId == result.client.inboxId)
         #expect(savedIdentity.clientId == clientId)
 
         // Clean up
@@ -97,7 +102,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -110,29 +115,30 @@ struct InboxStateMachineTests {
             messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state
         var result: InboxReadyResult?
         for await state in await stateMachine.stateSequence {
             switch state {
-            case .ready(_, let readyResult):
+            case .ready(let readyResult):
                 result = readyResult
-                case .error(_, let error):
+            case .error(let error):
                 Issue.record("Registration failed: \(error)")
             default:
                 continue
             }
-
-            if result != nil {
-                break
-            }
+            break
         }
 
         #expect(result != nil, "Should reach ready state")
 
         // Verify identity was saved to keychain
-        let savedIdentity = try await fixtures.identityStore.identity(for: result!.client.inboxId)
+        guard let savedIdentity = try await fixtures.identityStore.load() else {
+            Issue.record("No singleton identity saved")
+            return
+        }
+        #expect(savedIdentity.inboxId == result!.client.inboxId)
         #expect(savedIdentity.clientId == clientId)
 
         // Verify saved to database
@@ -161,7 +167,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -175,23 +181,20 @@ struct InboxStateMachineTests {
         )
 
         // Authorize with the existing inbox
-        await stateMachine.authorize(inboxId: client.inboxId, clientId: clientId)
+        await stateMachine.authorize(inboxId: client.inboxId)
 
         // Wait for ready state
         var result: InboxReadyResult?
         for await state in await stateMachine.stateSequence {
             switch state {
-            case .ready(_, let readyResult):
+            case .ready(let readyResult):
                 result = readyResult
-                case .error(_, let error):
+            case .error(let error):
                 Issue.record("Authorization failed: \(error)")
             default:
                 continue
             }
-
-            if result != nil {
-                break
-            }
+            break
         }
 
         #expect(result != nil, "Should reach ready state")
@@ -215,7 +218,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: wrongClientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -227,8 +230,11 @@ struct InboxStateMachineTests {
             messagingClientFactory: try await fixtures.messagingClientFactory()
         )
 
-        // Try to authorize with wrong clientId
-        await stateMachine.authorize(inboxId: client.inboxId, clientId: wrongClientId)
+        // Try to authorize with wrong clientId. The state machine was
+        // constructed with wrongClientId as its initialClientId, so the
+        // identity guard inside handleAuthorize fires against the real
+        // stored identity.
+        await stateMachine.authorize(inboxId: client.inboxId)
 
         // Wait for error state
         var errorOccurred = false
@@ -236,15 +242,12 @@ struct InboxStateMachineTests {
             switch state {
             case .error:
                 errorOccurred = true
-                case .ready:
+            case .ready:
                 Issue.record("Should not reach ready state with mismatched clientId")
             default:
                 continue
             }
-
-            if errorOccurred {
-                break
-            }
+            break
         }
 
         #expect(errorOccurred, "Should error with mismatched clientId")
@@ -266,7 +269,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -280,12 +283,12 @@ struct InboxStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
         var client: (any MessagingClient)?
         for await state in await stateMachine.stateSequence {
-            if case .ready(_, let result) = state {
+            if case .ready(let result) = state {
                 client = result.client
                 break
             }
@@ -317,8 +320,8 @@ struct InboxStateMachineTests {
         #expect(stopCount == 1)
 
         // Verify identity still exists (stop doesn't delete)
-        let identities = try await fixtures.identityStore.loadAll()
-        #expect(identities.count == 1)
+        let identity = try await fixtures.identityStore.load()
+        #expect(identity != nil)
 
         // Clean up
         try? client?.deleteLocalDatabase()
@@ -337,7 +340,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -351,11 +354,11 @@ struct InboxStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         var inboxId: String?
         for await state in await stateMachine.stateSequence {
-            if case .ready(_, let result) = state {
+            if case .ready(let result) = state {
                 inboxId = result.client.inboxId
                 break
             }
@@ -364,8 +367,9 @@ struct InboxStateMachineTests {
         #expect(inboxId != nil)
 
         // Verify identity exists before delete
-        let identityBeforeDelete = try? await fixtures.identityStore.identity(for: inboxId!)
+        let identityBeforeDelete = try? await fixtures.identityStore.load()
         #expect(identityBeforeDelete != nil)
+        #expect(identityBeforeDelete?.inboxId == inboxId)
 
         // Delete
         await stateMachine.stopAndDelete()
@@ -385,12 +389,8 @@ struct InboxStateMachineTests {
         #expect(!syncIsStarted, "Syncing should be stopped")
 
         // Verify identity was deleted
-        do {
-            _ = try await fixtures.identityStore.identity(for: inboxId!)
-            Issue.record("Identity should have been deleted")
-        } catch {
-            // Expected - identity should not exist
-        }
+        let identityAfterDelete = try await fixtures.identityStore.load()
+        #expect(identityAfterDelete == nil, "Identity should have been deleted")
 
         // Verify database record was deleted
         let dbInboxes = try await fixtures.databaseManager.dbReader.read { db in
@@ -412,7 +412,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -427,7 +427,7 @@ struct InboxStateMachineTests {
 
         // Try to authorize with non-existent inboxId to trigger error
         let nonExistentInboxId = "0000000000000000000000000000000000000000000000000000000000000000"
-        await stateMachine.authorize(inboxId: nonExistentInboxId, clientId: clientId)
+        await stateMachine.authorize(inboxId: nonExistentInboxId)
 
         // Wait for error state
         var errorOccurred = false
@@ -469,7 +469,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -514,8 +514,6 @@ struct InboxStateMachineTests {
                     stateName = "authorizing"
                 case .deleting:
                     stateName = "deleting"
-                case .stopping:
-                    stateName = "stopping"
                 }
                 await collector.add(stateName)
 
@@ -526,7 +524,7 @@ struct InboxStateMachineTests {
         }
 
         // Register
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for observer to finish
         await observerTask.value
@@ -539,7 +537,7 @@ struct InboxStateMachineTests {
 
         // Clean up
         let finalState = await stateMachine.state
-        if case .ready(_, let result) = finalState {
+        if case .ready(let result) = finalState {
             try? result.client.deleteLocalDatabase()
         }
         try? await fixtures.cleanup()
@@ -557,7 +555,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -571,13 +569,13 @@ struct InboxStateMachineTests {
         )
 
         // Queue register and then stop
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready, then queue stop
         // Stage 6e Phase A: InboxReadyResult.client is now `any MessagingClient`.
         var client: (any MessagingClient)?
         for await state in await stateMachine.stateSequence {
-            if case .ready(_, let result) = state {
+            if case .ready(let result) = state {
                 client = result.client
                 await stateMachine.stop()
                 break
@@ -615,7 +613,7 @@ struct InboxStateMachineTests {
         let mockSync = MockSyncingManager()
         let mockInvites = MockInvitesRepository()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -629,7 +627,7 @@ struct InboxStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state with timeout
         let state = try await waitForState(stateMachine, timeout: 30) { state in
@@ -638,8 +636,8 @@ struct InboxStateMachineTests {
             return false
         }
 
-        guard case .ready(_, let result) = state else {
-            if case .error(_, let error) = state {
+        guard case .ready(let result) = state else {
+            if case .error(let error) = state {
                 Issue.record("Registration failed: \(error)")
             }
             Issue.record("Did not reach ready state")
@@ -695,7 +693,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -709,7 +707,7 @@ struct InboxStateMachineTests {
         )
 
         // Register and wait for ready
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state with timeout
         let state = try await waitForState(stateMachine, timeout: 30) { state in
@@ -718,8 +716,8 @@ struct InboxStateMachineTests {
             return false
         }
 
-        guard case .ready(_, let result) = state else {
-            if case .error(_, let error) = state {
+        guard case .ready(let result) = state else {
+            if case .error(let error) = state {
                 Issue.record("Registration failed: \(error)")
             }
             Issue.record("Did not reach ready state")
@@ -793,7 +791,7 @@ struct InboxStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        let stateMachine = InboxStateMachine(
+        let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
             invitesRepository: mockInvites,
@@ -839,8 +837,6 @@ struct InboxStateMachineTests {
                     stateName = "authorizing"
                 case .deleting:
                     stateName = "deleting"
-                case .stopping:
-                    stateName = "stopping"
                 }
                 await collector.add(stateName)
 
@@ -856,7 +852,7 @@ struct InboxStateMachineTests {
         }
 
         // Register
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.register()
 
         // Wait for ready state
         _ = try await waitForState(stateMachine, timeout: 30) { state in
@@ -896,7 +892,7 @@ struct InboxStateMachineTests {
 
         // Clean up
         let finalState = await stateMachine.state
-        if case .ready(_, let result) = finalState {
+        if case .ready(let result) = finalState {
             try? result.client.deleteLocalDatabase()
         }
         try? await fixtures.cleanup()

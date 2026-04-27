@@ -13,7 +13,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     let myProfilePublisher: AnyPublisher<Profile, Never>
 
     private let databaseReader: any DatabaseReader
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private var conversationId: String {
         conversationIdSubject.value
     }
@@ -29,12 +29,12 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     private var pendingProfile: Profile?
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseReader: any DatabaseReader,
         conversationId: String
     ) {
         self.databaseReader = databaseReader
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.conversationIdSubject = .init(conversationId)
 
         // Set up publisher that emits profiles when inbox state or conversation changes
@@ -42,19 +42,19 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             .compactMap { $0 }
             .eraseToAnyPublisher()
 
-        stateObserver = inboxStateManager.observeState { [weak self] state in
+        stateObserver = sessionStateManager.observeState { [weak self] state in
             self?.handleInboxStateChange(state)
         }
     }
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseReader: any DatabaseReader,
         conversationId: String,
         conversationIdPublisher: AnyPublisher<String, Never>
     ) {
         self.databaseReader = databaseReader
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.conversationIdSubject = .init(conversationId)
 
         // Set up publisher that emits profiles when inbox state or conversation changes
@@ -62,7 +62,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             .compactMap { $0 }
             .eraseToAnyPublisher()
 
-        stateObserver = inboxStateManager.observeState { [weak self] state in
+        stateObserver = sessionStateManager.observeState { [weak self] state in
             self?.handleInboxStateChange(state)
         }
 
@@ -71,7 +71,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             Log.info("Updating conversation id to \(conversationId)")
             self.conversationIdSubject.send(conversationId)
             // Re-observe profile for the new conversation
-            if case .ready(_, let result) = self.inboxStateManager.currentState {
+            if case .ready(let result) = self.sessionStateManager.currentState {
                 self.startObservingProfile(for: result.client.inboxId, conversationId: conversationId)
             }
         }
@@ -82,12 +82,12 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         conversationIdCancellable?.cancel()
     }
 
-    private func handleInboxStateChange(_ state: InboxStateMachine.State) {
+    private func handleInboxStateChange(_ state: SessionStateMachine.State) {
         switch state {
-        case .ready(_, let result):
+        case .ready(let result):
             let inboxId = result.client.inboxId
             startObservingProfile(for: inboxId, conversationId: conversationId)
-        case .idle, .stopping:
+        case .idle:
             profileSubject.send(nil)
         default:
             break
@@ -102,10 +102,10 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
             .tracking { db in
                 try DBMemberProfile
                     .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                    .hydrateProfile() ?? .empty(inboxId: inboxId)
+                    .hydrateProfile() ?? .empty(inboxId: inboxId, conversationId: conversationId)
             }
             .publisher(in: databaseReader)
-            .replaceError(with: .empty(inboxId: inboxId))
+            .replaceError(with: .empty(inboxId: inboxId, conversationId: conversationId))
 
         observation
             .sink { [weak self] profile in
@@ -135,15 +135,16 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     }
 
     func fetch() throws -> Profile {
-        guard case .ready(_, let result) = inboxStateManager.currentState else {
+        guard case .ready(let result) = sessionStateManager.currentState else {
             throw MyProfileRepositoryError.inboxNotReady
         }
         let inboxId = result.client.inboxId
 
+        let conversationId = self.conversationId
         return try databaseReader.read { db in
             try DBMemberProfile
                 .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                .hydrateProfile() ?? .empty(inboxId: inboxId)
+                .hydrateProfile() ?? .empty(inboxId: inboxId, conversationId: conversationId)
         }
     }
 }

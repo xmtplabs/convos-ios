@@ -26,15 +26,16 @@ class ConversationRepository: ConversationRepositoryProtocol {
 
     init(conversationId: String,
          dbReader: any DatabaseReader,
-         inboxStateManager: any InboxStateManagerProtocol) {
+         sessionStateManager: any SessionStateManagerProtocol) {
         self.dbReader = dbReader
         self.conversationId = conversationId
         self.messagesRepository = MessagesRepository(
             dbReader: dbReader,
-            conversationId: conversationId
+            conversationId: conversationId,
+            currentInboxId: MessagesRepository.currentInboxId(from: dbReader)
         )
         self.myProfileRepository = MyProfileRepository(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseReader: dbReader,
             conversationId: conversationId
         )
@@ -67,7 +68,7 @@ fileprivate extension Database {
             .fetchOne(self) else {
             return nil
         }
-
-        return dbConversation.hydrateConversation()
+        let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+        return dbConversation.hydrateConversation(currentInboxId: currentInboxId)
     }
 }

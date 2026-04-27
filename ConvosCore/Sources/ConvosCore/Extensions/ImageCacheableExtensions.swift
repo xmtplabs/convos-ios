@@ -1,8 +1,12 @@
 import Foundation
 
 extension Profile: ImageCacheable {
+    /// Conversation-scoped cache key. A member's display name, avatar, and
+    /// metadata are all per-conversation (`DBMemberProfile` is keyed on
+    /// `(conversationId, inboxId)`), so keying by bare `inboxId` would
+    /// collapse distinct per-conversation profiles into one entry.
     public var imageCacheIdentifier: String {
-        inboxId
+        "\(inboxId)@\(conversationId)"
     }
 
     public var imageCacheURL: URL? {
@@ -52,8 +56,7 @@ extension Conversation: ImageCacheable {
         case .customImage:
             return clientConversationId
         case .profile(let profile, _):
-            // Fall back to clientConversationId if inboxId is empty to prevent cache key collisions
-            return profile.inboxId.isEmpty ? clientConversationId : profile.inboxId
+            return profile.imageCacheIdentifier
         default:
             return clientConversationId
         }

@@ -1,5 +1,4 @@
 import ConvosAppData
-import ConvosProfiles
 import Foundation
 
 // MARK: - DBMemberProfile + ConversationProfile

@@ -1,5 +1,4 @@
 import ConvosMessagingProtocols
-import ConvosProfiles
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -567,12 +566,31 @@ extension ReplyMessageWriter {
 
 // MARK: - XMTPiOS.Group ConversationSender conformance helpers
 
-/// `ensureInviteTag()` shim on raw `XMTPiOS.Group`. Delegates into the
-/// abstraction-layer `MessagingGroup+CustomMetadata` so legacy
-/// XMTPiOS-typed call sites still get the helper.
+/// `ensureInviteTag()` / `ensureImageEncryptionKey()` / `inviteTag` /
+/// `rotateInviteTag()` shims on raw `XMTPiOS.Group`. Delegates into the
+/// abstraction-layer `MessagingGroup+CustomMetadata` so legacy XMTPiOS-
+/// typed call sites (notably `UnusedConversationCache`, which still post-
+/// publishes against the native Group handle, and the ConvosCoreTests
+/// suite that drives integration through real XMTPiOS clients) keep
+/// working.
 public extension XMTPiOS.Group {
     func ensureInviteTag() async throws {
         try await XMTPiOSMessagingGroup(xmtpGroup: self).ensureInviteTag()
+    }
+
+    func rotateInviteTag() async throws {
+        try await XMTPiOSMessagingGroup(xmtpGroup: self).rotateInviteTag()
+    }
+
+    @discardableResult
+    func ensureImageEncryptionKey() async throws -> Data {
+        try await XMTPiOSMessagingGroup(xmtpGroup: self).ensureImageEncryptionKey()
+    }
+
+    var inviteTag: String {
+        get async throws {
+            try await XMTPiOSMessagingGroup(xmtpGroup: self).inviteTag()
+        }
     }
 }
 

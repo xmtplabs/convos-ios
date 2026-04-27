@@ -6,7 +6,7 @@ extension ConversationViewModel {
     func setupTypingIndicatorHandler() {
         let manager = typingIndicatorManager
         Task {
-            await messagingService.inboxStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
+            await messagingService.sessionStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
                 Task { @MainActor in
                     manager.handleTypingEvent(
                         conversationId: conversationId,
@@ -155,7 +155,7 @@ extension ConversationViewModel {
                 isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
                 showsTypingIndicator: true,
                 allTypingMembers: [typer],
-                readByProfiles: lastGroup.readByProfiles,
+                readByMembers: lastGroup.readByMembers,
                 onlyVisibleToSender: lastGroup.onlyVisibleToSender,
                 isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers,
                 voiceMemoTranscripts: lastGroup.voiceMemoTranscripts

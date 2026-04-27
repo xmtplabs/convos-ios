@@ -223,8 +223,6 @@ private extension AssetRenewalURLCollectorTests {
     ) -> DBConversation {
         DBConversation(
             id: id,
-            inboxId: inboxId,
-            clientId: clientId,
             clientConversationId: id,
             inviteTag: "invite-\(id)",
             creatorId: inboxId,
@@ -242,8 +240,10 @@ private extension AssetRenewalURLCollectorTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
+            hasHadVerifiedAssistant: false,
         )
     }
 }

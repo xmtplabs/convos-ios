@@ -1,5 +1,3 @@
-import ConvosMessagingProtocols
-import ConvosProfiles
 import Foundation
 
 public protocol EncryptedImageServiceProtocol: Sendable {
@@ -12,12 +10,12 @@ public protocol EncryptedImageServiceProtocol: Sendable {
 }
 
 public actor EncryptedImageService: EncryptedImageServiceProtocol {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let keyCache: KeyCache
     private var inflightFetches: [String: Task<Data, Error>] = [:]
 
-    public init(inboxStateManager: any InboxStateManagerProtocol) {
-        self.inboxStateManager = inboxStateManager
+    public init(sessionStateManager: any SessionStateManagerProtocol) {
+        self.sessionStateManager = sessionStateManager
         self.keyCache = KeyCache()
     }
 
@@ -65,7 +63,7 @@ public actor EncryptedImageService: EncryptedImageServiceProtocol {
     }
 
     private func fetchGroupKey(for conversationId: String) async throws -> Data {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
 
         guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ImageEncryptionError.missingEncryptionKey

@@ -96,6 +96,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onLoadPreviousMessages: onLoadPreviousMessages,
             onTapInvite: onTapInvite,
             onReaction: onReaction,
+            onToggleReaction: onToggleReaction,
             onTapReactions: onTapReactions,
             onReply: onReply,
             contextMenuState: contextMenuState,
@@ -191,10 +192,6 @@ struct MessagesView<BottomBarContent: View>: View {
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoHidden: onPhotoHidden
             )
-        }
-        .onAppear {
-            contextMenuState.onReaction = onReaction
-            contextMenuState.onToggleReaction = onToggleReaction
         }
     }
 }

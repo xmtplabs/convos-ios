@@ -32,7 +32,6 @@ let package = Package(
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
-        .package(path: "../ConvosProfiles"),
         .package(path: "../ConvosMessagingProtocols"),
     ],
     targets: [
@@ -49,7 +48,6 @@ let package = Package(
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
-                .product(name: "ConvosProfiles", package: "ConvosProfiles"),
                 .product(name: "ConvosMessagingProtocols", package: "ConvosMessagingProtocols"),
             ],
             swiftSettings: [
@@ -78,7 +76,6 @@ let package = Package(
                 "ConvosCore",
                 "ConvosAppData",
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
-                "ConvosProfiles",
             ]
         ),
     ]

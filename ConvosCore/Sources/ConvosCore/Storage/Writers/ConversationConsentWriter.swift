@@ -17,17 +17,17 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
         case conversationNotFound(conversationId: String)
     }
 
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
-    init(inboxStateManager: any InboxStateManagerProtocol,
+    init(sessionStateManager: any SessionStateManagerProtocol,
          databaseWriter: any DatabaseWriter) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
     func join(conversation: Conversation) async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        let client = try await sessionStateManager.waitForInboxReadyResult().client
         try await updateMessagingConsent(
             using: client,
             conversationId: conversation.id,
@@ -45,7 +45,7 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func delete(conversation: Conversation) async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        let client = try await sessionStateManager.waitForInboxReadyResult().client
         try await updateMessagingConsent(
             using: client,
             conversationId: conversation.id,
@@ -63,11 +63,9 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     func deleteAll() async throws {
-        let client = try await inboxStateManager.waitForInboxReadyResult().client
-        let inboxId = client.inboxId
+        let client = try await sessionStateManager.waitForInboxReadyResult().client
         let conversationsToDeny = try await databaseWriter.read { db in
             try DBConversation
-                .filter(DBConversation.Columns.inboxId == inboxId)
                 .filter(DBConversation.Columns.consent == Consent.unknown)
                 .fetchAll(db)
         }

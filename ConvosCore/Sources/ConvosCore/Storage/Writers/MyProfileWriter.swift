@@ -1,5 +1,4 @@
 import ConvosMessagingProtocols
-import ConvosProfiles
 import Foundation
 import GRDB
 
@@ -7,10 +6,15 @@ public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
     func update(avatar: ImageType?, conversationId: String) async throws
     func update(metadata: ProfileMetadata?, conversationId: String) async throws
+    /// Like `update(metadata:conversationId:)` but propagates ProfileUpdate publish failures.
+    /// Use this when the caller needs to know whether the ProfileUpdate reached the network
+    /// (e.g. to roll back a dependent local write).
+    func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
     case imageCompressionFailed
+    case profileUpdatePublishFailed(underlying: any Error)
 }
 
 // Conversation lookup uses `messagingGroup(with:)`, and the
@@ -20,19 +24,19 @@ enum MyProfileWriterError: Error {
 // `ProfileSnapshotBridge.sendProfileUpdate` bridge because the codec
 // still lives in the XMTPiOS layer.
 class MyProfileWriter: MyProfileWriterProtocol {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
     func update(displayName: String, conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
@@ -67,7 +71,15 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     func update(metadata: ProfileMetadata?, conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        do {
+            try await updateAndPublish(metadata: metadata, conversationId: conversationId)
+        } catch MyProfileWriterError.profileUpdatePublishFailed(let underlying) {
+            Log.warning("Failed to send ProfileUpdate message: \(underlying.localizedDescription)")
+        }
+    }
+
+    func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
@@ -84,11 +96,16 @@ class MyProfileWriter: MyProfileWriterProtocol {
             try profile.save(db)
             return profile
         }
-        await sendProfileUpdate(profile: profile, group: group)
+        try await sendProfileUpdateThrowing(profile: profile, group: group)
+        do {
+            try await group.updateProfile(profile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
     }
 
     func update(avatar: ImageType?, conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
@@ -173,6 +190,16 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: any MessagingGroup) async {
+        do {
+            try await sendProfileUpdateThrowing(profile: profile, group: group)
+        } catch MyProfileWriterError.profileUpdatePublishFailed(let underlying) {
+            Log.warning("Failed to send ProfileUpdate message: \(underlying.localizedDescription)")
+        } catch {
+            Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendProfileUpdateThrowing(profile: DBMemberProfile, group: any MessagingGroup) async throws {
         var update = ProfileUpdate()
         if let name = profile.name {
             update.name = name
@@ -187,12 +214,14 @@ class MyProfileWriter: MyProfileWriterProtocol {
             update.metadata = metadata.asProtoMap
         }
 
+        // Codec encoding is performed inside `ProfileSnapshotBridge.sendProfileUpdate`
+        // along with the actual XMTPiOS-side group send.
         do {
             // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
             try await ProfileSnapshotBridge.sendProfileUpdate(update, on: group)
             Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
         } catch {
-            Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")
+            throw MyProfileWriterError.profileUpdatePublishFailed(underlying: error)
         }
     }
 }

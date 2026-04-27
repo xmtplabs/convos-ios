@@ -16,7 +16,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
     init(dbReader: any DatabaseReader,
          conversationId: String,
          conversationIdPublisher: AnyPublisher<String, Never>,
-         inboxStateManager: any InboxStateManagerProtocol) {
+         sessionStateManager: any SessionStateManagerProtocol) {
         self.dbReader = dbReader
         self.conversationId = conversationId
         self.conversationIdPublisher = conversationIdPublisher
@@ -24,10 +24,11 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
         messagesRepository = MessagesRepository(
             dbReader: dbReader,
             conversationId: conversationId,
+            currentInboxId: MessagesRepository.currentInboxId(from: dbReader),
             conversationIdPublisher: conversationIdPublisher
         )
         myProfileRepository = MyProfileRepository(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseReader: dbReader,
             conversationId: conversationId,
             conversationIdPublisher: conversationIdPublisher
@@ -45,7 +46,6 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
                     .tracking { db in
                         do {
                             Log.debug("Tracking conversation \(conversationId)")
-
                             let conversation = try db.composeConversation(for: conversationId)
                             if conversation != nil {
                                 Log.debug(
@@ -104,7 +104,8 @@ fileprivate extension Database {
                 return nil
             }
 
-            let conversation = dbConversation.hydrateConversation()
+            let currentInboxId = try DBInbox.fetchAll(self).first?.inboxId ?? ""
+            let conversation = dbConversation.hydrateConversation(currentInboxId: currentInboxId)
             Log.debug("Successfully hydrated conversation: \(conversationId)")
             return conversation
         } catch {

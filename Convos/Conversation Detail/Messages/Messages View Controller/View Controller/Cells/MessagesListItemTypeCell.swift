@@ -87,11 +87,13 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .messages(let group):
                     MessagesGroupView(
                         group: group,
+                        conversationId: config.conversationId,
                         shouldBlurPhotos: config.shouldBlurPhotos,
                         onTapAvatar: config.onTapAvatar,
                         onTapInvite: config.onTapInvite,
                         onTapReactions: config.onTapReactions,
                         onReaction: config.onReaction,
+                        onToggleReaction: config.onToggleReaction,
                         onReply: config.onReply,
                         onPhotoRevealed: config.onPhotoRevealed,
                         onPhotoHidden: config.onPhotoHidden,

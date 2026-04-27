@@ -1,13 +1,16 @@
 id: "13"
-name: "Database Migration from Main"
+name: "Legacy-Wipe on Upgrade to Single-Inbox Build"
 description: >
-  Verify that upgrading from the production version (main branch) to the
-  current branch preserves user data and the app functions correctly after
-  upgrade. In DEBUG builds, eraseDatabaseOnSchemaChange may wipe data if
-  the schema changed — this is expected and should be reported.
-tags: [migration, database, special]
+  Verify the single-inbox refactor's one-way legacy wipe: upgrading from
+  a main-branch build with per-conversation identities into the single-inbox
+  branch must clear prior GRDB data, prior XMTP databases, and prior
+  per-conversation keychain identities, then boot into a fresh single-inbox
+  state without crashing. The prior backwards-compatible migration story is
+  gone (see docs/plans/single-inbox-identity-refactor.md).
+tags: [migration, database, legacy-wipe, special, expected-partial]
 depends_on: ["01"]
 estimated_duration_s: 600
+expected_partial_until: "C11"
 
 prerequisites:
   app_running: false
@@ -23,7 +26,7 @@ setup:
     note: >
       Clone a base iPhone simulator named "<current-sim>-migration".
       Boot it and record the UDID. Build and install the main branch
-      version from a temporary git worktree.
+      version (per-conversation identity) from a temporary git worktree.
 
 steps:
   - id: build_main
@@ -38,21 +41,21 @@ steps:
       - launch_app: { udid: "$migration_udid" }
     criteria: main_builds
 
-  - id: populate_data
-    name: "Create conversations and messages on main branch"
+  - id: populate_legacy_data
+    name: "Populate per-conversation identities on the main branch"
     actions:
       - cli_create_and_join_conversations:
           simulator: "$migration_udid"
           conversations:
-            - { name: "Migration Alpha", messages: 3 }
-            - { name: "Migration Beta", messages: 3 }
-            - { name: "Migration Gamma", messages: 2 }
+            - { name: "Legacy Alpha", messages: 3 }
+            - { name: "Legacy Beta", messages: 2 }
+            - { name: "Legacy Gamma", messages: 2 }
       - screenshot: { udid: "$migration_udid" }
       - terminate_app: { udid: "$migration_udid" }
-    criteria: data_populated
+    criteria: legacy_data_populated
 
-  - id: install_current
-    name: "Current branch installs on top of main"
+  - id: install_single_inbox
+    name: "Single-inbox branch installs on top of main"
     actions:
       - xcodebuild:
           project: "Convos.xcodeproj"
@@ -60,34 +63,58 @@ steps:
           destination: "$migration_udid"
       - install_app: { udid: "$migration_udid" }
       - launch_app: { udid: "$migration_udid" }
-      - wait_for_element: { id: "compose-button", timeout: 30, udid: "$migration_udid" }
-    criteria: current_installs
+      - wait_for_launch_stabilized: { udid: "$migration_udid", timeout: 30 }
+    criteria: single_inbox_installs
 
-  - id: check_migration
-    name: "Data migration outcome"
+  - id: verify_wipe
+    name: "Legacy data is wiped on first single-inbox launch"
     actions:
+      - screenshot: { udid: "$migration_udid" }
       - find_elements: { pattern: "conversation-list-item", udid: "$migration_udid" }
+      - inspect_logs: { pattern: "LegacyDataWipe: detected legacy data" }
+      - inspect_logs: { pattern: "LegacyDataWipe: removed" }
     verify:
-      - report_migration_status: true
-    criteria: migration_outcome
-    note: >
-      If conversations exist: schema compatible, data migrated.
-      If list is empty: schema changed, eraseDatabaseOnSchemaChange wiped data.
-      Both outcomes are valid — report which occurred.
+      - no_elements_matching: { pattern: "conversation-list-item" }
+      - no_crash_on_launch: true
+      - log_contains: "LegacyDataWipe: detected legacy data"
+      - log_contains: "LegacyDataWipe: removed"
+    criteria: legacy_wipe_executed
 
-  - id: post_upgrade_functional
-    name: "Core functionality works on new version"
+  - id: verify_single_identity
+    name: "Fresh single-inbox identity created silently (C3 gate)"
+    blocked_until_checkpoint: "C3"
+    actions:
+      - wait_for_element: { id: "compose-button", timeout: 15, udid: "$migration_udid" }
+    verify:
+      - no_onboarding_prompt: true
+      - single_identity_in_keychain: true
+    criteria: single_identity_created
+
+  - id: post_wipe_functional
+    name: "Join and message flow works on the single inbox (C10/C11 gate)"
+    blocked_until_checkpoint: "C10"
     actions:
       - cli_create_and_join:
-          name: "Post-Migration Test"
+          name: "Post-Wipe Test"
           simulator: "$migration_udid"
       - cli_send_text:
           conversation: "$conversation_id"
-          text: "Post upgrade message"
-      - wait_for_element: { label_contains: "Post upgrade message", timeout: 15 }
+          text: "Post-wipe message"
+      - wait_for_element: { label_contains: "Post-wipe message", timeout: 15 }
     verify:
-      - element_exists: { label_contains: "Post upgrade message" }
-    criteria: post_upgrade_functional
+      - element_exists: { label_contains: "Post-wipe message" }
+    criteria: post_wipe_functional
+
+  - id: wipe_idempotence
+    name: "Wipe does not re-run on second launch"
+    actions:
+      - terminate_app: { udid: "$migration_udid" }
+      - launch_app: { udid: "$migration_udid" }
+      - wait_for_launch_stabilized: { udid: "$migration_udid", timeout: 30 }
+      - inspect_logs: { since_launch: true, pattern: "LegacyDataWipe: detected legacy data" }
+    verify:
+      - log_not_contains: "LegacyDataWipe: detected legacy data"
+    criteria: wipe_idempotent
 
 teardown:
   - action: delete_simulator
@@ -98,11 +125,19 @@ teardown:
 criteria:
   main_builds:
     description: "Main branch app builds and installs on the migration simulator"
-  data_populated:
-    description: "Conversations can be created and populated on the main version"
-  current_installs:
-    description: "Current branch installs and launches on top of main"
-  migration_outcome:
-    description: "Data migration outcome reported (preserved or wiped)"
-  post_upgrade_functional:
-    description: "Core functionality works on the new version"
+  legacy_data_populated:
+    description: "Per-conversation identities and conversations exist on the main version"
+  single_inbox_installs:
+    description: "Single-inbox branch installs and launches on top of main"
+  legacy_wipe_executed:
+    description: "Legacy conversations are gone and the wipe log lines are present"
+    checkpoint: "C2"
+  single_identity_created:
+    description: "Exactly one identity is present after the wipe; no onboarding prompts"
+    checkpoint: "C3"
+  post_wipe_functional:
+    description: "A new conversation can be joined and messaged on the single inbox"
+    checkpoint: "C10-C11"
+  wipe_idempotent:
+    description: "Legacy-wipe only executes once; subsequent launches skip it"
+    checkpoint: "C2"

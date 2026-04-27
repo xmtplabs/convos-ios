@@ -37,7 +37,6 @@ public actor ConversationStateMachine {
         case useExisting(conversationId: String)
         case validate(inviteCode: String)
         case join
-        case delete
         case stop
         case reset
     }
@@ -59,7 +58,6 @@ public actor ConversationStateMachine {
         case joining(invite: SignedInvite, placeholder: ConversationReadyResult)
         case joinFailed(inviteTag: String, error: InviteJoinError)
         case ready(ConversationReadyResult)
-        case deleting
         case error(Error)
 
         public var isReadyOrJoining: Bool {
@@ -75,7 +73,7 @@ public actor ConversationStateMachine {
     // MARK: - Properties
 
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseReader: any DatabaseReader
     private let databaseWriter: any DatabaseWriter
     private let environment: AppEnvironment
@@ -148,7 +146,7 @@ public actor ConversationStateMachine {
     // MARK: - Init
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
@@ -156,7 +154,7 @@ public actor ConversationStateMachine {
         clientConversationId: String,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
@@ -216,7 +214,7 @@ public actor ConversationStateMachine {
 
         let result = try await waitForConversationReadyResult()
         let writer = OutgoingMessageWriter(
-            inboxStateManager: inboxStateManager,
+            sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             conversationId: result.conversationId,
             photoService: PhotoAttachmentService(),
@@ -321,12 +319,6 @@ public actor ConversationStateMachine {
         try await writer.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
     }
 
-    func delete() {
-        // Cancel current task immediately to unblock the action queue
-        currentTask?.cancel()
-        enqueueAction(.delete)
-    }
-
     func reset() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()
@@ -419,9 +411,6 @@ public actor ConversationStateMachine {
                     previousReadyResult: previousResult
                 )
 
-            case (.ready, .delete), (.error, .delete), (.joinFailed, .delete):
-                try await handleDelete()
-
             case (.error, .reset), (.joinFailed, .reset):
                 await handleReset()
 
@@ -446,7 +435,7 @@ public actor ConversationStateMachine {
     private func handleCreate() async throws {
         emitStateChange(.creating)
 
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         Log.info("Inbox ready, creating conversation...")
 
         let client = inboxReady.client
@@ -497,7 +486,7 @@ public actor ConversationStateMachine {
         Log.info("Using existing conversation: \(conversationId)")
 
         do {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             if let conversation = try await inboxReady.client.conversations
                 .find(conversationId: conversationId),
                 case let .group(messagingGroup) = conversation {
@@ -601,17 +590,20 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.failedVerifyingSignature
         }
         Log.debug("Recovered signer's public key: \(signerPublicKey.toHexString())")
+        let currentInboxId = (try? await identityStore.load()?.inboxId) ?? ""
         let existingConversation: Conversation? = try await databaseReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.inviteTag == signedInvite.invitePayload.tag)
                 .detailedConversationQuery()
                 .fetchOne(db)?
-                .hydrateConversation()
+                .hydrateConversation(currentInboxId: currentInboxId)
         }
 
+        // Any local conversation for this invite tag belongs to the
+        // authorized identity by construction.
         let existingIdentity: KeychainIdentity?
-        if let existingConversation, let identity = try? await identityStore.identity(for: existingConversation.inboxId) {
-            existingIdentity = identity
+        if existingConversation != nil {
+            existingIdentity = try? await identityStore.load()
         } else {
             existingIdentity = nil
         }
@@ -627,12 +619,8 @@ public actor ConversationStateMachine {
 
         if let existingConversation, existingIdentity != nil {
             Log.debug("Found existing convo by invite tag...")
-            let prevInboxReady = try await inboxStateManager.waitForInboxReadyResult()
-            try await inboxStateManager.deleteInbox()
-            let inboxReady = try await inboxStateManager.reauthorize(
-                inboxId: existingConversation.inboxId,
-                clientId: existingConversation.clientId
-            )
+            let prevInboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            let inboxReady = prevInboxReady
             if existingConversation.hasJoined {
                 Log.info("Already joined conversation... moving to ready state.")
                 emitStateChange(.ready(.init(conversationId: existingConversation.id, origin: .existing)))
@@ -669,7 +657,7 @@ public actor ConversationStateMachine {
         } else {
             Log.debug("Existing conversation not found. Creating placeholder...")
             Log.debug("Waiting for inbox ready result...")
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
             let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
             let conversationWriter = ConversationWriter(
                 identityStore: identityStore,
@@ -701,7 +689,7 @@ public actor ConversationStateMachine {
         emitStateChange(.joining(invite: invite, placeholder: placeholder))
 
         // Register ourselves as the error handler for invite join errors when app is active
-        await inboxStateManager.setInviteJoinErrorHandler(self)
+        await sessionStateManager.setInviteJoinErrorHandler(self)
 
         Log.info("Requesting to join conversation...")
 
@@ -760,14 +748,14 @@ public actor ConversationStateMachine {
             // Trigger an immediate discovery before starting the polling loop,
             // in case the welcome arrived before we started observing.
             Log.info("Join flow: triggering initial discovery sync...")
-            await self?.inboxStateManager.requestDiscovery()
+            await self?.sessionStateManager.requestDiscovery()
 
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: interval)
                     try Task.checkCancellation()
                     Log.info("Join flow: triggering discovery sync...")
-                    await self?.inboxStateManager.requestDiscovery()
+                    await self?.sessionStateManager.requestDiscovery()
                 } catch {
                     break
                 }
@@ -853,40 +841,6 @@ public actor ConversationStateMachine {
 // MARK: - Cleanup
 
 extension ConversationStateMachine {
-    private func handleDelete() async throws {
-        let conversationId: String? = switch _state {
-        case .ready(let result):
-            result.conversationId
-        default:
-            nil
-        }
-
-        emitStateChange(.deleting)
-
-        await clearInviteJoinErrorHandler()
-
-        messageStreamContinuation?.finish()
-        messageProcessingTask?.cancel()
-        observationTask?.cancel()
-        observationTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
-
-        if let conversationId {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-
-            try await cleanUp(
-                conversationId: conversationId,
-                client: inboxReady.client,
-                apiClient: inboxReady.apiClient,
-            )
-
-            try await inboxStateManager.deleteInbox()
-        }
-
-        emitStateChange(.uninitialized)
-    }
-
     private func cleanUpPreviousConversationIfNeeded(
         previousResult: ConversationReadyResult?,
         newConversationId: String?,
@@ -920,7 +874,7 @@ extension ConversationStateMachine {
             try await messagingConversation.core.updateConsentState(.denied)
         }
 
-        if let identity = try? await identityStore.identity(for: client.inboxId) {
+        if let identity = try? await identityStore.load(), identity.inboxId == client.inboxId {
             let topic = conversationId.xmtpGroupTopicFormat
             do {
                 try await apiClient.unsubscribeFromTopics(clientId: identity.clientId, topics: [topic])
@@ -985,7 +939,7 @@ extension ConversationStateMachine {
     }
 
     private func clearInviteJoinErrorHandler() async {
-        await inboxStateManager.setInviteJoinErrorHandler(nil)
+        await sessionStateManager.setInviteJoinErrorHandler(nil)
     }
 }
 
@@ -995,8 +949,7 @@ extension ConversationStateMachine.State: Equatable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
         case (.uninitialized, .uninitialized),
-             (.creating, .creating),
-             (.deleting, .deleting):
+             (.creating, .creating):
             return true
         case let (.joining(lhsInvite, _), .joining(rhsInvite, _)):
             return lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken

@@ -148,6 +148,13 @@ extension MessagingMessage {
             return .assistantJoinRequest(request)
         }
 
+        if contentType == .connectionGrantRequest {
+            guard let request = (try? content() as ConnectionGrantRequest) else {
+                return .unsupported
+            }
+            return .connectionGrantRequest(request)
+        }
+
         if contentType == .readReceipt {
             return .readReceipt
         }

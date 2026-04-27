@@ -60,6 +60,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     // Invite codes
     func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
+
+    // Connections
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse
+    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse
+    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse]
+    func revokeConnection(connectionId: String) async throws
 }
 
 extension ConvosAPIClientProtocol {
@@ -634,6 +640,46 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         default:
             throw APIError.serverError(parseErrorMessage(from: data))
         }
+    }
+
+    // MARK: - Connections
+
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+        var request = try authenticatedRequest(for: "v2/connections/initiate", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct InitiateBody: Codable {
+            let serviceId: String
+            let redirectUri: String
+        }
+        request.httpBody = try JSONEncoder().encode(
+            InitiateBody(serviceId: serviceId, redirectUri: redirectUri)
+        )
+
+        return try await performRequest(request)
+    }
+
+    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+        var request = try authenticatedRequest(for: "v2/connections/complete", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct CompleteBody: Codable {
+            let connectionRequestId: String
+        }
+        request.httpBody = try JSONEncoder().encode(CompleteBody(connectionRequestId: connectionRequestId))
+
+        return try await performRequest(request)
+    }
+
+    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+        let request = try authenticatedRequest(for: "v2/connections", method: "GET")
+        let response: ConnectionsAPI.ListResponse = try await performRequest(request)
+        return response.connections
+    }
+
+    func revokeConnection(connectionId: String) async throws {
+        let request = try authenticatedRequest(for: "v2/connections/\(connectionId)", method: "DELETE")
+        let _: EmptyResponse = try await performRequest(request)
     }
 
     // MARK: - Helper Methods

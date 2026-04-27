@@ -11,7 +11,6 @@ public protocol ReadReceiptWriterProtocol: Sendable {
 }
 
 enum ReadReceiptWriterError: Error {
-    case missingClientProvider
     case conversationNotFound
     case notSupportedOnDTU
 }
@@ -22,19 +21,19 @@ enum ReadReceiptWriterError: Error {
 // lives in the XMTPiOS layer, so the bridge stays until the codec
 // migrates onto the abstraction.
 final class ReadReceiptWriter: ReadReceiptWriterProtocol, Sendable {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
     init(
-        inboxStateManager: any InboxStateManagerProtocol,
+        sessionStateManager: any SessionStateManagerProtocol,
         databaseWriter: any DatabaseWriter
     ) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
     }
 
     func sendReadReceipt(for conversationId: String) async throws {
-        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client
             .messagingConversation(with: conversationId) else {
             throw ReadReceiptWriterError.conversationNotFound

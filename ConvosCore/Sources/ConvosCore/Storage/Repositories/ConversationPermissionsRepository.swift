@@ -115,19 +115,19 @@ public struct ConversationMemberInfo: Sendable {
 // MARK: - Conversation Permissions Repository Implementation
 
 final class ConversationPermissionsRepository: ConversationPermissionsRepositoryProtocol {
-    private let inboxStateManager: any InboxStateManagerProtocol
+    private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseReader: any DatabaseReader
 
-    init(inboxStateManager: any InboxStateManagerProtocol,
+    init(sessionStateManager: any SessionStateManagerProtocol,
          databaseReader: any DatabaseReader) {
-        self.inboxStateManager = inboxStateManager
+        self.sessionStateManager = sessionStateManager
         self.databaseReader = databaseReader
     }
 
     // MARK: - Public Methods
 
     func getConversationPermissions(for conversationId: String) async throws -> ConversationPermissionPolicySet {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
 
         let isCurrentUserAdmin = try await group.isAdmin(inboxId: client.inboxId)
@@ -167,7 +167,7 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getMemberRole(memberInboxId: String, in conversationId: String) async throws -> MemberRole {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
 
         // Use the abstraction-layer methods to check member roles
@@ -224,7 +224,7 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func getConversationMembers(for conversationId: String) async throws -> [ConversationMemberInfo] {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
 
         let members = try await group.members()
@@ -255,37 +255,37 @@ final class ConversationPermissionsRepository: ConversationPermissionsRepository
     }
 
     func addAdmin(memberInboxId: String, to conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addAdmin(inboxId: memberInboxId)
     }
 
     func removeAdmin(memberInboxId: String, from conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeAdmin(inboxId: memberInboxId)
     }
 
     func addSuperAdmin(memberInboxId: String, to conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addSuperAdmin(inboxId: memberInboxId)
     }
 
     func removeSuperAdmin(memberInboxId: String, from conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeSuperAdmin(inboxId: memberInboxId)
     }
 
     func addMembers(inboxIds: [String], to conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.addMembers(inboxIds: inboxIds)
     }
 
     func removeMembers(inboxIds: [String], from conversationId: String) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await self.sessionStateManager.waitForInboxReadyResult().client
         let group = try await loadGroup(client: client, conversationId: conversationId)
         try await group.removeMembers(inboxIds: inboxIds)
     }

@@ -31,10 +31,6 @@ case "$TEST_TYPE" in
         echo ""
         echo "==> Running ConvosInvites tests..."
         swift test --package-path "$REPO_ROOT/ConvosInvites" 2>&1 | filter_xmtp_logs
-
-        echo ""
-        echo "==> Running ConvosProfiles tests..."
-        swift test --package-path "$REPO_ROOT/ConvosProfiles" 2>&1 | filter_xmtp_logs
         ;;
     --integration)
         echo "==> Running integration tests"

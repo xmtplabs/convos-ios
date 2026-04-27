@@ -2,7 +2,7 @@
 @testable import ConvosCoreDTU
 import ConvosInvites
 import ConvosMessagingProtocols
-import ConvosProfiles
+
 import Foundation
 import GRDB
 import XMTPDTU
@@ -104,25 +104,30 @@ final class LegacyTestFixtures {
         }
     }
 
-    /// Builds an `UnusedConversationCache` wired to this fixture's
-    /// backend. Tests that go through `consumeOrCreateMessagingService`
-    /// use this so the cache's internal `AuthorizeInboxOperation`
-    /// reaches the right `MessagingClientFactory` (XMTPiOS by default,
-    /// DTU when `CONVOS_MESSAGING_BACKEND=dtu`).
-    func unusedConversationCache(
-        keychainService: any KeychainServiceProtocol = MockKeychainService(),
-        platformProviders: PlatformProviders = .mock,
-        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
-    ) async throws -> UnusedConversationCache {
-        let factory = try await messagingClientFactory()
-        return UnusedConversationCache(
-            keychainService: keychainService,
+    /// Builds a fresh `MessagingService` for tests that previously
+    /// bootstrapped via `UnusedConversationCache.consumeOrCreateMessagingService`.
+    /// Mirrors `TestHelpers.makeFreshMessagingService` from
+    /// ConvosCoreTests so the DTU lane has a one-call equivalent. The
+    /// service is registered with a fresh XMTP identity each call.
+    func makeFreshMessagingService(
+        platformProviders: PlatformProviders = .mock
+    ) -> MessagingService {
+        let authorizationOperation = AuthorizeInboxOperation.register(
             identityStore: identityStore,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            environment: environment,
             platformProviders: platformProviders,
-            deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            messagingClientFactory: factory
+            deviceRegistrationManager: nil,
+            apiClient: nil
+        )
+        return MessagingService(
+            authorizationOperation: authorizationOperation,
+            databaseWriter: databaseManager.dbWriter,
+            databaseReader: databaseManager.dbReader,
+            identityStore: identityStore,
+            environment: environment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
     }
 

@@ -11,6 +11,7 @@ struct MessagesListView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
@@ -148,11 +149,13 @@ struct MessagesListView: View {
     private func messagesGroupView(for group: MessagesGroup) -> MessagesGroupView {
         return MessagesGroupView(
             group: group,
+            conversationId: conversation.id,
             shouldBlurPhotos: shouldBlurPhotos,
             onTapAvatar: onTapAvatar,
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
             onReaction: onReaction,
+            onToggleReaction: onToggleReaction,
             onReply: onReply,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,

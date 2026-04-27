@@ -3,11 +3,13 @@ import UIKit
 
 @MainActor
 struct CellConfig {
+    let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
     let onPhotoRevealed: (String) -> Void

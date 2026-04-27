@@ -23,6 +23,7 @@ struct MessageGestureModifier: ViewModifier {
     let onSingleTap: (() -> Void)?
     let onDoubleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
+    let onToggleReaction: (String, String) -> Void
     var externalSwipeOffset: Binding<CGFloat>?
 
     @State private var swipeOffset: CGFloat = 0
@@ -90,7 +91,7 @@ struct MessageGestureModifier: ViewModifier {
                                 onDoubleTap()
                             } else {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
+                                onToggleReaction(doubleTapEmoji, message.messageId)
                             }
                         },
                         onLongPress: {
@@ -120,7 +121,7 @@ struct MessageGestureModifier: ViewModifier {
                 }
             }
             .accessibilityAction(named: "React") {
-                contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
+                onToggleReaction(doubleTapEmoji, message.messageId)
             }
             .accessibilityAction(named: "Reply") {
                 onReply(message)
@@ -154,6 +155,7 @@ extension View {
         onSingleTap: (() -> Void)? = nil,
         onDoubleTap: (() -> Void)? = nil,
         onReply: @escaping (AnyMessage) -> Void,
+        onToggleReaction: @escaping (String, String) -> Void,
         swipeOffset: Binding<CGFloat>? = nil
     ) -> some View {
         modifier(MessageGestureModifier(
@@ -162,6 +164,7 @@ extension View {
             onSingleTap: onSingleTap,
             onDoubleTap: onDoubleTap,
             onReply: onReply,
+            onToggleReaction: onToggleReaction,
             externalSwipeOffset: swipeOffset
         ))
     }

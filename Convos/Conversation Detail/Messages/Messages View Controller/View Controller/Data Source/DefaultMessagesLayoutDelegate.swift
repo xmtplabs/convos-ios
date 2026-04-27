@@ -165,6 +165,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 210.0
         case .update, .assistantJoinRequest:
             height = 30.0
+        case .connectionGrantRequest:
+            height = 160.0
         }
 
         if case .reply(let reply, _) = message {
