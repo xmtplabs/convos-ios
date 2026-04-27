@@ -191,83 +191,9 @@ struct AppSettingsView: View {
                     .listRowSeparatorTint(.colorBorderSubtle)
                 }
 
-                Section {
-                    Button {
-                        openExternalURL("https://xmtp.org")
-                    } label: {
-                        NavigationLink {
-                            EmptyView()
-                        } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                                Text("Secured by ")
-                                Image("xmtpIcon")
-                                    .renderingMode(.template)
-                                    .foregroundStyle(.colorTextPrimary)
-                                    .padding(.trailing, 1.0)
-                                Text("XMTP")
-                            }
-                            .foregroundStyle(.colorTextPrimary)
-                        }
-                    }
-                    .foregroundStyle(.colorTextPrimary)
+                aboutSection
 
-                    Button {
-                        openExternalURL("https://hq.convos.org/privacy-and-terms")
-                    } label: {
-                        NavigationLink("Privacy & Terms", destination: EmptyView())
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    Button {
-                        sendFeedback()
-                    } label: {
-                        Text("Send feedback")
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    if !ConfigManager.shared.currentEnvironment.isProduction {
-                        NavigationLink {
-                            DebugExportView(
-                                environment: ConfigManager.shared.currentEnvironment,
-                                session: session,
-                                backupCoordinator: backupCoordinator
-                            )
-                        } label: {
-                            Text("Debug")
-                        }
-                        .foregroundStyle(.colorTextPrimary)
-                    }
-                } footer: {
-                    HStack {
-                        Text("Made in the open by XMTP Labs")
-                        Spacer()
-                        Text("V\(Bundle.appVersion)")
-                            .foregroundStyle(.colorTextTertiary)
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
-                .listRowSeparatorTint(.colorBorderSubtle)
-
-                Section {
-                    Button(role: .destructive) {
-                        showingDeleteAllDataConfirmation = true
-                    } label: {
-                        Text("Delete all app data")
-                    }
-                    .accessibilityLabel("Delete all app data")
-                    .accessibilityHint("Permanently deletes all conversations and your quickname")
-                    .accessibilityIdentifier("delete-all-data-button")
-                    .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
-                        DeleteAllDataView(
-                            viewModel: viewModel,
-                            onComplete: {
-                                dismiss()
-                                onDeleteAllData()
-                            }
-                        )
-                        .interactiveDismissDisabled(viewModel.isDeleting)
-                    }
-                }
+                deleteAllDataSection
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
@@ -286,6 +212,96 @@ struct AppSettingsView: View {
                         .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
                         .disabled(true)
                 }
+            }
+        }
+    }
+
+    // Extracted from `body` to keep its type-check time under the
+    // project's 100ms warn-long-function-bodies budget. The body's
+    // size hovers right at the limit, so any compile-time-context
+    // change (cross-file references, generic resolution shifts) flips
+    // it red. Splitting the densest sections out gives the inferrer
+    // less to do per closure.
+    @ViewBuilder
+    private var aboutSection: some View {
+        Section {
+            Button {
+                openExternalURL("https://xmtp.org")
+            } label: {
+                NavigationLink {
+                    EmptyView()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 0.0) {
+                        Text("Secured by ")
+                        Image("xmtpIcon")
+                            .renderingMode(.template)
+                            .foregroundStyle(.colorTextPrimary)
+                            .padding(.trailing, 1.0)
+                        Text("XMTP")
+                    }
+                    .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            Button {
+                openExternalURL("https://hq.convos.org/privacy-and-terms")
+            } label: {
+                NavigationLink("Privacy & Terms", destination: EmptyView())
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            Button {
+                sendFeedback()
+            } label: {
+                Text("Send feedback")
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            if !ConfigManager.shared.currentEnvironment.isProduction {
+                NavigationLink {
+                    DebugExportView(
+                        environment: ConfigManager.shared.currentEnvironment,
+                        session: session,
+                        backupCoordinator: backupCoordinator
+                    )
+                } label: {
+                    Text("Debug")
+                }
+                .foregroundStyle(.colorTextPrimary)
+            }
+        } footer: {
+            HStack {
+                Text("Made in the open by XMTP Labs")
+                Spacer()
+                Text("V\(Bundle.appVersion)")
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .foregroundStyle(.colorTextSecondary)
+        }
+        .listRowSeparatorTint(.colorBorderSubtle)
+    }
+
+    @ViewBuilder
+    private var deleteAllDataSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showingDeleteAllDataConfirmation = true
+            } label: {
+                Text("Delete all app data")
+            }
+            .accessibilityLabel("Delete all app data")
+            .accessibilityHint("Permanently deletes all conversations and your quickname")
+            .accessibilityIdentifier("delete-all-data-button")
+            .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
+                DeleteAllDataView(
+                    viewModel: viewModel,
+                    onComplete: {
+                        dismiss()
+                        onDeleteAllData()
+                    }
+                )
+                .interactiveDismissDisabled(viewModel.isDeleting)
             }
         }
     }

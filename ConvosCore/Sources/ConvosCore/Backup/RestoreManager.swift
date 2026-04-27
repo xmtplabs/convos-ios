@@ -384,8 +384,26 @@ public actor RestoreManager {
     ) async throws -> KeychainIdentity {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
-            if let identity = try? identityStore.loadSync() {
-                return identity
+            do {
+                if let identity = try identityStore.loadSync() {
+                    return identity
+                }
+            } catch let error as KeychainIdentityStoreError {
+                // `identityNotFound` is the "iCloud Keychain hasn't
+                // synced yet" case — keep polling. Anything else is a
+                // hard keychain failure (corrupt payload, access
+                // denied, locked daemon, etc.) and propagating it now
+                // is more useful than waiting out the 30s and
+                // reporting a misleading `identityNotAvailable`.
+                if case .identityNotFound = error {
+                    // keep polling
+                } else {
+                    Log.error("RestoreManager: keychain read failed during identity wait: \(error)")
+                    throw error
+                }
+            } catch {
+                Log.error("RestoreManager: unexpected error during identity wait: \(error)")
+                throw error
             }
             try await Task.sleep(for: .milliseconds(500))
         }
