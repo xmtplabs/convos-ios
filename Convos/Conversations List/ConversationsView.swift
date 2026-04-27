@@ -362,11 +362,11 @@ private struct ConversationsSheetModifier: ViewModifier {
 
 /// Presents an alert when `BackupCoordinator.restoreErrorMessage` is
 /// non-nil. Dismissing the alert writes `nil` back through the
-/// two-way binding, which clears `lastRestoreError` and lets the user
-/// try again. Separate from the main sheet modifier because restore
-/// failures can surface on the empty conversations list (fresh install
-/// restoring a backup) as well as on a populated list (a retry from
-/// settings), so it sits on the view root.
+/// two-way binding so the user can try again. Separate from the main
+/// sheet modifier because restore failures can surface on the empty
+/// conversations list (fresh install restoring a backup) as well as
+/// on a populated list (a retry from settings), so it sits on the
+/// view root.
 private struct RestoreErrorAlertModifier: ViewModifier {
     var coordinator: BackupCoordinator?
 

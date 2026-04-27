@@ -11,7 +11,6 @@ public enum RestoreError: Error, LocalizedError, Equatable {
     case schemaGenerationMismatch(bundleGeneration: String, currentGeneration: String)
     case missingComponent(String)
     case replaceDatabaseFailed(String)
-    case archiveImportFailed(String)
     case restoreAlreadyInProgress
 
     public var errorDescription: String? {
@@ -29,8 +28,6 @@ public enum RestoreError: Error, LocalizedError, Equatable {
             return "Backup is missing required component: \(name)"
         case .replaceDatabaseFailed(let reason):
             return "Failed to restore the database: \(reason)"
-        case .archiveImportFailed(let reason):
-            return "Imported conversations but message history could not be restored: \(reason)"
         case .restoreAlreadyInProgress:
             return "A restore is already in progress."
         }
@@ -44,8 +41,7 @@ public enum RestoreError: Error, LocalizedError, Equatable {
         case let (.bundleCorrupt(a), .bundleCorrupt(b)),
             let (.decryptionFailed(a), .decryptionFailed(b)),
             let (.missingComponent(a), .missingComponent(b)),
-            let (.replaceDatabaseFailed(a), .replaceDatabaseFailed(b)),
-            let (.archiveImportFailed(a), .archiveImportFailed(b)):
+            let (.replaceDatabaseFailed(a), .replaceDatabaseFailed(b)):
             return a == b
         case let (.schemaGenerationMismatch(a1, a2), .schemaGenerationMismatch(b1, b2)):
             return a1 == b1 && a2 == b2

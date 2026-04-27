@@ -15,9 +15,6 @@ final class BackupCoordinator {
     let viewModel: BackupRestoreViewModel
     private let convos: ConvosClient
 
-    /// Last restore outcome, surfaced so the UI can react after
-    /// `beginRestore` returns.
-    private(set) var lastRestoreError: (any Error)?
     private(set) var isRestoring: Bool = false
 
     /// Human-readable message for the most recent restore failure, nil
@@ -26,12 +23,7 @@ final class BackupCoordinator {
     /// way for the user to acknowledge the failure.
     var restoreErrorMessage: String? {
         get { restoreErrorMessageStorage }
-        set {
-            restoreErrorMessageStorage = newValue
-            if newValue == nil {
-                lastRestoreError = nil
-            }
-        }
+        set { restoreErrorMessageStorage = newValue }
     }
 
     private var restoreErrorMessageStorage: String?
@@ -107,7 +99,7 @@ final class BackupCoordinator {
     /// via `SessionManager.pauseForRestore/resumeAfterRestore`.
     func beginRestore(_ available: AvailableBackup) {
         isRestoring = true
-        lastRestoreError = nil
+        restoreErrorMessageStorage = nil
         Task { [weak self] in
             guard let self else { return }
             let manager = convos.makeRestoreManager()
@@ -117,7 +109,6 @@ final class BackupCoordinator {
                 showRestorePrompt = false
                 advanceSessionObservationGeneration()
             } catch {
-                lastRestoreError = error
                 restoreErrorMessageStorage = Self.userFacingMessage(for: error)
                 Log.error("BackupCoordinator: restore failed — \(error)")
             }
@@ -176,10 +167,6 @@ final class BackupCoordinator {
                     + "Check iCloud Keychain, wait a minute, and try again."
             case .restoreAlreadyInProgress:
                 return "A restore is already in progress. Please wait."
-            case .archiveImportFailed:
-                return "Your conversations were restored but the message history "
-                    + "couldn't be imported. You can try again from Settings → "
-                    + "Backup & Restore."
             }
         }
         return error.localizedDescription
