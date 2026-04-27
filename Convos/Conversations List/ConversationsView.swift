@@ -14,6 +14,7 @@ struct ConversationsView: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var presentingRestoreChooser: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -27,9 +28,14 @@ struct ConversationsView: View {
                    let available = coordinator.viewModel.availableRestore {
                     let restore = { coordinator.beginRestore(available) }
                     let dismiss = { coordinator.dismissRestorePrompt() }
+                    let chooseBackup: (() -> Void)? = coordinator.viewModel.availableRestores.count > 1
+                        ? { presentingRestoreChooser = true }
+                        : nil
                     RestorePromptCard(
                         sidecar: available.sidecar,
+                        backupCount: coordinator.viewModel.availableRestores.count,
                         onRestore: restore,
+                        onChooseBackup: chooseBackup,
                         onStartFresh: dismiss
                     )
                     .padding(.top, DesignConstants.Spacing.step4x)
@@ -259,6 +265,16 @@ struct ConversationsView: View {
             namespace: namespace
         ))
         .modifier(RestoreErrorAlertModifier(coordinator: backupCoordinator))
+        .sheet(isPresented: $presentingRestoreChooser) {
+            if let coordinator = backupCoordinator {
+                RestoreBackupChooserView(
+                    backups: coordinator.viewModel.availableRestores,
+                    onRestore: { backup in
+                        coordinator.beginRestore(backup)
+                    }
+                )
+            }
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)

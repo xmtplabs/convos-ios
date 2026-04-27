@@ -8,7 +8,9 @@ import SwiftUI
 /// (Skip outline / Restore filled). The user picks one and moves on.
 struct RestorePromptCard: View {
     let sidecar: BackupSidecarMetadata
+    let backupCount: Int
     let onRestore: () -> Void
+    let onChooseBackup: (() -> Void)?
     let onStartFresh: () -> Void
 
     @State private var showingRestoreConfirmation: Bool = false
@@ -40,18 +42,28 @@ struct RestorePromptCard: View {
                 .foregroundStyle(.colorTextSecondary)
             }
 
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Button(action: skipAction) {
-                    Text("Skip")
-                }
-                .convosButtonStyle(.outline(fullWidth: true))
-                .accessibilityIdentifier("restore-prompt-skip-button")
+            VStack(spacing: DesignConstants.Spacing.step2x) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Button(action: skipAction) {
+                        Text("Skip")
+                    }
+                    .convosButtonStyle(.outline(fullWidth: true))
+                    .accessibilityIdentifier("restore-prompt-skip-button")
 
-                Button(action: restoreAction) {
-                    Text("Restore")
+                    Button(action: restoreAction) {
+                        Text(backupCount > 1 ? "Restore latest" : "Restore")
+                    }
+                    .convosButtonStyle(.rounded(fullWidth: true))
+                    .accessibilityIdentifier("restore-prompt-restore-button")
                 }
-                .convosButtonStyle(.rounded(fullWidth: true))
-                .accessibilityIdentifier("restore-prompt-restore-button")
+
+                if let chooseAction = onChooseBackup {
+                    Button(action: chooseAction) {
+                        Text("Choose backup")
+                            .font(.footnote.weight(.medium))
+                    }
+                    .accessibilityIdentifier("restore-prompt-choose-backup-button")
+                }
             }
         }
         .padding(DesignConstants.Spacing.step4x)
@@ -77,6 +89,77 @@ struct RestorePromptCard: View {
     }
 }
 
+struct RestoreBackupChooserView: View {
+    let backups: [AvailableBackup]
+    let onRestore: (AvailableBackup) -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var pendingRestore: AvailableBackup?
+    @State private var showingRestoreConfirmation: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(backups, id: \.bundleURL) { backup in
+                        let select = {
+                            pendingRestore = backup
+                            showingRestoreConfirmation = true
+                        }
+                        Button(action: select) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(backup.sidecar.deviceName)
+                                    .foregroundStyle(.colorTextPrimary)
+                                Text(summaryText(for: backup))
+                                    .font(.caption)
+                                    .foregroundStyle(.colorTextSecondary)
+                            }
+                        }
+                        .accessibilityIdentifier("restore-backup-choice-\(backup.sidecar.deviceId)")
+                    }
+                } footer: {
+                    Text("Backups are listed newest first. Choose the device state you want to restore.")
+                }
+            }
+            .navigationTitle("Choose backup")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    let cancel = { dismiss() }
+                    Button("Cancel", action: cancel)
+                }
+            }
+            .alert(
+                "Replace this device's data?",
+                isPresented: $showingRestoreConfirmation,
+                presenting: pendingRestore
+            ) { backup in
+                let restore = {
+                    onRestore(backup)
+                    pendingRestore = nil
+                    dismiss()
+                }
+                Button("Replace", role: .destructive, action: restore)
+                Button("Cancel", role: .cancel) {
+                    pendingRestore = nil
+                }
+            } message: { backup in
+                Text(
+                    "This will restore your conversations from the backup on "
+                    + "\(backup.sidecar.deviceName) "
+                    + "(\(backup.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened))) "
+                    + "and replace anything on this device."
+                )
+            }
+        }
+    }
+
+    private func summaryText(for backup: AvailableBackup) -> String {
+        backup.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened)
+            + " · \(backup.sidecar.conversationCount) convo\(backup.sidecar.conversationCount == 1 ? "" : "s")"
+    }
+}
+
 #Preview {
     RestorePromptCard(
         sidecar: BackupSidecarMetadata(
@@ -87,7 +170,9 @@ struct RestorePromptCard: View {
             schemaGeneration: "v1-single-inbox",
             appVersion: "2.3.4"
         ),
+        backupCount: 2,
         onRestore: {},
+        onChooseBackup: {},
         onStartFresh: {}
     )
     .padding()

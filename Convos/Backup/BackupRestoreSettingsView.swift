@@ -14,6 +14,10 @@ struct BackupRestoreSettingsView: View {
             if let available = viewModel.availableRestore {
                 restoreSection(available: available)
             }
+            let otherBackups = Array(viewModel.availableRestores.dropFirst())
+            if !otherBackups.isEmpty {
+                otherBackupsSection(backups: otherBackups)
+            }
             if let failure = viewModel.pendingArchiveImportFailure {
                 partialRestoreSection(failure: failure)
             }
@@ -95,29 +99,61 @@ struct BackupRestoreSettingsView: View {
     @ViewBuilder
     private func restoreSection(available: AvailableBackup) -> some View {
         Section {
-            let restore = {
-                pendingRestore = available
-                showingRestoreConfirmation = true
-            }
-            Button(action: restore) {
-                HStack {
-                    Text("Restore from backup")
-                        .foregroundStyle(.colorTextPrimary)
-                    Spacer()
-                    Image(systemName: "icloud.and.arrow.down")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-            }
-            .accessibilityIdentifier("restore-from-backup-button")
+            restoreButton(
+                title: viewModel.availableRestores.count > 1 ? "Restore latest backup" : "Restore from backup",
+                available: available,
+                identifier: "restore-from-backup-button"
+            )
         } header: {
             Text("Restore")
         } footer: {
-            Text(
-                "From \(available.sidecar.deviceName) · "
-                + "\(available.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened)) · "
-                + "\(available.sidecar.conversationCount) convo\(available.sidecar.conversationCount == 1 ? "" : "s")"
-            )
+            Text(summaryText(for: available))
         }
+    }
+
+    @ViewBuilder
+    private func otherBackupsSection(backups: [AvailableBackup]) -> some View {
+        Section {
+            ForEach(backups, id: \.bundleURL) { available in
+                restoreButton(
+                    title: available.sidecar.deviceName,
+                    available: available,
+                    identifier: "restore-backup-\(available.sidecar.deviceId)"
+                )
+            }
+        } header: {
+            Text("Other backups")
+        } footer: {
+            Text("Choose a different compatible backup if the latest one is not the device state you want to restore.")
+        }
+    }
+
+    private func restoreButton(title: String, available: AvailableBackup, identifier: String) -> some View {
+        let restore = {
+            pendingRestore = available
+            showingRestoreConfirmation = true
+        }
+        return Button(action: restore) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(summaryText(for: available))
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Spacer()
+                Image(systemName: "icloud.and.arrow.down")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+        }
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func summaryText(for available: AvailableBackup) -> String {
+        "From \(available.sidecar.deviceName) · "
+            + "\(available.sidecar.createdAt.formatted(date: .abbreviated, time: .shortened)) · "
+            + "\(available.sidecar.conversationCount) convo\(available.sidecar.conversationCount == 1 ? "" : "s")"
     }
 
     @ViewBuilder

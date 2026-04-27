@@ -12,6 +12,7 @@ final class BackupRestoreViewModel {
     private(set) var isBackupInProgress: Bool = false
     private(set) var lastBackupAt: Date?
     private(set) var availableRestore: AvailableBackup?
+    private(set) var availableRestores: [AvailableBackup] = []
     private(set) var pendingArchiveImportFailure: PendingArchiveImportFailure?
     private(set) var iCloudAvailable: Bool = true
     private(set) var conversationCount: Int = 0
@@ -51,7 +52,11 @@ final class BackupRestoreViewModel {
         iCloudAvailable = resolveICloudAvailable()
         conversationCount = await (conversationCountProvider?() ?? 0)
         if let factory = restoreManagerFactory, let manager = factory() {
-            availableRestore = await manager.findAvailableBackup()
+            availableRestores = await manager.findAvailableBackups()
+            availableRestore = availableRestores.first
+        } else {
+            availableRestores = []
+            availableRestore = nil
         }
     }
 

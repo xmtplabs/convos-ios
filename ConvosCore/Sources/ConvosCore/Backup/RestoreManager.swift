@@ -74,8 +74,15 @@ public actor RestoreManager {
     /// `LegacyDataWipe` at next launch anyway, so surfacing them as
     /// restorable would be misleading.
     public func findAvailableBackup() -> AvailableBackup? {
+        findAvailableBackups().first
+    }
+
+    /// Enumerates all compatible backups, sorted newest first. If two sidecars
+    /// have identical creation dates, sort by bundle modification date and then
+    /// stable device metadata so restore selection is deterministic.
+    public func findAvailableBackups() -> [AvailableBackup] {
         let directories = backupRootDirectories()
-        var newest: AvailableBackup?
+        var backups: [AvailableBackup] = []
         for root in directories {
             guard let subdirs = try? fileManager.contentsOfDirectory(
                 at: root,
@@ -98,17 +105,12 @@ public actor RestoreManager {
                 guard fileManager.fileExists(atPath: bundleURL.path) else {
                     continue
                 }
-                let candidate = AvailableBackup(sidecar: sidecar, bundleURL: bundleURL)
-                if let current = newest {
-                    if sidecar.createdAt > current.sidecar.createdAt {
-                        newest = candidate
-                    }
-                } else {
-                    newest = candidate
-                }
+                backups.append(AvailableBackup(sidecar: sidecar, bundleURL: bundleURL))
             }
         }
-        return newest
+        return backups.sorted { lhs, rhs in
+            compare(lhs, rhs)
+        }
     }
 
     /// Runs the full restore pipeline against `bundleURL`. See
@@ -452,6 +454,26 @@ public actor RestoreManager {
     }
 
     // MARK: - Discovery roots
+
+    private func compare(_ lhs: AvailableBackup, _ rhs: AvailableBackup) -> Bool {
+        if lhs.sidecar.createdAt != rhs.sidecar.createdAt {
+            return lhs.sidecar.createdAt > rhs.sidecar.createdAt
+        }
+        let lhsModifiedAt = modificationDate(for: lhs.bundleURL) ?? .distantPast
+        let rhsModifiedAt = modificationDate(for: rhs.bundleURL) ?? .distantPast
+        if lhsModifiedAt != rhsModifiedAt {
+            return lhsModifiedAt > rhsModifiedAt
+        }
+        let nameComparison = lhs.sidecar.deviceName.localizedStandardCompare(rhs.sidecar.deviceName)
+        if nameComparison != .orderedSame {
+            return nameComparison == .orderedAscending
+        }
+        return lhs.sidecar.deviceId < rhs.sidecar.deviceId
+    }
+
+    private func modificationDate(for url: URL) -> Date? {
+        try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+    }
 
     private func backupRootDirectories() -> [URL] {
         var roots: [URL] = []
