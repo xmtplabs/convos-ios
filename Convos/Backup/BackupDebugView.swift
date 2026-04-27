@@ -1,3 +1,4 @@
+import CloudKit
 import ConvosCore
 import SwiftUI
 
@@ -22,8 +23,14 @@ struct BackupDebugView: View {
         var transaction: RestoreTransaction?
         var pendingFailure: PendingArchiveImportFailure?
         var availableBackup: AvailableBackup?
+        var availableBackupCount: Int = 0
         var iCloudContainerIdentifier: String?
         var iCloudContainerReachable: Bool = false
+        var iCloudAccountStatus: String = "unknown"
+        var keychainIdentityPresent: Bool = false
+        var keychainInboxId: String?
+        var keychainClientId: String?
+        var databaseKeyFingerprint: String?
     }
 
     var body: some View {
@@ -39,6 +46,20 @@ struct BackupDebugView: View {
                             ? "no (identifier missing)"
                             : "no (container not provisioned or user signed out)")
                 )
+                row("iCloud account status", value: snapshot.iCloudAccountStatus)
+            }
+
+            Section("Keychain identity (synced)") {
+                row("Identity present", value: snapshot.keychainIdentityPresent ? "yes" : "no")
+                if let inboxId = snapshot.keychainInboxId {
+                    row("inboxId", value: inboxId)
+                }
+                if let clientId = snapshot.keychainClientId {
+                    row("clientId", value: clientId)
+                }
+                if let fingerprint = snapshot.databaseKeyFingerprint {
+                    row("databaseKey fingerprint", value: fingerprint)
+                }
             }
 
             Section("Last backup") {
@@ -56,9 +77,10 @@ struct BackupDebugView: View {
                 }
             }
 
-            if let available = snapshot.availableBackup {
-                Section("Available restore") {
-                    row("From", value: available.sidecar.deviceName)
+            Section("Available restores") {
+                row("Backups visible", value: "\(snapshot.availableBackupCount)")
+                if let available = snapshot.availableBackup {
+                    row("Newest from", value: available.sidecar.deviceName)
                     row("Created", value: available.sidecar.createdAt.formatted())
                     row("Conversations", value: "\(available.sidecar.conversationCount)")
                 }
@@ -129,6 +151,7 @@ struct BackupDebugView: View {
             snapshot.iCloudContainerReachable = FileManager.default
                 .url(forUbiquityContainerIdentifier: containerId) != nil
         }
+        snapshot.iCloudAccountStatus = await Self.iCloudAccountStatusDescription()
         snapshot.lastBackupAt = defaults.object(forKey: "convos.backup.lastSuccessfulAt") as? Date
         snapshot.flagSet = RestoreInProgressFlag.isSet(environment: environment)
         snapshot.transaction = RestoreTransactionStore.load(environment: environment)
@@ -136,7 +159,44 @@ struct BackupDebugView: View {
         if let coordinator = backupCoordinator {
             await coordinator.viewModel.refresh()
             snapshot.availableBackup = coordinator.viewModel.availableRestore
+            snapshot.availableBackupCount = coordinator.viewModel.availableRestores.count
+            if let identity = try? coordinator.identityStoreSnapshot() {
+                snapshot.keychainIdentityPresent = true
+                snapshot.keychainInboxId = identity.inboxId
+                snapshot.keychainClientId = identity.clientId
+                snapshot.databaseKeyFingerprint = Self.fingerprint(identity.keys.databaseKey)
+            }
         }
         self.snapshot = snapshot
+    }
+
+    private static func iCloudAccountStatusDescription() async -> String {
+        await withCheckedContinuation { continuation in
+            CKContainer.default().accountStatus { status, error in
+                let description: String
+                switch status {
+                case .available: description = "available"
+                case .noAccount: description = "no iCloud account"
+                case .restricted: description = "restricted"
+                case .couldNotDetermine: description = "could not determine"
+                case .temporarilyUnavailable: description = "temporarily unavailable"
+                @unknown default: description = "unknown (\(status.rawValue))"
+                }
+                if let error {
+                    continuation.resume(returning: "\(description) — \(error.localizedDescription)")
+                } else {
+                    continuation.resume(returning: description)
+                }
+            }
+        }
+    }
+
+    /// Short fingerprint of the database key — first 8 raw bytes formatted
+    /// as hex. Lets QA verify across devices that the same identity key
+    /// is in use without exposing the full secret in the UI.
+    private static func fingerprint(_ data: Data) -> String {
+        data.prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }

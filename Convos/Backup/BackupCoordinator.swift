@@ -225,6 +225,12 @@ final class BackupCoordinator {
         sessionObservationGeneration += 1
     }
 
+    /// Read-only peek at the keychain identity for the debug view.
+    /// `loadSync` is `nonisolated` and safe to call from the main actor.
+    func identityStoreSnapshot() throws -> KeychainIdentity? {
+        try convos.identityStore.loadSync()
+    }
+
     /// Translates a `RestoreError` (or any surfaced error) into a string
     /// that makes sense to a user. The raw `localizedDescription` on
     /// `decryptionFailed` reads like `Backup decryption failed:
