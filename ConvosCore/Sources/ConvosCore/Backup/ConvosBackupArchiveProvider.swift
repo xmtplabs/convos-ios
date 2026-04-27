@@ -34,6 +34,6 @@ public struct ConvosBackupArchiveProvider: BackupArchiveProviding {
         // The archive metadata time-range is informational for UI, not
         // security-critical. Skip capturing it here — it's available post-hoc
         // from XMTPiOS.Client.archiveMetadata if we ever need it.
-        return XMTPArchiveStats(startNs: nil, endNs: nil)
+        return XMTPArchiveStats(startNs: nil, endNs: nil, installationId: client.installationId)
     }
 }

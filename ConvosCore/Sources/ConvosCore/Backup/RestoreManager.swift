@@ -180,13 +180,13 @@ public actor RestoreManager {
 
             // Archive import — non-fatal per the plan. Failure surfaces as
             // `RestoreState.archiveImportFailed` + a persisted summary; the
-            // GRDB restore is still the primary contract. The returned id
-            // is the throwaway client's XMTP `installationId`, which is
-            // registered on the network and will become the only surviving
-            // installation after the revocation pass below.
+            // GRDB restore is still the primary contract. Once a throwaway
+            // installation has been created, keep it even if the archive bytes
+            // fail to import so the revocation pass can still retire the old
+            // devices without orphaning this one.
             state = .importingArchive
             let archivePath = BackupBundle.archivePath(in: stagingDir)
-            let keepInstallationId = await importArchiveNonFatally(
+            let archiveImportResult = await importArchiveNonFatally(
                 archivePath: archivePath,
                 archiveKey: innerMetadata.archiveKey,
                 identity: identity
@@ -202,12 +202,12 @@ public actor RestoreManager {
             // Revocation of other installations. Non-fatal on failure —
             // the restore has already committed the GRDB + archive state,
             // and a retry from settings will clean up any stragglers.
-            // Skipped entirely if archive import failed: without a
-            // throwaway installationId we can't name a keeper, and
-            // revoking "everything except nil" would remove the device
-            // we're actively restoring onto.
+            // Skipped only if installation creation failed before we had a
+            // keeper id. Archive import itself is allowed to fail after that;
+            // the new installation is still valid and should become the only
+            // surviving one.
             if let revoker = installationRevoker,
-               let keepInstallationId {
+               let keepInstallationId = archiveImportResult?.installationId {
                 do {
                     _ = try await revoker(
                         identity.inboxId,
@@ -379,28 +379,36 @@ public actor RestoreManager {
 
     // MARK: - Archive import
 
-    /// Returns the throwaway client's `installationId` on success, or
-    /// `nil` when import failed (we have no installation to keep and the
-    /// caller skips revocation to avoid orphaning this device).
+    /// Returns the throwaway import result when installation creation reached
+    /// the point where there is a keeper id. If client creation itself fails,
+    /// returns `nil` and the caller skips revocation to avoid orphaning this
+    /// device.
     private func importArchiveNonFatally(
         archivePath: URL,
         archiveKey: Data,
         identity: KeychainIdentity
-    ) async -> String? {
+    ) async -> RestoreArchiveImportResult? {
         do {
-            let installationId = try await archiveImporter.importArchive(
+            let result = try await archiveImporter.importArchive(
                 at: archivePath,
                 encryptionKey: archiveKey,
                 identity: identity
             )
-            return installationId
+            if let reason = result.archiveImportFailureReason {
+                persistArchiveImportFailure(reason: reason)
+            }
+            return result
         } catch {
-            Log.error("RestoreManager: archive import failed: \(error)")
-            let failure = PendingArchiveImportFailure(reason: error.localizedDescription)
-            PendingArchiveImportFailureStorage.save(failure, defaults: restoreFlagDefaults)
-            state = .archiveImportFailed(reason: error.localizedDescription)
+            Log.error("RestoreManager: archive importer failed before creating an installation: \(error)")
+            persistArchiveImportFailure(reason: error.localizedDescription)
             return nil
         }
+    }
+
+    private func persistArchiveImportFailure(reason: String) {
+        let failure = PendingArchiveImportFailure(reason: reason)
+        PendingArchiveImportFailureStorage.save(failure, defaults: restoreFlagDefaults)
+        state = .archiveImportFailed(reason: reason)
     }
 
     // MARK: - Rollback + cleanup

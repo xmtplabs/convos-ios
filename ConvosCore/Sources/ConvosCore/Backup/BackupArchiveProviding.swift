@@ -18,9 +18,11 @@ public protocol BackupArchiveProviding: Sendable {
 public struct XMTPArchiveStats: Sendable, Equatable {
     public let startNs: Int64?
     public let endNs: Int64?
+    public let installationId: String
 
-    public init(startNs: Int64?, endNs: Int64?) {
+    public init(startNs: Int64?, endNs: Int64?, installationId: String) {
         self.startNs = startNs
         self.endNs = endNs
+        self.installationId = installationId
     }
 }

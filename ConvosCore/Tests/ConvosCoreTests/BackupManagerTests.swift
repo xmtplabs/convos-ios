@@ -17,7 +17,7 @@ struct BackupManagerTests {
         var lastPath: URL?
 
         init(
-            stats: XMTPArchiveStats = .init(startNs: 1, endNs: 2),
+            stats: XMTPArchiveStats = .init(startNs: 1, endNs: 2, installationId: "mock-installation-id"),
             payload: Data = Data("archive-bytes".utf8),
             throwing: (any Error)? = nil
         ) {

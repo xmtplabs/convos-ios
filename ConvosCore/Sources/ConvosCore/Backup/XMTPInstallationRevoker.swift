@@ -16,6 +16,11 @@ public enum XMTPInstallationRevoker {
         keepInstallationId: String?,
         environment: AppEnvironment
     ) async throws -> Int {
+        guard let keepInstallationId else {
+            Log.warning("XMTPInstallationRevoker: refusing to revoke without a keeper installation id")
+            return 0
+        }
+
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
 
         Log.info("XMTPInstallationRevoker: fetching inbox state for \(inboxId)")
@@ -30,11 +35,14 @@ public enum XMTPInstallationRevoker {
         }
 
         let allIds = state.installations.map(\.id)
+        if !allIds.contains(keepInstallationId) {
+            Log.warning("XMTPInstallationRevoker: keeper installation \(keepInstallationId) is not visible in inbox state yet")
+        }
         let toRevoke = allIds.filter { $0 != keepInstallationId }
 
         Log.info(
             "XMTPInstallationRevoker: found \(allIds.count) installation(s), "
-            + "revoking \(toRevoke.count) (keeping \(keepInstallationId ?? "none"))"
+            + "revoking \(toRevoke.count) (keeping \(keepInstallationId))"
         )
 
         guard !toRevoke.isEmpty else {

@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 @preconcurrency import XMTPiOS
 
 /// Production `RestoreArchiveImporting` implementation. Registers a
@@ -25,16 +26,18 @@ import Foundation
 /// .resumeAfterRestore` kicks it back up.
 public struct ConvosRestoreArchiveImporter: RestoreArchiveImporting {
     private let environment: AppEnvironment
+    private let databaseReader: any DatabaseReader
 
-    public init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment, databaseReader: any DatabaseReader) {
         self.environment = environment
+        self.databaseReader = databaseReader
     }
 
     public func importArchive(
         at path: URL,
         encryptionKey: Data,
         identity: KeychainIdentity
-    ) async throws -> String {
+    ) async throws -> RestoreArchiveImportResult {
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let options = ClientOptions(
             api: api,
@@ -53,24 +56,61 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporting {
         )
         defer { try? client.dropLocalDatabaseConnection() }
 
-        try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
+        let installationId = client.installationId
 
+        do {
+            try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
+            try await allowRestoredConversationConsent(on: client)
+            return RestoreArchiveImportResult(installationId: installationId)
+        } catch {
+            Log.error("ConvosRestoreArchiveImporter: archive import failed after creating installation \(installationId): \(error)")
+            return RestoreArchiveImportResult(
+                installationId: installationId,
+                archiveImportFailureReason: error.localizedDescription
+            )
+        }
+    }
+
+    private func allowRestoredConversationConsent(on client: Client) async throws {
         // After archive import, the XMTP SDK's consent state for
         // restored groups may be `unknown`. StreamProcessor's
         // `shouldProcessConversation` silently drops messages from
         // groups that aren't `allowed`, so the first incoming message
         // after restore would never reach GRDB and the UI would stay
-        // empty. Explicitly set consent to `allowed` on every group
-        // in the imported archive so the first post-restore stream
-        // message flows through.
+        // empty. Set consent to `allowed` on every group whose id has
+        // a matching DBConversation row in the restored GRDB.
+        //
+        // The filter matters because XMTP's `createArchive` has no
+        // per-group filtering and includes every group in the inbox —
+        // including the `UnusedConversationCache` prewarm (an MLS
+        // group created just-in-time for the next "New" tap, never
+        // sent to). The sender strips those rows from the GRDB
+        // snapshot, so groups present in XMTP but absent from GRDB
+        // are exactly those orphan prewarms. Leaving them at
+        // consent=unknown keeps the stream processor's filter
+        // dropping them, so they never surface as empty
+        // conversations on the restored device.
+        let allowedConversationIds = try await databaseReader.read { db in
+            try DBConversation
+                .select(DBConversation.Columns.id, as: String.self)
+                .fetchSet(db)
+        }
         let groups = try client.conversations.listGroups()
+        var allowedCount = 0
+        var skippedCount = 0
         for group in groups {
-            try? await group.updateConsentState(state: .allowed)
+            if allowedConversationIds.contains(group.id) {
+                try? await group.updateConsentState(state: .allowed)
+                allowedCount += 1
+            } else {
+                skippedCount += 1
+            }
         }
         if !groups.isEmpty {
-            Log.info("ConvosRestoreArchiveImporter: set consent=allowed for \(groups.count) group(s)")
+            Log.info(
+                "ConvosRestoreArchiveImporter: consent=allowed on \(allowedCount) group(s), "
+                + "skipped \(skippedCount) orphan group(s) not present in restored GRDB"
+            )
         }
-
-        return client.installationId
     }
 }

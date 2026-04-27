@@ -145,7 +145,10 @@ public final class ConvosClient: @unchecked Sendable {
         return RestoreManager(
             identityStore: identityStore,
             databaseManager: databaseManager,
-            archiveImporter: ConvosRestoreArchiveImporter(environment: environment),
+            archiveImporter: ConvosRestoreArchiveImporter(
+                environment: environment,
+                databaseReader: databaseManager.dbReader
+            ),
             lifecycleController: lifecycleController,
             installationRevoker: revoker,
             environment: environment

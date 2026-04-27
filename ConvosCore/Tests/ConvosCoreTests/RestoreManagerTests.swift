@@ -12,7 +12,7 @@ struct RestoreManagerTests {
         init(payload: Data = Data("archive".utf8)) { self.payload = payload }
         func createArchive(at path: URL, encryptionKey: Data) async throws -> XMTPArchiveStats {
             try payload.write(to: path)
-            return XMTPArchiveStats(startNs: nil, endNs: nil)
+            return XMTPArchiveStats(startNs: nil, endNs: nil, installationId: "mock-installation-id")
         }
     }
 
@@ -20,18 +20,22 @@ struct RestoreManagerTests {
         private let lock: NSLock = NSLock()
         var callCount: Int = 0
         var throwing: (any Error)?
+        var archiveImportFailureReason: String?
         let installationId: String = "install-\(UUID().uuidString)"
         func importArchive(
             at path: URL,
             encryptionKey: Data,
             identity: KeychainIdentity
-        ) async throws -> String {
-            let err: (any Error)? = lock.withLock {
+        ) async throws -> RestoreArchiveImportResult {
+            let result = lock.withLock { () -> (throwing: (any Error)?, failureReason: String?) in
                 callCount += 1
-                return throwing
+                return (throwing, archiveImportFailureReason)
             }
-            if let err { throw err }
-            return installationId
+            if let err = result.throwing { throw err }
+            return RestoreArchiveImportResult(
+                installationId: installationId,
+                archiveImportFailureReason: result.failureReason
+            )
         }
     }
 
@@ -175,8 +179,41 @@ struct RestoreManagerTests {
         #expect(RestoreTransactionStore.load(defaults: f.defaults) == nil)
     }
 
-    @Test("revocation is skipped when archive import fails so the new device isn't orphaned")
-    func testRevocationSkippedOnArchiveFailure() async throws {
+    @Test("revocation still runs when archive import fails after installation creation")
+    func testRevocationRunsOnPartialArchiveFailure() async throws {
+        let f = makeFixtures()
+        _ = try await seedIdentity(f.identityStore)
+        let bundleURL = try await makeBackup(f)
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        f.archiveImporter.archiveImportFailureReason = "corrupt archive"
+        let recorder = RevokerRecorder()
+        let revoker: RestoreInstallationRevoker = { _, _, keep in
+            recorder.record(inboxId: "", keep: keep)
+            return 0
+        }
+        let manager = RestoreManager(
+            identityStore: f.identityStore,
+            databaseManager: f.databaseManager,
+            archiveImporter: f.archiveImporter,
+            lifecycleController: f.lifecycle,
+            installationRevoker: revoker,
+            environment: f.environment,
+            restoreFlagSuiteName: f.suite
+        )
+        try await manager.restoreFromBackup(bundleURL: bundleURL)
+
+        #expect(recorder.calls == 1)
+        #expect(recorder.lastKeep == f.archiveImporter.installationId)
+        if case .archiveImportFailed = await manager.state {
+            // expected
+        } else {
+            Issue.record("expected archiveImportFailed")
+        }
+    }
+
+    @Test("revocation is skipped if installation creation fails before a keeper exists")
+    func testRevocationSkippedWhenInstallationCreationFails() async throws {
         let f = makeFixtures()
         _ = try await seedIdentity(f.identityStore)
         let bundleURL = try await makeBackup(f)
@@ -200,9 +237,6 @@ struct RestoreManagerTests {
         )
         try await manager.restoreFromBackup(bundleURL: bundleURL)
 
-        // Restore still completes (partial), but revoker must not have
-        // fired — with no throwaway installationId, a revoke call would
-        // wipe every installation and orphan this device.
         #expect(recorder.calls == 0)
     }
 
@@ -227,8 +261,7 @@ struct RestoreManagerTests {
         let bundleURL = try await makeBackup(f)
         defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
 
-        struct BoomError: Error {}
-        f.archiveImporter.throwing = BoomError()
+        f.archiveImporter.archiveImportFailureReason = "corrupt archive"
         let manager = RestoreManager(
             identityStore: f.identityStore,
             databaseManager: f.databaseManager,
