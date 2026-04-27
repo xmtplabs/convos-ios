@@ -20,19 +20,27 @@ struct ConversationsView: View {
         viewModel.focusCoordinator
     }
 
-    /// True while the bootstrap gate is parked at `.restoreAvailable` —
-    /// session construction is blocked, so anything that creates or joins
-    /// a conversation will hang on `RestoreDecisionPendingError`.
+    /// True while the bootstrap gate is parked at `.restoreAvailable`
+    /// or while the coordinator is still waiting for iCloud to settle —
+    /// session construction is blocked in both cases, so anything that
+    /// creates or joins a conversation will hang on
+    /// `RestoreDecisionPendingError`.
     private var isRestorePromptBlocking: Bool {
-        backupCoordinator?.showRestorePrompt == true
+        guard let coordinator = backupCoordinator else { return false }
+        return coordinator.showRestorePrompt || coordinator.isAwaitingICloud
     }
 
     var emptyConversationsViewScrollable: some View {
         ScrollView {
             LazyVStack(spacing: 0.0) {
-                if let coordinator = backupCoordinator,
-                   coordinator.showRestorePrompt,
-                   let available = coordinator.viewModel.availableRestore {
+                if let coordinator = backupCoordinator, coordinator.isAwaitingICloud {
+                    AwaitingICloudCard(
+                        secondsRemaining: coordinator.iCloudSettleSecondsRemaining
+                    )
+                    .padding(.top, DesignConstants.Spacing.step4x)
+                } else if let coordinator = backupCoordinator,
+                          coordinator.showRestorePrompt,
+                          let available = coordinator.viewModel.availableRestore {
                     let restore = { coordinator.beginRestore(available) }
                     let dismiss = { coordinator.dismissRestorePrompt() }
                     let chooseBackup: (() -> Void)? = coordinator.viewModel.availableRestores.count > 1

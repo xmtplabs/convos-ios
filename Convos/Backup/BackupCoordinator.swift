@@ -34,6 +34,23 @@ final class BackupCoordinator {
     /// either `beginRestore` succeeding or `dismissRestorePrompt`.
     private(set) var showRestorePrompt: Bool = false
 
+    /// True while the bootstrap gate is held closed waiting for iCloud
+    /// (Documents and/or Keychain) to settle. Prevents the catastrophic
+    /// race where a slow first-launch on Device B mints a fresh
+    /// identity that then propagates back via iCloud Keychain and
+    /// overwrites Device A's identity. UI shows a "checking iCloud"
+    /// card during this phase. Cleared once `resolveBootstrapDecision`
+    /// reaches a terminal state.
+    private(set) var isAwaitingICloud: Bool = false
+
+    /// Seconds remaining in the iCloud settle window. Drives the
+    /// countdown on the awaiting-iCloud card so the user can see the
+    /// wait isn't indefinite.
+    private(set) var iCloudSettleSecondsRemaining: Int = 0
+
+    private static let iCloudSettleTimeout: Duration = .seconds(60)
+    private static let iCloudSettlePollInterval: Duration = .seconds(2)
+
     /// Increments whenever the session gate opens or the restored session
     /// is rebuilt. `ConvosApp` uses this to bind stale-device observation
     /// only to real session state machines, never to the bootstrap-gate
@@ -76,22 +93,85 @@ final class BackupCoordinator {
         let alreadyInitialized = await convos.hasAnyUsedInbox()
         if alreadyInitialized {
             showRestorePrompt = false
+            isAwaitingICloud = false
             convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
             advanceSessionObservationGeneration()
             return
         }
 
         let manager = convos.makeRestoreManager()
-        let available = await manager.findAvailableBackup()
-        await viewModel.refresh()
-        if available != nil {
+        // Quick check first — covers the common case where iCloud has
+        // already delivered. Avoids the settle wait when unnecessary.
+        if await manager.findAvailableBackup() != nil {
+            await viewModel.refresh()
+            isAwaitingICloud = false
             showRestorePrompt = true
             convos.session.setRestoreBootstrapDecision(.restoreAvailable)
-        } else {
+            return
+        }
+
+        // Nothing visible yet. iCloud Documents AND iCloud Keychain may
+        // still be syncing on a fresh install paired with another
+        // device. Releasing the gate here would let `handleRegister`
+        // mint fresh keys, which iCloud Keychain would then push back
+        // and silently overwrite the original device's identity —
+        // bricking it. Hold the gate closed for a bounded settle window
+        // and re-check both sources before declaring this a true fresh
+        // install.
+        isAwaitingICloud = true
+        let outcome = await waitForICloudSettle(manager: manager)
+        isAwaitingICloud = false
+        iCloudSettleSecondsRemaining = 0
+
+        switch outcome {
+        case .backupArrived:
+            await viewModel.refresh()
+            showRestorePrompt = true
+            convos.session.setRestoreBootstrapDecision(.restoreAvailable)
+        case .identityArrived, .timeout:
+            // Identity present but no backup → take the .authorize
+            // branch by releasing the gate. Timeout → assume true fresh
+            // install (or iCloud is unavailable; user can still register).
+            await viewModel.refresh()
             showRestorePrompt = false
             convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
             advanceSessionObservationGeneration()
         }
+    }
+
+    private enum ICloudSettleOutcome {
+        case backupArrived
+        case identityArrived
+        case timeout
+    }
+
+    /// Polls `findAvailableBackup` and `identityStore.loadSync` until
+    /// either returns non-nil, or the settle timeout expires. The
+    /// remaining time is published via `iCloudSettleSecondsRemaining`
+    /// so the UI can show a countdown instead of a frozen spinner.
+    private func waitForICloudSettle(manager: RestoreManager) async -> ICloudSettleOutcome {
+        let identityStore = convos.identityStore
+        let deadline = ContinuousClock.now.advanced(by: Self.iCloudSettleTimeout)
+        iCloudSettleSecondsRemaining = Int(Self.iCloudSettleTimeout.components.seconds)
+
+        while ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: Self.iCloudSettlePollInterval)
+            } catch {
+                return .timeout
+            }
+            iCloudSettleSecondsRemaining = max(
+                0,
+                Int(ContinuousClock.now.duration(to: deadline).components.seconds)
+            )
+            if await manager.findAvailableBackup() != nil {
+                return .backupArrived
+            }
+            if (try? identityStore.loadSync()) != nil {
+                return .identityArrived
+            }
+        }
+        return .timeout
     }
 
     /// Starts the restore against `available.bundleURL`. The actual
