@@ -258,6 +258,7 @@ struct ConversationsView: View {
             conversationPendingExplosion: $conversationPendingExplosion,
             namespace: namespace
         ))
+        .modifier(RestoreErrorAlertModifier(coordinator: backupCoordinator))
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)
@@ -340,6 +341,42 @@ private struct ConversationsSheetModifier: ViewModifier {
                         transaction.disablesAnimations = true
                     }
             }
+    }
+}
+
+/// Presents an alert when `BackupCoordinator.restoreErrorMessage` is
+/// non-nil. Dismissing the alert writes `nil` back through the
+/// two-way binding, which clears `lastRestoreError` and lets the user
+/// try again. Separate from the main sheet modifier because restore
+/// failures can surface on the empty conversations list (fresh install
+/// restoring a backup) as well as on a populated list (a retry from
+/// settings), so it sits on the view root.
+private struct RestoreErrorAlertModifier: ViewModifier {
+    var coordinator: BackupCoordinator?
+
+    func body(content: Content) -> some View {
+        if let coordinator {
+            content.alert(
+                "Restore failed",
+                isPresented: Binding(
+                    get: { coordinator.restoreErrorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            coordinator.restoreErrorMessage = nil
+                        }
+                    }
+                ),
+                presenting: coordinator.restoreErrorMessage
+            ) { _ in
+                Button("OK", role: .cancel) {
+                    coordinator.restoreErrorMessage = nil
+                }
+            } message: { message in
+                Text(message)
+            }
+        } else {
+            content
+        }
     }
 }
 
