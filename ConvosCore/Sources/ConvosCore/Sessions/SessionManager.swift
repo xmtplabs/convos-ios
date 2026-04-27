@@ -492,7 +492,38 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         try await wipeResidualInboxRows()
 
+        // Belt-and-suspenders: force-wipe any xmtp-*.db3 family files left
+        // in the shared app-group databases directory. The state machine's
+        // `deleteDatabaseFiles()` already handles this when a cached
+        // service exists, but with no cached service (gate still closed,
+        // delete invoked before first authorize, etc.) those files would
+        // otherwise survive teardown. App-group containers persist across
+        // iOS app uninstalls, so a leftover xmtp DB file means the next
+        // install (or a reinstall after iCloud Keychain re-syncs the
+        // identity) opens stale MLS state at epoch 0 — groups come back
+        // as "inactive" and the install is permanently broken.
+        wipeResidualXMTPDatabaseFiles()
+
         cachedMessagingService.withLock { $0 = nil }
+    }
+
+    private func wipeResidualXMTPDatabaseFiles() {
+        let fileManager = FileManager.default
+        let directory = environment.defaultDatabasesDirectoryURL
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+        for url in entries where url.lastPathComponent.hasPrefix("xmtp-") {
+            do {
+                try fileManager.removeItem(at: url)
+                Log.debug("Removed residual XMTP db file: \(url.lastPathComponent)")
+            } catch {
+                Log.error("Failed to remove residual XMTP db file \(url.lastPathComponent): \(error)")
+            }
+        }
     }
 
     private func wipeResidualInboxRows() async throws {
