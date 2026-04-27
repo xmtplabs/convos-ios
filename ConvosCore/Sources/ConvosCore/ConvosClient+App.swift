@@ -7,6 +7,13 @@ extension ConvosClient {
         platformProviders: PlatformProviders
     ) -> ConvosClient {
         let databaseManager = DatabaseManager(environment: environment)
+        let recoveryOutcome = RestoreRecoveryManager(
+            environment: environment,
+            databaseManager: databaseManager
+        ).recoverIfNeeded()
+        if recoveryOutcome != .noTransaction {
+            Log.warning("Restore recovery completed with outcome: \(recoveryOutcome)")
+        }
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
         let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
