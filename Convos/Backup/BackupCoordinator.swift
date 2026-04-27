@@ -26,6 +26,12 @@ final class BackupCoordinator {
     /// either `beginRestore` succeeding or `dismissRestorePrompt`.
     private(set) var showRestorePrompt: Bool = false
 
+    /// Increments whenever the session gate opens or the restored session
+    /// is rebuilt. `ConvosApp` uses this to bind stale-device observation
+    /// only to real session state machines, never to the bootstrap-gate
+    /// placeholder.
+    private(set) var sessionObservationGeneration: Int = 0
+
     init(convos: ConvosClient) {
         self.convos = convos
         self.viewModel = BackupRestoreViewModel(
@@ -63,6 +69,7 @@ final class BackupCoordinator {
         if alreadyInitialized {
             showRestorePrompt = false
             convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
+            advanceSessionObservationGeneration()
             return
         }
 
@@ -75,6 +82,7 @@ final class BackupCoordinator {
         } else {
             showRestorePrompt = false
             convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
+            advanceSessionObservationGeneration()
         }
     }
 
@@ -91,6 +99,7 @@ final class BackupCoordinator {
                 try await manager.restoreFromBackup(bundleURL: available.bundleURL)
                 convos.session.setRestoreBootstrapDecision(.restoreSucceeded)
                 showRestorePrompt = false
+                advanceSessionObservationGeneration()
             } catch {
                 lastRestoreError = error
                 Log.error("BackupCoordinator: restore failed — \(error)")
@@ -106,5 +115,10 @@ final class BackupCoordinator {
     func dismissRestorePrompt() {
         showRestorePrompt = false
         convos.session.setRestoreBootstrapDecision(.dismissedByUser)
+        advanceSessionObservationGeneration()
+    }
+
+    private func advanceSessionObservationGeneration() {
+        sessionObservationGeneration += 1
     }
 }

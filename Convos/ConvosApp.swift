@@ -75,12 +75,6 @@ struct ConvosApp: App {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
-        Task { @MainActor in
-            // Foreground catch-up: if the last successful backup is older
-            // than 24 hours, run one now so the "daily backup" product
-            // contract holds despite iOS's best-effort scheduler.
-            await BackupScheduler.shared.runForegroundCatchUpIfNeeded()
-        }
         self.conversationsViewModel = .init(session: convos.session)
         let coordinator = BackupCoordinator(convos: convos)
         self.backupCoordinator = coordinator
@@ -113,9 +107,11 @@ struct ConvosApp: App {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .task {
+            .task(id: backupCoordinator.sessionObservationGeneration) { @MainActor in
+                guard backupCoordinator.sessionObservationGeneration > 0 else { return }
                 let service = convos.session.messagingService()
                 staleDeviceObserver.bind(to: service.sessionStateManager)
+                await BackupScheduler.shared.runForegroundCatchUpIfNeeded()
             }
         }
     }
