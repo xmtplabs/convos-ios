@@ -126,6 +126,21 @@ final class BackupCoordinator {
         advanceSessionObservationGeneration()
     }
 
+    /// Called after `SessionManager.deleteAllInboxes()` tears the cached
+    /// session down (e.g. the StaleDeviceBanner reset path). Re-resolves
+    /// the bootstrap gate as if the app had just launched fresh: if a
+    /// compatible backup is visible the prompt re-appears, otherwise the
+    /// gate releases for normal registration. Either resolution path also
+    /// bumps `sessionObservationGeneration`, so any stale-device observer
+    /// bound to the now-dead state machine rebinds to the rebuilt one.
+    func notifySessionReset() async {
+        showRestorePrompt = false
+        restoreErrorMessageStorage = nil
+        isRestoring = false
+        convos.session.setRestoreBootstrapDecision(.unknown)
+        await resolveBootstrapDecision()
+    }
+
     private func advanceSessionObservationGeneration() {
         sessionObservationGeneration += 1
     }

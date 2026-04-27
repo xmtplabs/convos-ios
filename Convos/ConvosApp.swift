@@ -99,8 +99,17 @@ struct ConvosApp: App {
             .withSafeAreaEnvironment()
             .overlay(alignment: .top) {
                 if staleDeviceObserver.isDeviceReplaced {
+                    let coordinator = backupCoordinator
                     let reset: () -> Void = {
-                        Task { try? await convos.session.deleteAllInboxes() }
+                        Task { @MainActor in
+                            try? await convos.session.deleteAllInboxes()
+                            // Re-resolve the bootstrap gate so the rebuilt
+                            // session is observed again. Without this the
+                            // observer stays bound to the torn-down state
+                            // machine and a subsequent revocation goes
+                            // unnoticed.
+                            await coordinator.notifySessionReset()
+                        }
                     }
                     StaleDeviceBanner(onReset: reset)
                         .padding(.top, 12)
@@ -108,6 +117,11 @@ struct ConvosApp: App {
                 }
             }
             .task(id: backupCoordinator.sessionObservationGeneration) { @MainActor in
+                // While the gate is .unknown / .restoreAvailable (generation
+                // still 0 or the user hasn't decided yet) there is no real
+                // session state machine to observe — only the bootstrap-gate
+                // placeholder. Wait until a real decision lands before
+                // binding the observer to avoid tethering it to a placeholder.
                 guard backupCoordinator.sessionObservationGeneration > 0 else { return }
                 let service = convos.session.messagingService()
                 staleDeviceObserver.bind(to: service.sessionStateManager)
