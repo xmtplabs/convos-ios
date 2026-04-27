@@ -2,20 +2,12 @@ import ConvosMessagingProtocols
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Stage 2 migration (audit §5).
-///
-/// Before: this file extended `XMTPiOS.Conversation` directly with
-/// `exportDebugLogs()` plus an inline `XMTPiOS.ConversationDebugInfo`
-/// switch, forcing every caller of `exportDebugLogs` to import the
-/// SDK.
-///
-/// After: the serialisation / file-writing behaviour lives on the
-/// abstraction-level `MessagingConversation.exportDebugLogs()` (see
-/// `Messaging/Protocols/MessagingConversation.swift`), and this file
-/// only holds the XMTPiOS -> `MessagingConversationDebugInfo` boundary
-/// mappers. Callers of `xmtpConversation.exportDebugLogs()` now go
-/// through the messaging protocol's default implementation, which
-/// pulls a `MessagingConversationDebugInfo` via `debugInformation()`.
+/// XMTPiOS -> `MessagingConversationDebugInfo` boundary mappers, plus
+/// the XMTPiOS-side `exportDebugLogs()` shim that goes through the
+/// abstraction. The serialisation / file-writing behaviour lives on
+/// `MessagingConversation.exportDebugLogs()` (see
+/// `Messaging/Protocols/MessagingConversation.swift`); this file only
+/// holds the XMTPiOS-aware glue.
 extension XMTPiOS.Conversation {
     /// Wraps the XMTPiOS-native group/dm debug call behind the
     /// messaging-protocol value type. This is the only XMTPiOS-aware

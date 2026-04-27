@@ -5,17 +5,13 @@ import Foundation
 import GRDB
 import UniformTypeIdentifiers
 import UserNotifications
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
-// file receives `XMTPiOS.Group` and `DecodedMessage` via the
-// `XMTPClientProvider` / `ConversationsProvider` legacy surface and
-// hands both to Stage 3 writers (`conversationWriter.store(...)`,
-// `messageWriter.store(message:...)`). Stage 3's writer-surface
-// migration is prerequisite; at that point this file can migrate to
-// `any MessagingGroup` / `MessagingMessage`, routing through the
-// Stage 4a `underlyingXMTPiOSGroup` bridge in the interim.
-// `DecodedMessage` cannot be round-tripped through `MessagingMessage`
-// today because the Stage 1 value type does not retain the native
-// handle (no `underlyingXMTPiOSDecodedMessage`).
+// FIXME: `@preconcurrency import XMTPiOS` remains because this file
+// reaches the wire-layer `XMTPiOS.Group` / `DecodedMessage` directly
+// for the welcome / group-message processing helpers. `DecodedMessage`
+// cannot be round-tripped through `MessagingMessage` because the value
+// type does not retain the native handle. Pull both behind the
+// abstraction once `MessagingMessage` carries a native-handle escape
+// hatch (or the welcome-processing helpers move into the adapter).
 @preconcurrency import XMTPiOS
 
 /// Extension providing push notification specific functionality for SingleInboxAuthProcessor
@@ -43,12 +39,10 @@ extension MessagingService {
         inboxReadyResult: InboxReadyResult,
         payload: PushNotificationPayload
     ) async throws -> DecodedNotificationContent? {
-        // Stage 6e Phase B-2: handleProtocolMessage and the welcome /
-        // group-message helpers in this file now operate on
-        // `any MessagingClient`. The XMTPiOS-typed wire-layer reach
-        // (XMTPiOS.Group / DecodedMessage / ProfileSnapshotBuilder)
-        // remains internal — bridged via XMTPiOSMessagingGroup +
-        // MessagingConversation.processMessage(bytes:).
+        // The XMTPiOS-typed wire-layer reach (XMTPiOS.Group /
+        // DecodedMessage / ProfileSnapshotBuilder) is internal here and
+        // bridged via XMTPiOSMessagingGroup +
+        // `MessagingConversation.processMessage(bytes:)`.
         let client = inboxReadyResult.client
         let apiClient = inboxReadyResult.apiClient
 
@@ -229,10 +223,10 @@ extension MessagingService {
         client: any MessagingClient,
         existingGroupIds: Set<String>
     ) async throws -> NewGroupInfo? {
-        // Stage 6e Phase B-2: list through the abstraction; the
-        // XMTPiOS-typed `NewGroupInfo` keeps storing the underlying
-        // `XMTPiOS.Group` because the downstream NSE writer chain
-        // (storeConversation, processProfileMessageInNSE) is XMTPiOS-typed.
+        // List through the abstraction; the XMTPiOS-typed `NewGroupInfo`
+        // keeps storing the underlying `XMTPiOS.Group` because the
+        // downstream NSE writer chain (storeConversation,
+        // processProfileMessageInNSE) is XMTPiOS-typed.
         let currentGroups = try await client.conversations.listGroups(
             query: MessagingConversationQuery(
                 consentStates: [.unknown, .allowed],
@@ -270,10 +264,10 @@ extension MessagingService {
             return nil
         }
 
-        // Stage 6e Phase B-2: route through MessagingClient.conversations.find;
-        // the wire-format `processMessage(bytes:)` lives on the abstraction
-        // (XMTPiOSMessagingConversation routes to native processMessage,
-        // DTU adapter throws since it has no wire format yet).
+        // The wire-format `processMessage(bytes:)` lives on the
+        // abstraction (XMTPiOSMessagingConversation routes to native
+        // processMessage; DTU adapter throws since it has no wire
+        // format yet).
         guard let messagingConversation = try await client.conversations
             .find(conversationId: conversationId)
         else {
@@ -374,8 +368,8 @@ extension MessagingService {
         userInfo: [AnyHashable: Any]
     ) async throws -> DecodedNotificationContent? {
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
-        // Stage 3 migration: Stage 3 writers operate on `MessagingMessage`.
-        // Wrap the NSE-side `DecodedMessage` once for all writer-bound calls.
+        // Writers operate on `MessagingMessage`. Wrap the NSE-side
+        // `DecodedMessage` once for all writer-bound calls.
         let messagingMessage = try MessagingMessage(decodedMessage)
         let explodeSettings = messageWriter.decodeExplodeSettings(from: messagingMessage)
         if let explodeSettings {
@@ -886,8 +880,8 @@ extension MessagingService {
             databaseWriter: databaseWriter,
             messageWriter: messageWriter
         )
-        // Stage 3 migration: conversationWriter takes `any MessagingGroup`.
-        // Wrap the XMTPiOS.Group at the call site.
+        // `conversationWriter` takes `any MessagingGroup`; wrap the
+        // raw `XMTPiOS.Group` at the call site.
         return try await conversationWriter.storeWithLatestMessages(
             conversation: XMTPiOSMessagingGroup(xmtpGroup: conversation),
             inboxId: inboxId

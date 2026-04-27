@@ -2,10 +2,10 @@ import Combine
 import ConvosAppData
 import ConvosMessagingProtocols
 import Foundation
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains for the
-// underlying `PrivateKey` (secp256k1) handle used by the mock. The
-// public-facing `signingKey` property is already migrated to
-// `any MessagingSigner` via `PrivateKey.asMessagingSigner`.
+// FIXME: `@preconcurrency import XMTPiOS` remains for the underlying
+// `PrivateKey` (secp256k1) handle used by the mock. The public-facing
+// `signingKey` is already on `any MessagingSigner` via
+// `PrivateKey.asMessagingSigner`.
 @preconcurrency import XMTPiOS
 
 // swiftlint:disable implicitly_unwrapped_optional

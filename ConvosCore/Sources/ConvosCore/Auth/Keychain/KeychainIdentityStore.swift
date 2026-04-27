@@ -3,12 +3,11 @@ import CryptoKit
 import Foundation
 import LocalAuthentication
 import Security
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains for the
-// underlying secp256k1 crypto handle (`PrivateKey` type, plus its
-// encoding/decoding via `secp256K1.bytes`). The public `signingKey`
-// property is already migrated to `any MessagingSigner`. Once Convos
-// ships a first-party secp256k1 wrapper we can drop the XMTPiOS import
-// here altogether.
+// FIXME: `@preconcurrency import XMTPiOS` remains for the underlying
+// secp256k1 crypto handle (`PrivateKey` type, plus its encoding /
+// decoding via `secp256K1.bytes`). The public `signingKey` is already
+// on `any MessagingSigner`. Once Convos ships a first-party secp256k1
+// wrapper, drop the XMTPiOS import here.
 @preconcurrency import XMTPiOS
 
 // MARK: - Models

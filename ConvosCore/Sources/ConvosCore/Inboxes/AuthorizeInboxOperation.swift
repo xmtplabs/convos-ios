@@ -119,10 +119,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             notificationCenter: platformProviders.notificationCenter
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
-        // Stage 6e Phase C: factory injection unblocks the
-        // `UnusedConversationCache` test path on the DTU lane. The
-        // production default remains `XMTPiOSMessagingClientFactory.shared`
-        // (matched in `InboxStateMachine.init`); tests can override.
+        // Factory injection lets tests (and the DTU lane) swap the
+        // messaging-client factory; production defaults to
+        // `XMTPiOSMessagingClientFactory.shared`.
         let resolvedFactory: any MessagingClientFactory = messagingClientFactory ?? XMTPiOSMessagingClientFactory.shared
         stateMachine = InboxStateMachine(
             clientId: clientId,

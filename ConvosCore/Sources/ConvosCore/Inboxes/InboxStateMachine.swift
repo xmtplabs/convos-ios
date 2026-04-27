@@ -4,18 +4,13 @@ import ConvosProfiles
 import Foundation
 import GRDB
 import os
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because:
-// 1. The factory still returns `any XMTPClientProvider` (legacy) and
-//    downstream state-machine consumers store the client under that
-//    protocol. Retiring `XMTPClientProvider` is Stage 3 writer-surface
-//    work.
-// 2. `defaultXMTPCodecs()` returns `[any XMTPiOS.ContentCodec]`. Codec
-//    migration to `MessagingCodec` is Stage 6 (audit §5.6).
-// Every direct `Client.create` / `Client.build` / `ClientOptions` /
-// `XMTPEnvironment.customLocalAddress` usage is migrated via Stage 2
-// (`XMTPiOSMessagingClientFactory` + `MessagingClientConfig`).
-// Stage 4f further migrated the signer/identity parameters to
-// `any MessagingSigner` / `MessagingIdentity`.
+// FIXME: `@preconcurrency import XMTPiOS` remains because
+// `defaultXMTPCodecs()` returns `[any XMTPiOS.ContentCodec]`. Pull
+// these behind `MessagingCodec` so this file no longer imports
+// XMTPiOS. Direct `Client.create` / `Client.build` / `ClientOptions` /
+// `XMTPEnvironment.customLocalAddress` usage already routes through
+// `XMTPiOSMessagingClientFactory` + `MessagingClientConfig`; signer /
+// identity parameters use `any MessagingSigner` / `MessagingIdentity`.
 @preconcurrency import XMTPiOS
 
 extension InboxStateMachine.State {
@@ -49,11 +44,6 @@ enum InboxStateError: Error {
 }
 
 public struct InboxReadyResult: @unchecked Sendable {
-    /// Stage 6e Phase B-2: `client` is the abstraction-layer
-    /// `MessagingClient`; the prod state-machine + service layer no
-    /// longer reach for the legacy `XMTPClientProvider` surface (the
-    /// `legacyProvider` bridge stays only as a Phase C transition shim
-    /// for storage writers + test mocks).
     public let client: any MessagingClient
     public let apiClient: any ConvosAPIClientProtocol
 
@@ -66,12 +56,7 @@ public struct InboxReadyResult: @unchecked Sendable {
         self.apiClient = apiClient
     }
 
-    /// Stage 6 bridge: previously lifted the legacy provider into the
-    /// abstraction surface. Post-Phase-A `client` already IS an
-    /// `any MessagingClient`, so this accessor is now an identity. Kept
-    /// to avoid churning the test sites that still call
-    /// `inboxReady.messagingClient`; Phase B removes it together with
-    /// those call sites.
+    /// Identity accessor kept for legacy call sites.
     public var messagingClient: any MessagingClient { client }
 }
 
@@ -135,9 +120,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
     /// Factory that owns the XMTPiOS `Client.create` / `Client.build`
-    /// calls and the `XMTPEnvironment.customLocalAddress` write. This
-    /// is the Stage 5 seam (audit §5) — the call site stops seeing
-    /// XMTPiOS construction types and the global mutable host.
+    /// calls and the `XMTPEnvironment.customLocalAddress` write. The
+    /// state-machine call site only sees `MessagingClientConfig`; the
+    /// XMTPiOS construction types stay inside the factory.
     private let messagingClientFactory: any MessagingClientFactory
 
     private var currentTask: Task<Void, Never>?
@@ -529,7 +514,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 try await handleAuthorized(clientId: clientId, result: result)
 
             case (let .ready(clientId, result), .delete):
-                // Stage 6e Phase B-2: handleDelete now takes `any MessagingClient`.
                 try await handleDelete(
                     clientId: clientId,
                     client: result.client,
@@ -608,8 +592,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         let keys = identity.clientKeys
         let config = messagingClientConfig(keys: keys)
-        // Stage 6e Phase B-2: factory + Action enum + InboxReadyResult are
-        // all on `any MessagingClient`. No bridge needed.
         let messagingClient: any MessagingClient
         do {
             try Task.checkCancellation()
@@ -656,7 +638,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Stage 6e Phase B-2: factory + Action enum on `any MessagingClient`.
         let messagingClient = try await messagingClientFactory.createClient(
             signer: keys.signingKey,
             config: messagingClientConfig(keys: keys),
@@ -697,7 +678,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Stage 6e Phase B-2: client + InboxReadyResult both on MessagingClient.
         enqueueAction(
             .authorized(
                 clientId: clientId,
@@ -715,7 +695,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Stage 6e Phase B-2: same boundary as handleClientAuthorized.
         enqueueAction(
             .authorized(
                 clientId: clientId,
@@ -725,8 +704,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
-        // Stage 6e Phase B-2: SyncingManager.start now takes
-        // `any MessagingClient` directly. No bridge needed.
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
         emitStateChange(.ready(clientId: clientId, result: result))
@@ -856,9 +833,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         Log.info("Stopping inbox with clientId \(clientId)...")
 
         // Capture client reference before state transition.
-        // Stage 6e Phase A: pulled from `result.client` which is now
-        // `any MessagingClient`; the DB-lifecycle calls below already
-        // route through `MessagingClient` directly.
         let clientToClose: (any MessagingClient)?
         switch _state {
         case .ready(_, let result), .backgrounded(_, let result):
@@ -876,10 +850,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Stop sync BEFORE dropping database connection to prevent in-flight operations from failing
         await syncingManager?.stop()
 
-        // Drop database connection after sync is stopped
+        // Drop database connection after sync is stopped.
         // This releases SQLCipher connections in the Rust layer (LibXMTP).
-        // Stage 6e Phase B-2: `clientToClose` is `any MessagingClient`;
-        // call directly without the `messagingClient` shim.
         if let client = clientToClose {
             do {
                 try client.dropLocalDatabaseConnection()
@@ -904,8 +876,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Pause the syncing manager
         await syncingManager?.pause()
 
-        // Stage 6e Phase B-2: result.client is `any MessagingClient`;
-        // call directly.
         try result.client.dropLocalDatabaseConnection()
 
         emitStateChange(.backgrounded(clientId: clientId, result: result))
@@ -915,7 +885,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private func handleEnterForeground(clientId: String, result: InboxReadyResult) async throws {
         Log.info("App entering foreground, resuming sync for clientId \(clientId)...")
 
-        // Stage 6e Phase B-2: result.client is `any MessagingClient`.
         try await result.client.reconnectLocalDatabase()
 
         // Restart network monitoring
@@ -963,7 +932,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Network monitoring already stopped when backgrounded
 
         // Perform common cleanup operations
-        // Stage 6e Phase B-2: performInboxCleanup now takes `any MessagingClient`.
         try await performInboxCleanup(
             clientId: clientId,
             client: result.client,
@@ -1027,10 +995,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Delete XMTP local database
-        // Try SDK method first, fall back to manual file deletion if it fails
-        // Stage 6e Phase B-2: client is MessagingClient; deleteLocalDatabase
-        // is on the protocol directly.
+        // Delete XMTP local database. Try SDK method first; fall back
+        // to manual file deletion if it fails.
         do {
             try client.deleteLocalDatabase()
             Log.debug("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
@@ -1133,11 +1099,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     /// Builds a per-instance `MessagingClientConfig` from the current
     /// environment and keychain-backed keys.
     ///
-    /// This replaces the previous `clientOptions(keys:)` + global
+    /// Replaces the previous `clientOptions(keys:)` + global
     /// `XMTPEnvironment.customLocalAddress` mutation with one config
     /// value. The XMTPiOS-backed `MessagingClientFactory` adapter
-    /// translates it into `ClientOptions` + applies the custom host
-    /// override internally (audit §5 Stage 5).
+    /// translates it into `ClientOptions` and applies the custom host
+    /// override internally.
     private func messagingClientConfig(keys: any XMTPClientKeys) -> MessagingClientConfig {
         Log.debug("Using direct XMTP connection with env: \(environment.messagingEnv)")
         return environment.messagingClientConfig(
@@ -1146,10 +1112,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     /// The set of XMTPiOS codecs Convos registers at client-construction
-    /// time. Lives on the state machine side until Stage 3 migrates
-    /// codecs to the `MessagingCodec` protocol; at that point this list
-    /// moves into `MessagingClientConfig.codecs` and the XMTPiOS-native
-    /// codec argument drops out of the factory.
+    /// time. Move this list into `MessagingClientConfig.codecs` once the
+    /// codecs migrate onto `MessagingCodec`; the XMTPiOS-native codec
+    /// argument drops out of the factory at that point.
     static func defaultXMTPCodecs() -> [any ContentCodec] {
         [
             TextCodec(),

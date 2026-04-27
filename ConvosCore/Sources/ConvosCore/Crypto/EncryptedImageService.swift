@@ -67,8 +67,6 @@ public actor EncryptedImageService: EncryptedImageServiceProtocol {
     private func fetchGroupKey(for conversationId: String) async throws -> Data {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        // Stage 3 migration: use the `MessagingGroup.imageEncryptionKey()`
-        // extension from the abstraction layer.
         guard let group = try await inboxReady.client.messagingGroup(with: conversationId) else {
             throw ImageEncryptionError.missingEncryptionKey
         }

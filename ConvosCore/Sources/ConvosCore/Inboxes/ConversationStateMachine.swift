@@ -4,14 +4,12 @@ import ConvosInvites
 import ConvosMessagingProtocols
 import Foundation
 import GRDB
-// FIXME(stage6a-residual): `@preconcurrency import XMTPiOS` remains
-// because the streamProcessor's `processConversation` overload is still
-// typed against `XMTPiOS.Group`. The state machine builds the optimistic
-// group through `MessagingClient.conversations.newGroupOptimistic()` and
-// keeps the call on `MessagingGroup`, but bridges through
-// `XMTPiOSMessagingGroup.underlyingXMTPiOSGroup` to feed the legacy
-// stream-processor surface. Stage 6b/6c lifts streamProcessor onto
-// MessagingGroup, after which the import drops.
+// FIXME: `@preconcurrency import XMTPiOS` remains because
+// `streamProcessor.processConversation` is still typed against
+// `XMTPiOS.Group`. The optimistic group is built through
+// `MessagingClient.conversations.newGroupOptimistic()` and bridged via
+// `XMTPiOSMessagingGroup.underlyingXMTPiOSGroup`. Lift `streamProcessor`
+// onto `MessagingGroup` to drop this import.
 @preconcurrency import XMTPiOS
 
 public struct ConversationReadyResult: Sendable {
@@ -456,22 +454,13 @@ public actor ConversationStateMachine {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         Log.info("Inbox ready, creating conversation...")
 
-        // Stage 6e Phase B-2: `inboxReady.client` is `any MessagingClient`.
-        // Used directly via the abstraction for `newGroupOptimistic()`
-        // below and for the `SyncClientParams` construction at the
-        // streamProcessor seam (which now takes MessagingClient too).
         let client = inboxReady.client
 
-        // Stage 6a: build the optimistic group through the
-        // `MessagingClient` abstraction surface. The XMTPiOS adapter
-        // calls `xmtpConversations.newGroupOptimistic()` exactly as
-        // the legacy `client.prepareConversation()` did, so the wire
-        // behaviour is unchanged. Going through the abstraction means
-        // the call lands on `MessagingGroup` for emoji seeding and on
-        // `MessagingConversationCore.publish()` for commit, instead of
-        // the legacy XMTPiOS-typed `GroupConversationSender`.
-        // `MessagingGroup` is `Sendable` so no `nonisolated(unsafe)`
-        // bridge is required (unlike the legacy XMTPiOS-typed path).
+        // Build the optimistic group through the `MessagingClient`
+        // abstraction. Emoji seeding lands on `MessagingGroup` and the
+        // commit goes through `MessagingConversationCore.publish()`;
+        // `MessagingGroup` is `Sendable`, so no `nonisolated(unsafe)`
+        // bridge is required.
         let messagingGroup = try await client.conversations.newGroupOptimistic()
 
         // Publish the conversation through the abstraction.
@@ -490,14 +479,9 @@ public actor ConversationStateMachine {
             Log.warning("Failed to seed conversation emoji for new conversation: \(error)")
         }
 
-        // Process the conversation in case the syncing manager
-        // has not finished starting the streams, or the streams closed.
-        // Pass clientConversationId to store a stable ID for image caching.
-        // Stage 6e Phase B-2: SyncClientParams.client is `any MessagingClient`
-        // and StreamProcessor exposes a `processConversation(group:params:)`
-        // overload that accepts `any MessagingGroup` directly. The
-        // adapter still bridges to `XMTPiOS.Group` internally — the
-        // wire-layer behaviour is unchanged.
+        // Process the conversation in case the syncing manager has not
+        // finished starting the streams, or the streams closed.
+        // `clientConversationId` is stored for stable image caching.
         let params = SyncClientParams(client: client, apiClient: inboxReady.apiClient)
         try await streamProcessor.processConversation(
             group: messagingGroup,
@@ -519,11 +503,6 @@ public actor ConversationStateMachine {
 
         do {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-            // Stage 6a: route the lookup through the `MessagingClient`
-            // abstraction. The returned `MessagingConversation` is a
-            // Convos-owned enum (`group(any MessagingGroup) | dm(any MessagingDm)`)
-            // so the `case .group(...)` pattern keeps working without
-            // touching `XMTPiOS.Conversation` directly.
             if let conversation = try await inboxReady.client.conversations
                 .find(conversationId: conversationId),
                 case let .group(messagingGroup) = conversation {
@@ -662,8 +641,6 @@ public actor ConversationStateMachine {
             if existingConversation.hasJoined {
                 Log.info("Already joined conversation... moving to ready state.")
                 emitStateChange(.ready(.init(conversationId: existingConversation.id, origin: .existing)))
-                // Stage 6e Phase B-2: cleanUpPreviousConversationIfNeeded
-                // now takes `any MessagingClient` directly.
                 await cleanUpPreviousConversationIfNeeded(
                     previousResult: previousResult,
                     newConversationId: existingConversation.id,
@@ -734,11 +711,6 @@ public actor ConversationStateMachine {
         Log.info("Requesting to join conversation...")
 
         let apiClient = inboxReady.apiClient
-        // Stage 6e Phase B-2: route the join-flow DM creation through
-        // the MessagingClient abstraction. `findOrCreateDm` mirrors the
-        // legacy `XMTPClientProvider.newConversation(with:)` (which
-        // delegated to `XMTPiOS.Conversations.newConversation` under
-        // the hood, defaulting `disappearingMessageSettings: nil`).
         let client = inboxReady.client
 
         let inviterInboxId = invite.invitePayload.creatorInboxIdString
@@ -908,7 +880,6 @@ extension ConversationStateMachine {
         if let conversationId {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-            // Stage 6e Phase B-2: cleanUp now takes `any MessagingClient`.
             try await cleanUp(
                 conversationId: conversationId,
                 client: inboxReady.client,
@@ -949,13 +920,6 @@ extension ConversationStateMachine {
         client: any MessagingClient,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
-        // Stage 6e Phase B-2: route consent update through the
-        // abstraction's `MessagingConversations.find` +
-        // `MessagingConversationCore.updateConsentState`. The same SDK
-        // call as the legacy
-        // `client.conversationsProvider.findConversation`/`updateConsentState(state:)`,
-        // but reached through `MessagingConsentState.denied` so the
-        // Convos enum is the boundary, not `XMTPiOS.ConsentState`.
         if let messagingConversation = try await client.conversations
             .find(conversationId: conversationId) {
             try await messagingConversation.core.updateConsentState(.denied)
