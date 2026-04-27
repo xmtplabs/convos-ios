@@ -601,8 +601,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// view models that use the notification-based refresh path need
     /// an explicit poke after replaceDatabase).
     public func resumeAfterRestore() async {
-        cachedMessagingService.withLock { _ in
+        // Clear the cached service unconditionally. While restoring,
+        // accessor calls cache a `RestoreInProgressSessionError`-backed
+        // placeholder; without dropping it here, the next caller would
+        // get the placeholder until the errored-cache eviction kicks
+        // in on a subsequent call. Forcing a rebuild against the
+        // restored identity keeps the lifecycle explicit.
+        cachedMessagingService.withLock { slot in
             isRestoringInProcess = false
+            slot = nil
         }
         RestoreInProgressFlag.set(false, environment: environment)
         notificationChangeReporter.notifyChangesInDatabase()
