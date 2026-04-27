@@ -703,18 +703,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
-        let priorIdentity = try? await identityStore.load()
-        try? await identityStore.delete()
-        if let priorIdentity, priorIdentity.clientId == initialClientId {
-            Log.debug("Deleted identity from keychain for clientId: \(initialClientId)")
-            deleteDatabaseFiles()
-        } else if inboxId != nil {
-            Log.debug("Identity absent or not matching clientId: \(initialClientId), continuing cleanup")
-            deleteDatabaseFiles()
-        }
-
-        Log.info("Deleted inbox with clientId \(initialClientId)")
+        // Deliberately do NOT delete the keychain identity. It is
+        // stored with `kSecAttrSynchronizable: true`, so a delete
+        // would propagate via iCloud Keychain and erase the key from
+        // every paired device — making every existing backup bundle
+        // mathematically unrecoverable. We only wipe local data; the
+        // synced identity slot stays intact so the user can restore
+        // or re-register against the same inbox on this device, and
+        // other devices are unaffected.
+        deleteDatabaseFiles()
+        Log.info("Deleted inbox with clientId \(initialClientId) (local data only; keychain identity preserved)")
     }
 
     private func handleStop() async throws {
@@ -843,9 +841,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
-        try? await identityStore.delete()
-        Log.debug("Deleted identity from keychain (clientId: \(initialClientId))")
+        // Deliberately do NOT delete the keychain identity here. See
+        // `handleDelete` for the full rationale: the identity slot is
+        // synchronizable, so deleting it would cascade via iCloud
+        // Keychain to every paired device and orphan every existing
+        // backup bundle.
 
         try Task.checkCancellation()
 

@@ -488,7 +488,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await existing.waitForDeletionComplete()
         }
 
-        try await identityStore.delete()
+        // Deliberately do NOT call `identityStore.delete()` here. The
+        // identity slot is stored with `kSecAttrSynchronizable: true`,
+        // so a delete propagates via iCloud Keychain and wipes the key
+        // from every paired device. That key is also what seals every
+        // existing backup bundle — propagating the delete instantly
+        // makes every backup mathematically unrecoverable. "Reset
+        // device" is a *local* wipe; preserving the synced identity
+        // lets this device re-restore later and keeps other devices
+        // intact. A future "Permanently delete account from all
+        // devices" action can call `identityStore.delete()` explicitly
+        // behind a clear destructive-confirmation prompt.
+        Log.info("tearDownInbox: keychain identity preserved (sync-safe local wipe)")
 
         try await wipeResidualInboxRows()
 
