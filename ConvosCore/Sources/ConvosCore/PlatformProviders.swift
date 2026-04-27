@@ -43,18 +43,23 @@ public struct PlatformProviders: Sendable {
     /// Provider for background photo uploads
     public let backgroundUploadManager: any BackgroundUploadManagerProtocol
 
+    /// Provider for OAuth session presentation (e.g. ASWebAuthenticationSession on iOS)
+    public let oauthSessionProvider: any OAuthSessionProvider
+
     public init(
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
         pushNotificationRegistrar: any PushNotificationRegistrarProtocol,
         notificationCenter: any UserNotificationCenterProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
+        oauthSessionProvider: any OAuthSessionProvider = UnavailableOAuthSessionProvider()
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
         self.pushNotificationRegistrar = pushNotificationRegistrar
         self.notificationCenter = notificationCenter
         self.backgroundUploadManager = backgroundUploadManager
+        self.oauthSessionProvider = oauthSessionProvider
     }
 }
 

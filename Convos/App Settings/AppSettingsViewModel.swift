@@ -14,9 +14,22 @@ final class AppSettingsViewModel {
     // MARK: - Dependencies
 
     private let session: any SessionManagerProtocol
+    let connectionsListViewModel: ConnectionsListViewModel
 
     init(session: any SessionManagerProtocol) {
         self.session = session
+
+        let callbackScheme = ConfigManager.shared.appUrlScheme
+
+        let manager = session.connectionManager(
+            callbackURLScheme: callbackScheme
+        )
+        let repository = session.connectionRepository()
+
+        self.connectionsListViewModel = ConnectionsListViewModel(
+            connectionManager: manager,
+            connectionRepository: repository
+        )
     }
 
     // MARK: - Actions

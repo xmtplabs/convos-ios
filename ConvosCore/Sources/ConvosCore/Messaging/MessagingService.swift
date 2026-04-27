@@ -231,6 +231,15 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                                           databaseReader: databaseReader)
     }
 
+    func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
+        ConnectionGrantWriter(
+            sessionStateManager: sessionStateManager,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            myProfileWriter: myProfileWriter()
+        )
+    }
+
     func uploadImage(data: Data, filename: String) async throws -> String {
         let result = try await sessionStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachment(

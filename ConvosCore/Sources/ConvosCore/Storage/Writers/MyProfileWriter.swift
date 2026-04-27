@@ -6,10 +6,15 @@ public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
     func update(avatar: ImageType?, conversationId: String) async throws
     func update(metadata: ProfileMetadata?, conversationId: String) async throws
+    /// Like `update(metadata:conversationId:)` but propagates ProfileUpdate publish failures.
+    /// Use this when the caller needs to know whether the ProfileUpdate reached the network
+    /// (e.g. to roll back a dependent local write).
+    func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
     case imageCompressionFailed
+    case profileUpdatePublishFailed(underlying: any Error)
 }
 
 class MyProfileWriter: MyProfileWriterProtocol {
@@ -61,6 +66,14 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     func update(metadata: ProfileMetadata?, conversationId: String) async throws {
+        do {
+            try await updateAndPublish(metadata: metadata, conversationId: conversationId)
+        } catch MyProfileWriterError.profileUpdatePublishFailed(let underlying) {
+            Log.warning("Failed to send ProfileUpdate message: \(underlying.localizedDescription)")
+        }
+    }
+
+    func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -79,7 +92,12 @@ class MyProfileWriter: MyProfileWriterProtocol {
             try profile.save(db)
             return profile
         }
-        await sendProfileUpdate(profile: profile, group: group)
+        try await sendProfileUpdateThrowing(profile: profile, group: group)
+        do {
+            try await group.updateProfile(profile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
     }
 
     func update(avatar: ImageType?, conversationId: String) async throws {
@@ -169,6 +187,16 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {
+        do {
+            try await sendProfileUpdateThrowing(profile: profile, group: group)
+        } catch MyProfileWriterError.profileUpdatePublishFailed(let underlying) {
+            Log.warning("Failed to send ProfileUpdate message: \(underlying.localizedDescription)")
+        } catch {
+            Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendProfileUpdateThrowing(profile: DBMemberProfile, group: XMTPiOS.Group) async throws {
         var update = ProfileUpdate()
         if let name = profile.name {
             update.name = name
@@ -183,13 +211,19 @@ class MyProfileWriter: MyProfileWriterProtocol {
             update.metadata = metadata.asProtoMap
         }
 
+        let codec = ProfileUpdateCodec()
+        let encoded: EncodedContent
         do {
-            let codec = ProfileUpdateCodec()
-            let encoded = try codec.encode(content: update)
+            encoded = try codec.encode(content: update)
+        } catch {
+            throw MyProfileWriterError.profileUpdatePublishFailed(underlying: error)
+        }
+
+        do {
             _ = try await group.send(encodedContent: encoded)
             Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
         } catch {
-            Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")
+            throw MyProfileWriterError.profileUpdatePublishFailed(underlying: error)
         }
     }
 }

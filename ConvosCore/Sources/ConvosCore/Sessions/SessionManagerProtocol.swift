@@ -81,6 +81,11 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Asset Renewal
 
     func makeAssetRenewalManager() async -> AssetRenewalManager
+
+    // MARK: Connections
+
+    func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol
+    func connectionRepository() -> any ConnectionRepositoryProtocol
 }
 
 extension SessionManagerProtocol {

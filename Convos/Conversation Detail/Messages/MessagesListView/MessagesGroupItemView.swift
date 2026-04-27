@@ -6,6 +6,7 @@ import UIKit
 
 struct MessagesGroupItemView: View {
     let message: AnyMessage
+    let conversationId: String
     let bubbleType: MessageBubbleType
     let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
@@ -241,6 +242,28 @@ struct MessagesGroupItemView: View {
 
         case .update, .assistantJoinRequest:
             EmptyView()
+
+        case .connectionGrantRequest(let request):
+            // Cloud Connections is feature-flagged. With the flag off, an
+            // authorized assistant can still send a grant-request payload —
+            // we receive and decode it but render nothing so the unsupported
+            // feature isn't surfaced to the user.
+            if FeatureFlags.shared.isCloudConnectionsEnabled {
+                ConnectionGrantRequestCardView(
+                    request: request,
+                    conversationId: conversationId,
+                    sender: message.sender
+                )
+                .messageGesture(
+                    message: message,
+                    bubbleStyle: bubbleType,
+                    onReply: onReply,
+                    onToggleReaction: onToggleReaction
+                )
+                .padding(.trailing, trailingPadding)
+            } else {
+                EmptyView()
+            }
         }
     }
 
@@ -1081,6 +1104,7 @@ private struct MediaTopGradient: View {
             sender: .mock(isCurrentUser: false),
             status: .published
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .normal,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1101,6 +1125,7 @@ private struct MediaTopGradient: View {
             sender: .mock(isCurrentUser: true),
             status: .published
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1121,6 +1146,7 @@ private struct MediaTopGradient: View {
             sender: .mock(isCurrentUser: true),
             status: .unpublished
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .normal,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1141,6 +1167,7 @@ private struct MediaTopGradient: View {
             sender: .mock(isCurrentUser: false),
             status: .published
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1162,6 +1189,7 @@ private struct MediaTopGradient: View {
             parentText: "What do you think about the new design?",
             parentSender: .mock(isCurrentUser: false, name: "Jane")
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1183,6 +1211,7 @@ private struct MediaTopGradient: View {
             parentText: "Let's meet at 3pm tomorrow",
             parentSender: .mock(isCurrentUser: true)
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1214,6 +1243,7 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
             sender: .mock(isCurrentUser: false),
             status: .published
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1234,6 +1264,7 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
             sender: .mock(isCurrentUser: true),
             status: .published
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: false,
         onTapAvatar: { _ in },
@@ -1254,6 +1285,7 @@ private func recoverInlineAttachmentData(from path: String) async throws -> Data
             sender: .mock(isCurrentUser: false),
             status: .published
         ), .existing),
+        conversationId: "preview-conversation",
         bubbleType: .tailed,
         shouldBlurPhotos: true,
         onTapAvatar: { _ in },

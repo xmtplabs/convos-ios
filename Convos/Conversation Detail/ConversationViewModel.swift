@@ -1536,6 +1536,14 @@ extension ConversationViewModel {
         session.assistantFilesLinksRepository(for: conversation.id)
     }
 
+    func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
+        ConversationConnectionsViewModel(
+            conversationId: conversation.id,
+            connectionRepository: session.connectionRepository(),
+            grantWriter: messagingService.connectionGrantWriter()
+        )
+    }
+
     @MainActor
     func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
         let trimmedTag = expectedTag.trimmingCharacters(in: .whitespacesAndNewlines)

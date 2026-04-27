@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MessagesGroupView: View {
     let group: MessagesGroup
+    let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
@@ -193,6 +194,7 @@ struct MessagesGroupView: View {
 
             MessagesGroupItemView(
                 message: message,
+                conversationId: conversationId,
                 bubbleType: bubbleType,
                 shouldBlurPhotos: shouldBlurPhotos,
                 onTapAvatar: onTapAvatar,
@@ -726,6 +728,7 @@ struct MessagesGroupView: View {
             ForEach(groups) { group in
                 MessagesGroupView(
                     group: group,
+                    conversationId: "preview-conversation",
                     shouldBlurPhotos: true,
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },

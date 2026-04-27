@@ -77,14 +77,19 @@ final class InviteURLDetectorTests: XCTestCase {
 
     // MARK: - Custom URL Scheme
 
-    func testCustomSchemeInviteURL_NotDetectedByNSDataDetector() {
+    func testCustomSchemeInviteURL_DetectedAndCodeExtracted() {
+        // NSDataDetector on iOS 17+ recognizes custom URL schemes that follow
+        // the standard scheme://host/path shape, and our extractor pulls the
+        // invite code out of the path. The earlier assertion that it would
+        // return nil reflected an older NSDataDetector behavior.
         let code = "invitecode456"
         let url = "\(appUrlScheme)://invite/\(code)"
+
         let result = InviteURLDetector.detectInviteURL(in: url)
 
-        // NSDataDetector does not detect custom URL schemes, so this returns nil
-        // unless the text happens to look like a raw invite code
-        XCTAssertNil(result)
+        XCTAssertNotNil(result, "Custom-scheme invite URLs should be detected")
+        XCTAssertEqual(result?.code, code)
+        XCTAssertEqual(result?.fullURL, url)
     }
 
     func testWrongSchemeReturnsNil() {

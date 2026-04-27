@@ -45,6 +45,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
+    func connectionGrantWriter() -> any ConnectionGrantWriterProtocol
 
     func uploadImage(data: Data, filename: String) async throws -> String
     func uploadImageAndExecute(

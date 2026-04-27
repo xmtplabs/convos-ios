@@ -28,7 +28,7 @@ final class GlobalConvoDefaultsTests: XCTestCase {
 
     func testResetRestoresDefaults() {
         GlobalConvoDefaults.shared.autoRevealPhotos = true
-        GlobalConvoDefaults.shared.includeInfoWithInvites = true
+        GlobalConvoDefaults.shared.includeInfoWithInvites = false
 
         GlobalConvoDefaults.shared.reset()
 

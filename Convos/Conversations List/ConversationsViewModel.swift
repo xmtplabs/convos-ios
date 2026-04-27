@@ -79,6 +79,8 @@ final class ConversationsViewModel {
         updateListVisibility()
     }
 
+    var pendingGrantRequest: PendingGrantRequest?
+
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
             oldValue?.cleanUpIfNeeded()
@@ -248,6 +250,16 @@ final class ConversationsViewModel {
         updateSelectionTask?.cancel()
     }
 
+    func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> ConnectionGrantRequestSheetViewModel {
+        let conversation = conversations.first(where: { $0.id == request.conversationId })
+        return ConnectionGrantRequestSheetViewModel(
+            serviceId: request.serviceId,
+            conversationId: request.conversationId,
+            conversation: conversation,
+            session: session
+        )
+    }
+
     func handleURL(_ url: URL) {
         guard let destination = DeepLinkHandler.destination(for: url) else {
             return
@@ -256,6 +268,16 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
+        case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
+            guard conversations.contains(where: { $0.id == conversationId }) else {
+                Log.warning("Dropping connection grant deep link for unknown conversationId")
+                return
+            }
+            _selectedConversationId = conversationId
+            pendingGrantRequest = PendingGrantRequest(
+                serviceId: serviceId,
+                conversationId: conversationId
+            )
         }
     }
 

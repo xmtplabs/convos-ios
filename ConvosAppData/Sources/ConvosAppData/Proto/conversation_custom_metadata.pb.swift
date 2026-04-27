@@ -148,6 +148,16 @@ public struct ConversationProfile: Sendable {
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
+  /// JSON grants payload for this sender's connections (see connections.mjs)
+  public var connections: String {
+    get {_connections ?? String()}
+    set {_connections = newValue}
+  }
+  /// Returns true if `connections` has been explicitly set.
+  public var hasConnections: Bool {self._connections != nil}
+  /// Clears the value of `connections`. Subsequent reads from it will return its default value.
+  public mutating func clearConnections() {self._connections = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -155,6 +165,7 @@ public struct ConversationProfile: Sendable {
   fileprivate var _name: String? = nil
   fileprivate var _image: String? = nil
   fileprivate var _encryptedImage: EncryptedImageRef? = nil
+  fileprivate var _connections: String? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -260,7 +271,7 @@ extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
 
 extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationProfile"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0\u{1}connections\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -272,6 +283,7 @@ extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       case 2: try { try decoder.decodeSingularStringField(value: &self._name) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self._image) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._connections) }()
       default: break
       }
     }
@@ -294,6 +306,9 @@ extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     try { if let v = self._encryptedImage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     } }()
+    try { if let v = self._connections {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -302,6 +317,7 @@ extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if lhs._name != rhs._name {return false}
     if lhs._image != rhs._image {return false}
     if lhs._encryptedImage != rhs._encryptedImage {return false}
+    if lhs._connections != rhs._connections {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

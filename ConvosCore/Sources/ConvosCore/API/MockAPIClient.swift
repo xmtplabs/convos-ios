@@ -91,4 +91,27 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
         .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
     }
+
+    // MARK: - Connections
+
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+        .init(connectionRequestId: "mock-request-\(UUID().uuidString)", redirectUrl: "https://accounts.google.com/o/oauth2/auth?mock=true")
+    }
+
+    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+        .init(
+            connectionId: "mock-conn-\(UUID().uuidString)",
+            serviceId: "googlecalendar",
+            serviceName: "Google Calendar",
+            composioEntityId: "convos_mock_entity",
+            composioConnectionId: "mock_composio_conn",
+            status: "active"
+        )
+    }
+
+    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+        []
+    }
+
+    func revokeConnection(connectionId: String) async throws {}
 }

@@ -488,4 +488,16 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
         .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
     }
+
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+        .init(connectionRequestId: "", redirectUrl: "")
+    }
+
+    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+        .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
+    }
+
+    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+
+    func revokeConnection(connectionId: String) async throws {}
 }

@@ -28,7 +28,7 @@ extension String {
 
 extension XMTPiOS.DecodedMessage {
     enum DecodedMessageDBRepresentationError: Error {
-        case mismatchedContentType, unsupportedContentType
+        case mismatchedContentType, unsupportedContentType, untrustedSender
     }
 
     private struct DBMessageComponents {
@@ -67,6 +67,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleExplodeSettingsContent()
         case ContentTypeAssistantJoinRequest:
             components = try handleAssistantJoinRequestContent()
+        case ContentTypeConnectionGrantRequest:
+            components = try handleConnectionGrantRequestContent()
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
@@ -462,6 +464,47 @@ extension XMTPiOS.DecodedMessage {
             text: request.status.rawValue,
             update: nil
         )
+    }
+
+    private func handleConnectionGrantRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? ConnectionGrantRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        try Self.validateConnectionGrantRequest(
+            request,
+            senderInboxId: senderInboxId,
+            messageId: id
+        )
+        let json = try JSONEncoder().encode(request)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionGrantRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    /// Validates a `ConnectionGrantRequest` against its actual sender. Throws
+    /// `untrustedSender` when the payload's `requestedByInboxId` does not match
+    /// the XMTP-attested sender — a hostile member could otherwise attribute
+    /// the request to the assistant and trick the user into running a grant
+    /// flow for services the real assistant never asked for.
+    static func validateConnectionGrantRequest(
+        _ request: ConnectionGrantRequest,
+        senderInboxId: String,
+        messageId: String
+    ) throws {
+        guard request.requestedByInboxId == senderInboxId else {
+            Log.warning(
+                "Dropping ConnectionGrantRequest \(messageId): sender \(senderInboxId) does not match requestedByInboxId \(request.requestedByInboxId)"
+            )
+            throw DecodedMessageDBRepresentationError.untrustedSender
+        }
     }
 
     private func handleExplodeSettingsContent() throws -> DBMessageComponents {

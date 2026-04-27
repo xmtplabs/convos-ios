@@ -52,7 +52,8 @@ extension PlatformProviders {
             deviceInfo: deviceInfo,
             pushNotificationRegistrar: pushNotificationRegistrar,
             notificationCenter: UNUserNotificationCenter.current(),
-            backgroundUploadManager: BackgroundUploadManager.shared
+            backgroundUploadManager: BackgroundUploadManager.shared,
+            oauthSessionProvider: IOSOAuthSessionProvider()
         )
     }
 

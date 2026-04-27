@@ -927,6 +927,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec(),
+                ConnectionGrantRequestCodec(),
                 TypingIndicatorCodec(),
                 ReadReceiptCodec()
             ],

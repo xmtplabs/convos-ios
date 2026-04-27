@@ -3,6 +3,7 @@ import UIKit
 
 @MainActor
 struct CellConfig {
+    let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void

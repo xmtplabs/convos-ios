@@ -165,4 +165,16 @@ public final class MockInboxesService: SessionManagerProtocol {
             recoveryHandler: recoveryHandler
         )
     }
+
+    // MARK: - Connections
+
+    public func connectionManager(
+        callbackURLScheme: String
+    ) -> any ConnectionManagerProtocol {
+        MockConnectionManager()
+    }
+
+    public func connectionRepository() -> any ConnectionRepositoryProtocol {
+        MockConnectionRepository()
+    }
 }
