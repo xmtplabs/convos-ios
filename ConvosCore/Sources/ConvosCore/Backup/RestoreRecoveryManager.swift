@@ -125,7 +125,17 @@ public struct RestoreRecoveryManager {
 
     private func restoreXMTPStash(from stashURL: URL) {
         let targetDir = environment.defaultDatabasesDirectoryURL
-        guard let enumerator = fileManager.enumerator(at: stashURL, includingPropertiesForKeys: nil) else {
+        // `.skipsSubdirectoryDescendants` keeps the enumerator at the top
+        // level. `copyItem(at:to:)` already recursively copies a directory's
+        // subtree, so descending into it would re-attempt copies of children
+        // that already exist at the destination — wasted work and a source
+        // of spurious failures. The stash is flat in current usage, but the
+        // option is the correct defensive shape regardless.
+        guard let enumerator = fileManager.enumerator(
+            at: stashURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsSubdirectoryDescendants]
+        ) else {
             return
         }
         for case let src as URL in enumerator {

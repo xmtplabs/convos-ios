@@ -56,13 +56,27 @@ final class BackupScheduler {
         }
         self.environmentResolver = environment
         self.factory = factory
-        BGTaskScheduler.shared.register(
+        // BGTaskScheduler returns false when registration fails — most
+        // commonly because the task identifier is missing from the
+        // BGTaskSchedulerPermittedIdentifiers Info.plist key, or because
+        // register() was called after the launch window closed. Don't
+        // mark as registered in that case, otherwise scheduleNextBackup
+        // will silently submit requests against a non-existent handler.
+        let success = BGTaskScheduler.shared.register(
             forTaskWithIdentifier: Self.taskIdentifier,
             using: nil
         ) { task in
             Task { @MainActor in
                 await BackupScheduler.shared.handleBackgroundTask(task)
             }
+        }
+        guard success else {
+            self.environmentResolver = nil
+            self.factory = nil
+            Log.error("[BackupScheduler] BGTaskScheduler.register returned false for "
+                + "\(Self.taskIdentifier) — check BGTaskSchedulerPermittedIdentifiers in Info.plist "
+                + "and that this is called before launch completes")
+            return
         }
         isRegistered = true
         Log.info("[BackupScheduler] registered task \(Self.taskIdentifier)")

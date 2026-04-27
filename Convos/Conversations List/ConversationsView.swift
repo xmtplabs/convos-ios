@@ -25,9 +25,19 @@ struct ConversationsView: View {
     /// session construction is blocked in both cases, so anything that
     /// creates or joins a conversation will hang on
     /// `RestoreDecisionPendingError`.
+    ///
+    /// The `availableRestore != nil` guard avoids a UI dead-end: if the
+    /// coordinator is in `showRestorePrompt = true` but the backup has
+    /// since vanished (deleted from iCloud, or a refresh between gate
+    /// resolution and render returned nothing), the prompt-card branch
+    /// in `emptyConversationsViewScrollable` won't render and we'd hide
+    /// the empty CTA too — leaving the user staring at a blank scroll
+    /// view. In that state we let the empty CTA show; tapping "Start a
+    /// convo" will still be gated server-side by the bootstrap decision.
     private var isRestorePromptBlocking: Bool {
         guard let coordinator = backupCoordinator else { return false }
-        return coordinator.showRestorePrompt || coordinator.isAwaitingICloud
+        if coordinator.isAwaitingICloud { return true }
+        return coordinator.showRestorePrompt && coordinator.viewModel.availableRestore != nil
     }
 
     var emptyConversationsViewScrollable: some View {
