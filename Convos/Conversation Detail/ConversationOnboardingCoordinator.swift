@@ -136,8 +136,8 @@ final class ConversationOnboardingCoordinator {
     var isWaitingForInviteAcceptance: Bool = false
 
     private var shouldShowQuicknameAfterNotifications: Bool = false
-    private var pendingClientId: String?
-    private var currentClientId: String?
+    private var pendingConversationId: String?
+    private var currentConversationId: String?
     private var isConversationCreator: Bool = false
 
     // MARK: - Persistence
@@ -173,12 +173,12 @@ final class ConversationOnboardingCoordinator {
         set { UserDefaults.standard.set(newValue, forKey: Self.hasCompletedOnboardingKey) }
     }
 
-    private func hasSetQuickname(for clientId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: Self.hasSetQuicknamePrefix + clientId)
+    private func hasSetQuickname(for conversationId: String) -> Bool {
+        UserDefaults.standard.bool(forKey: Self.hasSetQuicknamePrefix + conversationId)
     }
 
-    private func setHasSetQuickname(_ value: Bool, for clientId: String) {
-        UserDefaults.standard.set(value, forKey: Self.hasSetQuicknamePrefix + clientId)
+    private func setHasSetQuickname(_ value: Bool, for conversationId: String) {
+        UserDefaults.standard.set(value, forKey: Self.hasSetQuicknamePrefix + conversationId)
     }
 
     private var hasSeenAddAsQuickname: Bool {
@@ -266,10 +266,10 @@ final class ConversationOnboardingCoordinator {
             case .savedAsQuicknameSuccess:
                 await transitionAfterQuickname()
             case .notificationsEnabled:
-                if shouldShowQuicknameAfterNotifications, let clientId = pendingClientId {
-                    await startQuicknameFlow(for: clientId)
+                if shouldShowQuicknameAfterNotifications, let conversationId = pendingConversationId {
+                    await startQuicknameFlow(for: conversationId)
                     shouldShowQuicknameAfterNotifications = false
-                    pendingClientId = nil
+                    pendingConversationId = nil
                 } else {
                     await complete()
                 }
@@ -309,27 +309,27 @@ final class ConversationOnboardingCoordinator {
 
     // MARK: - State Transitions
 
-    func start(for clientId: String, isConversationCreator: Bool = false) async {
+    func start(for conversationId: String, isConversationCreator: Bool = false) async {
         guard case .idle = state else {
             return
         }
 
-        self.currentClientId = clientId
+        self.currentConversationId = conversationId
         self.isConversationCreator = isConversationCreator
 
         state = .started
 
         if isWaitingForInviteAcceptance {
-            await startNotificationFlow(for: clientId)
+            await startNotificationFlow(for: conversationId)
         } else {
-            await startQuicknameFlow(for: clientId)
+            await startQuicknameFlow(for: conversationId)
         }
     }
 
     /// Start the notification flow (used when coming from invite acceptance)
-    private func startNotificationFlow(for clientId: String) async {
+    private func startNotificationFlow(for conversationId: String) async {
         shouldShowQuicknameAfterNotifications = true
-        pendingClientId = clientId
+        pendingConversationId = conversationId
 
         let authStatus = await notificationCenter.authorizationStatus()
 
@@ -342,23 +342,22 @@ final class ConversationOnboardingCoordinator {
             handleStateChange()
         case .authorized, .provisional, .ephemeral:
             if !isWaitingForInviteAcceptance {
-                await startQuicknameFlow(for: clientId)
+                await startQuicknameFlow(for: conversationId)
             }
             shouldShowQuicknameAfterNotifications = false
-            pendingClientId = nil
+            pendingConversationId = nil
         @unknown default:
             if !isWaitingForInviteAcceptance {
-                await startQuicknameFlow(for: clientId)
+                await startQuicknameFlow(for: conversationId)
             }
             shouldShowQuicknameAfterNotifications = false
-            pendingClientId = nil
+            pendingConversationId = nil
         }
     }
 
     /// Start or continue the quickname onboarding flow
-    private func startQuicknameFlow(for clientId: String) async {
-        let hasSetQuicknameForConversation = hasSetQuickname(for: clientId)
-        setHasSetQuickname(true, for: clientId)
+    private func startQuicknameFlow(for conversationId: String) async {
+        let hasSetQuicknameForConversation = hasSetQuickname(for: conversationId)
 
         let quicknameSettings = quicknameViewModel.quicknameSettings
 
@@ -384,7 +383,7 @@ final class ConversationOnboardingCoordinator {
     }
 
     /// Call this when the invite has been accepted
-    func inviteWasAccepted(for clientId: String) async {
+    func inviteWasAccepted(for conversationId: String) async {
         guard isWaitingForInviteAcceptance else {
             return
         }
@@ -392,7 +391,7 @@ final class ConversationOnboardingCoordinator {
 
         switch state {
         case .idle, .started:
-            await startNotificationFlow(for: clientId)
+            await startNotificationFlow(for: conversationId)
         default:
             break
         }
@@ -423,6 +422,9 @@ final class ConversationOnboardingCoordinator {
     func didSelectQuickname() async {
         QAEvent.emit(.onboarding, "quickname_applied")
         shouldAnimateAvatarForQuicknameSetup = false
+        if let conversationId = currentConversationId {
+            setHasSetQuickname(true, for: conversationId)
+        }
         await transitionAfterQuickname()
     }
 
@@ -467,10 +469,10 @@ final class ConversationOnboardingCoordinator {
             // Check if we need to show quickname flow next (from invite acceptance)
             if shouldShowQuicknameAfterNotifications,
                !isWaitingForInviteAcceptance,
-               let clientId = pendingClientId {
-                await startQuicknameFlow(for: clientId)
+               let conversationId = pendingConversationId {
+                await startQuicknameFlow(for: conversationId)
                 shouldShowQuicknameAfterNotifications = false
-                pendingClientId = nil
+                pendingConversationId = nil
             }
         } else {
             // Check if it was denied or just not determined

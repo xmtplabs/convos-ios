@@ -255,11 +255,49 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
             XCTFail("Expected a quickname state, got \(coordinator.state)")
         }
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)"),
-            "Entry into startQuicknameFlow should mark the per-conversation flag"
+            "Entry into startQuicknameFlow must not mark the per-conversation flag — only didSelectQuickname does"
         )
         UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+    }
+
+    func testDidSelectQuickname_SetsPerConversationFlag() async {
+        mockNotificationCenter.authStatus = .authorized
+        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+
+        let conversationId = "convo-applying-quickname"
+        await coordinator.start(for: conversationId)
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(conversationId)"),
+            "Pre-condition: flag should not yet be set after start()"
+        )
+
+        await coordinator.didSelectQuickname()
+
+        XCTAssertTrue(
+            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(conversationId)"),
+            "didSelectQuickname (user applied the quickname) must set the per-conversation flag"
+        )
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversationId)")
+    }
+
+    func testSkipAddQuickname_DoesNotSetPerConversationFlag() async {
+        mockNotificationCenter.authStatus = .authorized
+        UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
+        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+
+        let conversationId = "convo-skipping-quickname"
+        await coordinator.start(for: conversationId)
+
+        coordinator.skipAddQuickname()
+
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(conversationId)"),
+            "Skipping must not set the flag — re-opening should re-prompt the user to apply their quickname"
+        )
+        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversationId)")
     }
 
     func testStart_HasCompletedOnboarding_ReopensSameConversation_Skips() async {
