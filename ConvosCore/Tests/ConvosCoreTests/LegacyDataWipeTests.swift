@@ -44,6 +44,29 @@ struct LegacyDataWipeTests {
         #expect(FileManager.default.fileExists(atPath: grdb.path))
     }
 
+    @Test("Compatible legacy generation 'single-inbox-v2' is treated as current — no wipe, marker forwarded")
+    func compatibleGenerationIsNotWiped() throws {
+        let fixture = try TempFixture()
+        // Existing dev install: marker is the prior canonical name, the
+        // active xmtp-*.db3 files are present. The wipe must NOT run.
+        fixture.defaults.set("single-inbox-v2", forKey: "convos.schemaGeneration")
+        let activeXmtp = fixture.databasesDirectory
+            .appendingPathComponent("xmtp-grpc.dev.xmtp.network-abc123.db3")
+        try Data("active-xmtp-db".utf8).write(to: activeXmtp)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(FileManager.default.fileExists(atPath: activeXmtp.path))
+        #expect(
+            fixture.defaults.string(forKey: "convos.schemaGeneration")
+            == LegacyDataWipe.currentGeneration
+        )
+    }
+
     @Test("Upgrade: legacy artifacts removed + marker set")
     func upgradeWipesAndMarksGeneration() throws {
         let fixture = try TempFixture()

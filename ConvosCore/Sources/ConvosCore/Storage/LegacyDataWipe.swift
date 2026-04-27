@@ -12,6 +12,18 @@ public enum LegacyDataWipe {
     /// Current schema generation. Bump when a schema change requires a wipe.
     public static let currentGeneration: String = "v1-single-inbox"
 
+    /// Generation strings that are functionally equivalent to
+    /// `currentGeneration` and must NOT trigger a wipe. Bumping the
+    /// canonical name (e.g. for cosmetic alignment with the GRDB
+    /// migration identifier) would otherwise wipe every install whose
+    /// stored marker is one of these — and on the single-inbox file
+    /// layout the wipe deletes the active `xmtp-*.db3` files, which is
+    /// catastrophic. Add the previous canonical name here when renaming.
+    private static let compatibleGenerations: Set<String> = [
+        currentGeneration,
+        "single-inbox-v2"
+    ]
+
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 
     /// Checks whether a wipe is needed for the current install and runs it before
@@ -37,7 +49,12 @@ public enum LegacyDataWipe {
     ) {
         let stored = defaults.string(forKey: schemaGenerationKey)
 
-        if stored == currentGeneration {
+        if let stored, compatibleGenerations.contains(stored) {
+            // Bring the marker forward to the current canonical name so
+            // future launches short-circuit on the cheap equality check.
+            if stored != currentGeneration {
+                defaults.set(currentGeneration, forKey: schemaGenerationKey)
+            }
             return
         }
 

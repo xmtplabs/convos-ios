@@ -191,15 +191,26 @@ public actor RestoreManager {
         )
 
         // Begin transaction. Pre-commit artifacts live in the shared container
-        // so crash recovery on next launch can find them.
+        // so crash recovery on next launch can find them. Setup itself is
+        // wrapped — a failure to create the transaction directory would
+        // otherwise leave RestoreInProgressFlag and RestoreTransactionStore
+        // set forever, locking the NSE out and making every later restore
+        // throw `.restoreAlreadyInProgress` until the user reinstalls.
         var transaction = RestoreTransaction(phase: .paused)
-        RestoreTransactionStore.save(transaction, defaults: restoreFlagDefaults)
-        RestoreInProgressFlag.set(true, defaults: restoreFlagDefaults)
         let transactionDir = RestoreArtifactLayout.transactionDirectory(
             for: transaction.id,
             environment: environment
         )
-        try fileManager.createDirectory(at: transactionDir, withIntermediateDirectories: true)
+        do {
+            RestoreTransactionStore.save(transaction, defaults: restoreFlagDefaults)
+            RestoreInProgressFlag.set(true, defaults: restoreFlagDefaults)
+            try fileManager.createDirectory(at: transactionDir, withIntermediateDirectories: true)
+        } catch {
+            RestoreTransactionStore.clear(defaults: restoreFlagDefaults)
+            RestoreInProgressFlag.set(false, defaults: restoreFlagDefaults)
+            state = .failed(error.localizedDescription)
+            throw error
+        }
 
         // Defer-based rollback is inadequate here because we need async calls;
         // wrap the critical section in do-catch with explicit rollback.
