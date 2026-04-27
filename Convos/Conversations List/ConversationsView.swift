@@ -20,6 +20,13 @@ struct ConversationsView: View {
         viewModel.focusCoordinator
     }
 
+    /// True while the bootstrap gate is parked at `.restoreAvailable` —
+    /// session construction is blocked, so anything that creates or joins
+    /// a conversation will hang on `RestoreDecisionPendingError`.
+    private var isRestorePromptBlocking: Bool {
+        backupCoordinator?.showRestorePrompt == true
+    }
+
     var emptyConversationsViewScrollable: some View {
         ScrollView {
             LazyVStack(spacing: 0.0) {
@@ -40,7 +47,14 @@ struct ConversationsView: View {
                     )
                     .padding(.top, DesignConstants.Spacing.step4x)
                 }
-                emptyConversationsView
+                // Hide the "Pop-up private convos" CTA while the restore
+                // prompt is blocking — its "Start a convo" button would
+                // try to register a fresh identity, which is exactly what
+                // the bootstrap gate is trying to prevent until the user
+                // has chosen Restore vs Start fresh.
+                if !isRestorePromptBlocking {
+                    emptyConversationsView
+                }
             }
         }
     }
@@ -180,6 +194,7 @@ struct ConversationsView: View {
             }
             .accessibilityLabel("Scan to join a conversation")
             .accessibilityIdentifier("scan-button")
+            .disabled(isRestorePromptBlocking)
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
 
@@ -189,6 +204,7 @@ struct ConversationsView: View {
             }
             .accessibilityLabel("Start a new conversation")
             .accessibilityIdentifier("compose-button")
+            .disabled(isRestorePromptBlocking)
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
     }
