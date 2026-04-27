@@ -41,6 +41,7 @@ struct ConversationsView: View {
                     RestorePromptCard(
                         sidecar: available.sidecar,
                         backupCount: coordinator.viewModel.availableRestores.count,
+                        isRestoring: coordinator.isRestoring,
                         onRestore: restore,
                         onChooseBackup: chooseBackup,
                         onStartFresh: dismiss

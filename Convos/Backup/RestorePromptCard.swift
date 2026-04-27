@@ -9,6 +9,7 @@ import SwiftUI
 struct RestorePromptCard: View {
     let sidecar: BackupSidecarMetadata
     let backupCount: Int
+    let isRestoring: Bool
     let onRestore: () -> Void
     let onChooseBackup: (() -> Void)?
     let onStartFresh: () -> Void
@@ -42,30 +43,43 @@ struct RestorePromptCard: View {
                 .foregroundStyle(.colorTextSecondary)
             }
 
-            VStack(spacing: DesignConstants.Spacing.step2x) {
+            if isRestoring {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
-                    Button(action: skipAction) {
-                        Text("Skip")
-                    }
-                    .convosButtonStyle(.outline(fullWidth: true))
-                    .accessibilityIdentifier("restore-prompt-skip-button")
-
-                    Button(action: restoreAction) {
-                        Text(backupCount > 1 ? "Restore latest" : "Restore")
-                    }
-                    .convosButtonStyle(.rounded(fullWidth: true))
-                    .accessibilityIdentifier("restore-prompt-restore-button")
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                    Text("Restoring…")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+                .accessibilityIdentifier("restore-prompt-progress")
+            } else {
+                VStack(spacing: DesignConstants.Spacing.step2x) {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Button(action: skipAction) {
+                            Text("Skip")
+                        }
+                        .convosButtonStyle(.outline(fullWidth: true))
+                        .accessibilityIdentifier("restore-prompt-skip-button")
 
-                if let chooseAction = onChooseBackup {
-                    Button(action: chooseAction) {
-                        Text("Choose backup")
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(.colorTextSecondary)
-                            .padding(.horizontal, DesignConstants.Spacing.step12x)
-                            .padding(.vertical, DesignConstants.Spacing.step2x)
+                        Button(action: restoreAction) {
+                            Text(backupCount > 1 ? "Restore latest" : "Restore")
+                        }
+                        .convosButtonStyle(.rounded(fullWidth: true))
+                        .accessibilityIdentifier("restore-prompt-restore-button")
                     }
-                    .accessibilityIdentifier("restore-prompt-choose-backup-button")
+
+                    if let chooseAction = onChooseBackup {
+                        Button(action: chooseAction) {
+                            Text("Choose backup")
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.colorTextSecondary)
+                                .padding(.horizontal, DesignConstants.Spacing.step12x)
+                                .padding(.vertical, DesignConstants.Spacing.step2x)
+                        }
+                        .accessibilityIdentifier("restore-prompt-choose-backup-button")
+                    }
                 }
             }
         }
@@ -174,6 +188,7 @@ struct RestoreBackupChooserView: View {
             appVersion: "2.3.4"
         ),
         backupCount: 2,
+        isRestoring: false,
         onRestore: {},
         onChooseBackup: {},
         onStartFresh: {}
