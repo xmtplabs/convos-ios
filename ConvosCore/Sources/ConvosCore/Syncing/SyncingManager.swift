@@ -2,17 +2,12 @@ import ConvosInvites
 import ConvosMessagingProtocols
 import Foundation
 import GRDB
-// FIXME(stage6e-residual): `@preconcurrency import XMTPiOS` remains
-// because the inner stream-processing path still pattern-matches on
-// `XMTPiOS.Conversation` and processes `XMTPiOS.DecodedMessage` directly
-// via the `StreamProcessor`. Stage 6e Phase B-2 migrated the public
-// surface (`start(with:)` and `SyncClientParams.client`) to
-// `any MessagingClient` and routed top-level network operations
-// (`syncAll`, `listGroups`) through the abstraction. The XMTPiOS-typed
-// stream-iteration path remains because converting `streamAllMessages`
-// + `streamProcessor.processMessage(DecodedMessage)` to
-// `MessagingMessage` requires either a round-trip bridge on the value
-// type or a much deeper writer-surface refactor (Stage 6b+).
+// FIXME: `@preconcurrency import XMTPiOS` remains because the inner
+// stream-processing path still pattern-matches on `XMTPiOS.Conversation`
+// and processes `XMTPiOS.DecodedMessage` directly via the
+// `StreamProcessor`. Lifting this requires either a native-handle
+// escape hatch on `MessagingMessage` or a deeper writer-surface
+// refactor.
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol

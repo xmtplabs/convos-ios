@@ -4,17 +4,14 @@ import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because this
-// actor is the main stream-processing entry point — it receives
-// `XMTPiOS.Group` and `DecodedMessage` directly from the legacy
-// `XMTPClientProvider` streams and hands both to Stage 3 writers
-// (`conversationWriter.store(...)`, `messageWriter.store(message:...)`)
-// + the invite-flow back-channel (`InviteJoinRequestsManager`, which
-// also takes `DecodedMessage`). The audit flags the `.group / .dm`
-// pattern match at ~line 200 (originally 187 pre-Stage-2) as
-// load-bearing — it is preserved here identically. Migration blocked
-// on Stage 3 writer surface + the `MessagingMessage` →
-// `XMTPiOS.DecodedMessage` round-trip gap (Stage 1 value type).
+// FIXME: `@preconcurrency import XMTPiOS` remains because this actor
+// receives `XMTPiOS.Group` and `DecodedMessage` directly from the
+// stream sources and hands both to the storage writers and to the
+// invite-flow back-channel (`InviteJoinRequestsManager`, which also
+// takes `DecodedMessage`). The `.group / .dm` pattern match below is
+// load-bearing and is preserved identically. Drop this import once
+// `MessagingMessage` carries a native-handle escape hatch (or the
+// downstream surfaces stop needing `DecodedMessage`).
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol
@@ -32,13 +29,10 @@ protocol StreamProcessorProtocol: Actor {
         clientConversationId: String?
     ) async throws
 
-    /// Stage 6e Phase B-2 overload: accept the abstraction-typed
-    /// `MessagingGroup` directly. Internally downcasts to
-    /// `XMTPiOSMessagingGroup` and routes through the XMTPiOS-typed
-    /// processor, since the wire-layer behaviour is unchanged. DTU-backed
-    /// groups currently warn-and-skip — Convos's stream processing is
-    /// XMTPiOS-only at the wire level, and DTU streams are not pushed
-    /// yet (Stage 6b lifts the processor proper onto MessagingGroup).
+    /// Abstraction-typed overload that accepts `MessagingGroup` and
+    /// internally downcasts to `XMTPiOSMessagingGroup`. DTU-backed
+    /// groups currently warn-and-skip — stream processing is
+    /// XMTPiOS-only at the wire level today.
     func processConversation(
         group: any MessagingGroup,
         params: SyncClientParams,
@@ -167,17 +161,15 @@ actor StreamProcessor: StreamProcessorProtocol {
         try await processConversation(group, params: params, clientConversationId: clientConversationId)
     }
 
-    /// Gap 2 (Stage 6f follow-up): the processor now flows on the
-    /// abstraction surface for both XMTPiOS and DTU backings.
-    /// Pre-Gap-2 this overload downcast to `XMTPiOSMessagingGroup` and
-    /// warn-skipped DTU; SyncingManager Phase 3 routes its conversation
-    /// stream through `MessagingClient.conversations.streamAll(...)`
-    /// instead of `legacyProvider.conversationsProvider.stream(...)`,
-    /// so DTU-backed groups arrive here through the same code path
-    /// as XMTPiOS-backed ones. The XMTPiOS-specific bits
-    /// (`ProfileSnapshotBuilder.sendSnapshot` + the
-    /// invite-flow back-channel) downcast at the call site so they
-    /// stay XMTPiOS-only without blocking DTU progress.
+    /// Stream-processor entry point that flows on the abstraction
+    /// surface for both XMTPiOS and DTU backings. SyncingManager routes
+    /// its conversation stream through
+    /// `MessagingClient.conversations.streamAll(...)`, so DTU-backed
+    /// groups arrive here through the same code path as XMTPiOS-backed
+    /// ones. The XMTPiOS-specific bits
+    /// (`ProfileSnapshotBuilder.sendSnapshot` + the invite-flow
+    /// back-channel) downcast at the call site so they stay
+    /// XMTPiOS-only.
     func processConversation(
         group: any MessagingGroup,
         params: SyncClientParams,
@@ -233,8 +225,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         if creatorInboxId == params.client.inboxId {
             // ProfileSnapshot send is XMTPiOS-only (XIP-payload +
             // ConvosProfiles wire layer). DTU-backed groups skip this
-            // until ConvosProfiles migrates off XMTPiOS (FIXME(stage4e)
-            // tracked at `XMTPiOSConversationWriterSupport.swift:432`).
+            // until ConvosProfiles migrates onto the abstraction.
             await sendInitialProfileSnapshot(group: group)
         }
 
@@ -255,10 +246,10 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == params.client.inboxId {
-            // Stage 3 migration: custom-metadata calls (ensureInviteTag,
-            // ensureImageEncryptionKey) are exposed on `MessagingGroup`
-            // via `MessagingGroup+CustomMetadata.swift`. Wrap the
-            // XMTPiOS.Group once for this block.
+            // Custom-metadata calls (`ensureInviteTag`,
+            // `ensureImageEncryptionKey`) live on `MessagingGroup` via
+            // `MessagingGroup+CustomMetadata.swift`; wrap the
+            // `XMTPiOS.Group` once for this block.
             let messagingGroup: any MessagingGroup = XMTPiOSMessagingGroup(xmtpGroup: conversation)
 
             // we created the conversation, update permissions, set inviteTag, and generate encryption key
@@ -276,8 +267,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
-        // Stage 3 migration: conversationWriter takes `any MessagingGroup`.
-        // Wrap the stream-provided XMTPiOS.Group at the call site.
+        // `conversationWriter` takes `any MessagingGroup`; wrap the
+        // raw `XMTPiOS.Group` at the call site.
         try await conversationWriter.storeWithLatestMessages(
             conversation: XMTPiOSMessagingGroup(xmtpGroup: conversation),
             inboxId: params.client.inboxId,
@@ -473,11 +464,10 @@ actor StreamProcessor: StreamProcessorProtocol {
     ) async {
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
-            // Stage 6e Phase B-2: route the conversation lookup through
-            // the MessagingClient abstraction. Internally we still need
-            // the `XMTPiOS.Group` for `shouldProcessConversation` and
-            // `processExplodeSettings` (XIP-payload + writer surface),
-            // so we reach it via the XMTPiOSMessagingGroup bridge.
+            // The conversation lookup goes through the abstraction;
+            // `shouldProcessConversation` and `processExplodeSettings`
+            // still need the raw `XMTPiOS.Group`, so we reach it via
+            // the `XMTPiOSMessagingGroup` bridge below.
             guard let messagingConversation = try await params.client
                 .conversations.find(conversationId: message.conversationId)
             else {
@@ -514,9 +504,9 @@ actor StreamProcessor: StreamProcessorProtocol {
                         inboxId: params.client.inboxId
                     )
 
-                    // Stage 3 migration: Stage 3 writers operate on
-                    // `MessagingMessage`. Wrap the stream-provided
-                    // `DecodedMessage` once for the writer-bound calls.
+                    // Writers operate on `MessagingMessage`; wrap the
+                    // stream-provided `DecodedMessage` once for the
+                    // writer-bound calls.
                     let messagingMessage = try MessagingMessage(message)
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
@@ -813,12 +803,11 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
     }
 
-    /// Gap 2: abstraction-typed sibling that downcasts when an
-    /// XMTPiOS-backed group is on the wire and silently no-ops on DTU.
-    /// The XIP-payload codec layer in `ConvosProfiles` is XMTPiOS-only;
-    /// once it migrates (FIXME(stage4e) at
-    /// `XMTPiOSConversationWriterSupport.swift:432`) the no-op branch
-    /// becomes a real send via `ProfileSnapshotBridge`.
+    /// Abstraction-typed sibling that downcasts on XMTPiOS and
+    /// silently no-ops on DTU. The XIP-payload codec layer in
+    /// `ConvosProfiles` is XMTPiOS-only; the no-op branch becomes a
+    /// real send via `ProfileSnapshotBridge` once that codec migrates
+    /// onto the abstraction.
     private func sendInitialProfileSnapshot(group: any MessagingGroup) async {
         guard let xmtpAdapter = group as? XMTPiOSMessagingGroup else {
             // DTU: ProfileSnapshot is a Convos XIP-payload that the

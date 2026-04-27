@@ -3,16 +3,13 @@ import ConvosMessagingProtocols
 import ConvosProfiles
 import Foundation
 import GRDB
-// FIXME(stage4): `@preconcurrency import XMTPiOS` remains because the
-// DM back-channel for the invite flow (audit open question #4) passes
-// `XMTPiOS.DecodedMessage` and `XMTPiOS.Group` through to
-// `ConvosInvites.InviteCoordinator` / `InviteClientProviderAdapter`.
-// `ConvosInvites` is a sibling SwiftPM package that ConvosCore depends
-// on, so it cannot depend on ConvosCore's `Messaging*` protocols
-// without a circular import (per directive for Stage 4e). Once
-// `ConvosInvites` migrates to a package-local signer / group protocol
-// or promotes the `Messaging*` types out of ConvosCore, this file can
-// migrate in lockstep.
+// FIXME: `@preconcurrency import XMTPiOS` remains because the DM
+// back-channel for the invite flow passes `XMTPiOS.DecodedMessage` and
+// `XMTPiOS.Group` through to `ConvosInvites.InviteCoordinator` /
+// `InviteClientProviderAdapter`. `ConvosInvites` is a sibling SwiftPM
+// package; promoting the `Messaging*` types into a shared package
+// (or moving the invite types out of `ConvosInvites`) would let this
+// file migrate.
 @preconcurrency import XMTPiOS
 
 public struct JoinRequestResult: Sendable {
@@ -60,11 +57,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         message: XMTPiOS.DecodedMessage,
         client: any MessagingClient
     ) async -> JoinRequestResult? {
-        // Stage 6f Step 8: `InviteCoordinator.processMessage` is now
-        // typed against the abstraction-side `MessagingMessage`. Wrap
-        // the XMTPiOS-side `DecodedMessage` once at this boundary so
-        // ConvosInvites no longer needs an XMTPiOS dependency on its
-        // public coordinator surface.
+        // `InviteCoordinator.processMessage` takes `MessagingMessage`,
+        // so wrap the `DecodedMessage` once at this boundary —
+        // ConvosInvites stays free of XMTPiOS on its public surface.
         guard let messagingMessage = try? MessagingMessage(message) else {
             return nil
         }
@@ -106,12 +101,10 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         for conversation: XMTPiOS.Group,
         client: any MessagingClient
     ) async throws -> Bool {
-        // Stage 6f Step 7: `InviteCoordinator.hasOutgoingJoinRequest`
-        // takes `any MessagingGroup` after the protocol-surface lift.
-        // StreamProcessor still calls in with a raw `XMTPiOS.Group`; we
-        // wrap it through `XMTPiOSMessagingGroup` here so the legacy
-        // call site continues to work. StreamProcessor's own migration
-        // is deferred (Gap 2 territory).
+        // `InviteCoordinator.hasOutgoingJoinRequest` takes
+        // `any MessagingGroup`. StreamProcessor still calls in with a
+        // raw `XMTPiOS.Group`, so wrap through `XMTPiOSMessagingGroup`
+        // at this boundary.
         let messagingGroup = XMTPiOSMessagingGroup(xmtpGroup: conversation)
         return try await coordinator.hasOutgoingJoinRequest(
             for: messagingGroup,
@@ -182,10 +175,10 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
     private func sendProfileSnapshotAfterJoin(conversationId: String, client: any MessagingClient) async {
         do {
-            // Stage 6e Phase B-2: route lookup through MessagingClient.
-            // ProfileSnapshotBuilder still operates on XMTPiOS.Group
-            // (XIP-payload + writer surface is XMTPiOS-typed); reach the
-            // underlying handle via the XMTPiOSMessagingGroup adapter.
+            // `ProfileSnapshotBuilder` still operates on `XMTPiOS.Group`
+            // (XIP-payload + writer surface is XMTPiOS-typed); reach
+            // the underlying handle via the `XMTPiOSMessagingGroup`
+            // adapter.
             guard let messagingGroup = try await client.messagingGroup(with: conversationId) else {
                 return
             }

@@ -5,14 +5,9 @@ import Foundation
 /// Adapts ConvosCore's `MessagingClient` to ConvosInvites'
 /// `InviteClientProvider`.
 ///
-/// Stage 6f Step 7 — protocol surface lift:
-///   `InviteClientProvider` was migrated off raw XMTPiOS types
-///   (`XMTPiOS.Conversation`, `XMTPiOS.Dm`, `XMTPiOS.ConsentState`,
-///   `XMTPiOS.ConversationsOrderBy`) onto `Messaging*` equivalents. The
-///   adapter no longer reaches for the underlying `XMTPiOS.Client`; it
-///   simply forwards to the `MessagingClient.conversations` surface,
-///   which is already backend-agnostic. Both XMTPiOS- and DTU-backed
-///   clients can drive this adapter.
+/// Forwards to `MessagingClient.conversations`, which is
+/// backend-agnostic, so both XMTPiOS- and DTU-backed clients can drive
+/// this adapter.
 ///
 /// Caller surface (production users): creator-side flows
 /// (`InviteJoinRequestsManager`'s `processJoinRequest` /

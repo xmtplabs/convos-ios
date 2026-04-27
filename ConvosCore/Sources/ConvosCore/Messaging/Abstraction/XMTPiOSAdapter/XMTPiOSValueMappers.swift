@@ -2,24 +2,24 @@ import ConvosMessagingProtocols
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Value-type mappers between the Convos-owned messaging abstraction
-/// and `XMTPiOS`. Covers `MessagingIdentity <-> PublicIdentity`,
-/// `MessagingPermission <-> PermissionOption`,
-/// `MessagingMemberRole <-> PermissionLevel`,
-/// `MessagingInstallation <-> Installation`,
-/// `MessagingInbox <-> InboxState`, `MessagingHmacKey(s)`,
-/// `MessagingSyncSummary`, `MessagingPermissionPolicySet`, and
-/// `MessagingMember`.
-///
-/// `MessagingConsentState`, `MessagingDeliveryStatus`,
-/// `MessagingEncodedContent`, `MessagingContentType`, and
-/// `MessagingReaction` mappers live at the storage-boundary layer
-/// (`Storage/XMTP DB Representations/`, `Storage/Repositories/DB XMTP
-/// Representations/`); they sit beside the DBMessage translator that
-/// consumes them.
-///
-/// Every mapper lives on the abstraction-side type (e.g.
-/// `MessagingIdentity.init(_ publicIdentity:)`).
+// Value-type mappers between the Convos-owned messaging abstraction
+// and `XMTPiOS`. Covers `MessagingIdentity <-> PublicIdentity`,
+// `MessagingPermission <-> PermissionOption`,
+// `MessagingMemberRole <-> PermissionLevel`,
+// `MessagingInstallation <-> Installation`,
+// `MessagingInbox <-> InboxState`, `MessagingHmacKey(s)`,
+// `MessagingSyncSummary`, `MessagingPermissionPolicySet`, and
+// `MessagingMember`.
+//
+// `MessagingConsentState`, `MessagingDeliveryStatus`,
+// `MessagingEncodedContent`, `MessagingContentType`, and
+// `MessagingReaction` mappers live at the storage-boundary layer
+// (`Storage/XMTP DB Representations/`, `Storage/Repositories/DB XMTP
+// Representations/`); they sit beside the DBMessage translator that
+// consumes them.
+//
+// Every mapper lives on the abstraction-side type (e.g.
+// `MessagingIdentity.init(_ publicIdentity:)`).
 
 // MARK: - Identity
 
