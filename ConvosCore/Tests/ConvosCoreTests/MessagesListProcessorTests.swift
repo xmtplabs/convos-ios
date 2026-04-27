@@ -859,6 +859,55 @@ struct MessagesListProcessorAssistantJoinTests {
         #expect(ajItems.count == 0)
     }
 
+    @Test("Assistant join request hidden and joined update remains visible")
+    func hiddenAfterAgentJoinedWhileUpdateStillShown() {
+        let now = Date()
+        let agentMember = ConversationMember(
+            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Assistant", avatar: nil, isAgent: true),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+        let joinedUpdate = AnyMessage.message(Message(
+            id: "agent-joined",
+            sender: otherUser,
+            source: .incoming,
+            status: .published,
+            content: .update(ConversationUpdate(
+                creator: otherUser,
+                addedMembers: [agentMember],
+                removedMembers: [],
+                metadataChanges: []
+            )),
+            date: now.addingTimeInterval(5),
+            reactions: []
+        ), .existing)
+        let messages = [
+            makeAssistantJoinRequest(id: "aj-1", date: now),
+            joinedUpdate,
+        ]
+
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 1)
+
+        let assistantJoinStatuses = result.compactMap { item -> AssistantJoinStatus? in
+            if case .assistantJoinStatus(let status, _, _) = item {
+                return status
+            }
+            return nil
+        }
+        let updates = result.compactMap { item -> ConversationUpdate? in
+            if case .update(_, let update, _) = item {
+                return update
+            }
+            return nil
+        }
+
+        #expect(assistantJoinStatuses.isEmpty)
+        #expect(updates.count == 1)
+        #expect(updates.first?.addedVerifiedAssistant == true)
+    }
+
     @Test("Assistant join request stays visible if only an unverified agent joined after")
     func stayVisibleAfterUnverifiedAgentJoined() {
         // Regression coverage: a CLI joiner advertises itself as memberKind=agent
