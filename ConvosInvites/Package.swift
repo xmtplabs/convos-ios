@@ -23,6 +23,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.28.0"),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
+        .package(url: "https://github.com/apple/swift-log", from: "1.6.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
             revision: "ios-4.9.0-dev.88ddfad"
@@ -46,6 +47,7 @@ let package = Package(
                 "ConvosInvitesCore",
                 "ConvosAppData",
                 .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ConvosInvites"
         ),

@@ -2,6 +2,7 @@
 @testable import ConvosInvitesCore
 import Foundation
 import Testing
+import XMTPiOS
 
 /// Tests for the join request validation logic used by InviteCoordinator.
 ///
@@ -313,13 +314,14 @@ struct JoinRequestProcessingTests {
             .expired,
             .conversationExpired,
             .conversationNotFound("conv-123"),
+            .consentNotAllowed("conv-123", .denied),
             .invalidFormat,
             .creatorMismatch,
             .revoked,
             .addMemberFailed,
         ]
 
-        #expect(errors.count == 8)
+        #expect(errors.count == 9)
     }
 
     // MARK: - InviteJoinError Feedback
@@ -354,6 +356,48 @@ struct JoinRequestProcessingTests {
         )
 
         #expect(error.userFacingMessage == "Failed to join conversation")
+    }
+
+    @Test("InviteJoinError conversationNotFound round-trips through JSON")
+    func conversationNotFoundRoundTrip() throws {
+        let error = InviteJoinError(
+            errorType: .conversationNotFound,
+            inviteTag: "tag-nf",
+            timestamp: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(error)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(InviteJoinError.self, from: data)
+
+        #expect(decoded.errorType == .conversationNotFound)
+        #expect(decoded.inviteTag == "tag-nf")
+        #expect(decoded.userFacingMessage == "This conversation is no longer available")
+    }
+
+    @Test("InviteJoinError consentNotAllowed round-trips through JSON")
+    func consentNotAllowedRoundTrip() throws {
+        let error = InviteJoinError(
+            errorType: .consentNotAllowed,
+            inviteTag: "tag-cn",
+            timestamp: Date(timeIntervalSince1970: 1_000_000)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(error)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(InviteJoinError.self, from: data)
+
+        #expect(decoded.errorType == .consentNotAllowed)
+        #expect(decoded.inviteTag == "tag-cn")
+        #expect(decoded.userFacingMessage == "This conversation is no longer available")
     }
 
     // MARK: - Date Extension

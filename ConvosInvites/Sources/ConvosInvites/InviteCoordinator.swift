@@ -292,10 +292,18 @@ public final class InviteCoordinator: @unchecked Sendable {
             return nil
         }
 
-        guard let conversation = try? await client.findConversation(conversationId: conversationId),
-              (try? conversation.consentState()) == .allowed else {
-            await sendJoinError(.conversationExpired, for: request, client: client)
+        guard let conversation = try? await client.findConversation(conversationId: conversationId) else {
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): conversation not found in local store")
+            await sendJoinError(.conversationNotFound, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationNotFound(conversationId))
+            return nil
+        }
+
+        let consent = (try? conversation.consentState()) ?? .unknown
+        guard consent == .allowed else {
+            Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent=\(consent)")
+            await sendJoinError(.consentNotAllowed, for: request, client: client)
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .consentNotAllowed(conversationId, consent))
             return nil
         }
 

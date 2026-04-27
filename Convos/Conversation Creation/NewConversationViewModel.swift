@@ -551,7 +551,13 @@ class NewConversationViewModel: Identifiable {
         let inviteCode = extractInviteCode(from: conversationState)
 
         guard error.errorType == .genericFailure, let inviteCode else {
-            let title = error.errorType == .conversationExpired ? "Convo no longer exists" : "Couldn't join"
+            let title: String
+            switch error.errorType {
+            case .conversationExpired, .conversationNotFound, .consentNotAllowed:
+                title = "Convo no longer exists"
+            case .genericFailure:
+                title = "Couldn't join"
+            }
             displayError = IdentifiableError(title: title, description: error.userFacingMessage, retryAction: nil)
             return
         }

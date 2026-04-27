@@ -59,23 +59,38 @@ struct InviteJoinErrorCodecTests {
         #expect(decodedError.inviteTag == "invite-abc")
     }
 
-    @Test("Encode and decode unknown error type")
-    func encodeDecodeUnknownErrorType() throws {
+    @Test("Encode and decode conversationNotFound error")
+    func encodeDecodeConversationNotFound() throws {
         let originalError = InviteJoinError(
-            errorType: .unknown("future_error"),
-            inviteTag: "test-tag",
+            errorType: .conversationNotFound,
+            inviteTag: "tag-not-found",
             timestamp: Date()
         )
 
         let encodedContent = try codec.encode(content: originalError)
         let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
 
-        #expect(decodedError.errorType == .unknown("future_error"))
-        #expect(decodedError.inviteTag == "test-tag")
+        #expect(decodedError.errorType == .conversationNotFound)
+        #expect(decodedError.inviteTag == "tag-not-found")
     }
 
-    @Test("Forward compatibility with unknown error types")
-    func forwardCompatibilityUnknownTypes() throws {
+    @Test("Encode and decode consentNotAllowed error")
+    func encodeDecodeConsentNotAllowed() throws {
+        let originalError = InviteJoinError(
+            errorType: .consentNotAllowed,
+            inviteTag: "tag-consent",
+            timestamp: Date()
+        )
+
+        let encodedContent = try codec.encode(content: originalError)
+        let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
+
+        #expect(decodedError.errorType == .consentNotAllowed)
+        #expect(decodedError.inviteTag == "tag-consent")
+    }
+
+    @Test("Backward compatibility: unknown rawValue decodes to conversationExpired")
+    func backwardCompatUnknownDecodesToConversationExpired() throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
 
@@ -98,8 +113,36 @@ struct InviteJoinErrorCodecTests {
 
         let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
 
-        #expect(decodedError.errorType == .unknown("new_error_type_from_future"))
+        #expect(decodedError.errorType == .conversationExpired)
         #expect(decodedError.inviteTag == "future-tag")
+        #expect(decodedError.userFacingMessage == "This conversation is no longer available")
+    }
+
+    @Test("Backward compatibility: numeric-string rawValue decodes to conversationExpired")
+    func backwardCompatNumericRawValueDecodesToConversationExpired() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        struct FutureError: Codable {
+            let errorType: String
+            let inviteTag: String
+            let timestamp: Date
+        }
+
+        let futureError = FutureError(
+            errorType: "99",
+            inviteTag: "tag-99",
+            timestamp: Date()
+        )
+
+        let jsonData = try encoder.encode(futureError)
+        var encodedContent = EncodedContent()
+        encodedContent.type = ContentTypeInviteJoinError
+        encodedContent.content = jsonData
+
+        let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
+
+        #expect(decodedError.errorType == .conversationExpired)
     }
 
     @Test("Fallback content for conversationExpired")
@@ -126,16 +169,28 @@ struct InviteJoinErrorCodecTests {
         #expect(fallback == "Failed to join conversation")
     }
 
-    @Test("Fallback content for unknown error")
-    func fallbackUnknown() throws {
+    @Test("Fallback content for conversationNotFound")
+    func fallbackConversationNotFound() throws {
         let error = InviteJoinError(
-            errorType: .unknown("custom_error"),
+            errorType: .conversationNotFound,
             inviteTag: "test-tag",
             timestamp: Date()
         )
 
         let fallback = try codec.fallback(content: error)
-        #expect(fallback == "Failed to join conversation")
+        #expect(fallback == "This conversation is no longer available")
+    }
+
+    @Test("Fallback content for consentNotAllowed")
+    func fallbackConsentNotAllowed() throws {
+        let error = InviteJoinError(
+            errorType: .consentNotAllowed,
+            inviteTag: "test-tag",
+            timestamp: Date()
+        )
+
+        let fallback = try codec.fallback(content: error)
+        #expect(fallback == "This conversation is no longer available")
     }
 
     @Test("User facing message for conversationExpired")
@@ -160,15 +215,26 @@ struct InviteJoinErrorCodecTests {
         #expect(error.userFacingMessage == "Failed to join conversation")
     }
 
-    @Test("User facing message for unknown error")
-    func userFacingMessageUnknown() {
+    @Test("User facing message for conversationNotFound")
+    func userFacingMessageConversationNotFound() {
         let error = InviteJoinError(
-            errorType: .unknown("future_error"),
+            errorType: .conversationNotFound,
             inviteTag: "test-tag",
             timestamp: Date()
         )
 
-        #expect(error.userFacingMessage == "Failed to join conversation")
+        #expect(error.userFacingMessage == "This conversation is no longer available")
+    }
+
+    @Test("User facing message for consentNotAllowed")
+    func userFacingMessageConsentNotAllowed() {
+        let error = InviteJoinError(
+            errorType: .consentNotAllowed,
+            inviteTag: "test-tag",
+            timestamp: Date()
+        )
+
+        #expect(error.userFacingMessage == "This conversation is no longer available")
     }
 
     @Test("Invite tags with special characters")
@@ -269,17 +335,35 @@ struct InviteJoinErrorCodecTests {
     @Test("InviteJoinErrorType Equatable conformance")
     func errorTypeEquatable() {
         #expect(InviteJoinErrorType.conversationExpired == .conversationExpired)
+        #expect(InviteJoinErrorType.conversationNotFound == .conversationNotFound)
+        #expect(InviteJoinErrorType.consentNotAllowed == .consentNotAllowed)
         #expect(InviteJoinErrorType.genericFailure == .genericFailure)
-        #expect(InviteJoinErrorType.unknown("test") == .unknown("test"))
-        #expect(InviteJoinErrorType.unknown("test1") != .unknown("test2"))
         #expect(InviteJoinErrorType.conversationExpired != .genericFailure)
+        #expect(InviteJoinErrorType.conversationNotFound != .conversationExpired)
+        #expect(InviteJoinErrorType.consentNotAllowed != .conversationNotFound)
     }
 
     @Test("InviteJoinErrorType rawValue")
     func errorTypeRawValue() {
         #expect(InviteJoinErrorType.conversationExpired.rawValue == "conversation_expired")
+        #expect(InviteJoinErrorType.conversationNotFound.rawValue == "conversation_not_found")
+        #expect(InviteJoinErrorType.consentNotAllowed.rawValue == "consent_not_allowed")
         #expect(InviteJoinErrorType.genericFailure.rawValue == "generic_failure")
-        #expect(InviteJoinErrorType.unknown("custom").rawValue == "custom")
+    }
+
+    @Test("InviteJoinErrorType init from known rawValues")
+    func errorTypeInitFromKnownRawValues() {
+        #expect(InviteJoinErrorType(rawValue: "conversation_expired") == .conversationExpired)
+        #expect(InviteJoinErrorType(rawValue: "conversation_not_found") == .conversationNotFound)
+        #expect(InviteJoinErrorType(rawValue: "consent_not_allowed") == .consentNotAllowed)
+        #expect(InviteJoinErrorType(rawValue: "generic_failure") == .genericFailure)
+    }
+
+    @Test("InviteJoinErrorType init from unknown rawValue falls back to conversationExpired")
+    func errorTypeInitFallback() {
+        #expect(InviteJoinErrorType(rawValue: "totally_new_thing") == .conversationExpired)
+        #expect(InviteJoinErrorType(rawValue: "") == .conversationExpired)
+        #expect(InviteJoinErrorType(rawValue: "99") == .conversationExpired)
     }
 
     @Test("Decode malformed JSON throws error")

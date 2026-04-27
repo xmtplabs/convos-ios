@@ -145,11 +145,14 @@ public enum JoinRequestError: Error, Sendable {
     /// The invite has expired
     case expired
 
-    /// The conversation has expired
+    /// The signed invite's `conversationExpiresAt` has passed
     case conversationExpired
 
-    /// The conversation was not found
+    /// `findConversation` returned nil — libxmtp doesn't have the group locally
     case conversationNotFound(String)
+
+    /// The conversation exists locally but its consent state is not `.allowed`
+    case consentNotAllowed(String, ConsentState)
 
     /// The message is not a valid join request format
     case invalidFormat
@@ -164,20 +167,33 @@ public enum JoinRequestError: Error, Sendable {
     case addMemberFailed
 }
 
-/// Error types sent back to joiners when their request fails
+/// Error types sent back to joiners when their request fails.
+///
+/// Wire-format compatibility: any unrecognized rawValue (from a newer client we
+/// don't know about) decodes to `.conversationExpired` so older clients keep
+/// the existing "this conversation is no longer available" UX.
 public enum InviteJoinErrorType: Equatable, Sendable {
+    /// The signed invite's `conversationExpiresAt` has passed
     case conversationExpired
+
+    /// `findConversation` returned nil — libxmtp doesn't have the group locally
+    case conversationNotFound
+
+    /// The conversation exists locally but its consent state is not `.allowed`
+    case consentNotAllowed
+
     case genericFailure
-    case unknown(String)
 
     public var rawValue: String {
         switch self {
         case .conversationExpired:
             return "conversation_expired"
+        case .conversationNotFound:
+            return "conversation_not_found"
+        case .consentNotAllowed:
+            return "consent_not_allowed"
         case .genericFailure:
             return "generic_failure"
-        case .unknown(let value):
-            return value
         }
     }
 
@@ -185,10 +201,14 @@ public enum InviteJoinErrorType: Equatable, Sendable {
         switch rawValue {
         case "conversation_expired":
             self = .conversationExpired
+        case "conversation_not_found":
+            self = .conversationNotFound
+        case "consent_not_allowed":
+            self = .consentNotAllowed
         case "generic_failure":
             self = .genericFailure
         default:
-            self = .unknown(rawValue)
+            self = .conversationExpired
         }
     }
 }
@@ -220,9 +240,9 @@ public struct InviteJoinError: Codable, Equatable, Sendable {
 
     public var userFacingMessage: String {
         switch errorType {
-        case .conversationExpired:
+        case .conversationExpired, .conversationNotFound, .consentNotAllowed:
             return "This conversation is no longer available"
-        case .genericFailure, .unknown:
+        case .genericFailure:
             return "Failed to join conversation"
         }
     }
