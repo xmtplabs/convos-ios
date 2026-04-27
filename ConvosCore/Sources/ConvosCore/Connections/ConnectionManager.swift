@@ -141,6 +141,43 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         // historical "connected on" date to now. Only brand-new rows get
         // `Date()` as their creation timestamp.
         let serverIds = Set(responses.map { $0.connectionId })
+
+        // Before deleting orphaned connections, republish ProfileUpdate
+        // metadata for every conversation that referenced them — same
+        // rationale as disconnect(). Without this, the FK cascade deletes
+        // local DBConnectionGrant rows but the XMTP group metadata still
+        // carries the revoked grants and the assistant keeps using them.
+        let orphanedGrants = try await databaseWriter.read { db in
+            let existingIds = Set(try DBConnection.fetchAll(db).map { $0.id })
+            let toDelete = existingIds.subtracting(serverIds)
+            guard !toDelete.isEmpty else { return [DBConnectionGrant]() }
+            return try DBConnectionGrant
+                .filter(toDelete.contains(DBConnectionGrant.Columns.connectionId))
+                .fetchAll(db)
+        }
+
+        if !orphanedGrants.isEmpty {
+            if let grantWriter = grantWriterProvider() {
+                for grant in orphanedGrants {
+                    do {
+                        try await grantWriter.revokeGrant(
+                            connectionId: grant.connectionId,
+                            from: grant.conversationId
+                        )
+                    } catch {
+                        Log.warning(
+                            "[CloudConnections] failed to republish grants during refresh (connectionId=\(grant.connectionId), conversationId=\(grant.conversationId)): \(error.localizedDescription)"
+                        )
+                    }
+                }
+            } else {
+                Log.warning(
+                    "[CloudConnections] refresh had \(orphanedGrants.count) orphaned grant(s) but no grant writer was " +
+                    "injected; metadata for the affected conversation(s) will remain stale until the next grant/revoke"
+                )
+            }
+        }
+
         let connections: [Connection] = try await databaseWriter.write { [self] db in
             let existingById = try Dictionary(
                 uniqueKeysWithValues: DBConnection.fetchAll(db).map { ($0.id, $0) }
