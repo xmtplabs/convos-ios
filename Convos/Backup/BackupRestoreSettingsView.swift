@@ -106,8 +106,6 @@ struct BackupRestoreSettingsView: View {
             )
         } header: {
             Text("Restore")
-        } footer: {
-            Text(summaryText(for: available))
         }
     }
 
