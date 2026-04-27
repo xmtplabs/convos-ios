@@ -82,6 +82,12 @@ public actor RestoreManager {
     /// stable device metadata so restore selection is deterministic.
     public func findAvailableBackups() -> [AvailableBackup] {
         let directories = backupRootDirectories()
+        // Kick downloads of any iCloud placeholders before enumerating so
+        // a backup written from another device becomes visible on the
+        // next refresh tick. See `requestICloudDownloadsIfNeeded` for
+        // the full rationale.
+        requestICloudDownloadsIfNeeded(in: directories)
+
         var backups: [AvailableBackup] = []
         for root in directories {
             guard let subdirs = try? fileManager.contentsOfDirectory(
@@ -111,6 +117,57 @@ public actor RestoreManager {
         return backups.sorted { lhs, rhs in
             compare(lhs, rhs)
         }
+    }
+
+    /// iCloud Documents items written by another device are not downloaded
+    /// to this device automatically. They appear in the directory as
+    /// hidden `.<name>.icloud` placeholders, so the standard listing
+    /// (with `.skipsHiddenFiles`) returns an empty subdirectory and
+    /// `findAvailableBackups` silently misses the new bundle. Walk the
+    /// roots one level deep (roots → device-id subdirectories → sidecar
+    /// + bundle), spot the placeholders, and ask iOS to download them.
+    /// The call is non-blocking; downloads usually complete within
+    /// seconds and the next refresh tick will see the real files.
+    private func requestICloudDownloadsIfNeeded(in roots: [URL]) {
+        for root in roots {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil,
+                options: []
+            ) else { continue }
+            for entry in entries {
+                queueDownloadIfPlaceholder(entry)
+                guard isDirectory(entry) else { continue }
+                if let children = try? fileManager.contentsOfDirectory(
+                    at: entry,
+                    includingPropertiesForKeys: nil,
+                    options: []
+                ) {
+                    for child in children {
+                        queueDownloadIfPlaceholder(child)
+                    }
+                }
+            }
+        }
+    }
+
+    private func queueDownloadIfPlaceholder(_ url: URL) {
+        let name = url.lastPathComponent
+        let suffix = ".icloud"
+        guard name.hasPrefix("."), name.hasSuffix(suffix) else { return }
+        let realName = String(name.dropFirst().dropLast(suffix.count))
+        let realURL = url.deletingLastPathComponent().appendingPathComponent(realName)
+        do {
+            try fileManager.startDownloadingUbiquitousItem(at: realURL)
+            Log.info("RestoreManager: requested iCloud download for \(realName)")
+        } catch {
+            Log.warning("RestoreManager: failed to start iCloud download for \(realName): \(error)")
+        }
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
     }
 
     /// Runs the full restore pipeline against `bundleURL`. See
