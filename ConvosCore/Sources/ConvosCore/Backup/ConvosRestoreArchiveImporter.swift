@@ -23,7 +23,12 @@ import GRDB
 /// explicitly releases the SQLCipher pool — LibXMTP's pool is *not*
 /// ARC-managed, so dropping the Swift reference alone would leave the
 /// real client unable to reopen the same DB when `SessionManager
-/// .resumeAfterRestore` kicks it back up.
+/// .resumeAfterRestore` kicks it back up. The call is routed through
+/// `XMTPClientProvider` rather than the concrete `XMTPiOS.Client` so
+/// the SDK's deprecation warning ("delicate, reconnect required") does
+/// not fire — our use case is the documented exception: the throwaway
+/// client is being torn down, and the next reconnect happens implicitly
+/// when `SessionManager` builds a fresh `Client` against the same DB.
 public struct ConvosRestoreArchiveImporter: RestoreArchiveImporting {
     private let environment: AppEnvironment
     private let databaseReader: any DatabaseReader
@@ -54,7 +59,8 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporting {
             account: identity.keys.signingKey,
             options: options
         )
-        defer { try? client.dropLocalDatabaseConnection() }
+        let releasable: any XMTPClientProvider = client
+        defer { try? releasable.dropLocalDatabaseConnection() }
 
         let installationId = client.installationId
 
