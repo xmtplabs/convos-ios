@@ -270,7 +270,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.debug("   XMTP_CUSTOM_HOST = \(environment.xmtpEndpoint ?? "nil")")
         Log.debug("   customLocalAddress = \(environment.customLocalAddress ?? "nil")")
         Log.debug("   xmtpEnv = \(environment.xmtpEnv)")
-        Log.debug("   isSecure = \(environment.isSecure)")
 
         // Log the actual XMTPEnvironment.customLocalAddress after setting
         if let customHost = environment.customLocalAddress {
@@ -883,7 +882,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private func clientOptions(keys: any XMTPClientKeys) -> ClientOptions {
         // @lourou: Enable XMTP v4 d14n when ready
         // When gatewayUrl is provided, we're using d14n
-        // The gateway handles env/isSecure automatically, so we don't set them
+        // The gateway handles env automatically, so we don't set it
         // if let gatewayUrl = environment.gatewayUrl, !gatewayUrl.isEmpty {
         //     // d14n mode: gateway handles network selection
         //     Log.info("Using XMTP d14n - Gateway: \(gatewayUrl)")
@@ -893,11 +892,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         //     )
         // }
 
-        // Direct XMTP v3 connection: we specify env and isSecure
+        // Direct XMTP v3 connection: we specify env. TLS is conveyed via the
+        // http:// or https:// scheme on customLocalAddress when overriding the
+        // default endpoint.
         Log.debug("Using direct XMTP connection with env: \(environment.xmtpEnv)")
         let apiOptions: ClientOptions.Api = .init(
             env: environment.xmtpEnv,
-            isSecure: environment.isSecure,
             appVersion: "convos/\(Bundle.appVersion)"
         )
 

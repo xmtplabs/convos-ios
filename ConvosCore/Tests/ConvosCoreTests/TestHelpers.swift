@@ -90,18 +90,9 @@ class TestFixtures {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
-        // Check environment variables for CI configuration
-        let isSecure: Bool
-        if let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] {
-            isSecure = envSecure.lowercased() == "true" || envSecure == "1"
-        } else {
-            isSecure = false
-        }
-
         let clientOptions = ClientOptions(
             api: .init(
                 env: .local,
-                isSecure: isSecure,
                 appVersion: "convos-tests/1.0.0"
             ),
             codecs: [

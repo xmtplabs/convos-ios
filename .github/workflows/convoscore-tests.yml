@@ -50,7 +50,6 @@ jobs:
     timeout-minutes: 10
     outputs:
       xmtp_node_address: ${{ steps.deploy.outputs.xmtp_node_address }}
-      xmtp_is_secure: ${{ steps.deploy.outputs.xmtp_is_secure }}
       app_name: ${{ steps.deploy.outputs.app_name }}
 
     steps:
@@ -67,7 +66,6 @@ jobs:
         run: |
           APP_NAME="convos-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
           ./ci/fly/deploy "$APP_NAME"
-
 
   integration-tests:
     name: Integration Tests
@@ -99,8 +97,9 @@ jobs:
       - name: Run integration tests
         env:
           XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.xmtp_node_address }}
-          XMTP_IS_SECURE: ${{ needs.deploy-backend.outputs.xmtp_is_secure }}
-        run: ./ci/run-tests.sh --integration
+        run: |
+          echo $XMTP_NODE_ADDRESS
+          ./ci/run-tests.sh --integration
 
       - name: Upload test logs
         if: always()
