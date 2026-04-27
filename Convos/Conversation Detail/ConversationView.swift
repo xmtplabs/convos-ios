@@ -2,6 +2,12 @@ import ConvosCore
 import ConvosCoreiOS
 import SwiftUI
 
+/// Top-level constant rather than `private enum Constant { static let … }`
+/// inside the generic `ConversationView` — Swift forbids static stored
+/// properties on generic types (or types nested in a generic context),
+/// which surfaces as a hard compile error under Swift 6.
+private let reconnectionLearnMoreURL: URL? = URL(string: "https://learn.convos.org/")
+
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
@@ -175,7 +181,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     if viewModel.isInactive {
                         InactiveConversationBanner {
-                            if let url = Constant.reconnectionLearnMoreURL {
+                            if let url = reconnectionLearnMoreURL {
                                 openURL(url)
                             }
                         }
@@ -371,10 +377,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
-    }
-
-    private enum Constant {
-        static let reconnectionLearnMoreURL: URL? = URL(string: "https://learn.convos.org/")
     }
 }
 

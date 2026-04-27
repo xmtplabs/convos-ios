@@ -40,22 +40,56 @@ final class AppSettingsViewModel {
         deletionError = nil
         deletionProgress = nil
 
-        QuicknameSettingsViewModel.shared.delete()
-        ConversationViewModel.resetUserDefaults()
-        ConversationsViewModel.resetUserDefaults()
-        ConversationOnboardingCoordinator.resetUserDefaults()
-        GlobalConvoDefaults.shared.reset()
+        resetUserDefaultsForDeletion()
+        runInboxDeletion(onComplete: onComplete)
+    }
 
-        Task {
+    // Each reset is dispatched individually to keep the type-checker
+    // under the project's 100ms warn-long-function-bodies budget.
+    // Bundling them into one function pushes the inferred Sendable
+    // captures across the @MainActor boundary over the limit on some
+    // build configurations.
+    private func resetQuicknameDefaults() {
+        QuicknameSettingsViewModel.shared.delete()
+    }
+
+    private func resetConversationDefaults() {
+        ConversationViewModel.resetUserDefaults()
+    }
+
+    private func resetConversationsListDefaults() {
+        ConversationsViewModel.resetUserDefaults()
+    }
+
+    private func resetConversationOnboardingDefaults() {
+        ConversationOnboardingCoordinator.resetUserDefaults()
+    }
+
+    private func resetGlobalConvoDefaults() {
+        GlobalConvoDefaults.shared.reset()
+    }
+
+    private func resetUserDefaultsForDeletion() {
+        resetQuicknameDefaults()
+        resetConversationDefaults()
+        resetConversationsListDefaults()
+        resetConversationOnboardingDefaults()
+        resetGlobalConvoDefaults()
+    }
+
+    private func runInboxDeletion(onComplete: @escaping () -> Void) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                for try await progress in session.deleteAllInboxesWithProgress() {
-                    deletionProgress = progress
+                let stream = self.session.deleteAllInboxesWithProgress()
+                for try await progress in stream {
+                    self.deletionProgress = progress
                 }
-                isDeleting = false
+                self.isDeleting = false
                 onComplete()
             } catch {
-                deletionError = error
-                isDeleting = false
+                self.deletionError = error
+                self.isDeleting = false
             }
         }
     }
