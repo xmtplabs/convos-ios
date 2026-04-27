@@ -23,6 +23,9 @@ ESCAPED_API_URL=$(swift_escape "${CONVOS_API_BASE_URL:-}")
 ESCAPED_XMTP_HOST=$(swift_escape "${XMTP_CUSTOM_HOST:-}")
 ESCAPED_GATEWAY_URL=$(swift_escape "${GATEWAY_URL:-}")
 
+GIT_SHA=$(get_git_commit_sha)
+ESCAPED_GIT_SHA=$(swift_escape "$GIT_SHA")
+
 # Handle Sentry DSN based on build configuration
 # BITRISE_BUILD_CONFIG is set by Bitrise CI (Dev, Release)
 # BUILD_CONFIGURATION is a fallback for other CI systems
@@ -66,6 +69,7 @@ enum Secrets {
     static let GATEWAY_URL: String = "$ESCAPED_GATEWAY_URL"
     static let SENTRY_DSN: String = "$ESCAPED_SENTRY_DSN"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
+    static let GIT_COMMIT_SHA: String = "$ESCAPED_GIT_SHA"
 }
 EOF
 

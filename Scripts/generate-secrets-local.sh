@@ -50,6 +50,7 @@ enum Secrets {
     static let GATEWAY_URL: String = ""
     static let SENTRY_DSN: String = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
+    static let GIT_COMMIT_SHA: String = ""
 }
 
 MINIMAL_EOF
@@ -73,6 +74,8 @@ if [ "$1" = "--ensure-only" ]; then
     fi
     exit 0
 fi
+
+GIT_SHA=$(get_git_commit_sha)
 
 echo "🔍 Detecting configuration for Local development..."
 
@@ -260,6 +263,7 @@ enum Secrets {
     static let GATEWAY_URL: String = "$(swift_escape "$FINAL_GATEWAY_URL")"
     static let SENTRY_DSN: String = "$(swift_escape "$ENV_SENTRY_DSN")"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = "$(swift_escape "$ENV_FIREBASE_DEBUG_TOKEN")"
+    static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
 EOF
 
 # Check if .env file exists and add any additional secrets from it
@@ -278,6 +282,7 @@ if [ -f ".env" ]; then
         [[ "$key" == "GATEWAY_URL" ]] && continue
         [[ "$key" == "SENTRY_DSN" ]] && continue
         [[ "$key" == "FIREBASE_APP_CHECK_DEBUG_TOKEN" ]] && continue
+        [[ "$key" == "GIT_COMMIT_SHA" ]] && continue
 
         # Validate Swift identifier
         if ! is_valid_swift_identifier "$key"; then

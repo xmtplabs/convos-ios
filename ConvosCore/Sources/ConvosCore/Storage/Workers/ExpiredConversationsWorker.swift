@@ -194,23 +194,22 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
         Log.info("Cleaning up expired conversation: \(conversation.conversationId), posting leftConversationNotification")
 
         // Scheduled-explode parity: when the timer fires on the creator's
-        // device, the MLS teardown (removeMembers + leaveGroup) has to
-        // actually run. Pre-fix, the worker only posted
-        // `.leftConversationNotification` — the creator stayed in the
-        // group on the network indefinitely until they manually exploded
-        // again from the UI. A scheduled explode was strictly weaker than
-        // an immediate one.
+        // device, the MLS teardown (`removeMembers` + `denyConsent`) has
+        // to actually run, otherwise the creator stays in the group on
+        // the network indefinitely until they manually explode again
+        // from the UI.
         //
-        // We fetch the member list + creator inboxId, check whether the
-        // current inbox is the creator, and if so invoke the writer. The
-        // writer's own `runBoundedMLSOp` helper absorbs any MLS flakes
-        // without rethrowing, so this is fire-and-observe — failures log
-        // and the notification still posts below.
+        // On non-creator devices the peer walks out of the MLS group on
+        // their own (`leaveGroup` + `denyConsent`) — if the creator is
+        // offline past T the group would otherwise persist on the XMTP
+        // network with every peer still subscribed, and any message sent
+        // during that window syncs back onto phantom convo rows.
+        //
+        // Both branches fire-and-observe: the writer absorbs MLS flakes
+        // and the local cleanup below always runs.
         if let context = conversation.ownershipContext {
-            await executeExplodeIfCreator(conversation: conversation, context: context)
+            await executeExpirationMLSAction(conversation: conversation, context: context)
         }
-
-        await pruneExpiredSideConversationStorage(conversationId: conversation.conversationId)
 
         await MainActor.run {
             NotificationCenter.default.post(
@@ -219,32 +218,27 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
                 userInfo: ["conversationId": conversation.conversationId]
             )
         }
+
+        await deleteExpiredConversationRow(conversationId: conversation.conversationId)
     }
 
-    /// Deletes the cached messages of an exploded side convo to free storage.
-    /// The `DBConversation` shell is intentionally left behind so the parent
-    /// convo's inline invite row can still render as "Exploded" via the
-    /// `DBInvite → DBConversation.expiresAt` join at fetch time.
-    private func pruneExpiredSideConversationStorage(conversationId: String) async {
+    /// Deletes the expired conversation's row so the worker stops re-processing it.
+    /// Foreign-key cascade removes every child table (messages, invites, members,
+    /// local state, photo prefs, attachments). The parent convo's inline invite
+    /// row still renders as "Exploded" because that check reads
+    /// `conversationExpiresAt` from the embedded `SignedInvite` payload on
+    /// `DBMessage.invite`, not from this row.
+    private func deleteExpiredConversationRow(conversationId: String) async {
         do {
-            let deletedCount = try await databaseWriter.write { db -> Int in
-                let isSideConvo = try DBInvite
-                    .filter(DBInvite.Columns.conversationId == conversationId)
-                    .fetchCount(db) > 0
-                guard isSideConvo else { return 0 }
-                return try DBMessage
-                    .filter(DBMessage.Columns.conversationId == conversationId)
-                    .deleteAll(db)
-            }
-            if deletedCount > 0 {
-                Log.info("Pruned \(deletedCount) message(s) from expired side convo \(conversationId)")
+            try await databaseWriter.write { db in
+                _ = try DBConversation.deleteOne(db, key: conversationId)
             }
         } catch {
-            Log.error("Failed to prune messages for expired side convo \(conversationId): \(error)")
+            Log.error("Failed to delete expired DBConversation row \(conversationId): \(error)")
         }
     }
 
-    private func executeExplodeIfCreator(
+    private func executeExpirationMLSAction(
         conversation: ExpiredConversation,
         context: ExpiredConversation.OwnershipContext
     ) async {
@@ -253,17 +247,26 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
         do {
             // Don't read `currentState.inboxId` directly — it's nil during
             // `.registering` and `.error`, which would silently skip the
-            // creator-side teardown when the timer fires against an inbox
-            // that's still bootstrapping.
+            // teardown when the timer fires against an inbox that's still
+            // bootstrapping.
             let inboxReady = try await service.sessionStateManager.waitForInboxReadyResult()
             currentInboxId = inboxReady.client.inboxId
         } catch {
-            Log.error("Scheduled explode for \(conversation.conversationId) skipped: inbox never became ready (\(error))")
+            Log.error("Scheduled expiration for \(conversation.conversationId) skipped: inbox never became ready (\(error))")
             return
         }
-        guard currentInboxId == context.creatorInboxId else {
-            return
+        if currentInboxId == context.creatorInboxId {
+            await executeCreatorExplode(conversation: conversation, context: context, service: service)
+        } else {
+            await executePeerSelfLeave(conversation: conversation, service: service)
         }
+    }
+
+    private func executeCreatorExplode(
+        conversation: ExpiredConversation,
+        context: ExpiredConversation.OwnershipContext,
+        service: AnyMessagingService
+    ) async {
         let writer = service.conversationExplosionWriter()
         do {
             try await writer.explodeConversation(
@@ -273,6 +276,26 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
         } catch {
             Log.error("Scheduled explode for \(conversation.conversationId) threw: \(error)")
         }
+    }
+
+    /// Each peer walks out of the MLS group on their own rather than
+    /// waiting for the creator to kick them — if the creator is offline
+    /// past T the group would otherwise persist on the server with every
+    /// peer still subscribed, letting any in-flight peer/bot message sync
+    /// onto phantom convo rows across all peers.
+    ///
+    /// The writer swallows the known benign failures (last-member
+    /// `LeaveCantProcessed`, already-removed `NotFound::MlsGroup`) and
+    /// always follows up with `denyConsent` as belt-and-suspenders, so this
+    /// is fire-and-observe; the local cleanup above runs either way.
+    private func executePeerSelfLeave(
+        conversation: ExpiredConversation,
+        service: AnyMessagingService
+    ) async {
+        let writer = service.conversationExplosionWriter()
+        await writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversation.conversationId
+        )
     }
 }
 

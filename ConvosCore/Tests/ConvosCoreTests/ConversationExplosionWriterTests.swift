@@ -2,21 +2,20 @@
 import Foundation
 import Testing
 
-/// Sender-side coverage for the single-inbox explode flow (ADR 004 C9
-/// amendment): broadcast `ExplodeSettings`, update local `expiresAt`,
-/// remove every *other* member from the MLS group, then `leaveGroup`.
-/// `denyConsent` is the fallback when the leave call itself throws.
-/// These tests pin the call sequence and the self-filter invariant;
-/// integration coverage of the receiver side lives in
-/// `IncomingMessageWriterExplodeTests`.
-@Suite("ConversationExplosionWriter — remove-and-leave flow", .serialized)
-struct ExplodeRemoveAndLeaveTests {
+/// Sender-side coverage for the single-inbox explode flow: broadcast
+/// `ExplodeSettings`, update local `expiresAt`, remove every *other*
+/// member from the MLS group, deny consent so the creator's client
+/// doesn't re-sync the conversation. These tests pin the call sequence
+/// and the self-filter invariant; integration coverage of the receiver
+/// side lives in `IncomingMessageWriterExplodeTests`.
+@Suite("ConversationExplosionWriter — remove-and-deny flow", .serialized)
+struct ConversationExplosionWriterTests {
     private let conversationId = "conv-explode-1"
     private let selfInboxId = "inbox-self"
     private let otherA = "inbox-A"
     private let otherB = "inbox-B"
 
-    @Test("Happy path: sendExplode → updateExpiresAt → removeMembers → leaveGroup, no denyConsent")
+    @Test("Happy path: sendExplode → updateExpiresAt → removeMembers → denyConsent")
     func happyPathCallOrder() async throws {
         let fixtures = Fixtures()
 
@@ -36,7 +35,7 @@ struct ExplodeRemoveAndLeaveTests {
             Issue.record("Expected sendExplode at index 1, got \(fixtures.operations.calls[1])")
         }
 
-        #expect(fixtures.operations.calls[2] == .leaveGroup(conversationId: conversationId))
+        #expect(fixtures.operations.calls[2] == .denyConsent(conversationId: conversationId))
 
         #expect(fixtures.metadataWriter.updatedExpiresAt.count == 1)
         #expect(fixtures.metadataWriter.updatedExpiresAt.first?.conversationId == conversationId)
@@ -61,25 +60,9 @@ struct ExplodeRemoveAndLeaveTests {
         #expect(Set(removed) == Set([otherA, otherB]))
     }
 
-    @Test("leaveGroup failure falls back to denyConsent; writer still succeeds")
-    func leaveFailureFallsBackToDenyConsent() async throws {
+    @Test("denyConsent failure is swallowed, not rethrown")
+    func denyConsentFailureIsSwallowed() async throws {
         let fixtures = Fixtures()
-        fixtures.operations.failLeaveGroup(with: StubError.leaveFailed)
-
-        try await fixtures.writer.explodeConversation(
-            conversationId: conversationId,
-            memberInboxIds: [selfInboxId, otherA]
-        )
-
-        // currentInboxId → sendExplode → leaveGroup (throws) → denyConsent
-        #expect(fixtures.operations.calls.count == 4)
-        #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
-    }
-
-    @Test("Both leaveGroup and denyConsent failing is swallowed, not rethrown")
-    func bothLeavePathsFailingIsSwallowed() async throws {
-        let fixtures = Fixtures()
-        fixtures.operations.failLeaveGroup(with: StubError.leaveFailed)
         fixtures.operations.failDenyConsent(with: StubError.consentFailed)
 
         try await fixtures.writer.explodeConversation(
@@ -90,14 +73,15 @@ struct ExplodeRemoveAndLeaveTests {
         #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
     }
 
-    @Test("sendExplode failure is logged but does not abort MLS teardown")
+    @Test("sendExplode failure is logged but does not abort the remaining legs")
     func sendExplodeFailureDoesNotAbortFlow() async throws {
-        // MLS teardown (removeMembers + leaveGroup) is the source of truth
-        // for "group ends"; the ExplodeSettings codec message is a best-effort
-        // hint so receivers can hide the conversation ahead of the MLS commit
-        // arriving. If sendExplode flakes, the remaining legs must still run —
-        // partial-destruction (message went out but group still has all
-        // members) is strictly worse than a full best-effort sweep.
+        // `removeMembers` is the source of truth for "group ends" from the
+        // other participants' perspective; the ExplodeSettings codec
+        // message is a best-effort hint so receivers can hide the
+        // conversation ahead of the MLS commit arriving. If sendExplode
+        // flakes, the remaining legs must still run — partial destruction
+        // (message went out but group still has all members) is strictly
+        // worse than a full best-effort sweep.
         let fixtures = Fixtures()
         fixtures.operations.failSendExplode(with: StubError.sendFailed)
 
@@ -106,16 +90,14 @@ struct ExplodeRemoveAndLeaveTests {
             memberInboxIds: [selfInboxId, otherA]
         )
 
-        // currentInboxId → sendExplode (fails) → leaveGroup still fires.
         #expect(fixtures.operations.calls.count == 3)
-        #expect(fixtures.operations.calls.last == .leaveGroup(conversationId: conversationId))
-        // Local expiresAt + removeMembers both land despite the send failure.
+        #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
         #expect(fixtures.metadataWriter.updatedExpiresAt.count == 1)
         #expect(fixtures.metadataWriter.removedMembers.count == 1)
     }
 
-    @Test("metadataWriter.removeMembers failure does not prevent leaveGroup")
-    func removeMembersFailureStillLeaves() async throws {
+    @Test("metadataWriter.removeMembers failure does not prevent denyConsent")
+    func removeMembersFailureStillDeniesConsent() async throws {
         let fixtures = Fixtures()
         fixtures.metadataWriter.removeMembersError = StubError.removeFailed
 
@@ -124,23 +106,21 @@ struct ExplodeRemoveAndLeaveTests {
             memberInboxIds: [selfInboxId, otherA]
         )
 
-        #expect(fixtures.operations.calls.last == .leaveGroup(conversationId: conversationId))
+        #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
     }
 
     @Test("currentInboxId throw aborts before any MLS call — session not ready")
     func currentInboxIdThrowAbortsEarly() async throws {
         // If the session never reports ready (keychain load failure, XMTP
         // bootstrap stuck), the writer should propagate and land nothing.
-        // Pre-refactor this path was never asserted — adding it pins the
-        // contract that explode requires a ready session at entry.
         let fixtures = Fixtures()
         final class ThrowingOperations: ExplodeGroupOperationsProtocol, @unchecked Sendable {
             func currentInboxId() async throws -> String {
                 throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: "session not ready"])
             }
             func sendExplode(conversationId: String, expiresAt: Date) async throws {}
-            func leaveGroup(conversationId: String) async throws {}
             func denyConsent(conversationId: String) async throws {}
+            func peerLeaveExpiredGroup(conversationId: String) async throws {}
         }
         let throwing = ThrowingOperations()
         let writer = ConversationExplosionWriter(
@@ -158,21 +138,18 @@ struct ExplodeRemoveAndLeaveTests {
             // Expected
         }
 
-        // Writer aborted before any MLS call or metadata write.
         #expect(fixtures.metadataWriter.updatedExpiresAt.isEmpty)
         #expect(fixtures.metadataWriter.removedMembers.isEmpty)
     }
 
-    @Test("All three MLS calls fail — writer completes without throwing; denyConsent runs as leave fallback")
+    @Test("Both MLS calls fail — writer completes without throwing")
     func allMLSOperationsFailingDoesNotThrow() async throws {
-        // The category-collapse fix: no single leg's failure aborts the
-        // other legs. Even if sendExplode, leaveGroup, and denyConsent
-        // all fail, the writer still completes and metadataWriter still
-        // gets its calls — a best-effort sweep is strictly better than
-        // partial destruction.
+        // No single leg's failure aborts the other legs. Even if
+        // sendExplode and denyConsent both fail, the writer still
+        // completes and metadataWriter still gets its calls — a
+        // best-effort sweep is strictly better than partial destruction.
         let fixtures = Fixtures()
         fixtures.operations.failSendExplode(with: StubError.sendFailed)
-        fixtures.operations.failLeaveGroup(with: StubError.leaveFailed)
         fixtures.operations.failDenyConsent(with: StubError.consentFailed)
 
         try await fixtures.writer.explodeConversation(
@@ -180,18 +157,110 @@ struct ExplodeRemoveAndLeaveTests {
             memberInboxIds: [selfInboxId, otherA]
         )
 
-        // sendExplode, leaveGroup, denyConsent all recorded even though
-        // each threw; metadata writes still landed.
         let calls = fixtures.operations.calls
         #expect(calls.contains { if case .sendExplode = $0 { return true } else { return false } })
-        #expect(calls.contains(.leaveGroup(conversationId: conversationId)))
         #expect(calls.contains(.denyConsent(conversationId: conversationId)))
         #expect(fixtures.metadataWriter.updatedExpiresAt.count == 1)
         #expect(fixtures.metadataWriter.removedMembers.count == 1)
     }
 
-    @Test("scheduleExplosion sends the message and records expiresAt; never touches leaveGroup")
-    func scheduleExplosionDoesNotLeaveGroup() async throws {
+    @Test("peer self-leave: leaveGroup → denyConsent in order")
+    func peerSelfLeaveCallOrder() async throws {
+        let fixtures = Fixtures()
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        let calls = fixtures.operations.calls
+        #expect(calls.count == 2, "Expected leaveGroup + denyConsent, got \(calls)")
+        #expect(calls.first == .peerLeaveExpiredGroup(conversationId: conversationId))
+        #expect(calls.last == .denyConsent(conversationId: conversationId))
+    }
+
+    @Test("peer self-leave: swallows LeaveCantProcessed (last member) and still denies consent")
+    func peerSelfLeaveSwallowsLastMember() async throws {
+        // libxmtp rejects the 1 → 0 MLS commit when we're the only member
+        // left. The whole point of each peer leaving independently is that
+        // the zombie outcome is acceptable — same shape as today's
+        // creator-only zombie, just potentially landing on a different
+        // device.
+        let fixtures = Fixtures()
+        fixtures.operations.failPeerLeave(
+            with: NSError(
+                domain: "XMTPiOS.FfiError",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "[GroupError::LeaveCantProcessed] Group error: cannot leave a group that has only one member"]
+            )
+        )
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        let calls = fixtures.operations.calls
+        #expect(calls.contains(.peerLeaveExpiredGroup(conversationId: conversationId)))
+        #expect(calls.contains(.denyConsent(conversationId: conversationId)),
+                "denyConsent must always follow the leave attempt")
+    }
+
+    @Test("peer self-leave: swallows NotFound::MlsGroup (already kicked) and still denies consent")
+    func peerSelfLeaveSwallowsAlreadyRemoved() async throws {
+        // Creator's `removeMembers` sweep may have landed before our local
+        // cleanup ran, in which case we're no longer a member and
+        // `leaveGroup` fails. The `denyConsent` fallback still protects
+        // against re-sync of the local row.
+        let fixtures = Fixtures()
+        fixtures.operations.failPeerLeave(
+            with: NSError(
+                domain: "XMTPiOS.FfiError",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "StorageError: NotFound::MlsGroup"]
+            )
+        )
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        #expect(fixtures.operations.calls.contains(.denyConsent(conversationId: conversationId)))
+    }
+
+    @Test("peer self-leave: denyConsent runs even on an unrecognized leave failure")
+    func peerSelfLeaveDenyConsentBeltAndSuspenders() async throws {
+        // A `PoolNeedsConnection` or similar libxmtp error is not benign by
+        // our match list, but we still want the local side protected from
+        // re-sync — `denyConsent` is idempotent and cheap.
+        let fixtures = Fixtures()
+        fixtures.operations.failPeerLeave(
+            with: NSError(
+                domain: "XMTPiOS.FfiError",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "PoolNeedsConnection"]
+            )
+        )
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        #expect(fixtures.operations.calls.contains(.denyConsent(conversationId: conversationId)))
+    }
+
+    @Test("peer self-leave: denyConsent failure is swallowed")
+    func peerSelfLeaveDenyConsentFailureSwallowed() async throws {
+        let fixtures = Fixtures()
+        fixtures.operations.failDenyConsent(with: StubError.consentFailed)
+
+        await fixtures.writer.peerSelfLeaveExpiredConversation(
+            conversationId: conversationId
+        )
+
+        #expect(fixtures.operations.calls.last == .denyConsent(conversationId: conversationId))
+    }
+
+    @Test("scheduleExplosion sends the message and records expiresAt; never touches denyConsent")
+    func scheduleExplosionDoesNotDenyConsent() async throws {
         let fixtures = Fixtures()
         let expiresAt = Date().addingTimeInterval(3600)
 
@@ -208,11 +277,11 @@ struct ExplodeRemoveAndLeaveTests {
         }
         #expect(hasSend)
 
-        let hasLeave = fixtures.operations.calls.contains { call in
-            if case .leaveGroup = call { return true }
+        let hasDeny = fixtures.operations.calls.contains { call in
+            if case .denyConsent = call { return true }
             return false
         }
-        #expect(!hasLeave)
+        #expect(!hasDeny)
 
         #expect(fixtures.metadataWriter.updatedExpiresAt.first?.expiresAt == expiresAt)
     }
@@ -240,7 +309,6 @@ struct ExplodeRemoveAndLeaveTests {
 
     private enum StubError: Error {
         case sendFailed
-        case leaveFailed
         case consentFailed
         case removeFailed
     }

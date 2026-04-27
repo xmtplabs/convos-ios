@@ -12,7 +12,6 @@ public protocol ReadReceiptWriterProtocol: Sendable {
 }
 
 enum ReadReceiptWriterError: Error {
-    case missingClientProvider
     case conversationNotFound
 }
 

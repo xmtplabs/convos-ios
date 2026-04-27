@@ -4,13 +4,14 @@ import os
 /// In-memory stub for `ExplodeGroupOperationsProtocol`. Records the
 /// sequence of MLS-level calls the explosion writer makes and lets the
 /// test inject failures on individual steps — enough to assert the
-/// remove-all-then-leave flow without standing up a real XMTP group.
+/// sendExplode → removeMembers → denyConsent flow without standing up a
+/// real XMTP group.
 final class MockExplodeGroupOperations: ExplodeGroupOperationsProtocol, @unchecked Sendable {
     enum Call: Equatable, Sendable {
         case currentInboxId
         case sendExplode(conversationId: String, expiresAt: Date)
-        case leaveGroup(conversationId: String)
         case denyConsent(conversationId: String)
+        case peerLeaveExpiredGroup(conversationId: String)
     }
 
     private let lock: OSAllocatedUnfairLock<State> = .init(initialState: State())
@@ -19,8 +20,8 @@ final class MockExplodeGroupOperations: ExplodeGroupOperationsProtocol, @uncheck
         var calls: [Call] = []
         var inboxId: String = "inbox-self"
         var sendExplodeError: (any Error)?
-        var leaveGroupError: (any Error)?
         var denyConsentError: (any Error)?
+        var peerLeaveError: (any Error)?
     }
 
     var calls: [Call] { lock.withLock { $0.calls } }
@@ -33,12 +34,12 @@ final class MockExplodeGroupOperations: ExplodeGroupOperationsProtocol, @uncheck
         lock.withLock { $0.sendExplodeError = error }
     }
 
-    func failLeaveGroup(with error: any Error) {
-        lock.withLock { $0.leaveGroupError = error }
-    }
-
     func failDenyConsent(with error: any Error) {
         lock.withLock { $0.denyConsentError = error }
+    }
+
+    func failPeerLeave(with error: any Error) {
+        lock.withLock { $0.peerLeaveError = error }
     }
 
     func currentInboxId() async throws -> String {
@@ -56,18 +57,18 @@ final class MockExplodeGroupOperations: ExplodeGroupOperationsProtocol, @uncheck
         if let error { throw error }
     }
 
-    func leaveGroup(conversationId: String) async throws {
-        let error: (any Error)? = lock.withLock { state in
-            state.calls.append(.leaveGroup(conversationId: conversationId))
-            return state.leaveGroupError
-        }
-        if let error { throw error }
-    }
-
     func denyConsent(conversationId: String) async throws {
         let error: (any Error)? = lock.withLock { state in
             state.calls.append(.denyConsent(conversationId: conversationId))
             return state.denyConsentError
+        }
+        if let error { throw error }
+    }
+
+    func peerLeaveExpiredGroup(conversationId: String) async throws {
+        let error: (any Error)? = lock.withLock { state in
+            state.calls.append(.peerLeaveExpiredGroup(conversationId: conversationId))
+            return state.peerLeaveError
         }
         if let error { throw error }
     }

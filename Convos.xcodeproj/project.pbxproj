@@ -875,6 +875,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/build-phases/copy-env-config-app-clip.sh",
+				"$(SRCROOT)/Scripts/secrets-utils.sh",
 				"$(SRCROOT)/Convos/Config/$(CONFIG_FILE)",
 				"$(SRCROOT)/.env",
 			);
@@ -898,6 +899,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/build-phases/copy-env-config-main-app.sh",
+				"$(SRCROOT)/Scripts/secrets-utils.sh",
 				"$(SRCROOT)/Convos/Config/$(CONFIG_FILE)",
 				"$(SRCROOT)/.env",
 			);
@@ -906,6 +908,7 @@
 			);
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/config.json",
+				"$(SRCROOT)/NotificationService/BuildInfo.swift",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -920,6 +923,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/Scripts/build-phases/copy-env-config-notification-service.sh",
+				"$(SRCROOT)/Scripts/secrets-utils.sh",
 				"$(SRCROOT)/Convos/Config/$(CONFIG_FILE)",
 				"$(SRCROOT)/.env",
 			);

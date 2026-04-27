@@ -125,7 +125,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private var lastReadReceipts: [ReadReceiptEntry] = []
     private var lastMemberProfiles: [String: MemberProfileInfo] = [:]
     private var lastOtherMemberCount: Int = 0
-    private var lastReadByProfiles: [Profile] = []
+    private var lastReadByMembers: [ConversationMember] = []
     var sendReadReceipts: Bool = true
 
     private func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
@@ -141,9 +141,9 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             memberProfiles: memberProfiles,
             currentOtherMemberCount: currentOtherMemberCount,
             sendReadReceipts: sendReadReceipts,
-            previousReadByProfiles: lastReadByProfiles
+            previousReadByMembers: lastReadByMembers
         )
-        lastReadByProfiles = Self.extractReadByProfiles(from: items)
+        lastReadByMembers = Self.extractReadByMembers(from: items)
         scheduleAssistantJoinDismissIfNeeded(items)
         return items
     }
@@ -195,10 +195,10 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         return result
     }
 
-    private static func extractReadByProfiles(from items: [MessagesListItemType]) -> [Profile] {
+    private static func extractReadByMembers(from items: [MessagesListItemType]) -> [ConversationMember] {
         for item in items.reversed() {
             if case .messages(let group) = item, group.isLastGroupSentByCurrentUser {
-                return group.readByProfiles
+                return group.readByMembers
             }
         }
         return []

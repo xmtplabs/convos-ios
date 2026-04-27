@@ -3,9 +3,10 @@ import Foundation
 import GRDB
 
 public final class MockInboxesService: SessionManagerProtocol {
-    private let mockMessagingService: MockMessagingService = MockMessagingService()
+    private let mockMessagingService: MockMessagingService
 
-    public init() {
+    public init(mockMessagingService: MockMessagingService = MockMessagingService()) {
+        self.mockMessagingService = mockMessagingService
     }
 
     // MARK: - Inbox Management

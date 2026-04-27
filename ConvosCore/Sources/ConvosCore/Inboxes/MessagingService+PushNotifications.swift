@@ -728,11 +728,19 @@ extension MessagingService {
                     profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
                 }
 
+                let priorMemberKind = profile.memberKind
                 profile = profile.with(memberKind: update.memberKind.dbMemberKind)
 
                 if profile.isAgent {
                     let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                    if verification.isVerified {
+                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                    }
+                }
+
+                if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
+                   !profile.agentVerification.isVerified {
+                    profile = profile.with(memberKind: priorMemberKind)
                 }
 
                 try profile.save(db)
@@ -790,11 +798,19 @@ extension MessagingService {
                         )
                     }
 
+                    let priorMemberKind = profile.memberKind
                     profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
 
                     if profile.isAgent {
                         let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
-                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                        if verification.isVerified {
+                            profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                        }
+                    }
+
+                    if let priorMemberKind, priorMemberKind.agentVerification.isVerified,
+                       !profile.agentVerification.isVerified {
+                        profile = profile.with(memberKind: priorMemberKind)
                     }
 
                     try profile.save(db)
