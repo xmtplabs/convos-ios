@@ -7,6 +7,7 @@ public enum BackupError: LocalizedError {
     case noIdentityAvailable
     case noConversationsToBackUp
     case archiveKeyGenerationFailed
+    case currentInstallationRevoked
     case bundleWriteFailed(String)
 
     public var errorDescription: String? {
@@ -19,6 +20,8 @@ public enum BackupError: LocalizedError {
             return "No conversations to back up yet."
         case .archiveKeyGenerationFailed:
             return "Failed to generate a per-bundle archive key."
+        case .currentInstallationRevoked:
+            return "This device has been replaced; skipping backup."
         case .bundleWriteFailed(let reason):
             return "Failed to write backup bundle: \(reason)"
         }
@@ -130,6 +133,16 @@ public actor BackupManager {
             at: archivePath,
             encryptionKey: archiveKey
         )
+
+        let installationIsActive = await XMTPInstallationStateChecker.isInstallationActive(
+            inboxId: identity.inboxId,
+            installationId: archiveStats.installationId,
+            environment: environment
+        )
+        guard installationIsActive else {
+            Log.warning("BackupManager: current installation is revoked, skipping backup write")
+            throw BackupError.currentInstallationRevoked
+        }
 
         let innerMetadata = BackupBundleMetadata(
             deviceId: deviceInfo.deviceIdentifier,
