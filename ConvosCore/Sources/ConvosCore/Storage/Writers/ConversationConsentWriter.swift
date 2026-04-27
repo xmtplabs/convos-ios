@@ -14,7 +14,6 @@ public protocol ConversationConsentWriterProtocol {
 class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked Sendable {
     enum ConversationConsentWriterError: Error {
         case deleteAllFailedWithErrors([Error])
-        case conversationNotFound(conversationId: String)
     }
 
     private let sessionStateManager: any SessionStateManagerProtocol
@@ -93,10 +92,10 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     }
 
     /// Looks up the conversation through the `MessagingClient`
-    /// abstraction and updates its consent state via
-    /// `MessagingConversationCore.updateConsentState(_:)`. Mirrors
-    /// the prior `XMTPClientProvider.update(consent:for:)` semantics
-    /// (throws if the conversation is not found).
+    /// abstraction and updates its consent state. Logs and skips the
+    /// network-side update if the conversation is not in the local
+    /// MLS store yet — a soft "delete" / "join" should still flip the
+    /// DB row so the user-facing list reflects the action immediately.
     private func updateMessagingConsent(
         using client: any MessagingClient,
         conversationId: String,
@@ -105,9 +104,10 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
         guard let conversation = try await client.messagingConversation(
             with: conversationId
         ) else {
-            throw ConversationConsentWriterError.conversationNotFound(
-                conversationId: conversationId
+            Log.warning(
+                "ConversationConsentWriter: no messaging-side conversation for \(conversationId); skipping network consent update"
             )
+            return
         }
         try await conversation.core.updateConsentState(consent.messagingConsentState)
     }
