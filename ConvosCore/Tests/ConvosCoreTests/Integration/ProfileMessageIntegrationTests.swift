@@ -11,7 +11,7 @@ struct ProfileMessageIntegrationTests {
         _ = SecRandomCopyBytes(kSecRandomDefault, 32, &keyBytes)
         let key = Data(keyBytes)
         let options = ClientOptions(
-            api: .init(env: .local, isSecure: false, appVersion: "convos-tests/1.0.0"),
+            api: .init(env: .local, appVersion: "convos-tests/1.0.0"),
             codecs: [
                 TextCodec(),
                 ProfileUpdateCodec(),

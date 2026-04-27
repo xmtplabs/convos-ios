@@ -37,7 +37,6 @@ case "$TEST_TYPE" in
         echo ""
         echo "Environment:"
         echo "  XMTP_NODE_ADDRESS=${XMTP_NODE_ADDRESS:-not set}"
-        echo "  XMTP_IS_SECURE=${XMTP_IS_SECURE:-not set}"
         echo ""
 
         if [[ -z "${XMTP_NODE_ADDRESS:-}" ]]; then
