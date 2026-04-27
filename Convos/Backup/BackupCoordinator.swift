@@ -178,6 +178,15 @@ final class BackupCoordinator {
     /// pause/resume of the session is driven inside `RestoreManager`
     /// via `SessionManager.pauseForRestore/resumeAfterRestore`.
     func beginRestore(_ available: AvailableBackup) {
+        // Reject reentrant calls. Without this, a second tap (or a
+        // SwiftUI re-render that fires the action twice) spawns another
+        // Task that hits `RestoreError.restoreAlreadyInProgress`,
+        // catches it, then resets `isRestoring = false` while the first
+        // restore is still mid-flight — UI would falsely show "done".
+        guard !isRestoring else {
+            Log.info("BackupCoordinator: beginRestore ignored — restore already in progress")
+            return
+        }
         isRestoring = true
         restoreErrorMessageStorage = nil
         Task { [weak self] in

@@ -85,8 +85,20 @@ public struct RestoreRecoveryManager {
 
         let snapshotExists = fileManager.fileExists(atPath: snapshotURL.path)
 
-        // If the DB was replaced but we have a snapshot, roll it back.
-        if transaction.phase == .databaseReplaced, snapshotExists {
+        // If the DB was replaced but the rollback snapshot is gone (crash
+        // between snapshot write and database swap, or the artifact dir
+        // was cleared out-of-band), we cannot restore the pre-restore
+        // state. Don't pretend the rollback succeeded — fall back to
+        // `.cleared` so the caller knows the on-disk DB is now whatever
+        // partial state the interrupted restore left behind, not the
+        // user's original.
+        if transaction.phase == .databaseReplaced {
+            guard snapshotExists else {
+                return clear(
+                    transaction: transaction,
+                    reason: "DB was replaced but snapshot missing — cannot roll back"
+                )
+            }
             do {
                 try databaseManager.replaceDatabase(with: snapshotURL)
             } catch {

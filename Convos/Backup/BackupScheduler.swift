@@ -108,23 +108,35 @@ final class BackupScheduler {
     /// Manual "Back up now" from the settings view. Returns the bundle
     /// URL on success or nil on skip (restore in progress, already
     /// running, no identity). Throws on an actual backup failure.
+    /// Always schedules the next BG run on completion so a manual
+    /// trigger from a fresh install is enough to bootstrap the daily
+    /// background cadence.
     @discardableResult
     func runManualBackup() async throws -> URL? {
-        try await runIfAllowed(source: "manual", shouldRethrow: true)
+        defer { scheduleNextBackup() }
+        return try await runIfAllowed(source: "manual", shouldRethrow: true)
     }
 
     /// Runs the backup if the last successful timestamp is older than
     /// the threshold. Non-throwing — a catch-up failure logs telemetry
     /// and moves on. Safe to call repeatedly on launch + foreground.
+    /// Always schedules the next BG run on completion so the very
+    /// first foreground catch-up on a fresh install registers a
+    /// `BGProcessingTaskRequest` — without this, the app would only
+    /// ever back up while in the foreground until something else
+    /// (debug-simulated run, prior background run) seeded the BG queue.
     func runForegroundCatchUpIfNeeded() async {
         guard isRegistered else { return }
         let last = lastSuccessfulBackupAt()
         if let last, Date().timeIntervalSince(last) < Self.foregroundCatchUpThreshold {
+            // Even when the catch-up itself short-circuits, make sure
+            // the next BG slot is reserved.
+            scheduleNextBackup()
             return
         }
         Log.info("[BackupScheduler] foreground catch-up triggered (lastBackup=\(last?.description ?? "never"))")
         QAEvent.emit(.backup, "catch_up_triggered")
-        _ = try? await runIfAllowed(source: "catch_up", shouldRethrow: false)
+        await runBackupAndReschedule(source: "catch_up")
     }
 
     /// Debug-only entry so QA can exercise the BG task flow without
