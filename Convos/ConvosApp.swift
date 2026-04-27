@@ -95,6 +95,7 @@ struct ConvosApp: App {
                 quicknameViewModel: quicknameViewModel,
                 backupCoordinator: backupCoordinator
             )
+            .environment(staleDeviceObserver)
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
             .overlay(alignment: .top) {

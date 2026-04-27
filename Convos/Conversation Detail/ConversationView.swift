@@ -29,6 +29,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var didReleasePastThreshold: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
+    /// Optional because the observer is only injected in the live app —
+    /// previews and unit-test hosts construct ConversationView directly.
+    @Environment(StaleDeviceObserver.self) private var staleDeviceObserver: StaleDeviceObserver?
+
+    /// Distinguishes "this device was replaced" (Device A — its
+    /// installation got revoked when another device restored from its
+    /// backup) from the default "Restored from backup" (Device B — just
+    /// completed a restore, conversations are inactive until peers
+    /// resync).
+    private var inactiveBannerVariant: InactiveConversationBanner.Variant {
+        staleDeviceObserver?.isDeviceReplaced == true ? .deviceReplaced : .restoredFromBackup
+    }
 
     private var showPullToAddAssistant: Bool {
         !viewModel.conversation.hasAgent
@@ -180,7 +192,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     bottomBarContent()
 
                     if viewModel.isInactive {
-                        InactiveConversationBanner {
+                        InactiveConversationBanner(variant: inactiveBannerVariant) {
                             if let url = reconnectionLearnMoreURL {
                                 openURL(url)
                             }
