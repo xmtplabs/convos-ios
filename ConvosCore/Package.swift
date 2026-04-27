@@ -29,6 +29,7 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
+        .package(url: "https://github.com/devicekit/DeviceKit.git", from: "5.6.0"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
@@ -60,6 +61,7 @@ let package = Package(
             name: "ConvosCoreiOS",
             dependencies: [
                 .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
+                .product(name: "DeviceKit", package: "DeviceKit", condition: .when(platforms: [.iOS])),
             ],
             path: "Sources/ConvosCoreiOS",
             swiftSettings: [
