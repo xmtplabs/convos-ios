@@ -40,8 +40,7 @@ public struct MessagingConsentRecord: Hashable, Sendable {
 
 /// Read / write consent and kick off preference replication.
 ///
-/// Surfaced on `MessagingClient.consent`. Stage 1 only declares the
-/// protocol; Stage 2 provides the XMTPiOS-backed conformer.
+/// Surfaced on `MessagingClient.consent`.
 public protocol MessagingConsent: Sendable {
     func set(records: [MessagingConsentRecord]) async throws
     func conversationState(id: String) async throws -> MessagingConsentState

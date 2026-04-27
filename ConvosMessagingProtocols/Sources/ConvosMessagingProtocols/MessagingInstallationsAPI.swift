@@ -4,10 +4,9 @@ import Foundation
 
 /// Multi-installation management surface.
 ///
-/// Surfaced from day one (audit §1.6 + open-question #1) even though
-/// no call site drives it today. Stage 6 promotes
-/// `revokeInstallations` / `revokeAllOtherInstallations` /
-/// `inboxState` into real UI flows.
+/// Surfaced from day one even though no call site drives it today. UI
+/// flows will eventually drive `revokeInstallations` /
+/// `revokeAllOtherInstallations` / `inboxState`.
 public protocol MessagingInstallationsAPI: Sendable {
     /// Current inbox's state, including every known installation.
     func inboxState(refreshFromNetwork: Bool) async throws -> MessagingInbox

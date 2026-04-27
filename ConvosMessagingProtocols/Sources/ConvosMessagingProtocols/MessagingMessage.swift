@@ -4,11 +4,11 @@ import Foundation
 
 /// First-class delivery state for every `MessagingMessage`.
 ///
-/// Constraint per audit §3: `MessagingDeliveryStatus` is required on
-/// every message the UI sees (today mapped to `DBMessage.status` via
+/// `MessagingDeliveryStatus` is required on every message the UI sees
+/// (today mapped to `DBMessage.status` via
 /// `MessageDeliveryStatus+DBRepresentation.swift:5-14`). Preserving
 /// `.failed` and `.all` matches the libxmtp surface so the existing
-/// mapping can be swapped over in Stage 2/3 without a new case.
+/// mapping doesn't need a new case.
 public enum MessagingDeliveryStatus: String, Hashable, Sendable, Codable {
     case unpublished
     case published
@@ -144,9 +144,6 @@ public struct MessagingMessage: Sendable, Identifiable {
     /// Decoder indirection. Callers supply the expected native payload
     /// type; the implementation uses `MessagingCodecRegistry` (or an
     /// adapter-provided resolver) to decode `encodedContent`.
-    ///
-    /// Stage 1 ships the protocol shape; the concrete adapter wires
-    /// this to the codec registry in Stage 2.
     public let contentDecoder: @Sendable (MessagingEncodedContent) throws -> Any
 
     public init(

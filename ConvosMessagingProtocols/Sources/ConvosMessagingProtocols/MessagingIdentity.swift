@@ -79,8 +79,8 @@ public struct MessagingInstallation: Hashable, Sendable, Codable {
 /// The observable state of a Convos inbox.
 ///
 /// Exposes the multi-installation surface from day one so the UI layer
-/// in Stage 6+ can bind to `installations` without the abstraction
-/// having to change shape again.
+/// can bind to `installations` without the abstraction having to
+/// change shape again.
 public struct MessagingInbox: Hashable, Sendable, Codable {
     public let inboxId: MessagingInboxID
     public let identities: [MessagingIdentity]

@@ -1,10 +1,8 @@
 import ConvosMessagingProtocols
 
-/// Minimal client interface needed by InviteCoordinator.
+/// Minimal client interface needed by `InviteCoordinator`.
 ///
-/// Stage 6f Step 7: surface migrated off raw `XMTPiOS.Conversation` /
-/// `XMTPiOS.Dm` / `XMTPiOS.ConsentState` / `XMTPiOS.ConversationsOrderBy`
-/// onto the backend-agnostic `Messaging*` types. Conformers
+/// Typed against the backend-agnostic `Messaging*` types. Conformers
 /// (`InviteClientProviderAdapter` for the XMTPiOS path, future DTU
 /// adapter) bridge to/from their underlying SDK as needed.
 public protocol InviteClientProvider {

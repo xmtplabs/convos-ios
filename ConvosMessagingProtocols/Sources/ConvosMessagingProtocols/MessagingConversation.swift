@@ -6,9 +6,7 @@ import Foundation
 ///
 /// The enum shape is preserved deliberately: Convos pattern-matches
 /// on `.group(...) / .dm(...)` throughout sync (see
-/// `StreamProcessor.swift:187`, `ConversationWriter`, etc.). Stage 2
-/// will wire adapter-provided conformers of `MessagingGroup` and
-/// `MessagingDm` into these cases.
+/// `StreamProcessor.swift:187`, `ConversationWriter`, etc.).
 public enum MessagingConversation: Identifiable, Sendable {
     case group(any MessagingGroup)
     case dm(any MessagingDm)
@@ -83,8 +81,8 @@ public protocol MessagingConversationCore: AnyObject, Sendable {
         onClose: (@Sendable () -> Void)?
     ) -> MessagingStream<MessagingMessage>
 
-    // Multi-installation (audit §1.6): expose HMAC / push topics now
-    // so device-sync work in Stage 5+ does not need another API change.
+    // Multi-installation: expose HMAC / push topics so device-sync work
+    // does not need another API change.
     func getHmacKeys() async throws -> MessagingHmacKeys
     func getPushTopics() async throws -> [String]
 
@@ -152,7 +150,7 @@ public protocol MessagingGroup: MessagingConversationCore {
     func listSuperAdmins() async throws -> [MessagingInboxID]
     func isActive() async throws -> Bool
 
-    // Stage 3 migration: admin-management methods consumed by
+    // Admin-management methods consumed by
     // `ConversationMetadataWriter`. Mirror the `XMTPiOS.Group`
     // `addAdmin(inboxId:)` / `removeAdmin(inboxId:)` /
     // `addSuperAdmin(inboxId:)` / `removeSuperAdmin(inboxId:)` surface.

@@ -34,7 +34,7 @@ public struct MessagingClientConfig: Sendable {
     public var dbDirectory: String?
 
     /// Toggles device-sync. Convos currently sets `false`
-    /// (`InboxStateMachine.swift:1119`); flipping this is the Stage 5+
+    /// (`InboxStateMachine.swift:1119`); flipping this is the
     /// multi-installation gate.
     public var deviceSyncEnabled: Bool
 

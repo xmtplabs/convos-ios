@@ -5,20 +5,16 @@ import XMTPDTU
 
 /// DTU-backed concrete factory for constructing `DTUMessagingClient` instances.
 ///
-/// Parallels `XMTPiOSMessagingClientFactory`: same conceptual shape (a
-/// factory that builds a messaging client from a per-instance
-/// `MessagingClientConfig`). Stage 6e Phase A flipped the
-/// `MessagingClientFactory` return type from `any XMTPClientProvider`
-/// to `any MessagingClient`, so the factories now agree on their
-/// conceptual return type.
+/// Parallels `XMTPiOSMessagingClientFactory`: same conceptual shape —
+/// a factory that builds a messaging client from a per-instance
+/// `MessagingClientConfig` and returns `any MessagingClient`.
 ///
-/// The DTU factory still does NOT conform to the `MessagingClientFactory`
-/// protocol because that protocol's `apiOptions(_:)` and `xmtpCodecs`
+/// The DTU factory does NOT conform to `MessagingClientFactory`
+/// because that protocol's `apiOptions(_:)` and `xmtpCodecs`
 /// parameters are XMTPiOS-typed (`ClientOptions.Api`,
-/// `[any ContentCodec]`). Pulling XMTPiOS in would defeat the purpose
-/// of the separate `ConvosCoreDTU` package. Phase B retires both of
-/// those XMTPiOS leftovers from the protocol; at that point the DTU
-/// factory can conform.
+/// `[any ContentCodec]`). Pulling XMTPiOS into this package would
+/// defeat the purpose of having a separate `ConvosCoreDTU`; conform
+/// once those XMTPiOS leftovers retire from the protocol.
 ///
 /// In the meantime, this factory exposes its own narrower entry points:
 /// `createClient(...)` and `buildClient(...)`, both returning
@@ -44,8 +40,7 @@ public struct DTUMessagingClientFactory: Sendable {
     /// `config` is currently unused — DTU's engine doesn't consult the
     /// `dbEncryptionKey` / `dbDirectory` / `apiEnv` knobs that the
     /// XMTPiOS factory does. Kept in the signature to mirror the
-    /// reference factory's shape so a Stage 6+ refactor can swap in
-    /// either backend from the same call site.
+    /// reference factory's shape so call sites can swap backends.
     public func createClient(
         signer: any MessagingSigner,
         config: MessagingClientConfig

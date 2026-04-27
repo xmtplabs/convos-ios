@@ -167,10 +167,10 @@ public extension MessagingMessage {
     /// The `contentDecoder` is a synchronous closure per the
     /// abstraction's protocol; the shared `MessagingCodecRegistry` is
     /// actor-isolated (`await`), so we can't reach it from this
-    /// closure. We take the same fast-path the XMTPiOS storage
-    /// translator takes for text content and return the raw bytes for
-    /// anything else. A Stage 6+ codec-registry rewrite would remove
-    /// this split (see audit §5 Stage 6).
+    /// closure. Take the same fast-path the XMTPiOS storage translator
+    /// takes for text content and return the raw bytes for anything
+    /// else; a synchronous codec-registry rewrite would remove this
+    /// split.
     init(
         _ dtu: XMTPDTU.NormalizedMessage,
         conversationId: String,

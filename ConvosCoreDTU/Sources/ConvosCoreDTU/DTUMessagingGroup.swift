@@ -422,12 +422,11 @@ public final class DTUMessagingGroup: MessagingGroup, @unchecked Sendable {
         return entries.first { $0.alias == id }?.isActive ?? false
     }
 
-    // MARK: - Admin management (Stage 3)
+    // MARK: - Admin management
 
-    /// Stage 3 migration: the DTU engine doesn't model admin /
-    /// super-admin mutation yet. Throw a scoped not-supported error
-    /// so callers that reach for these surfaces fail loudly on a
-    /// DTU-backed client.
+    /// The DTU engine doesn't model admin / super-admin mutation yet.
+    /// Throw a scoped not-supported error so callers that reach for
+    /// these surfaces fail loudly on a DTU-backed client.
     public func addAdmin(inboxId: MessagingInboxID) async throws {
         throw DTUMessagingNotSupportedError(
             method: "MessagingGroup.addAdmin",

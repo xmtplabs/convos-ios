@@ -7,11 +7,8 @@ import Security
 
 /// Protocol for reading and writing invite tags in group metadata.
 ///
-/// Stage 6f Step 7: surface migrated off `XMTPiOS.Group` onto
-/// `any MessagingGroup`, matching the
-/// `InviteClientProvider`/`InviteCoordinator` lift. Methods are now
-/// async to match `MessagingGroup.appData()` /
-/// `MessagingGroup.updateAppData(_:)`.
+/// Typed against `any MessagingGroup`; methods are async to match
+/// `MessagingGroup.appData()` / `MessagingGroup.updateAppData(_:)`.
 public protocol InviteTagStorageProtocol: Sendable {
     /// Get the invite tag for a group
     func getInviteTag(for group: any MessagingGroup) async throws -> String

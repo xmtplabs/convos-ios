@@ -8,8 +8,8 @@ import Foundation
 /// XMTPiOS-specific capabilities — device-sync archives, HMAC keys, push
 /// topics, signature verification — either live outside the engine or have
 /// not yet been modeled. Methods that fall into that bucket throw this
-/// error rather than silently no-op so a Stage 5+ migration can handle the
-/// gap explicitly (e.g. FIXME or test-skip).
+/// error rather than silently no-op so callers can handle the gap
+/// explicitly (e.g. FIXME or test-skip).
 ///
 /// Each case carries the abstraction-level method name that was called plus
 /// a human reason. Callers can switch on the method name for targeted

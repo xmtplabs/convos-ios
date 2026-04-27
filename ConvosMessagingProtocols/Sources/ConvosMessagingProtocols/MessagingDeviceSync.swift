@@ -58,9 +58,9 @@ public struct MessagingArchiveOptions: Sendable {
 /// Device-sync surface used by multi-installation replication.
 ///
 /// Not currently called in Convos (`deviceSyncEnabled: false` in
-/// `InboxStateMachine.swift:1119`, audit open question #3), but the
-/// abstraction carries it so Stage 5+ does not need to add a new
-/// top-level API.
+/// `InboxStateMachine.swift:1119`), but the abstraction carries it so
+/// future multi-installation work does not need to add a new top-level
+/// API.
 public protocol MessagingDeviceSync: Sendable {
     func sendSyncRequest(
         options: MessagingArchiveOptions,

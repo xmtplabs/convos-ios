@@ -11,10 +11,9 @@ import XMTPDTU
 ///
 /// Convos today sets `deviceSyncEnabled: false` in
 /// `InboxStateMachine.swift:1119`, so these methods are not called on
-/// the production path. They're in the abstraction from day one per
-/// audit §1.6 so the Stage 5+ multi-installation work doesn't need a
-/// new protocol; the DTU adapter stays correct for that Stage 5+
-/// scenario as long as Convos keeps device-sync off.
+/// the production path. They're in the abstraction so future
+/// multi-installation work doesn't need a new protocol; the DTU
+/// adapter stays correct as long as Convos keeps device-sync off.
 public final class DTUMessagingDeviceSync: MessagingDeviceSync, @unchecked Sendable {
     let context: DTUMessagingClientContext
 

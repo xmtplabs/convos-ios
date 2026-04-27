@@ -151,15 +151,13 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     /// Processes a `MessagingMessage` for a join-request payload.
     ///
-    /// Stage 6f Step 8 retyped this from `XMTPiOS.DecodedMessage` onto
-    /// `MessagingMessage` so the coordinator's public surface is
-    /// independent of the underlying messaging SDK. The XMTPiOS adapter
-    /// supplies a `MessagingMessage` via `MessagingMessage(decoded)`;
-    /// the DTU adapter populates the same struct natively. Decoded
-    /// content is read directly off `encodedContent` (raw bytes) rather
-    /// than via `DecodedMessage.content()` so this overload works
-    /// regardless of whether the content has been registered with the
-    /// codec registry on the underlying SDK.
+    /// The coordinator's public surface is independent of the
+    /// underlying messaging SDK — XMTPiOS supplies `MessagingMessage`
+    /// via `MessagingMessage(decoded)`, and DTU populates the same
+    /// struct natively. Decoded content is read directly off
+    /// `encodedContent` (raw bytes) so this works regardless of
+    /// whether the content type has been registered on the underlying
+    /// codec registry.
     public func processMessage(
         _ message: MessagingMessage,
         client: any InviteClientProvider
@@ -476,9 +474,9 @@ extension Date {
 // MARK: - MessagingDm Extension
 
 extension MessagingDm {
-    /// Stage 6f Step 7: relocated from `XMTPiOS.Dm` to `MessagingDm`
-    /// so the body works against the abstraction surface (DTU + XMTPiOS
-    /// both back this method).
+    /// Tries to decode the most recent message in this DM as a signed
+    /// invite (joinRequest or text-encoded slug). Backed by the
+    /// abstraction surface so DTU + XMTPiOS both work.
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
         guard let lastMessage = try? await self.lastMessage(),
               lastMessage.senderInboxId == clientInboxId else {

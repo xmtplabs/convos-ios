@@ -28,11 +28,11 @@ public protocol MessagingCodec: Sendable {
 
 /// Per-process registry mapping `MessagingContentType` to a codec.
 ///
-/// Audit open question #10 flags whether this should be per-process
-/// (matching XMTPiOS's `Client.codecRegistry` singleton) or per-client
-/// (so parallel tests do not collide). We keep an actor-based shared
-/// singleton for Stage 1 because that matches the status quo; the
-/// refactor that makes it per-client is trivial once adapters land.
+/// Whether this should be per-process (matching XMTPiOS's
+/// `Client.codecRegistry` singleton) or per-client (so parallel tests
+/// do not collide) is an open question. We keep an actor-based shared
+/// singleton because that matches the status quo; making it per-client
+/// is trivial once adapters land.
 public actor MessagingCodecRegistry {
     public static let shared: MessagingCodecRegistry = MessagingCodecRegistry()
 
