@@ -168,9 +168,7 @@ fileprivate extension MessagingCommitLogForkStatus {
 /// adapter and throws a clear error on any other backend.
 enum MessagingWriterBridge {
     /// Send a read-receipt on a `MessagingConversation`.
-    /// FIXME: surface `sendReadReceipt()` on
-    /// `MessagingConversationCore` once `ReadReceiptCodec` migrates
-    /// onto the abstraction.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
     static func sendReadReceipt(
         conversation: MessagingConversation
     ) async throws {
@@ -184,9 +182,7 @@ enum MessagingWriterBridge {
     }
 
     /// Send a text reply on a `MessagingConversation`.
-    /// FIXME: `Reply` / `ContentTypeText` / `ContentTypeReply` are
-    /// XMTPiOS XIP codec values. Surface a Messaging* equivalent once
-    /// the codecs migrate onto the abstraction.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
     @discardableResult
     static func sendTextReply(
         conversation: MessagingConversation,
@@ -238,10 +234,7 @@ enum MessagingWriterBridge {
     }
 
     /// Send a reaction on a `MessagingConversation`.
-    /// FIXME: the `Reaction` struct + `ReactionV2Codec` are XMTPiOS
-    /// XIP values. Once the codecs migrate onto the abstraction,
-    /// reimplement via
-    /// `conversation.core.sendOptimistic(encodedContent:options:)`.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
     static func sendReaction(
         conversation: MessagingConversation,
         reference: String,
@@ -271,8 +264,7 @@ enum MessagingWriterBridge {
     }
 
     /// Send an `ExplodeSettings` message on a `MessagingConversation`.
-    /// FIXME: the `ExplodeSettingsCodec` is Convos-custom and still
-    /// lives on the XMTPiOS side.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
     static func sendExplode(
         conversation: MessagingConversation,
         expiresAt: Date
@@ -288,12 +280,7 @@ enum MessagingWriterBridge {
 
     // MARK: - Outgoing attachment / reply send bridges
     //
-    // FIXME: `Attachment`, `RemoteAttachment`, `Reply`, `AttachmentCodec`,
-    // `ContentTypeRemoteAttachment`, and the
-    // `MessageSender.prepare(reply:)` / `prepare(remoteAttachment:)` /
-    // `prepare(text:)` surface all live in XMTPiOS today. These bridges
-    // let `OutgoingMessageWriter` stay XMTPiOS-free while the codec
-    // layer migrates onto the abstraction.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 
     /// Foundation-only projection of
     /// `XMTPiOS.EncryptedEncodedContent`. Mirrors the subset of fields
@@ -336,9 +323,7 @@ enum MessagingWriterBridge {
     /// `MessagingConversation`. Downcasts to the XMTPiOS adapter so the
     /// XIP `prepareMessage(content: String)` call stays SDK-side; throws
     /// on non-XMTPiOS backends. Returns the opaque prepared message id.
-    /// FIXME: once the text codec lives on the abstraction this can
-    /// route through
-    /// `MessagingConversationCore.prepare(encodedContent:options:)`.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
     static func prepareText(
         conversation: MessagingConversation,
         text: String
@@ -426,7 +411,7 @@ enum MessagingWriterBridgeError: Error, LocalizedError {
 /// Bridges `ConvosProfiles.ProfileSnapshotBuilder.sendSnapshot(group:
 /// memberInboxIds:)` — which still takes a raw `XMTPiOS.Group` — onto
 /// the `any MessagingGroup` surface that storage writers consume.
-/// FIXME: remove once ConvosProfiles migrates onto the abstraction.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 enum ProfileSnapshotBridge {
     static func sendSnapshot(
         group: any MessagingGroup,
@@ -445,8 +430,7 @@ enum ProfileSnapshotBridge {
 
     /// Encodes + sends a `ProfileUpdate` through the XMTPiOS codec
     /// pipeline on behalf of a `MessagingGroup` writer.
-    /// FIXME: migrate `ProfileUpdateCodec` onto the abstraction and
-    /// remove this bridge.
+    // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
     static func sendProfileUpdate(
         _ update: ProfileUpdate,
         on group: any MessagingGroup

@@ -2,12 +2,7 @@ import ConvosInvites
 import ConvosMessagingProtocols
 import Foundation
 import GRDB
-// FIXME: `@preconcurrency import XMTPiOS` remains because the inner
-// stream-processing path still pattern-matches on `XMTPiOS.Conversation`
-// and processes `XMTPiOS.DecodedMessage` directly via the
-// `StreamProcessor`. Lifting this requires either a native-handle
-// escape hatch on `MessagingMessage` or a deeper writer-surface
-// refactor.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#stream-wire-layer
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol

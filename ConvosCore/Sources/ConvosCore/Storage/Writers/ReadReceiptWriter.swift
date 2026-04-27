@@ -40,11 +40,7 @@ final class ReadReceiptWriter: ReadReceiptWriterProtocol, Sendable {
             throw ReadReceiptWriterError.conversationNotFound
         }
 
-        // FIXME: the ReadReceipt codec still lives in the XMTPiOS
-        // custom-content-types package. Fall through to the
-        // `underlyingXMTPiOSConversation` bridge until the codec
-        // migrates onto the abstraction (and `MessagingConversationCore`
-        // grows a `sendReadReceipt` hook).
+        // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
         try await sendReadReceiptViaBridge(conversation: conversation)
 
         let sentAtNs = Int64(Date().timeIntervalSince1970 * 1_000_000_000)

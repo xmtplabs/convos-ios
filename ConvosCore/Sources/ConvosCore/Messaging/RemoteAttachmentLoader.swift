@@ -1,9 +1,6 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME: `RemoteAttachment` and `AttachmentCodec` are XMTPiOS-owned
-// XIP content types not yet expressed against `MessagingCodec` /
-// `MessagingRemoteAttachmentPayload`. Once those move onto the
-// abstraction, drop this import.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 @preconcurrency import XMTPiOS
 
 public enum RemoteAttachmentLoaderError: Error {

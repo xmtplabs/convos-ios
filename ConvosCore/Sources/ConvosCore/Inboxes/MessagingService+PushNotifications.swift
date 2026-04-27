@@ -5,13 +5,7 @@ import Foundation
 import GRDB
 import UniformTypeIdentifiers
 import UserNotifications
-// FIXME: `@preconcurrency import XMTPiOS` remains because this file
-// reaches the wire-layer `XMTPiOS.Group` / `DecodedMessage` directly
-// for the welcome / group-message processing helpers. `DecodedMessage`
-// cannot be round-tripped through `MessagingMessage` because the value
-// type does not retain the native handle. Pull both behind the
-// abstraction once `MessagingMessage` carries a native-handle escape
-// hatch (or the welcome-processing helpers move into the adapter).
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#stream-wire-layer
 @preconcurrency import XMTPiOS
 
 /// Extension providing push notification specific functionality for SingleInboxAuthProcessor

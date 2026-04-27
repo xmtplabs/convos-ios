@@ -1,10 +1,6 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME: `@preconcurrency import XMTPiOS` remains because the
-// inline-attachment recovery path resolves the message's decoded
-// content as XIP-typed `Attachment` / `Reply` payloads (the codec
-// output types are XMTPiOS-owned). When the XIP payload types move
-// under `MessagingMessagePayload`, drop this import.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 @preconcurrency import XMTPiOS
 
 public enum InlineAttachmentRecoveryError: Error {

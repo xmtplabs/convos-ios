@@ -92,9 +92,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
         var currentDbId = clientMessageId
 
         do {
-            // FIXME: `Reply(...) / ContentTypeText / ContentTypeReply`
-            // are XMTPiOS XIP codec values. Until the codecs migrate to
-            // the abstraction layer, bridge through the XMTPiOS adapter.
+            // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
             let preparedMessageId = try await sendTextReplyViaBridge(
                 conversation: conversation,
                 replyText: text,

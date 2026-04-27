@@ -4,13 +4,7 @@ import ConvosProfiles
 import Foundation
 import GRDB
 import os
-// FIXME: `@preconcurrency import XMTPiOS` remains because
-// `defaultXMTPCodecs()` returns `[any XMTPiOS.ContentCodec]`. Pull
-// these behind `MessagingCodec` so this file no longer imports
-// XMTPiOS. Direct `Client.create` / `Client.build` / `ClientOptions` /
-// `XMTPEnvironment.customLocalAddress` usage already routes through
-// `XMTPiOSMessagingClientFactory` + `MessagingClientConfig`; signer /
-// identity parameters use `any MessagingSigner` / `MessagingIdentity`.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 @preconcurrency import XMTPiOS
 
 extension InboxStateMachine.State {

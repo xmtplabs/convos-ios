@@ -4,12 +4,7 @@ import ConvosInvites
 import ConvosMessagingProtocols
 import Foundation
 import GRDB
-// FIXME: `@preconcurrency import XMTPiOS` remains because
-// `streamProcessor.processConversation` is still typed against
-// `XMTPiOS.Group`. The optimistic group is built through
-// `MessagingClient.conversations.newGroupOptimistic()` and bridged via
-// `XMTPiOSMessagingGroup.underlyingXMTPiOSGroup`. Lift `streamProcessor`
-// onto `MessagingGroup` to drop this import.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#stream-wire-layer
 @preconcurrency import XMTPiOS
 
 public struct ConversationReadyResult: Sendable {

@@ -3,13 +3,7 @@ import ConvosMessagingProtocols
 import ConvosProfiles
 import Foundation
 import GRDB
-// FIXME: `@preconcurrency import XMTPiOS` remains because the DM
-// back-channel for the invite flow passes `XMTPiOS.DecodedMessage` and
-// `XMTPiOS.Group` through to `ConvosInvites.InviteCoordinator` /
-// `InviteClientProviderAdapter`. `ConvosInvites` is a sibling SwiftPM
-// package; promoting the `Messaging*` types into a shared package
-// (or moving the invite types out of `ConvosInvites`) would let this
-// file migrate.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#stream-wire-layer
 @preconcurrency import XMTPiOS
 
 public struct JoinRequestResult: Sendable {

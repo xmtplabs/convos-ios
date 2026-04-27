@@ -1,9 +1,6 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME: `@preconcurrency import XMTPiOS` remains because this builder
-// returns `ClientOptions.Api`. Once `MessagingClientFactory` stops
-// surfacing XMTPiOS-typed `ClientOptions.Api`, this helper can be
-// removed or reshaped.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#factory-clientoptions-api
 @preconcurrency import XMTPiOS
 
 /// Builds XMTP API options for the given environment.

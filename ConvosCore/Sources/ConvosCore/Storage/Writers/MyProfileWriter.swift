@@ -188,9 +188,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         do {
-            // FIXME: `ProfileUpdateCodec` still lives on the XMTPiOS
-            // side; flow through `ProfileSnapshotBridge` until
-            // ConvosProfiles migrates onto the abstraction.
+            // FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
             try await ProfileSnapshotBridge.sendProfileUpdate(update, on: group)
             Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
         } catch {

@@ -4,14 +4,7 @@ import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
-// FIXME: `@preconcurrency import XMTPiOS` remains because this actor
-// receives `XMTPiOS.Group` and `DecodedMessage` directly from the
-// stream sources and hands both to the storage writers and to the
-// invite-flow back-channel (`InviteJoinRequestsManager`, which also
-// takes `DecodedMessage`). The `.group / .dm` pattern match below is
-// load-bearing and is preserved identically. Drop this import once
-// `MessagingMessage` carries a native-handle escape hatch (or the
-// downstream surfaces stop needing `DecodedMessage`).
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#stream-wire-layer
 @preconcurrency import XMTPiOS
 
 // MARK: - Protocol

@@ -1,12 +1,6 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME: `@preconcurrency import XMTPiOS` remains because this factory
-// still exposes `ClientOptions.Api` for static-op callers
-// (`SleepingInboxMessageChecker`) and accepts a
-// `[any XMTPiOS.ContentCodec]` codec list. The codec list and the
-// `apiOptions(_:)` static-op return type still live on the XMTPiOS
-// side until codecs migrate onto `MessagingCodec` and the static-op
-// path retires.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 @preconcurrency import XMTPiOS
 
 /// Factory surface for building a `MessagingClient` from a per-instance

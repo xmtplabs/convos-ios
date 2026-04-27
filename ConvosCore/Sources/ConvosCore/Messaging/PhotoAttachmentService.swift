@@ -1,11 +1,6 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME: `@preconcurrency import XMTPiOS` remains because this service
-// encrypts and uploads photo attachments using the XIP-native
-// `RemoteAttachment` / `Attachment` / `AttachmentCodec` types and
-// returns them via `PreparedPhotoAttachment.remoteAttachment:
-// RemoteAttachment`. Drop this import once the XIP codec types live
-// behind `MessagingCodec` + `MessagingRemoteAttachmentPayload`.
+// FIXME: see docs/outstanding-messaging-abstraction-work.md#codec-migration
 @preconcurrency import XMTPiOS
 
 public enum PhotoAttachmentError: Error {
