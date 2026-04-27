@@ -1,4 +1,3 @@
-import CloudKit
 import ConvosCore
 import SwiftUI
 
@@ -151,7 +150,7 @@ struct BackupDebugView: View {
             snapshot.iCloudContainerReachable = FileManager.default
                 .url(forUbiquityContainerIdentifier: containerId) != nil
         }
-        snapshot.iCloudAccountStatus = await Self.iCloudAccountStatusDescription()
+        snapshot.iCloudAccountStatus = Self.iCloudAccountStatusDescription()
         snapshot.lastBackupAt = defaults.object(forKey: "convos.backup.lastSuccessfulAt") as? Date
         snapshot.flagSet = RestoreInProgressFlag.isSet(environment: environment)
         snapshot.transaction = RestoreTransactionStore.load(environment: environment)
@@ -170,25 +169,16 @@ struct BackupDebugView: View {
         self.snapshot = snapshot
     }
 
-    private static func iCloudAccountStatusDescription() async -> String {
-        await withCheckedContinuation { continuation in
-            CKContainer.default().accountStatus { status, error in
-                let description: String
-                switch status {
-                case .available: description = "available"
-                case .noAccount: description = "no iCloud account"
-                case .restricted: description = "restricted"
-                case .couldNotDetermine: description = "could not determine"
-                case .temporarilyUnavailable: description = "temporarily unavailable"
-                @unknown default: description = "unknown (\(status.rawValue))"
-                }
-                if let error {
-                    continuation.resume(returning: "\(description) — \(error.localizedDescription)")
-                } else {
-                    continuation.resume(returning: description)
-                }
-            }
+    /// Reads `FileManager.default.ubiquityIdentityToken`, which is the
+    /// non-CloudKit signal for "is the user signed into iCloud Drive on
+    /// this device". CloudKit's `CKContainer.accountStatus` would be
+    /// more granular but requires the `com.apple.developer.icloud-services`
+    /// entitlement — Convos doesn't ship that, so calling it crashes.
+    private static func iCloudAccountStatusDescription() -> String {
+        if FileManager.default.ubiquityIdentityToken != nil {
+            return "signed in (iCloud Drive token present)"
         }
+        return "no iCloud Drive token (signed out, restricted, or unavailable)"
     }
 
     /// Short fingerprint of the database key — first 8 raw bytes formatted
