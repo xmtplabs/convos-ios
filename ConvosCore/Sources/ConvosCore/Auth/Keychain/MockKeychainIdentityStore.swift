@@ -36,6 +36,11 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         state.withLock { $0 = nil }
     }
 
+    func nudgeICloudSync() throws {
+        // No iCloud Keychain to nudge in tests; in-memory state already
+        // mirrors what `save` would re-write.
+    }
+
     /// Test-only — inject an error for the next `loadSync`/`load` calls.
     /// Pass `nil` to clear.
     nonisolated func _setLoadError(_ error: (any Error)?) {

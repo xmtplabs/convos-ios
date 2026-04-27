@@ -189,6 +189,19 @@ public actor BackupManager {
         BackupBundle.cleanup(directory: stagingDir)
         cleanedUp = true
         Log.info("BackupManager: saved bundle to \(outputURL.path)")
+
+        // Nudge iCloud Keychain to push the identity now. The bundle is
+        // useless without the matching `databaseKey`; if the key hasn't
+        // synced to a paired device by the time the bundle does, restore
+        // sits in `awaitIdentityWithTimeout` until iCloud Keychain
+        // catches up. Re-writing the slot triggers a CKKS push so the
+        // two arrive together.
+        do {
+            try await identityStore.nudgeICloudSync()
+        } catch {
+            Log.warning("BackupManager: nudgeICloudSync failed (non-fatal): \(error)")
+        }
+
         return outputURL
     }
 

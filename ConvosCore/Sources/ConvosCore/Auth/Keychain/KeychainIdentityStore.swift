@@ -164,6 +164,13 @@ public protocol KeychainIdentityStoreProtocol: Actor {
 
     /// Removes the identity. Idempotent.
     func delete() throws
+
+    /// Re-writes the existing identity in place. The data does not change
+    /// — the call's purpose is to nudge iCloud Keychain (CKKS) into
+    /// scheduling a fresh sync push. Used after a successful backup write
+    /// so other Apple-ID-paired devices receive the identity at the same
+    /// time as the bundle. No-op when the slot is empty.
+    func nudgeICloudSync() throws
 }
 
 /// Secure storage for the user's XMTP identity keys in the device keychain.
@@ -234,6 +241,20 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             accessGroup: keychainAccessGroup
         )
         try deleteData(with: query)
+    }
+
+    public func nudgeICloudSync() throws {
+        guard let existing = try loadSync() else {
+            return
+        }
+        // `save` does an in-place update via `SecItemUpdate` when the
+        // slot is already populated. The byte payload is identical, but
+        // the update is enough to make CKKS schedule a sync push.
+        _ = try save(
+            inboxId: existing.inboxId,
+            clientId: existing.clientId,
+            keys: existing.keys
+        )
     }
 
     // MARK: - Generic Keychain Operations
