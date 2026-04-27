@@ -617,30 +617,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Installation-active check. If a peer device ran restore and
-        // revoked this installation in the tail of its flow, we need to
-        // surface the replacement rather than quietly hand the user a
-        // session whose inbox writes will all bounce. DeviceReplacedError
-        // is a TerminalSessionError so the foreground-retry path won't
-        // silently cycle out of it.
-        if try await !Self.isInstallationActive(
-            inboxId: client.inboxId,
-            installationId: client.installationId,
-            environment: environment
-        ) {
-            Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
-            // Flip every local conversation to inactive so the UI greys
-            // out the composer immediately. The StaleDeviceBanner is
-            // still the primary reset path; this makes each conversation
-            // individually correct even before the user taps Reset.
-            do {
-                try await ConversationLocalStateWriter(databaseWriter: databaseWriter)
-                    .markAllConversationsInactive()
-            } catch {
-                Log.warning("SessionStateMachine: failed to mark conversations inactive on device replacement: \(error)")
-            }
-            throw DeviceReplacedError()
-        }
+        try await assertInstallationActive(client: client)
 
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
@@ -788,6 +765,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("App entering foreground, resuming sync for clientId \(initialClientId)...")
 
         try await result.client.reconnectLocalDatabase()
+        do {
+            try await assertInstallationActive(client: result.client)
+        } catch {
+            try? result.client.dropLocalDatabaseConnection()
+            throw error
+        }
 
         await startNetworkMonitoring()
         await syncingManager?.resume()
@@ -1045,34 +1028,25 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private static let backendAuthMaxRetries: Int = 3
     private static let backendAuthBaseDelay: UInt64 = 2_000_000_000
 
-    /// Returns `true` if `installationId` is in the inbox's active
-    /// installations list, per the XMTP identity API. Swallowed into `true`
-    /// if the network check fails — a transient API error should not
-    /// spuriously lock the user out. Genuine revocations return a clean
-    /// "not in list" answer that this method surfaces as `false`.
-    /// Skipped in the testing environment (`.tests`) because the XMTP
-    /// local-node endpoint doesn't stabilize within unit-test timing.
-    private static func isInstallationActive(
-        inboxId: String,
-        installationId: String,
-        environment: AppEnvironment
-    ) async throws -> Bool {
-        if environment.isTestingEnvironment {
-            return true
+    private func assertInstallationActive(client: any XMTPClientProvider) async throws {
+        // If a peer device ran restore and revoked this installation in the
+        // tail of its flow, surface the replacement rather than quietly hand
+        // the user a session whose inbox writes will all bounce.
+        if await XMTPInstallationStateChecker.isInstallationActive(
+            inboxId: client.inboxId,
+            installationId: client.installationId,
+            environment: environment
+        ) {
+            return
         }
-        let api = XMTPAPIOptionsBuilder.build(environment: environment)
-        let states: [XMTPiOS.InboxState]
+        Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
         do {
-            states = try await Client.inboxStatesForInboxIds(inboxIds: [inboxId], api: api)
+            try await ConversationLocalStateWriter(databaseWriter: databaseWriter)
+                .markAllConversationsInactive()
         } catch {
-            Log.warning("SessionStateMachine: inbox-state check failed, treating as active: \(error)")
-            return true
+            Log.warning("SessionStateMachine: failed to mark conversations inactive on device replacement: \(error)")
         }
-        guard let state = states.first else {
-            Log.warning("SessionStateMachine: empty inbox state, treating as active")
-            return true
-        }
-        return state.installations.contains { $0.id == installationId }
+        throw DeviceReplacedError()
     }
 
     private func authenticateBackend() async throws {
