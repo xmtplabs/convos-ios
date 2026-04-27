@@ -52,3 +52,11 @@ public struct RestoreDecisionPendingError: Error, LocalizedError {
 
     public init() {}
 }
+
+public struct RestoreInProgressSessionError: Error, LocalizedError {
+    public var errorDescription: String? {
+        "Restore is in progress. The session will resume when it finishes."
+    }
+
+    public init() {}
+}

@@ -261,8 +261,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // throwaway XMTP client holds the SQLCipher pool open for the
             // archive-import window; any other accessor must wait out the
             // pause rather than building a second client on the same DB.
-            if isRestoringInProcess, let existing = cached {
-                return existing
+            if isRestoringInProcess {
+                if let existing = cached {
+                    return existing
+                }
+                Log.info("SessionManager: session construction blocked while restore is in progress")
+                let placeholder = MessagingService(
+                    identityReadFailure: RestoreInProgressSessionError(),
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    identityStore: identityStore,
+                    environment: environment,
+                    backgroundUploadManager: platformProviders.backgroundUploadManager
+                )
+                cached = placeholder
+                return placeholder
             }
 
             let previousWasErrored: Bool
@@ -319,7 +332,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 return errored
             }
 
-            // Bootstrap gate: block ALL session construction — both the
+            // Bootstrap gate: block all session construction — both the
             // .register branch (no identity present) and the .authorize
             // branch (identity synced via iCloud Keychain from another
             // device) — until the app-layer BackupCoordinator resolves
