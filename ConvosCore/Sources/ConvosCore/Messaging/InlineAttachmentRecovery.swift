@@ -1,12 +1,10 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME(stage6e-residual): `@preconcurrency import XMTPiOS` remains
-// because the inline-attachment recovery path resolves the message's
-// decoded content as XIP-typed `Attachment` / `Reply` payloads (the
-// codec output types are XMTPiOS-owned). The provider entry-point has
-// migrated to `MessagingConversations.findMessage` (Stage 6e Phase B-2);
-// when the XIP payload types move under `MessagingMessagePayload` the
-// XMTPiOS import drops.
+// FIXME: `@preconcurrency import XMTPiOS` remains because the
+// inline-attachment recovery path resolves the message's decoded
+// content as XIP-typed `Attachment` / `Reply` payloads (the codec
+// output types are XMTPiOS-owned). When the XIP payload types move
+// under `MessagingMessagePayload`, drop this import.
 @preconcurrency import XMTPiOS
 
 public enum InlineAttachmentRecoveryError: Error {
@@ -22,11 +20,9 @@ public actor InlineAttachmentRecovery {
 
     private init() {}
 
-    /// Stage 6e Phase B-2: provider migrated from the legacy
-    /// `ConversationsProvider` (XMTPiOS-typed) to the abstraction's
-    /// `MessagingConversations`. The XIP-payload resolution still uses
-    /// XMTPiOS-typed `Attachment` / `Reply` content because the codec
-    /// payload types are owned by XMTPiOS.
+    /// The XIP-payload resolution uses XMTPiOS-typed `Attachment` /
+    /// `Reply` content because the codec payload types are owned by
+    /// XMTPiOS.
     public func setProvider(_ provider: (any MessagingConversations)?) {
         self.provider = provider
     }

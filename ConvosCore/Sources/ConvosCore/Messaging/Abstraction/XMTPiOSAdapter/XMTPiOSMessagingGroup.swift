@@ -22,11 +22,10 @@ public final class XMTPiOSMessagingGroup: MessagingGroup, @unchecked Sendable {
         self.xmtpGroup = xmtpGroup
     }
 
-    // Stage 4 bridge — remove when Stage 3 writers migrate.
-    // Stage 4 callers hold `any MessagingGroup` but the Storage/Writers
-    // layer still takes raw `XMTPiOS.Group`. Callers downcast to
-    // `XMTPiOSMessagingGroup` and reach through this accessor until the
-    // writers are migrated. No new consumers should take this path.
+    // Native handle escape hatch for XMTPiOS-typed surfaces (codecs,
+    // notification chain). Callers downcast to `XMTPiOSMessagingGroup`
+    // and reach through this accessor; no new consumers should take
+    // this path.
     public var underlyingXMTPiOSGroup: XMTPiOS.Group { xmtpGroup }
 
     // MARK: - MessagingConversationCore
@@ -220,7 +219,7 @@ public final class XMTPiOSMessagingGroup: MessagingGroup, @unchecked Sendable {
         try xmtpGroup.isActive()
     }
 
-    // MARK: - Admin management (Stage 3)
+    // MARK: - Admin management
 
     public func addAdmin(inboxId: MessagingInboxID) async throws {
         try await xmtpGroup.addAdmin(inboxId: inboxId)

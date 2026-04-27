@@ -2,28 +2,24 @@ import ConvosMessagingProtocols
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Value-type mappers between the Convos-owned messaging abstraction and
-/// `XMTPiOS`.
-///
-/// Audit §5.2 scope: `MessagingIdentity <-> PublicIdentity`,
+/// Value-type mappers between the Convos-owned messaging abstraction
+/// and `XMTPiOS`. Covers `MessagingIdentity <-> PublicIdentity`,
 /// `MessagingPermission <-> PermissionOption`,
 /// `MessagingMemberRole <-> PermissionLevel`,
 /// `MessagingInstallation <-> Installation`,
 /// `MessagingInbox <-> InboxState`, `MessagingHmacKey(s)`,
-/// `MessagingSyncSummary`, `MessagingPermissionPolicySet`,
+/// `MessagingSyncSummary`, `MessagingPermissionPolicySet`, and
 /// `MessagingMember`.
 ///
 /// `MessagingConsentState`, `MessagingDeliveryStatus`,
 /// `MessagingEncodedContent`, `MessagingContentType`, and
-/// `MessagingReaction` already live at the storage-boundary layer
+/// `MessagingReaction` mappers live at the storage-boundary layer
 /// (`Storage/XMTP DB Representations/`, `Storage/Repositories/DB XMTP
-/// Representations/`) from the Stage 1 leaf migrations; those are kept
-/// where they are so the DBMessage translator keeps working unchanged.
+/// Representations/`); they sit beside the DBMessage translator that
+/// consumes them.
 ///
 /// Every mapper lives on the abstraction-side type (e.g.
-/// `MessagingIdentity.init(_ publicIdentity:)`), matching the convention
-/// set by `MessagingDeliveryStatus(_: XMTPiOS.MessageDeliveryStatus)` and
-/// `MessagingConsentState(_: XMTPiOS.ConsentState)`.
+/// `MessagingIdentity.init(_ publicIdentity:)`).
 
 // MARK: - Identity
 
@@ -182,8 +178,8 @@ public extension MessagingHmacKeys {
 
 // `MessagingConversationDebugInfo.init(_ xmtpDebugInfo:)` and
 // `MessagingCommitLogForkStatus.init(_ xmtpStatus:)` live in
-// `Extensions/Conversation+ExportDebugInfo.swift` from the Stage 1
-// leaf migration. No duplicate needed here.
+// `Extensions/Conversation+ExportDebugInfo.swift`. No duplicate
+// needed here.
 
 // MARK: - Message metadata
 
@@ -240,8 +236,8 @@ public extension XMTPiOS.SortDirection {
 
 public extension MessagingDeliveryStatus {
     /// Adapter-side projection back onto XMTPiOS for filter queries.
-    /// The forward direction lives in the Stage 1 leaf
-    /// (`MessageDeliveryStatus+DBRepresentation.swift`).
+    /// The forward direction lives in
+    /// `MessageDeliveryStatus+DBRepresentation.swift`.
     var xmtpMessageDeliveryStatus: XMTPiOS.MessageDeliveryStatus {
         switch self {
         case .failed: return .failed

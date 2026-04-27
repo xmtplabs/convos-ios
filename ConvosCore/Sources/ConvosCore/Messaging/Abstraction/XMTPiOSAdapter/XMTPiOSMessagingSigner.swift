@@ -45,9 +45,8 @@ struct XMTPiOSSigningKeyAdapter: XMTPiOS.SigningKey {
 /// Reverse adapter: presents an XMTPiOS `SigningKey` as a Convos
 /// `MessagingSigner`.
 ///
-/// This is the boundary used by Stage 4f so that keychain-backed
-/// signers (`PrivateKey`) and any third-party `SigningKey` conformer
-/// can flow into APIs that now take `any MessagingSigner`
+/// Lets keychain-backed signers (`PrivateKey`) and any third-party
+/// `SigningKey` conformer flow into APIs that take `any MessagingSigner`
 /// (e.g. `MessagingClient.create`). The factory unwraps with the
 /// forward `XMTPiOSSigningKeyAdapter` when it needs a native
 /// `SigningKey` again.
@@ -80,7 +79,7 @@ public struct XMTPiOSMessagingSignerAdapter: MessagingSigner {
 
 public extension XMTPiOS.SigningKey {
     /// Convenience wrapper to flow an XMTPiOS `SigningKey` into any API
-    /// that now takes `any MessagingSigner`. Added as part of Stage 4f.
+    /// that takes `any MessagingSigner`.
     var asMessagingSigner: any MessagingSigner {
         XMTPiOSMessagingSignerAdapter(self)
     }

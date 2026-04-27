@@ -3,12 +3,9 @@ import ConvosProfiles
 import Foundation
 @preconcurrency import XMTPiOS
 
-// Stage 3 migration (audit §5.3): the XMTPiOS-specific helpers that
-// used to live inside `Storage/Writers/ConversationWriter.swift`
-// (`fileprivate extension XMTPiOS.Member`, `extension XMTPiOS.Conversation`
-// `{ creatorInboxId }`, etc.) relocated here so the writer file itself
-// no longer imports XMTPiOS. Everything in this file is a thin boundary
-// between the SDK type and a Convos-owned value.
+// Thin boundary between XMTPiOS SDK types and Convos-owned values
+// for storage writers — XMTPiOS-specific helpers concentrated here so
+// the writers themselves do not import XMTPiOS.
 
 // MARK: - Member role / consent mapping
 
@@ -45,10 +42,9 @@ extension XMTPiOS.Member {
 
 // MARK: - MessagingMember → DBConversationMember
 
-/// Stage 3 migration: the Storage writers now receive
-/// `[MessagingMember]` from `MessagingGroup.members()`. This extension
-/// lives beside the `XMTPiOS.Member` bridge so the two translators sit
-/// together.
+/// `[MessagingMember]` -> `[DBConversationMember]` translator. Sits
+/// beside the `XMTPiOS.Member` bridge so the two translators are
+/// adjacent.
 extension MessagingMember {
     func dbRepresentation(conversationId: String) -> DBConversationMember {
         .init(
@@ -139,9 +135,8 @@ extension XMTPiOS.CommitLogForkStatus {
 
 // MARK: - MessagingConversationDebugInfo → ConversationDebugInfo
 
-/// Stage 3 migration: the Storage writers now receive a
-/// `MessagingConversationDebugInfo` snapshot from `MessagingGroup`.
-/// Same mapping as the XMTPiOS counterpart.
+/// `MessagingConversationDebugInfo` -> `ConversationDebugInfo`
+/// translator. Same mapping as the XMTPiOS counterpart above.
 extension MessagingConversationDebugInfo {
     func toDBDebugInfo() -> ConversationDebugInfo {
         ConversationDebugInfo(
@@ -165,18 +160,17 @@ fileprivate extension MessagingCommitLogForkStatus {
     }
 }
 
-// MARK: - Stage 3 writer bridges
+// MARK: - XMTPiOS-only writer bridges
 
-/// Stage 3 migration (audit §5.3) helper for writers that need to
-/// invoke an XMTPiOS-specific operation on a `MessagingConversation`
-/// until the corresponding Messaging* surface lands (Stage 6). Each
-/// helper downcasts to the XMTPiOS adapter and throws a clear error
-/// on any other backend (e.g. DTU in Stage 5+).
+/// Helpers for storage writers that need to invoke an XMTPiOS-specific
+/// operation on a `MessagingConversation` until the corresponding
+/// `Messaging*` surface lands. Each helper downcasts to the XMTPiOS
+/// adapter and throws a clear error on any other backend.
 enum MessagingWriterBridge {
     /// Send a read-receipt on a `MessagingConversation`.
-    /// FIXME(stage6): surface `sendReadReceipt()` on
-    /// `MessagingConversationCore` once the `ReadReceiptCodec`
-    /// migrates to the abstraction layer.
+    /// FIXME: surface `sendReadReceipt()` on
+    /// `MessagingConversationCore` once `ReadReceiptCodec` migrates
+    /// onto the abstraction.
     static func sendReadReceipt(
         conversation: MessagingConversation
     ) async throws {
@@ -190,9 +184,9 @@ enum MessagingWriterBridge {
     }
 
     /// Send a text reply on a `MessagingConversation`.
-    /// FIXME(stage6): `Reply` / `ContentTypeText` / `ContentTypeReply`
-    /// are XMTPiOS XIP codec values. Surface a Messaging* equivalent
-    /// once the codecs migrate.
+    /// FIXME: `Reply` / `ContentTypeText` / `ContentTypeReply` are
+    /// XMTPiOS XIP codec values. Surface a Messaging* equivalent once
+    /// the codecs migrate onto the abstraction.
     @discardableResult
     static func sendTextReply(
         conversation: MessagingConversation,
@@ -244,10 +238,10 @@ enum MessagingWriterBridge {
     }
 
     /// Send a reaction on a `MessagingConversation`.
-    /// FIXME(stage6): the `Reaction` struct + `ReactionV2Codec` are
-    /// XMTPiOS XIP values. Once the codec surface moves to the
-    /// abstraction, reimplement via `conversation.core.sendOptimistic(
-    /// encodedContent:options:)`.
+    /// FIXME: the `Reaction` struct + `ReactionV2Codec` are XMTPiOS
+    /// XIP values. Once the codecs migrate onto the abstraction,
+    /// reimplement via
+    /// `conversation.core.sendOptimistic(encodedContent:options:)`.
     static func sendReaction(
         conversation: MessagingConversation,
         reference: String,
@@ -277,8 +271,8 @@ enum MessagingWriterBridge {
     }
 
     /// Send an `ExplodeSettings` message on a `MessagingConversation`.
-    /// FIXME(stage6): the `ExplodeSettingsCodec` is Convos-custom and
-    /// still lives on the XMTPiOS side.
+    /// FIXME: the `ExplodeSettingsCodec` is Convos-custom and still
+    /// lives on the XMTPiOS side.
     static func sendExplode(
         conversation: MessagingConversation,
         expiresAt: Date
@@ -294,13 +288,12 @@ enum MessagingWriterBridge {
 
     // MARK: - Outgoing attachment / reply send bridges
     //
-    // FIXME(stage6): `Attachment`, `RemoteAttachment`, `Reply`,
-    // `AttachmentCodec`, `ContentTypeRemoteAttachment`, and the
-    // `MessageSender.prepare(reply:)` / `prepare(remoteAttachment:)`
-    // / `prepare(text:)` surface all live in XMTPiOS today.
-    // OutgoingMessageWriter used to construct them directly; Stage 3
-    // routes through these bridges so the writer file can stay
-    // XMTPiOS-free while the codec layer waits its turn.
+    // FIXME: `Attachment`, `RemoteAttachment`, `Reply`, `AttachmentCodec`,
+    // `ContentTypeRemoteAttachment`, and the
+    // `MessageSender.prepare(reply:)` / `prepare(remoteAttachment:)` /
+    // `prepare(text:)` surface all live in XMTPiOS today. These bridges
+    // let `OutgoingMessageWriter` stay XMTPiOS-free while the codec
+    // layer migrates onto the abstraction.
 
     /// Foundation-only projection of
     /// `XMTPiOS.EncryptedEncodedContent`. Mirrors the subset of fields
@@ -343,8 +336,9 @@ enum MessagingWriterBridge {
     /// `MessagingConversation`. Downcasts to the XMTPiOS adapter so the
     /// XIP `prepareMessage(content: String)` call stays SDK-side; throws
     /// on non-XMTPiOS backends. Returns the opaque prepared message id.
-    /// FIXME(stage6): once the text codec lives on the abstraction this
-    /// can route through `MessagingConversationCore.prepare(encodedContent:options:)`.
+    /// FIXME: once the text codec lives on the abstraction this can
+    /// route through
+    /// `MessagingConversationCore.prepare(encodedContent:options:)`.
     static func prepareText(
         conversation: MessagingConversation,
         text: String
@@ -431,9 +425,8 @@ enum MessagingWriterBridgeError: Error, LocalizedError {
 
 /// Bridges `ConvosProfiles.ProfileSnapshotBuilder.sendSnapshot(group:
 /// memberInboxIds:)` — which still takes a raw `XMTPiOS.Group` — onto
-/// the `any MessagingGroup` surface that Stage 3 writers consume.
-/// FIXME(stage4e): remove once ConvosProfiles migrates to the
-/// abstraction (Stage 4e / Stage 6).
+/// the `any MessagingGroup` surface that storage writers consume.
+/// FIXME: remove once ConvosProfiles migrates onto the abstraction.
 enum ProfileSnapshotBridge {
     static func sendSnapshot(
         group: any MessagingGroup,
@@ -452,7 +445,7 @@ enum ProfileSnapshotBridge {
 
     /// Encodes + sends a `ProfileUpdate` through the XMTPiOS codec
     /// pipeline on behalf of a `MessagingGroup` writer.
-    /// FIXME(stage4e): migrate `ProfileUpdateCodec` off XMTPiOS and
+    /// FIXME: migrate `ProfileUpdateCodec` onto the abstraction and
     /// remove this bridge.
     static func sendProfileUpdate(
         _ update: ProfileUpdate,
@@ -469,8 +462,8 @@ enum ProfileSnapshotBridge {
     }
 }
 
-// OutgoingMessageWriter shim. See the per-op FIXME(stage6) comments
-// at the bridge call-sites for the XIP codec migration.
+// OutgoingMessageWriter shim. See the per-op FIXMEs at the bridge
+// call-sites for the XIP codec migration.
 extension OutgoingMessageWriter {
     func encodeEncryptedAttachmentViaBridge(
         filename: String,
@@ -520,7 +513,7 @@ extension OutgoingMessageWriter {
 }
 
 // ConversationExplosionWriter shim. See
-// `MessagingWriterBridge.sendExplode` for the Stage 6 FIXME on the
+// `MessagingWriterBridge.sendExplode` for the FIXME on the
 // ExplodeSettings codec.
 extension ConversationExplosionWriter {
     func sendExplodeViaBridge(
@@ -543,7 +536,7 @@ extension ReadReceiptWriter {
 }
 
 // ReactionWriter shim. See `MessagingWriterBridge.sendReaction` for
-// the Stage 6 FIXME on the XIP `Reaction` codec.
+// the FIXME on the XIP `Reaction` codec.
 extension ReactionWriter {
     func sendReactionViaBridge(
         conversation: MessagingConversation,
@@ -565,7 +558,7 @@ extension ReactionWriter {
 }
 
 // ReplyMessageWriter shim. See `MessagingWriterBridge.sendTextReply`
-// for the Stage 6 FIXME on the XIP `Reply` codec.
+// for the FIXME on the XIP `Reply` codec.
 extension ReplyMessageWriter {
     func sendTextReplyViaBridge(
         conversation: MessagingConversation,
@@ -590,13 +583,9 @@ extension ReplyMessageWriter {
 
 // MARK: - XMTPiOS.Group ConversationSender conformance helpers
 
-/// Stage 3 migration (audit §5.3): the `ConversationSender` /
-/// `GroupConversationSender` protocol (Stage 4 surface) requires
-/// `ensureInviteTag()` on `XMTPiOS.Group`. The legacy
-/// `Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` shim
-/// used to expose that extension; it's been deleted, so this tiny
-/// passthrough keeps the Stage 4 protocol conformance working by
-/// delegating into the abstraction-layer `MessagingGroup+CustomMetadata`.
+/// `ensureInviteTag()` shim on raw `XMTPiOS.Group`. Delegates into the
+/// abstraction-layer `MessagingGroup+CustomMetadata` so legacy
+/// XMTPiOS-typed call sites still get the helper.
 public extension XMTPiOS.Group {
     func ensureInviteTag() async throws {
         try await XMTPiOSMessagingGroup(xmtpGroup: self).ensureInviteTag()
@@ -605,13 +594,11 @@ public extension XMTPiOS.Group {
 
 // MARK: - XMTPiOS.DecodedMessage predicates
 
-/// Stage 3 migration (audit §5.3): the `isProfileMessage`/
-/// `isTypingIndicator` / `isReadReceipt` predicates used to live in
-/// `Storage/Writers/ConversationWriter.swift` on `XMTPiOS.DecodedMessage`.
-/// The abstraction-side equivalents now live on `MessagingMessage`
-/// (see `MessagingContentType+XIP.swift`). These XMTPiOS-facing
-/// copies remain here for Stage 4 call sites that have not yet
-/// wrapped their `DecodedMessage` in `MessagingMessage`.
+/// XMTPiOS-typed copies of the `isProfileMessage` / `isTypingIndicator`
+/// / `isReadReceipt` predicates. The abstraction-side equivalents live
+/// on `MessagingMessage` (see `MessagingContentType+XIP.swift`); these
+/// stay for call sites that hold a raw `DecodedMessage` and have not
+/// wrapped it in `MessagingMessage`.
 extension XMTPiOS.DecodedMessage {
     var isProfileMessage: Bool {
         guard let contentType = try? encodedContent.type else { return false }

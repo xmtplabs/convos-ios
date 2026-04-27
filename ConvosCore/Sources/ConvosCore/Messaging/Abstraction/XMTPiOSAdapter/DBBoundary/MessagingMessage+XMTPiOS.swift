@@ -4,26 +4,14 @@ import Foundation
 
 /// XMTPiOS -> abstraction boundary for `DecodedMessage`.
 ///
-/// Stage 3 migration (audit §5): the dispatch on
-/// `XMTPiOS.DecodedMessage.encodedContent.type` that produces a
-/// `DBMessage` has moved onto `MessagingMessage` (see
-/// `MessagingMessage+DBRepresentation.swift`). This file now only holds
-/// the XMTPiOS -> Messaging boundary initializer and the XIP-payload
-/// → `MessagingMessagePayload` bridge — analogous to the Stage 2
-/// `MessageDeliveryStatus+DBRepresentation.swift` and
-/// `Reaction+DBRepresentation.swift` translators.
-///
-/// Call sites that previously wrote `xmtpDecodedMessage.dbRepresentation()`
-/// now write `MessagingMessage(xmtpDecodedMessage).dbRepresentation()`.
-/// The one-hop indirection is the whole point: every storage / writer
-/// call site is now expressed against `MessagingMessage`, and the DTU
-/// adapter (Stage 5) will populate the same value type with no XMTPiOS
-/// involvement.
+/// Holds the XMTPiOS -> Messaging boundary initializer and the
+/// XIP-payload → `MessagingMessagePayload` bridge. Storage / writer
+/// call sites are expressed against `MessagingMessage`, so the DTU
+/// adapter populates the same value type with no XMTPiOS involvement.
 ///
 /// `senderInstallationId` is populated as `nil` here: the pinned
-/// XMTPiOS SDK does not yet surface it on `DecodedMessage` (only
-/// `senderInboxId`). See the `MessagingMessage` type doc for the audit
-/// open-question tracking.
+/// XMTPiOS SDK does not surface it on `DecodedMessage` (only
+/// `senderInboxId`). See the `MessagingMessage` type doc.
 extension MessagingMessage {
     /// Build a Convos-owned message from an XMTPiOS decoded message.
     ///
@@ -79,9 +67,8 @@ extension MessagingMessage {
     ///
     /// Lives on the boundary side because it must cast to `Reply`,
     /// `Reaction`, `Attachment`, `RemoteAttachment`, and `GroupUpdated`
-    /// — all XMTPiOS-owned XIP payload types today. When Stage 6
-    /// re-states these as Convos structs this helper becomes a pure
-    /// pass-through.
+    /// — all XMTPiOS-owned XIP payload types. When the codecs migrate
+    /// onto the abstraction, this helper becomes a pure pass-through.
     ///
     /// The high branch count is inherent: every supported XIP content
     /// type needs its own cast. Splitting into per-type helpers trades

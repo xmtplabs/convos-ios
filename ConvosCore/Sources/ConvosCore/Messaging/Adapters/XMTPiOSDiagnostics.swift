@@ -4,16 +4,13 @@ import Foundation
 
 /// XMTPiOS-backed implementation of `MessagingDiagnostics`.
 ///
-/// This is the Stage 2 boundary file for the logging / diagnostics
-/// surface. Every call forwards into a static `XMTPiOS.Client` method,
-/// and this is the only place those statics are referenced after the
-/// Stage 2 MessagingDiagnostics wrap lands.
-///
-/// Exposed through `MessagingDiagnostics.shared` (see extension below)
-/// so the three previously XMTPiOS-importing call sites —
-/// `Convos/ConvosApp.swift`, `NotificationService/NotificationService.swift`,
-/// and `Convos/Debug View/DebugLogExporter.swift` — can reach the
-/// adapter without importing XMTPiOS themselves.
+/// Boundary file for the logging / diagnostics surface — every call
+/// forwards into a static `XMTPiOS.Client` method, and this is the
+/// only place those statics are referenced. Exposed through
+/// `MessagingDiagnosticsProvider.shared` (see below) so call sites
+/// (`Convos/ConvosApp.swift`, `NotificationService/NotificationService.swift`,
+/// `Convos/Debug View/DebugLogExporter.swift`) reach the adapter
+/// without importing XMTPiOS themselves.
 public struct XMTPiOSDiagnostics: MessagingDiagnostics {
     public static let shared: XMTPiOSDiagnostics = XMTPiOSDiagnostics()
 

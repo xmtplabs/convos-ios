@@ -2,21 +2,10 @@ import ConvosMessagingProtocols
 import Foundation
 import XMTPiOS
 
-/// Stage 2 migration (audit §5).
-///
-/// Before: this file hosted
-/// `extension XMTPiOS.Reaction { var emoji: String }` — a translator
-/// attached directly to the XMTPiOS struct.
-///
-/// After: the emoji-projection logic lives on the Convos-owned
-/// `MessagingReaction` (see
-/// `Storage/Models/MessagingReaction+Emoji.swift`). This file now
-/// only holds the XMTPiOS -> Messaging boundary initializer. The
-/// single caller in
-/// `Storage/XMTP DB Representations/DecodedMessage+DBRepresentation.swift`
-/// threads through `MessagingReaction(xmtpReaction).emoji`, matching
-/// the `MessagingDeliveryStatus(ffiStatus).status` pattern already in
-/// place for the delivery-status leaf.
+/// XMTPiOS -> Messaging boundary initializer for `Reaction`. The
+/// emoji-projection logic lives on the Convos-owned `MessagingReaction`
+/// (see `Storage/Models/MessagingReaction+Emoji.swift`); call sites
+/// thread through `MessagingReaction(xmtpReaction).emoji`.
 extension MessagingReaction {
     /// Build a Convos-owned reaction value from the XMTPiOS struct.
     ///

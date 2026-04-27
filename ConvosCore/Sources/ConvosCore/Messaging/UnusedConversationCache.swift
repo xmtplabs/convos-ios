@@ -2,11 +2,9 @@ import ConvosMessagingProtocols
 import Foundation
 import GRDB
 
-// Stage 6c: this actor now drives the optimistic-create flow through
+// This actor drives the optimistic-create flow through
 // `MessagingClient.conversations.newGroupOptimistic()` and operates
-// purely on the `MessagingGroup` abstraction. The legacy
-// `GroupConversationSender` /  `XMTPiOS.Group` downcast is gone, which
-// is what unblocks the DTU adapter for `UnusedConversationCache` tests.
+// purely on the `MessagingGroup` abstraction.
 
 // MARK: - UnusedConversationCacheProtocol
 
@@ -79,10 +77,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     private let platformProviders: PlatformProviders
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let apiClient: (any ConvosAPIClientProtocol)?
-    /// Stage 6e Phase C: optional factory injection for tests that
-    /// drive `consumeOrCreateMessagingService` against the DTU backend.
-    /// Production code always passes `nil` (XMTPiOS default takes over
-    /// inside `AuthorizeInboxOperation.init`).
+    /// Optional factory injection for tests that drive
+    /// `consumeOrCreateMessagingService` against an alternate backend.
+    /// Production code passes `nil`; the XMTPiOS default takes over
+    /// inside `AuthorizeInboxOperation.init`.
     private let messagingClientFactory: (any MessagingClientFactory)?
     private var unusedMessagingService: MessagingService?
     private var isCreatingUnused: Bool = false
@@ -914,11 +912,8 @@ extension UnusedConversationCache {
             let client = inboxReady.client
             let inboxId = client.inboxId
 
-            // Stage 6c migration: drive the optimistic-create flow on
-            // the abstraction. `newGroupOptimistic()` returns a fully
-            // typed `MessagingGroup`, so the legacy
-            // `GroupConversationSender` -> `XMTPiOS.Group` downcast is
-            // unnecessary.
+            // `newGroupOptimistic()` returns a fully-typed
+            // `MessagingGroup`; no XMTPiOS-side downcast needed.
             let messagingGroup = try await client.conversations.newGroupOptimistic()
             let conversationId = messagingGroup.id
             let identity = try await identityStore.identity(for: inboxId)
@@ -1052,9 +1047,6 @@ extension UnusedConversationCache {
     ) async throws {
         let conversationId = conversation.id
         let creatorInboxId = try await conversation.creatorInboxId()
-        // Stage 6c migration: `inviteTag()` is exposed on
-        // `MessagingGroup` via `MessagingGroup+CustomMetadata`, so the
-        // adapter wrap is no longer needed here.
         let inviteTag = try await conversation.inviteTag()
         // Convert nanosecond timestamp from the abstraction back to a
         // `Date` for `DBConversation`.

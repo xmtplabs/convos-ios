@@ -10,14 +10,13 @@ import Foundation
 /// return type through the mappers in `XMTPiOSValueMappers.swift`.
 ///
 /// Construction goes through `create(signer:config:)` /
-/// `build(identity:inboxId:config:)`. Because `MessagingClientConfig.codecs`
-/// is typed as `[any MessagingCodec]` (the Convos-owned protocol), the
-/// adapter-local factory path is expected to be driven by the existing
-/// `XMTPiOSMessagingClientFactory` which takes a second XMTPiOS-native
-/// codec list (`[any ContentCodec]`). The static `create` / `build`
-/// methods on this type register the default Convos codec list
-/// (`InboxStateMachine.defaultXMTPCodecs`) — see Stage 6 in the audit
-/// for when `MessagingCodec` becomes the single codec surface.
+/// `build(identity:inboxId:config:)`. `MessagingClientConfig.codecs`
+/// is typed as `[any MessagingCodec]`, but the underlying SDK still
+/// needs `[any ContentCodec]`, so `XMTPiOSMessagingClientFactory`
+/// takes an additional XMTPiOS-native list. The static `create` /
+/// `build` methods register the default codec list
+/// (`InboxStateMachine.defaultXMTPCodecs`) until codecs migrate onto
+/// `MessagingCodec`.
 public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable {
     /// The underlying native client handle. Kept `internal` so other
     /// adapter-local types can reach it; `private` would prevent the
@@ -54,10 +53,8 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         signer: any MessagingSigner,
         config: MessagingClientConfig
     ) async throws -> Self {
-        // Stage 6e Phase A: factory now returns `any MessagingClient`.
-        // It hands back an `XMTPiOSMessagingClient` for the XMTPiOS path;
-        // we downcast back to the concrete type so that `Self`-typed
-        // returns remain valid.
+        // The factory returns `any MessagingClient`; downcast back to
+        // the concrete type so `Self`-typed returns stay valid.
         let messagingClient = try await XMTPiOSMessagingClientFactory.shared.createClient(
             signer: signer,
             config: config,
@@ -81,7 +78,6 @@ public final class XMTPiOSMessagingClient: MessagingClient, @unchecked Sendable 
         // `Client.build` directly — it will resolve the inbox via
         // `getOrCreateInboxId` under the hood.
         if let inboxId {
-            // Stage 6e Phase A: factory now returns `any MessagingClient`.
             let messagingClient = try await XMTPiOSMessagingClientFactory.shared.buildClient(
                 inboxId: inboxId,
                 identity: identity,

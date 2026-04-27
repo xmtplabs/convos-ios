@@ -5,10 +5,9 @@ import Foundation
 /// XMTPiOS-backed implementation of `MessagingDeviceSync`.
 ///
 /// Wraps the device-sync surface on `XMTPiOS.Client`. The abstraction
-/// exposes it from day one so the multi-installation Stage 5+ work
-/// does not need to introduce a new API — see audit §1.6 and open
-/// question #3. Today `deviceSyncEnabled: false` on the config
-/// (`InboxStateMachine.swift:1119`) means these methods are not
+/// exposes it from day one so future multi-installation work does not
+/// need to introduce a new API. Today `deviceSyncEnabled: false` on the
+/// config (`InboxStateMachine.swift:1119`) means these methods are not
 /// exercised in production; they are here for structural parity.
 public final class XMTPiOSMessagingDeviceSync: MessagingDeviceSync, @unchecked Sendable {
     let xmtpClient: XMTPiOS.Client

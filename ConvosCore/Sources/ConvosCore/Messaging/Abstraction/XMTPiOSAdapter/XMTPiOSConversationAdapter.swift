@@ -23,14 +23,13 @@ enum XMTPiOSConversationAdapter {
     }
 }
 
-// MARK: - Stage 4 bridge
+// MARK: - Native handle escape hatch
 
 public extension MessagingConversation {
-    // Stage 4 bridge — remove when Stage 3 writers migrate.
-    // Stage 4 callers hold a `MessagingConversation` enum but must hand
-    // the raw `XMTPiOS.Conversation` to not-yet-migrated writers.
-    // Matches `.group` / `.dm` and rebuilds the native enum. Returns
-    // `nil` if the payload is not an XMTPiOS adapter.
+    // Escape hatch for call sites that need to hand the raw
+    // `XMTPiOS.Conversation` to XMTPiOS-typed surfaces (codecs, the
+    // notification chain). Returns `nil` if the payload is not an
+    // XMTPiOS adapter.
     var underlyingXMTPiOSConversation: XMTPiOS.Conversation? {
         switch self {
         case .group(let group):

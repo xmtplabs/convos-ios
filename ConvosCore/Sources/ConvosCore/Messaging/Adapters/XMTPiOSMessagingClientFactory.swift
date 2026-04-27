@@ -4,16 +4,13 @@ import Foundation
 
 /// XMTPiOS-backed implementation of `MessagingClientFactory`.
 ///
-/// This is the Stage 5 boundary file for client construction. Every
-/// `Client.create` / `Client.build` call, every construction of
-/// `ClientOptions`, and every write to the global mutable
-/// `XMTPEnvironment.customLocalAddress` live behind this single type.
-///
-/// Callers (`InboxStateMachine`, `XMTPAPIOptionsBuilder`) pass a
-/// per-instance `MessagingClientConfig`; they do not read or write
-/// process-wide XMTPiOS state themselves. That boundary is what the
-/// audit §2 flags as the DTU hazard — having it guarded by one file
-/// makes the eventual DTU adapter a drop-in replacement.
+/// Boundary file for client construction. Every `Client.create` /
+/// `Client.build` call, every `ClientOptions` construction, and every
+/// write to the global mutable `XMTPEnvironment.customLocalAddress`
+/// lives behind this single type. Callers (`InboxStateMachine`,
+/// `XMTPAPIOptionsBuilder`) pass a per-instance `MessagingClientConfig`
+/// and never touch process-wide XMTPiOS state themselves, which is what
+/// makes a DTU drop-in adapter possible.
 public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
     public static let shared: XMTPiOSMessagingClientFactory = XMTPiOSMessagingClientFactory()
 
@@ -33,9 +30,6 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
         let signingKey = XMTPiOSSigningKeyAdapter(signer)
         let client = try await Client.create(account: signingKey, options: options)
         Log.info("XMTP Client created with app version: convos/\(Bundle.appVersion)")
-        // Stage 6e Phase A: factory now returns `any MessagingClient`.
-        // Wrap the native XMTPiOS client in the abstraction adapter so
-        // downstream consumers stay on the Stage 5/6a surface.
         return XMTPiOSMessagingClient(xmtpClient: client)
     }
 
@@ -54,7 +48,6 @@ public struct XMTPiOSMessagingClientFactory: MessagingClientFactory {
             inboxId: inboxId
         )
         Log.debug("XMTP Client built.")
-        // Stage 6e Phase A: factory now returns `any MessagingClient`.
         return XMTPiOSMessagingClient(xmtpClient: client)
     }
 

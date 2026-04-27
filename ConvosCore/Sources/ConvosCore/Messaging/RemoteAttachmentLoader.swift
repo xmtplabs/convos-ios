@@ -1,11 +1,9 @@
 import ConvosMessagingProtocols
 import Foundation
-// FIXME(stage4): Stage 4 migration is partial for this file. The
-// `RemoteAttachment` and `AttachmentCodec` references are XMTPiOS-
-// owned XIP content types that are not yet expressed against the
-// `MessagingCodec` / `MessagingRemoteAttachmentPayload` protocols
-// (audit §5 Stage 6 — codec migration). Once those types move, this
-// file can drop the XMTPiOS import.
+// FIXME: `RemoteAttachment` and `AttachmentCodec` are XMTPiOS-owned
+// XIP content types not yet expressed against `MessagingCodec` /
+// `MessagingRemoteAttachmentPayload`. Once those move onto the
+// abstraction, drop this import.
 @preconcurrency import XMTPiOS
 
 public enum RemoteAttachmentLoaderError: Error {
