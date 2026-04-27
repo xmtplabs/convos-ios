@@ -9,6 +9,12 @@ import Foundation
 /// identity's `databaseKey`, so historical bundles stay cryptographically
 /// isolated from one another.
 public protocol BackupArchiveProviding: Sendable {
+    /// Returns the live XMTP client's installation id without doing any
+    /// archive work. Used by `BackupManager` as a preflight check so a
+    /// revoked device skips creating an archive (a multi-MB SQLCipher
+    /// snapshot + XMTP serialization) only to throw it away.
+    func currentInstallationId() async throws -> String
+
     /// Writes the archive to `path` and returns its time range so the bundle
     /// metadata can record it without re-opening the archive.
     func createArchive(at path: URL, encryptionKey: Data) async throws -> XMTPArchiveStats

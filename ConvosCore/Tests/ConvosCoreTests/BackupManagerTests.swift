@@ -26,6 +26,10 @@ struct BackupManagerTests {
             self._throwing = throwing
         }
 
+        func currentInstallationId() async throws -> String {
+            lock.withLock { _stats.installationId }
+        }
+
         func createArchive(at path: URL, encryptionKey: Data) async throws -> XMTPArchiveStats {
             let outcome: (Data, XMTPArchiveStats?, (any Error)?) = lock.withLock {
                 callCount += 1

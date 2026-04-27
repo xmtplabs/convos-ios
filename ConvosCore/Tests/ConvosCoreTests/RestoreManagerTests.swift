@@ -10,6 +10,9 @@ struct RestoreManagerTests {
     final class StubArchiveProvider: BackupArchiveProviding, @unchecked Sendable {
         let payload: Data
         init(payload: Data = Data("archive".utf8)) { self.payload = payload }
+        func currentInstallationId() async throws -> String {
+            "mock-installation-id"
+        }
         func createArchive(at path: URL, encryptionKey: Data) async throws -> XMTPArchiveStats {
             try payload.write(to: path)
             return XMTPArchiveStats(startNs: nil, endNs: nil, installationId: "mock-installation-id")

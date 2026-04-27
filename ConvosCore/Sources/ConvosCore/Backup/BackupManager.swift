@@ -122,6 +122,21 @@ public actor BackupManager {
                 .deleteAll(db)
         }
 
+        // Preflight: bail before doing the expensive snapshot+archive
+        // work if this device's installation has already been revoked
+        // from another device. The post-archive recheck below catches
+        // the rare race where revocation lands during createArchive.
+        let installationId = try await archiveProvider.currentInstallationId()
+        let preflightActive = await XMTPInstallationStateChecker.isInstallationActive(
+            inboxId: identity.inboxId,
+            installationId: installationId,
+            environment: environment
+        )
+        guard preflightActive else {
+            Log.warning("BackupManager: current installation is revoked (preflight), skipping backup")
+            throw BackupError.currentInstallationRevoked
+        }
+
         // Per-bundle archive key. Generated fresh so compromise of a prior
         // bundle does not cascade to this one. Lives only inside the inner
         // metadata — the outer AES-GCM seal protects it end-to-end.
@@ -140,7 +155,7 @@ public actor BackupManager {
             environment: environment
         )
         guard installationIsActive else {
-            Log.warning("BackupManager: current installation is revoked, skipping backup write")
+            Log.warning("BackupManager: current installation is revoked (post-archive), skipping backup write")
             throw BackupError.currentInstallationRevoked
         }
 

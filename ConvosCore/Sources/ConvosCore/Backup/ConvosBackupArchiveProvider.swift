@@ -26,6 +26,13 @@ public struct ConvosBackupArchiveProvider: BackupArchiveProviding {
         self.clientResolver = clientResolver
     }
 
+    public func currentInstallationId() async throws -> String {
+        guard let client = try await clientResolver() else {
+            throw ProviderError.clientUnavailable
+        }
+        return client.installationId
+    }
+
     public func createArchive(at path: URL, encryptionKey: Data) async throws -> XMTPArchiveStats {
         guard let client = try await clientResolver() else {
             throw ProviderError.clientUnavailable
