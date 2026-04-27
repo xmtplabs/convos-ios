@@ -23,7 +23,7 @@ struct ConnectionGrantWriterTests {
         init(inboxId: String = "mock-inbox-id") {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
             let profileWriter = MockMyProfileWriter()
-            let mockClient = MockXMTPClientProvider(inboxId: inboxId)
+            let mockClient = MockMessagingClient(inboxId: inboxId)
             let sessionStateManager = MockSessionStateManager(mockClient: mockClient)
             self.databaseManager = databaseManager
             self.sessionStateManager = sessionStateManager

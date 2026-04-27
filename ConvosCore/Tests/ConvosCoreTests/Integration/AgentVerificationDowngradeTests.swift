@@ -1,8 +1,39 @@
 @testable import ConvosCore
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 import Testing
 @preconcurrency import XMTPiOS
+
+/// Local stand-in for the deleted `MockIncomingMessageWriter`. Short-circuits
+/// `store(...)` because this test exercises `ConversationWriter` and the
+/// profile-stream path; the message-write outcome isn't under test.
+private final class MockIncomingMessageWriter: IncomingMessageWriterProtocol,
+                                               @unchecked Sendable {
+    func store(
+        message: MessagingMessage,
+        for conversation: DBConversation
+    ) async throws -> IncomingMessageWriterResult {
+        IncomingMessageWriterResult(
+            contentType: .text,
+            wasRemovedFromConversation: false,
+            messageAlreadyExists: false
+        )
+    }
+
+    func decodeExplodeSettings(from message: MessagingMessage) -> ExplodeSettings? {
+        nil
+    }
+
+    func processExplodeSettings(
+        _ settings: ExplodeSettings,
+        conversationId: String,
+        senderInboxId: String,
+        currentInboxId: String
+    ) async -> ExplodeSettingsResult {
+        .fromSelf
+    }
+}
 
 /// Verifies that profile-stream/snapshot writers do not flip a previously-verified
 /// agent back to `.agent` (unverified) when the cached attestation check
@@ -50,11 +81,13 @@ struct AgentVerificationDowngradeTests {
         let fixtures = TestFixtures()
         try await fixtures.createTestClients()
 
-        guard let clientA = fixtures.clientA as? Client,
-              let clientB = fixtures.clientB as? Client,
+        guard let wrappedA = fixtures.clientA as? XMTPiOSMessagingClient,
+              let wrappedB = fixtures.clientB as? XMTPiOSMessagingClient,
               let clientIdB = fixtures.clientIdB else {
             throw TestError.missingClients
         }
+        let clientA = wrappedA.xmtpClient
+        let clientB = wrappedB.xmtpClient
 
         Self.configureEmptyKeyset()
 
@@ -78,7 +111,10 @@ struct AgentVerificationDowngradeTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             messageWriter: mockMessageWriter
         )
-        _ = try await conversationWriter.store(conversation: groupB, inboxId: inboxIdB)
+        _ = try await conversationWriter.store(
+            conversation: XMTPiOSMessagingGroup(xmtpGroup: groupB),
+            inboxId: inboxIdB
+        )
 
         try await Self.seedVerifiedAgent(
             in: fixtures.databaseManager.dbWriter,
@@ -106,7 +142,7 @@ struct AgentVerificationDowngradeTests {
             databaseReader: fixtures.databaseManager.dbReader,
             notificationCenter: MockUserNotificationCenter()
         )
-        let params = SyncClientParams(client: clientB, apiClient: MockAPIClient())
+        let params = SyncClientParams(client: wrappedB, apiClient: MockAPIClient())
 
         let messages = try await groupB.messages(limit: 20, direction: .descending)
         let updateMsg = try #require(messages.first {
@@ -127,11 +163,13 @@ struct AgentVerificationDowngradeTests {
         let fixtures = TestFixtures()
         try await fixtures.createTestClients()
 
-        guard let clientA = fixtures.clientA as? Client,
-              let clientB = fixtures.clientB as? Client,
+        guard let wrappedA = fixtures.clientA as? XMTPiOSMessagingClient,
+              let wrappedB = fixtures.clientB as? XMTPiOSMessagingClient,
               let clientIdB = fixtures.clientIdB else {
             throw TestError.missingClients
         }
+        let clientA = wrappedA.xmtpClient
+        let clientB = wrappedB.xmtpClient
 
         Self.configureEmptyKeyset()
 
@@ -155,7 +193,10 @@ struct AgentVerificationDowngradeTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             messageWriter: mockMessageWriter
         )
-        _ = try await conversationWriter.store(conversation: groupB, inboxId: inboxIdB)
+        _ = try await conversationWriter.store(
+            conversation: XMTPiOSMessagingGroup(xmtpGroup: groupB),
+            inboxId: inboxIdB
+        )
 
         try await Self.seedVerifiedAgent(
             in: fixtures.databaseManager.dbWriter,
@@ -184,7 +225,7 @@ struct AgentVerificationDowngradeTests {
             databaseReader: fixtures.databaseManager.dbReader,
             notificationCenter: MockUserNotificationCenter()
         )
-        let params = SyncClientParams(client: clientB, apiClient: MockAPIClient())
+        let params = SyncClientParams(client: wrappedB, apiClient: MockAPIClient())
 
         let messages = try await groupB.messages(limit: 20, direction: .descending)
         let snapshotMsg = try #require(messages.first {

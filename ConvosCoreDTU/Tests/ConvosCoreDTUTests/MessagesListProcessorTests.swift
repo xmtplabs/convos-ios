@@ -837,7 +837,7 @@ struct MessagesListProcessorAssistantJoinTests {
     func hiddenAfterAgentJoined() {
         let now = Date()
         let agentMember = ConversationMember(
-            profile: Profile(inboxId: "agent-1", name: "Convos Assistant", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Convos Assistant", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,
@@ -876,7 +876,7 @@ struct MessagesListProcessorAssistantJoinTests {
         // real assistant.
         let now = Date()
         let unverifiedAgent = ConversationMember(
-            profile: Profile(inboxId: "cli-bot-1", name: "CLI Bot", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "cli-bot-1", conversationId: "test-conv", name: "CLI Bot", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,

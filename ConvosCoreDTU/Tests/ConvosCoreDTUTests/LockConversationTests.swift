@@ -579,8 +579,6 @@ final class LockConversationTests: XCTestCase {
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
@@ -607,8 +605,8 @@ final class LockConversationTests: XCTestCase {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
@@ -616,7 +614,7 @@ final class LockConversationTests: XCTestCase {
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixture.databaseManager.dbWriter
         )
@@ -682,8 +680,6 @@ final class LockConversationTests: XCTestCase {
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: inviteTag,
                 creatorId: inboxId,
@@ -710,15 +706,15 @@ final class LockConversationTests: XCTestCase {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
 
         let mockInviteWriter = MockInviteWriter()
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixture.databaseManager.dbWriter
         )
@@ -753,15 +749,15 @@ final class LockConversationTests: XCTestCase {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
 
         let mockInviteWriter = MockInviteWriter()
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixture.databaseManager.dbWriter
         )
@@ -811,8 +807,6 @@ final class LockConversationTests: XCTestCase {
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
@@ -839,15 +833,15 @@ final class LockConversationTests: XCTestCase {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixture.databaseManager.dbWriter
         )
@@ -940,8 +934,6 @@ final class LockConversationTests: XCTestCase {
 
             try DBConversation(
                 id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
                 clientConversationId: conversationId,
                 inviteTag: originalInviteTag,
                 creatorId: inboxId,
@@ -990,15 +982,15 @@ final class LockConversationTests: XCTestCase {
 
         let mockAPIClient = MockAPIClient()
         let readyResult = InboxReadyResult(client: alice.client, apiClient: mockAPIClient)
-        let mockInboxStateManager = MockInboxStateManager(
-            initialState: .ready(clientId: clientId, result: readyResult),
+        let mockInboxStateManager = MockSessionStateManager(
+            initialState: .ready(readyResult),
             mockClient: alice.client,
             mockAPIClient: mockAPIClient
         )
         let mockInviteWriter = MockInviteWriter()
 
         let metadataWriter = ConversationMetadataWriter(
-            inboxStateManager: mockInboxStateManager,
+            sessionStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixture.databaseManager.dbWriter
         )
@@ -1060,9 +1052,6 @@ private final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable 
 
     struct UpdatedInvite {
         let conversationId: String
-        let name: String?
-        let description: String?
-        let imageURL: String?
     }
 
     var generatedInvites: [GeneratedInvite] = []
@@ -1081,9 +1070,9 @@ private final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable 
         )
     }
 
-    func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite {
+    func update(for conversationId: String) async throws -> Invite {
         updatedInvites.append(
-            UpdatedInvite(conversationId: conversationId, name: name, description: description, imageURL: imageURL)
+            UpdatedInvite(conversationId: conversationId)
         )
         return Invite(
             conversationId: conversationId,

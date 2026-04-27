@@ -158,7 +158,7 @@ public final class DualBackendTestFixtures {
         for handle in [clientA, clientB, clientC].compactMap({ $0 }) {
             try? handle.client.deleteLocalDatabase()
         }
-        try await identityStore.deleteAll()
+        try await identityStore.delete()
         try databaseManager.erase()
 
         // Destroy this fixture's DTU universe so the shared server

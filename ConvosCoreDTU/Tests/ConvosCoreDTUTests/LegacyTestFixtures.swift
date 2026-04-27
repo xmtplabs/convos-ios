@@ -171,7 +171,7 @@ final class LegacyTestFixtures {
             try? client.deleteLocalDatabase()
         }
 
-        try await identityStore.deleteAll()
+        try await identityStore.delete()
         try databaseManager.erase()
 
         if let universe = dtuUniverse {

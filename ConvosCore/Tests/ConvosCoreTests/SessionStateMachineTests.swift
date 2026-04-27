@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosMessagingProtocols
 import Foundation
 import GRDB
 import Testing
@@ -266,7 +267,7 @@ struct SessionStateMachineTests {
         // Register and wait for ready
         await stateMachine.register()
 
-        var client: (any XMTPClientProvider)?
+        var client: (any MessagingClient)?
         for await state in await stateMachine.stateSequence {
             if case .ready(let result) = state {
                 client = result.client
@@ -544,7 +545,7 @@ struct SessionStateMachineTests {
         await stateMachine.register()
 
         // Wait for ready, then queue stop
-        var client: (any XMTPClientProvider)?
+        var client: (any MessagingClient)?
         for await state in await stateMachine.stateSequence {
             if case .ready(let result) = state {
                 client = result.client

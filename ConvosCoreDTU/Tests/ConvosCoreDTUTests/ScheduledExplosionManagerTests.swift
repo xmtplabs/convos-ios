@@ -288,8 +288,6 @@ private class ScheduledExplosionTestFixtures {
         try await databaseManager.dbWriter.write { db in
             let conversation = DBConversation(
                 id: convId,
-                inboxId: inbxId,
-                clientId: clId,
                 clientConversationId: convId,
                 inviteTag: "test-invite-tag",
                 creatorId: inbxId,

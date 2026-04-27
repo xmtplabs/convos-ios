@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosMessagingProtocols
 import Foundation
 import Testing
 import XMTPiOS
@@ -139,8 +140,8 @@ struct ConnectionGrantRequestCodecTests {
             reason: "hostile reason"
         )
 
-        #expect(throws: XMTPiOS.DecodedMessage.DecodedMessageDBRepresentationError.self) {
-            try XMTPiOS.DecodedMessage.validateConnectionGrantRequest(
+        #expect(throws: MessagingMessage.DBRepresentationError.self) {
+            try MessagingMessage.validateConnectionGrantRequest(
                 spoofed,
                 senderInboxId: "hostile_member_inbox",
                 messageId: "msg-1"
@@ -157,7 +158,7 @@ struct ConnectionGrantRequestCodecTests {
             reason: "I can check your schedule."
         )
 
-        try XMTPiOS.DecodedMessage.validateConnectionGrantRequest(
+        try MessagingMessage.validateConnectionGrantRequest(
             legitimate,
             senderInboxId: "assistant_inbox",
             messageId: "msg-2"

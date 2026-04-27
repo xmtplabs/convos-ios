@@ -29,7 +29,7 @@ import XMTPiOS
 /// impl in `MessagingClient.swift` returns `self` for conformers that also
 /// conform to `XMTPClientProvider`, so the streaming wire path resolves back
 /// to this mock's `conversationsProvider`.
-class TestableMockClient: XMTPClientProvider, MessagingClient, @unchecked Sendable {
+class TestableMockClient: MessagingClient, @unchecked Sendable {
     /// Stage 6e Phase B-2 self-bridge: this mock IS its own MessagingClient
     /// — the protocol extension shim returns `self`, but we override
     /// explicitly here so the test reads naturally.

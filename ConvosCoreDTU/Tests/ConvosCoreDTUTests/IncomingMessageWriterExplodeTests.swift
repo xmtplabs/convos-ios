@@ -302,8 +302,6 @@ private class ExplodeTestFixtures {
 
             let conversation = DBConversation(
                 id: convId,
-                inboxId: currInboxId,
-                clientId: clId,
                 clientConversationId: convId,
                 inviteTag: "test-invite-tag",
                 creatorId: crId,
