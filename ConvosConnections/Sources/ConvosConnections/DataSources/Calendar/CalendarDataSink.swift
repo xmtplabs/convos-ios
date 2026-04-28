@@ -131,7 +131,11 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
                 for: invocation,
                 status: .success,
                 result: [
-                    "eventId": .string(event.calendarItemIdentifier),
+                    // `eventIdentifier`, not `calendarItemIdentifier` — they differ for
+                    // recurring events, and `updateEvent` / `deleteEvent` look events up
+                    // via `store.event(withIdentifier:)` which expects the former. Returning
+                    // the wrong one would break round-trips on every recurring event.
+                    "eventId": .string(event.eventIdentifier),
                     "calendarId": .string(targetCalendar.calendarIdentifier),
                 ]
             )
@@ -201,7 +205,7 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
             return Self.makeResult(
                 for: invocation,
                 status: .success,
-                result: ["eventId": .string(event.calendarItemIdentifier)]
+                result: ["eventId": .string(event.eventIdentifier)]
             )
         }
 
