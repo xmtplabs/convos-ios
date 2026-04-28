@@ -19,7 +19,7 @@ struct ProfileMessageIntegrationTests {
             ],
             dbEncryptionKey: key
         )
-        return try await Client.create(
+        return try await Client.createInMemory(
             account: try PrivateKey.generate(),
             options: options
         )

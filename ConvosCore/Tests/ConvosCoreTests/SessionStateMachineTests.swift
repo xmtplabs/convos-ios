@@ -40,7 +40,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Start in idle state
@@ -99,7 +100,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         await stateMachine.register()
@@ -162,7 +164,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Authorize with the existing inbox
@@ -210,7 +213,8 @@ struct SessionStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Try to authorize with wrong clientId. The state machine was
@@ -260,7 +264,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -328,7 +333,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -398,7 +404,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Try to authorize with non-existent inboxId to trigger error
@@ -452,7 +459,8 @@ struct SessionStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         actor StateCollector {
@@ -537,7 +545,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Queue register and then stop
@@ -592,7 +601,8 @@ struct SessionStateMachineTests {
             networkMonitor: mockNetworkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -670,7 +680,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -766,7 +777,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         actor StateCollector {

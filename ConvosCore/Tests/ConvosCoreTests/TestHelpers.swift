@@ -5,13 +5,46 @@ import GRDB
 import Testing
 @preconcurrency import XMTPiOS
 
-// Set custom XMTP endpoint at module load time (before any async code)
-// This runs synchronously when the test module is loaded
-// @preconcurrency import suppresses strict concurrency warnings for XMTP static properties
 private let _configureXMTPEndpoint: Void = {
     if let endpoint = ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] {
         XMTPEnvironment.customLocalAddress = endpoint
     }
+}()
+
+// Rust tracing only flows to os_log on iOS — gated by env var so CI can
+// capture libxmtp output to disk for artifact upload.
+private let _configureXMTPLogging: Void = {
+    let env = ProcessInfo.processInfo.environment
+    guard let levelString = env["CONVOS_TEST_XMTP_LOG_LEVEL"], !levelString.isEmpty else {
+        return
+    }
+
+    let logLevel: Client.LogLevel
+    switch levelString.lowercased() {
+    case "error": logLevel = .error
+    case "warn", "warning": logLevel = .warn
+    case "info": logLevel = .info
+    case "debug": logLevel = .debug
+    default:
+        print("Unknown CONVOS_TEST_XMTP_LOG_LEVEL '\(levelString)', skipping libxmtp log activation")
+        return
+    }
+
+    let directoryURL: URL = if let custom = env["CONVOS_TEST_XMTP_LOG_DIR"], !custom.isEmpty {
+        URL(fileURLWithPath: custom, isDirectory: true)
+    } else {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-xmtp-logs", isDirectory: true)
+    }
+
+    Client.activatePersistentLibXMTPLogWriter(
+        logLevel: logLevel,
+        rotationSchedule: .never,
+        maxFiles: 5,
+        customLogDirectory: directoryURL
+    )
+
+    print("libxmtp log writer activated at \(directoryURL.path) (level=\(levelString))")
 }()
 
 /// Waits until a condition becomes true, polling at a specified interval
@@ -82,7 +115,8 @@ class TestFixtures {
         PushNotificationRegistrar.resetForTesting()
         PushNotificationRegistrar.configure(MockPushNotificationRegistrarProvider())
 
-        // XMTP endpoint is configured at module load time via _configureXMTPEndpoint
+        _ = _configureXMTPEndpoint
+        _ = _configureXMTPLogging
     }
 
     /// Create a new XMTP client for testing
@@ -90,6 +124,10 @@ class TestFixtures {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
+        // Tests use in-memory libxmtp clients to avoid file-backed pool
+        // contention between parallel test suites. createInMemory ignores
+        // dbDirectory/dbEncryptionKey but the ClientOptions initializer still
+        // requires dbEncryptionKey, so we pass the generated key for shape.
         let clientOptions = ClientOptions(
             api: .init(
                 env: .local,
@@ -110,11 +148,10 @@ class TestFixtures {
                 JoinRequestCodec(),
                 TypingIndicatorCodec()
             ],
-            dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbEncryptionKey: keys.databaseKey
         )
 
-        let client = try await Client.create(account: keys.signingKey, options: clientOptions)
+        let client = try await Client.createInMemory(account: keys.signingKey, options: clientOptions)
 
         // Save to mock identity store. In the single-inbox model there is only one
         // slot; multi-client fixtures overwrite each other and the tests that rely
