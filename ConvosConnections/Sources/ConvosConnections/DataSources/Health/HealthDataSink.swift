@@ -12,21 +12,26 @@ import Foundation
 public final class HealthDataSink: DataSink, @unchecked Sendable {
     public let kind: ConnectionKind = .health
 
-    public init() {
-        #if canImport(HealthKit)
-        self.store = HKHealthStore()
-        #else
-        // Keep the property out of the macOS stub build.
-        #endif
+    #if canImport(HealthKit)
+    private let store: HKHealthStore
+    private let reader: HealthDataSource
+
+    public init(
+        store: HKHealthStore = HKHealthStore(),
+        reader: HealthDataSource? = nil
+    ) {
+        self.store = store
+        self.reader = reader ?? HealthDataSource()
     }
+    #else
+    public init() {}
+    #endif
 
     public func actionSchemas() async -> [ActionSchema] {
         HealthActionSchemas.all
     }
 
     #if canImport(HealthKit)
-    private let store: HKHealthStore
-
     public func authorizationStatus() async -> ConnectionAuthorizationStatus {
         guard HKHealthStore.isHealthDataAvailable() else { return .unavailable }
         let shareTypes = Self.writableSampleTypes()
@@ -60,6 +65,10 @@ public final class HealthDataSink: DataSink, @unchecked Sendable {
             return await logCaffeine(invocation)
         case HealthActionSchemas.logMindfulMinutes.actionName:
             return await logMindfulMinutes(invocation)
+        case HealthActionSchemas.fetchSummaryLast24Hours.actionName:
+            return await fetchSummaryLast24Hours(invocation)
+        case HealthActionSchemas.fetchSamples.actionName:
+            return await fetchSamples(invocation)
         default:
             return Self.makeResult(
                 for: invocation,
@@ -120,6 +129,37 @@ public final class HealthDataSink: DataSink, @unchecked Sendable {
         return Self.makeResult(for: invocation, status: .success, result: ["sampleId": .string(sample.uuid.uuidString)])
     }
 
+    private func fetchSummaryLast24Hours(_ invocation: ConnectionInvocation) async -> ConnectionInvocationResult {
+        do {
+            let payload = try await reader.snapshotLast24Hours()
+            return Self.makeResult(for: invocation, status: .success, result: Self.flatten(payload: payload))
+        } catch {
+            return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: error.localizedDescription)
+        }
+    }
+
+    private func fetchSamples(_ invocation: ConnectionInvocation) async -> ConnectionInvocationResult {
+        let args = invocation.action.arguments
+        guard let start = Self.resolveDate(args["startDate"]),
+              let end = Self.resolveDate(args["endDate"]),
+              end > start else {
+            return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: "Valid 'startDate' and 'endDate' (with end > start) are required.")
+        }
+
+        do {
+            let samples = try await reader.fetchSamples(from: start, to: end)
+            let payload = HealthPayload(
+                summary: HealthDataSource.summarize(samples: samples, from: start, to: end),
+                samples: samples,
+                rangeStart: start,
+                rangeEnd: end
+            )
+            return Self.makeResult(for: invocation, status: .success, result: Self.flatten(payload: payload))
+        } catch {
+            return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: error.localizedDescription)
+        }
+    }
+
     private func logMindfulMinutes(_ invocation: ConnectionInvocation) async -> ConnectionInvocationResult {
         let args = invocation.action.arguments
         guard let type = HKObjectType.categoryType(forIdentifier: .mindfulSession) else {
@@ -171,6 +211,31 @@ public final class HealthDataSink: DataSink, @unchecked Sendable {
         }
         if case .date(let date) = argument { return date }
         return nil
+    }
+
+    private static func flatten(payload: HealthPayload) -> [String: ArgumentValue] {
+        [
+            "summary": .string(payload.summary),
+            "sampleCount": .int(payload.samples.count),
+            "rangeStart": .iso8601DateTime(iso8601String(from: payload.rangeStart)),
+            "rangeEnd": .iso8601DateTime(iso8601String(from: payload.rangeEnd)),
+            "payloadJson": .string(payloadJSONString(payload)),
+        ]
+    }
+
+    private static func payloadJSONString(_ payload: HealthPayload) -> String {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(payload), let string = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return string
+    }
+
+    private static func iso8601String(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 
     private static func makeResult(

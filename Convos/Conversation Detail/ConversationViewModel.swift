@@ -947,12 +947,17 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
             }
 
+            let availableActions = await self.availableActions(
+                for: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
+                capability: request.capability
+            )
             let result = CapabilityRequestResult(
                 requestId: request.requestId,
                 status: status,
                 subject: request.subject,
                 capability: request.capability,
-                providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue })
+                providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
+                availableActions: availableActions
             )
             do {
                 try await writer.sendResult(result, in: conversationId)
@@ -964,6 +969,94 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             } catch {
                 Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func availableActions(
+        for providerIds: [ProviderID],
+        capability: ConnectionCapability
+    ) async -> [CapabilityRequestResult.AvailableAction] {
+        var actions: [CapabilityRequestResult.AvailableAction] = []
+
+        for providerId in providerIds {
+            if let kind = ConnectionKind.fromDeviceProviderId(providerId),
+               let source = await Self.deviceActionSchemas(for: kind) {
+                let schemas = source
+                    .filter { $0.capability == capability }
+                    .sorted(by: { $0.actionName < $1.actionName })
+                actions.append(contentsOf: schemas.map {
+                    CapabilityRequestResult.AvailableAction(
+                        providerId: providerId,
+                        kind: kind,
+                        actionName: $0.actionName,
+                        summary: $0.summary,
+                        inputs: $0.inputs.map(Self.capabilityActionParameter(from:)),
+                        outputs: $0.outputs.map(Self.capabilityActionParameter(from:))
+                    )
+                })
+                continue
+            }
+        }
+
+        return actions.sorted {
+            if $0.providerId.rawValue != $1.providerId.rawValue {
+                return $0.providerId.rawValue < $1.providerId.rawValue
+            }
+            return $0.actionName < $1.actionName
+        }
+    }
+
+    private static func deviceActionSchemas(for kind: ConnectionKind) async -> [ActionSchema]? {
+        switch kind {
+        case .calendar:
+            let sink = CalendarDataSink(store: EKEventStore())
+            return await sink.actionSchemas()
+        case .contacts:
+            return await ContactsDataSink().actionSchemas()
+        case .photos:
+            return await PhotosDataSink().actionSchemas()
+        case .health:
+            return await HealthDataSink().actionSchemas()
+        case .music:
+            return await MusicDataSink().actionSchemas()
+        case .homeKit:
+            return await HomeKitDataSink().actionSchemas()
+        case .screenTime:
+            return await ScreenTimeDataSink().actionSchemas()
+        case .location, .motion:
+            return nil
+        }
+    }
+
+    private static func capabilityActionParameter(
+        from parameter: ActionParameter
+    ) -> CapabilityRequestResult.Parameter {
+        CapabilityRequestResult.Parameter(
+            name: parameter.name,
+            type: capabilityActionParameterType(parameter.type),
+            description: parameter.description,
+            isRequired: parameter.isRequired
+        )
+    }
+
+    private static func capabilityActionParameterType(_ type: ActionParameter.ParameterType) -> String {
+        switch type {
+        case .string:
+            return "string"
+        case .bool:
+            return "bool"
+        case .int:
+            return "int"
+        case .double:
+            return "double"
+        case .date:
+            return "date"
+        case .iso8601DateTime:
+            return "iso8601"
+        case .enumValue(let allowed):
+            return "enum(\(allowed.joined(separator: ",")))"
+        case .arrayOf(let element):
+            return "array<\(capabilityActionParameterType(element))>"
         }
     }
 

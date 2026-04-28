@@ -6,6 +6,7 @@ import Foundation
 /// unlink.
 public struct CloudCapabilityProvider: CapabilityProvider, Sendable {
     public let id: ProviderID
+    public let serviceId: String
     public let subject: CapabilitySubject
     public let displayName: String
     public let iconName: String
@@ -17,6 +18,7 @@ public struct CloudCapabilityProvider: CapabilityProvider, Sendable {
 
     public init(
         id: ProviderID,
+        serviceId: String,
         subject: CapabilitySubject,
         displayName: String,
         iconName: String,
@@ -24,6 +26,7 @@ public struct CloudCapabilityProvider: CapabilityProvider, Sendable {
         linked: Bool
     ) {
         self.id = id
+        self.serviceId = serviceId
         self.subject = subject
         self.displayName = displayName
         self.iconName = iconName
@@ -75,6 +78,7 @@ public extension CloudCapabilityProvider {
         let capabilities = serviceCapabilitiesMap[connection.serviceId] ?? [.read]
         return CloudCapabilityProvider(
             id: ProviderID(rawValue: "composio.\(connection.serviceId)"),
+            serviceId: connection.serviceId,
             subject: subject,
             displayName: connection.serviceName,
             // Picker view supplies its own icon from `CloudConnectionServiceCatalog`;

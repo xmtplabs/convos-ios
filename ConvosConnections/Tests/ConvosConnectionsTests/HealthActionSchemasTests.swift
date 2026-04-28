@@ -3,22 +3,38 @@ import Testing
 
 @Suite("Health action schemas")
 struct HealthActionSchemasTests {
-    @Test("publishes three actions")
-    func publishesThreeActions() {
+    @Test("publishes five actions")
+    func publishesFiveActions() {
         let schemas = HealthActionSchemas.all
-        #expect(schemas.count == 3)
-        #expect(Set(schemas.map(\.actionName)) == ["log_water", "log_caffeine", "log_mindful_minutes"])
+        #expect(schemas.count == 5)
+        #expect(Set(schemas.map(\.actionName)) == [
+            "log_water",
+            "log_caffeine",
+            "log_mindful_minutes",
+            "fetch_summary_last_24h",
+            "fetch_samples",
+        ])
     }
 
-    @Test("every action is writeCreate")
+    @Test("capabilities match read vs write verbs")
     func capabilities() {
-        #expect(HealthActionSchemas.all.allSatisfy { $0.capability == .writeCreate })
+        #expect(HealthActionSchemas.logWater.capability == .writeCreate)
+        #expect(HealthActionSchemas.logCaffeine.capability == .writeCreate)
+        #expect(HealthActionSchemas.logMindfulMinutes.capability == .writeCreate)
+        #expect(HealthActionSchemas.fetchSummaryLast24Hours.capability == .read)
+        #expect(HealthActionSchemas.fetchSamples.capability == .read)
     }
 
     @Test("log_water requires quantity + unit")
     func waterRequirements() {
         let required = HealthActionSchemas.logWater.inputs.filter(\.isRequired).map(\.name)
         #expect(Set(required) == ["quantity", "unit"])
+    }
+
+    @Test("fetch_samples requires startDate + endDate")
+    func fetchSamplesRequirements() {
+        let required = HealthActionSchemas.fetchSamples.inputs.filter(\.isRequired).map(\.name)
+        #expect(Set(required) == ["startDate", "endDate"])
     }
 
     @Test("HealthDataSink publishes the same schemas")

@@ -53,6 +53,7 @@ let package = Package(
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
                 .product(name: "ConvosConnections", package: "ConvosConnections"),
+                .target(name: "ConvosConnectionsXMTP"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

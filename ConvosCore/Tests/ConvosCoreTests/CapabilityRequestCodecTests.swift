@@ -127,7 +127,21 @@ struct CapabilityRequestResultCodecTests {
             status: .approved,
             subject: .calendar,
             capability: .read,
-            providers: [ProviderID(rawValue: "device.calendar")]
+            providers: [ProviderID(rawValue: "device.calendar")],
+            availableActions: [
+                .init(
+                    providerId: ProviderID(rawValue: "device.calendar"),
+                    kind: .calendar,
+                    actionName: "list_events",
+                    summary: "List upcoming events.",
+                    inputs: [
+                        .init(name: "startDate", type: "iso8601", description: "Window start.", isRequired: true),
+                    ],
+                    outputs: [
+                        .init(name: "payloadJson", type: "string", description: "Serialized event payload.", isRequired: true),
+                    ]
+                ),
+            ]
         )
         let decoded = try codec.decode(content: codec.encode(content: result))
         #expect(decoded == result)
@@ -144,6 +158,31 @@ struct CapabilityRequestResultCodecTests {
             providers: [
                 ProviderID(rawValue: "composio.strava"),
                 ProviderID(rawValue: "composio.fitbit"),
+            ],
+            availableActions: [
+                .init(
+                    providerId: ProviderID(rawValue: "composio.strava"),
+                    kind: .health,
+                    actionName: "fetch_summary_last_24h",
+                    summary: "Fetch a read-only health summary for the last 24 hours.",
+                    inputs: [],
+                    outputs: [
+                        .init(name: "summary", type: "string", description: "Summary.", isRequired: true),
+                    ]
+                ),
+                .init(
+                    providerId: ProviderID(rawValue: "composio.fitbit"),
+                    kind: .health,
+                    actionName: "fetch_samples",
+                    summary: "Fetch samples.",
+                    inputs: [
+                        .init(name: "startDate", type: "iso8601", description: "Window start.", isRequired: true),
+                        .init(name: "endDate", type: "iso8601", description: "Window end.", isRequired: true),
+                    ],
+                    outputs: [
+                        .init(name: "payloadJson", type: "string", description: "Payload.", isRequired: true),
+                    ]
+                ),
             ]
         )
         let decoded = try codec.decode(content: codec.encode(content: result))
@@ -162,6 +201,7 @@ struct CapabilityRequestResultCodecTests {
         let decoded = try codec.decode(content: codec.encode(content: result))
         #expect(decoded.status == .denied)
         #expect(decoded.providers.isEmpty)
+        #expect(decoded.availableActions.isEmpty)
     }
 
     @Test("cancelled status round-trips")
@@ -204,10 +244,21 @@ struct CapabilityRequestResultCodecTests {
             status: .approved,
             subject: .fitness,
             capability: .read,
-            providers: bloated
+            providers: bloated,
+            availableActions: (0..<(CapabilityRequestResult.maxAvailableActions + 5)).map {
+                .init(
+                    providerId: ProviderID(rawValue: "composio.x\($0)"),
+                    kind: .health,
+                    actionName: "action_\($0)",
+                    summary: "Summary \($0)",
+                    inputs: [],
+                    outputs: []
+                )
+            }
         )
         let decoded = try codec.decode(content: codec.encode(content: result))
         #expect(decoded.providers.count == CapabilityRequestResult.maxProviders)
+        #expect(decoded.availableActions.count == CapabilityRequestResult.maxAvailableActions)
     }
 
     @Test("fallback differentiates by status")
