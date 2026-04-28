@@ -90,6 +90,10 @@ class TestFixtures {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
+        // Tests use in-memory libxmtp clients to avoid file-backed pool
+        // contention between parallel test suites. createInMemory ignores
+        // dbDirectory/dbEncryptionKey but the ClientOptions initializer still
+        // requires dbEncryptionKey, so we pass the generated key for shape.
         let clientOptions = ClientOptions(
             api: .init(
                 env: .local,
@@ -110,11 +114,10 @@ class TestFixtures {
                 JoinRequestCodec(),
                 TypingIndicatorCodec()
             ],
-            dbEncryptionKey: keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbEncryptionKey: keys.databaseKey
         )
 
-        let client = try await Client.create(account: keys.signingKey, options: clientOptions)
+        let client = try await Client.createInMemory(account: keys.signingKey, options: clientOptions)
 
         // Save to mock identity store. In the single-inbox model there is only one
         // slot; multi-client fixtures overwrite each other and the tests that rely
