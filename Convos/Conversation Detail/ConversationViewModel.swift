@@ -867,13 +867,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             pendingCapabilityPickerLayout = nil
             return
         }
-        locallyHandledCapabilityRequestIds.insert(request.requestId)
-        pendingCapabilityPickerLayout = nil
-        sendCapabilityResult(
-            request: request,
-            status: .approved,
-            providerIds: providerIds
-        )
+        approveCapabilityRequest(request, providerIds: providerIds)
     }
 
     /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
@@ -884,6 +878,20 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             pendingCapabilityPickerLayout = nil
             return
         }
+        denyCapabilityRequest(request)
+    }
+
+    private func approveCapabilityRequest(_ request: CapabilityRequest, providerIds: Set<ProviderID>) {
+        locallyHandledCapabilityRequestIds.insert(request.requestId)
+        pendingCapabilityPickerLayout = nil
+        sendCapabilityResult(
+            request: request,
+            status: .approved,
+            providerIds: providerIds
+        )
+    }
+
+    private func denyCapabilityRequest(_ request: CapabilityRequest) {
         locallyHandledCapabilityRequestIds.insert(request.requestId)
         pendingCapabilityPickerLayout = nil
         sendCapabilityResult(
@@ -902,6 +910,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         let resolver = session.capabilityResolver()
         let writer = messagingService.capabilityRequestResultWriter()
         Task {
+            // The agent's contract is that a result is *always* posted — even cancel
+            // and deny — so we keep going on a resolver-side error and let the agent
+            // see the user's intent. Local persistence failure is logged and surfaced
+            // separately if it ever needs UI surfacing; it must not strand the agent.
             do {
                 switch status {
                 case .approved:
@@ -919,8 +931,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     )
                 }
             } catch {
-                Log.error("Capability resolver update failed: \(error.localizedDescription)")
-                return
+                Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
             }
 
             let result = CapabilityRequestResult(
@@ -980,6 +991,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             let status = await authorizer.currentAuthorization(for: kind)
             let isLinked = status.canDeliverData
             if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
+                // Capture authorizer + kind, not a fixed Bool — the user can revoke
+                // permission in Settings later, and the registry needs the live state.
                 let updated = DeviceCapabilityProvider(
                     id: spec.id,
                     subject: spec.subject,
@@ -987,14 +1000,19 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     iconName: spec.iconName,
                     capabilities: spec.capabilities,
                     subjectNounPhrase: spec.subjectNounPhrase,
-                    linkedByUser: { isLinked }
+                    linkedByUser: {
+                        await authorizer.currentAuthorization(for: kind).canDeliverData
+                    }
                 )
                 await registry.register(updated)
             }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 if isLinked {
-                    self.onCapabilityApprove(providerIds: [providerId])
+                    // Always approve the *captured* request — a newer request might
+                    // have arrived during the OS prompt and replaced the picker
+                    // layout's request, and we must not approve it on its behalf.
+                    self.approveCapabilityRequest(request, providerIds: [providerId])
                 } else {
                     self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
                 }
@@ -1014,7 +1032,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 resolver: resolver,
                 conversationId: conversationId
             )
-            guard self.latestObservedCapabilityRequest == request else { return }
+            // If a newer request arrived OR the user already approved/denied this one,
+            // don't revive the picker with a stale layout.
+            guard self.latestObservedCapabilityRequest == request,
+                  !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else {
+                return
+            }
             self.pendingCapabilityPickerLayout = layout
         }
     }

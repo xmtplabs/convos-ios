@@ -229,12 +229,14 @@ public struct CapabilityRequestHandler: Sendable {
         // variant logic — the verb-consent shortcut needs a real default to be useful.
         guard !defaultSet.isEmpty else { return nil }
 
-        // Filter the picker's provider list to only those in the default set so the
-        // verb-consent card surfaces just the relevant rows. If `relevant` ends up
-        // empty — every provider in the default set has been unregistered since the
-        // resolution was written — fall back to the standard variant logic so we don't
-        // render a card with `providers: []` and a non-empty `defaultSelection`.
-        let relevant = summaries.filter { defaultSet.contains($0.id) }
+        // Filter the picker's provider list to only those in the default set AND
+        // that support the requested verb. Fallback paths in this method can pull a
+        // read-only provider into `defaultSet` when the new verb is a write — without
+        // the `supportsCapability` filter the card would offer a row that can't
+        // actually fulfill the request. If `relevant` ends up empty, fall back to the
+        // standard variant logic so we don't render a card with `providers: []` and a
+        // non-empty `defaultSelection`.
+        let relevant = summaries.filter { defaultSet.contains($0.id) && $0.supportsCapability }
         guard !relevant.isEmpty else { return nil }
         return CapabilityPickerLayout(
             request: request,
