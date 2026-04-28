@@ -16,21 +16,39 @@ A single agent intent like "I'd like to access your calendar" can map to either 
 
 This PRD defines how the client resolves agent capability requests to concrete providers, how it presents the choice to the user, how it persists the resolution, and how later agent tool calls route to the right execution path.
 
-## v1 scope cut: one provider per (subject, conversation)
+## v1 scope cut: federation is opt-in, per subject
 
-Earlier drafts of this PRD let a conversation resolve a subject to a *set* of providers — reads federated across all of them, writes targeted one. After scoping work we landed on a simpler v1 model:
+Earlier drafts let *every* subject's reads federate across all linked providers. The previous draft swung to "single provider per `(subject, conversation)`, no federation, period." Both extremes are wrong for the same reason — federation is the right answer for some subjects (fitness, where Strava + Fitbit + Apple Health summed across a week is exactly what the agent needs) and the wrong answer for others (calendar, where "which calendar did this event land on?" is a trust-breaking failure mode).
 
-- **A conversation resolves each subject to exactly one provider** for v1, regardless of capability verb.
-- **If exactly one provider is linked** for a subject when an agent first asks, the client renders a lightweight confirmation card defaulting to that provider — the user just approves.
-- **If multiple providers are linked**, the client renders a single-select picker — the user picks one.
-- **If zero providers are linked**, the picker doubles as a "Connect a calendar" entry point with an OAuth/permission row per known provider.
+The v1 model lets each subject opt in:
 
-Federated reads ("merge Apple Calendar + Google Calendar so the agent sees both") and per-verb provider differences ("read from Apple, write to Google") are deferred. They're real product asks, but the implementation cost (fan-out, partial-success error shapes, two-database resolution, picker UX with semi-checked rows) doesn't pencil for v1. See [Future: federated reads / split-verb resolutions](#future-federated-reads--split-verb-resolutions).
+- Each `CapabilitySubject` declares `allowsReadFederation: Bool`.
+- For subjects with **`allowsReadFederation == false`** (calendar, contacts, photos, music, location, home, screen_time): a conversation resolves the subject to **exactly one provider**, for every capability verb. Variant 2 picker is single-select.
+- For subjects with **`allowsReadFederation == true`** (fitness, plus anything else where summing across providers is the natural read): reads can resolve to a *set* of providers; writes (when the verb supports them) still resolve to exactly one. Variant 2 picker is multi-select for the read flow, single-select for write flows.
+- Confirmation card (Variant 1) and connect-and-approve (Variant 3) flows are unchanged — they only render when there's 0 or 1 linked provider, where federation is moot.
+
+Subjects that never make sense to federate (single-provider device-only — `.location`, `.screen_time`) just keep the flag false and skip the multi-select code path entirely.
+
+| Subject | `allowsReadFederation` |
+|---|---|
+| `calendar` | false |
+| `contacts` | false |
+| `photos` | false |
+| `music` | false |
+| `home` | false |
+| `mail` | false |
+| `tasks` | false |
+| `location` | false |
+| `screen_time` | false |
+| `fitness` | **true** |
+
+The list is conservative on purpose: defaulting a new subject to single-provider matches the safer behavior. We can flip more to true as use cases emerge.
 
 ## Non-Goals
 
 - Re-unifying device and cloud connections under a single `DataSource`/`DataSink` abstraction. The [comparison doc](./connections-device-vs-cloud.md) already argued against that.
-- Multi-provider resolutions. One conversation, one subject, one provider — see [the scope cut above](#v1-scope-cut-one-provider-per-subject-conversation).
+- Per-verb federation. Reads federate (when the subject opts in); writes always target exactly one provider. The asymmetry is intentional — see the [appendix](#appendix-why-a-single-provider-per-subject-for-v1).
+- Per-verb provider differences within a non-federating subject (e.g. read from Apple Calendar, write to Google Calendar in the same conversation). Same `(subject, conversation)` resolution covers all verbs.
 - Runtime / backend *implementation* — this PRD defines the `profile.metadata["capabilities"]` contract the runtime reads, but the runtime-side reader is someone else's PR.
 - Provider *discovery* — what providers to offer. That's a product decision we make per-subject; this PRD is about routing once providers exist.
 - Cross-user federation. A resolution is always scoped to one user's account + one conversation.
@@ -77,15 +95,30 @@ One user can have N providers linked for a subject. Provider registration is the
 
 ### Resolution
 
-A persistent decision binding `(subject, conversationId)` to a single provider:
+A persistent decision binding `(subject, conversationId, capability)` to one or more providers:
 
 ```
-(subject: .calendar, conversationId: "abc") -> ProviderID("device.calendar")
+(subject: .calendar, conv: "abc", capability: .read)         -> {ProviderID("device.calendar")}
+(subject: .calendar, conv: "abc", capability: .writeCreate)  -> {ProviderID("device.calendar")}
+(subject: .fitness, conv: "abc", capability: .read)          -> {ProviderID("composio.strava"),
+                                                                  ProviderID("composio.fitbit")}
+(subject: .fitness, conv: "abc", capability: .writeCreate)   -> {ProviderID("composio.strava")}
 ```
 
-A resolution covers every capability verb the agent will exercise on that subject. Once the user approves "read calendar via Apple Calendar," subsequent write requests in the same conversation target Apple Calendar too — but each new verb still requires explicit consent. (See [Verb consent vs. provider routing](#verb-consent-vs-provider-routing).)
+The set's allowed cardinality depends on the subject's federation flag and the verb shape:
 
-Absence of a resolution means "ask the user the next time the capability is invoked."
+| Subject's `allowsReadFederation` | Capability verb | Allowed set size |
+|---|---|---|
+| `false` | `.read` | exactly 1 |
+| `false` | `.writeCreate` / `.writeUpdate` / `.writeDelete` | exactly 1 |
+| `true` | `.read` | ≥ 1 |
+| `true` | `.writeCreate` / `.writeUpdate` / `.writeDelete` | exactly 1 (writes never federate) |
+
+For non-federating subjects, all verbs default to the same provider — the resolution for the *first* approved verb seeds subsequent verb prompts (the verb-only consent card defaults to that provider; the user can still escape to the picker to switch).
+
+For federating subjects, `.read` and the write verbs are independent: read can be `{Strava, Fitbit}` while `.writeCreate` is `{Strava}`. Each verb gets its own picker the first time it's requested.
+
+Absence of a resolution row means "ask the user the next time this verb is invoked."
 
 ### Resolver
 
@@ -97,46 +130,49 @@ public protocol CapabilityResolver: Sendable {
     /// has linked them.
     func availableProviders(for subject: CapabilitySubject) async -> [any CapabilityProvider]
 
-    /// What the user picked previously for this (subject, conversation). Nil if they've
-    /// never been asked.
+    /// What the user picked previously for this (subject, conversation, capability). Empty
+    /// set means they've never been asked.
     func resolution(
         subject: CapabilitySubject,
-        conversationId: String
-    ) async -> ProviderID?
-
-    /// Has the user granted this specific verb on the resolved provider for this conversation?
-    func hasGranted(
         capability: ConnectionCapability,
-        subject: CapabilitySubject,
         conversationId: String
-    ) async -> Bool
+    ) async -> Set<ProviderID>
 
-    /// User has just approved the picker / confirmation card.
+    /// User has just approved the picker / confirmation card. The resolver validates the
+    /// set against the subject's federation flag and the verb shape (see the table in
+    /// [Resolution](#resolution)) and throws if the set is inconsistent.
     func setResolution(
-        _ providerId: ProviderID,
-        capability: ConnectionCapability,
+        _ providerIds: Set<ProviderID>,
         subject: CapabilitySubject,
+        capability: ConnectionCapability,
         conversationId: String
     ) async throws
 
-    /// Clear a resolution (user unlinks a provider, or revokes a grant via Conversation Info).
+    /// Clear a resolution for a specific verb (e.g. user revokes write access in
+    /// Conversation Info but keeps reads enabled).
     func clearResolution(
+        subject: CapabilitySubject,
+        capability: ConnectionCapability,
+        conversationId: String
+    ) async throws
+
+    /// Clear every resolution for a subject in a conversation (user toggled the subject off
+    /// entirely from Conversation Info).
+    func clearAllResolutions(
         subject: CapabilitySubject,
         conversationId: String
     ) async throws
 }
 ```
 
-### Verb consent vs. provider routing
+### Verb-only consent shortcut
 
-Two dimensions are tracked separately because they have different rotation cadences:
+When the agent requests a new verb the user hasn't granted yet, but a resolution already exists for *another* verb on the same `(subject, conversation)`, the resolver can default the new verb's resolution to the same provider(s):
 
-- **Resolution** = which provider handles this subject in this conversation. Sticky across capability verbs; only changes if the user explicitly switches providers or revokes the resolution.
-- **Grant** = whether the user has approved a specific verb (`.read` / `.writeCreate` / `.writeUpdate` / `.writeDelete`) on the resolved provider. Tracked per verb because reading and writing carry different consent weight.
+- **Non-federating subject** (e.g. `.calendar`): existing read resolution is `{device.calendar}`. New `.writeCreate` request defaults to the same single provider — verb-only consent card "Allow Apple Calendar to write events?" — no picker, no choice. User can still escape to the picker if they want a different provider for writes (which v1 doesn't support, so the picker would be no-op; v2 lifts the same-provider constraint).
+- **Federating subject** (e.g. `.fitness`): existing `.read` resolution is `{Strava, Fitbit}`. New `.writeCreate` request *cannot* federate (writes are always single-provider) — so the picker surfaces with both linked providers as options, defaulting to whichever has higher capability priority (TBD; for v1, the most-recently-resolved one).
 
-When the agent invokes a tool, the router looks up the resolution to pick the path, then checks the per-verb grant to decide whether to execute or return `capabilityNotEnabled`.
-
-When the agent *requests* a verb the user hasn't granted yet, the resolver renders a verb-only consent card ("Allow [Apple Calendar] to write events?") — no provider picker, since the resolution is already fixed.
+The result is that the second-verb consent stays cheap when the answer is obvious, and falls back to the picker when there's actual ambiguity.
 
 ### Provider registry
 
@@ -203,7 +239,7 @@ Agent posts a `capability_request(subject: .calendar, capability: .read, rationa
 
 Default-approve flow: tapping **Approve** stores the resolution `(calendar, conversationId) -> device.calendar` and grants `.read`. The "Use a different calendar?" disclosure expands into Variant 2 with the current pick already selected.
 
-#### Variant 2 — multiple linked providers (single-select picker)
+#### Variant 2a — multiple linked providers, non-federating subject or write verb (single-select)
 
 ```
 ┌─ Assistant wants to read your calendar ──────────┐
@@ -217,7 +253,23 @@ Default-approve flow: tapping **Approve** stores the resolution `(calendar, conv
 └──────────────────────────────────────────────────┘
 ```
 
-Single-select; `[ Approve ]` stays enabled when one row is checked.
+Radio buttons. `[ Approve ]` stays enabled when one row is checked.
+
+#### Variant 2b — multiple linked providers, federating subject + read verb (multi-select)
+
+```
+┌─ Assistant wants to read your fitness data ─────┐
+│ "To summarize your training week"                │
+│                                                  │
+│  ☑ Strava                                        │
+│  ☑ Fitbit                                        │
+│  ☐ Apple Health  (tap to connect)                │
+│                                                  │
+│  [ Approve ]  [ Deny ]                           │
+└──────────────────────────────────────────────────┘
+```
+
+Checkboxes. `[ Approve ]` stays enabled when at least one row is checked. The picker only renders this variant when (a) the subject's `allowsReadFederation == true` AND (b) the requested capability is `.read`. Any write verb on a federating subject falls back to Variant 2a (single-select).
 
 #### Variant 3 — zero linked providers (connect-and-approve)
 
@@ -238,36 +290,39 @@ Tapping **Connect** kicks off the iOS permission flow (device) or the OAuth flow
 
 ### Approval handling
 
-User approves → resolver writes the resolution → device or cloud subsystem flips its underlying enablement/grant → client publishes an updated [capabilities manifest](#runtime-capabilities-manifest) on the next `ProfileUpdate` → client posts a `capability_request_result(status: .approved, provider: "device.calendar")` reply to the conversation.
+User approves → resolver writes the resolution row → device or cloud subsystem flips its underlying enablement/grant for each provider in the set → client publishes an updated [capabilities manifest](#runtime-capabilities-manifest) on the next `ProfileUpdate` → client posts a `capability_request_result(status: .approved, providers: [...])` reply to the conversation. The reply carries the full set of providers (single-element for non-federating subjects and write verbs, ≥ 1 for federating-subject reads).
 
-### Agent-provided provider hint (`preferredProvider`)
+### Agent-provided provider hint (`preferredProviders`)
 
-If the `CapabilityRequest` carries a non-empty `preferredProvider`:
+If the `CapabilityRequest` carries a non-empty `preferredProviders`:
 
-1. If it matches a linked, capability-supporting provider → render Variant 1 with that provider as the default; "Use a different calendar?" still escapes back to Variant 2.
-2. Otherwise → fall through to whichever variant the user's link-state warrants.
+1. Filter to the subset that's linked and supports the requested capability.
+2. If the filtered subset is non-empty AND its arity matches the verb shape (any size for read on federating subject; size 1 for everything else) → render Variant 1 (size 1) or Variant 2b with rows pre-checked (size > 1 on federating subject) defaulting to that selection.
+3. Otherwise → fall through to whichever variant the user's link-state warrants.
 
-Single-valued (matching the single-resolution model). Lets agents that have observed prior user choices via the capabilities manifest skip friction without bypassing user consent.
+`preferredProviders` is an array; for non-federating subjects the array is treated as ordered preference and the first satisfiable element is used. Lets agents that have observed prior user choices via the capabilities manifest skip friction without bypassing user consent.
 
 ### Later: agent invokes a tool
 
 Agent posts `ConnectionInvocation(subject: .calendar, capability: .writeCreate, arguments: {...})`.
 
 Router:
-1. Look up resolution for `(calendar, conversationId)`.
-2. **No resolution** → return `ConnectionInvocationResult(status: .capabilityNotEnabled)` with a hint suggesting a `capability_request`.
-3. **Resolution exists, verb not granted** → render a verb-only consent card on the *next* user view of the conversation (e.g. "Apple Calendar — allow writes?"). Until consent is granted, return `requiresConfirmation`. The agent can choose to send a fresh `capability_request` to surface the card eagerly.
-4. **Resolution exists, verb granted** → dispatch to the resolved provider's execution path:
-   - `device.*` → `ConnectionsManager.handleInvocation` (existing path).
-   - `composio.*` → cloud-connections execution.
+1. Look up resolution for `(subject, conversationId, capability)`.
+2. **Empty set (no resolution)** → return `ConnectionInvocationResult(status: .capabilityNotEnabled)` with a hint suggesting a `capability_request`.
+3. **Resolution exists** → dispatch:
+   - **Single-element set, write verb or non-federating read**: route to that provider's execution path (`device.*` → `ConnectionsManager.handleInvocation`; `composio.*` → cloud-connections execution).
+   - **Multi-element set, read on federating subject**: fan out the read across every provider in the set, aggregate results, return one combined payload. Per-provider errors are surfaced in a `partialFailures` field on the result rather than failing the whole read.
 
 ### Cross-cutting: user changes providers
 
 Three events can invalidate a resolution:
 
-- User unlinks a cloud connection → clear every resolution that pointed at that provider; next invocation re-prompts.
+- User unlinks a cloud connection → for every resolution row containing that provider:
+  - If the resolution was a single-element set referencing the unlinked provider → delete the row; next invocation re-prompts.
+  - If the resolution was a multi-element set (federating-subject read) → remove the unlinked provider from the set. If the set becomes empty, delete the row. If it becomes single-element, the resolution naturally degrades to non-federated read against the remaining provider.
 - User revokes iOS permission in Settings → next invocation returns `authorizationDenied` (existing behavior); the resolution itself is *not* cleared (a re-grant in Settings should restore behavior without re-prompting).
-- User toggles off a subject from Conversation Info → clear resolution for `(subject, conversationId)` and revoke all verb grants.
+- User toggles off a subject from Conversation Info → clear every resolution for `(subject, conversationId)`.
+- User toggles off a specific verb from Conversation Info → clear that one row.
 
 ### The picker's "connect another" path
 
@@ -299,8 +354,8 @@ public struct CapabilityRequest: Codable, Sendable {
     public let requestId: String
     public let subject: CapabilitySubject
     public let capability: ConnectionCapability
-    public let rationale: String                 // human-readable
-    public let preferredProvider: ProviderID?    // agent hint; resolver may override
+    public let rationale: String                  // human-readable
+    public let preferredProviders: [ProviderID]?  // agent hint; resolver may override
 }
 ```
 
@@ -314,36 +369,29 @@ public struct CapabilityRequestResult: Codable, Sendable {
     public let status: Status
     public let subject: CapabilitySubject
     public let capability: ConnectionCapability
-    public let provider: ProviderID?  // populated only on .approved
+    public let providers: [ProviderID]  // populated only on .approved; size 1 for non-federating, ≥ 1 for federating reads
 }
 ```
 
 ## Persistence
 
-Two GRDB tables on the client. Resolutions and per-verb grants are split because they're updated at different cadences (resolution changes rarely; grants change every new verb the agent requests).
+Resolutions live in a single GRDB table. The cardinality constraint (size 1 vs. set) is enforced in the resolver, not the schema, because the schema needs to support both shapes uniformly.
 
 ```
 capabilityResolution(
     subject: String,                // CapabilitySubject.rawValue
     conversationId: String,
-    providerId: String,             // ProviderID.rawValue (single)
+    capability: String,             // ConnectionCapability.rawValue
+    providerIds: String,            // comma-joined ProviderID.rawValues; resolver enforces arity
     createdAt: Date,
     updatedAt: Date,
-    PRIMARY KEY (subject, conversationId)
-)
-
-capabilityGrant(
-    subject: String,
-    conversationId: String,
-    capability: String,             // ConnectionCapability.rawValue
-    grantedAt: Date,
-    PRIMARY KEY (subject, conversationId, capability),
-    FOREIGN KEY (subject, conversationId) REFERENCES capabilityResolution
-        ON DELETE CASCADE
+    PRIMARY KEY (subject, conversationId, capability)
 )
 ```
 
-Resolutions are the **source of truth** for routing. The existing `Enablement` table (device side, in `ConvosConnections`) and `DBCloudConnectionGrant` table (cloud side) remain the source of truth for the underlying system's own state. When a resolution is created, the resolver calls into the matching system to flip its state; when state is cleared in the underlying system, the resolver cleans up the corresponding resolution.
+The triple `(subject, conversationId, capability)` is the routing key. Each row's `providerIds` is a comma-joined list whose allowed cardinality is determined by the subject's `allowsReadFederation` flag and the capability verb shape (see [the resolution table](#resolution)). The resolver validates on insert/update and throws `ResolutionInconsistent` if a caller hands it a malformed set.
+
+Resolutions are the **source of truth** for routing. The existing `Enablement` table (device side, in `ConvosConnections`) and `DBCloudConnectionGrant` table (cloud side) remain the source of truth for the underlying system's own state. When a resolution is created, the resolver calls into the matching system to flip its state for *each* provider in the set; when state is cleared in the underlying system, the resolver removes that provider from any resolution rows that reference it.
 
 ## Runtime capabilities manifest
 
@@ -366,12 +414,15 @@ The client publishes a unified per-sender manifest in conversation metadata so t
       "available": true,                              // framework reachable / OAuth not expired
       "linked": true,                                  // always true for device; OAuth-active for cloud
       "capabilities": ["read", "writeCreate", "writeUpdate", "writeDelete"],
-      "resolved": true,                                // is THIS provider the resolution for this conversation?
-      "granted": {
+      // `resolved` is per-capability so the runtime can see exactly which verbs route to
+      // this provider in this conversation. For non-federating subjects, all verbs share
+      // the same provider. For federating subjects, .read can be true on multiple
+      // providers simultaneously while writes route to exactly one.
+      "resolved": {
         "read": true,
-        "writeCreate": false,
-        "writeUpdate": false,
-        "writeDelete": false
+        "writeCreate": true,
+        "writeUpdate": true,
+        "writeDelete": true
       }
     },
     {
@@ -381,24 +432,32 @@ The client publishes a unified per-sender manifest in conversation metadata so t
       "available": true,
       "linked": true,
       "capabilities": ["read", "writeCreate", "writeUpdate", "writeDelete"],
-      "resolved": false,                               // user picked Apple Calendar for this conversation
-      "granted": { "read": false, "writeCreate": false, "writeUpdate": false, "writeDelete": false }
+      "resolved": { "read": false, "writeCreate": false, "writeUpdate": false, "writeDelete": false }
     },
     {
-      "id": "device.contacts",
-      "subject": "contacts",
-      "displayName": "Apple Contacts",
+      "id": "composio.strava",
+      "subject": "fitness",
+      "displayName": "Strava",
       "available": true,
       "linked": true,
-      "capabilities": ["read", "writeCreate", "writeUpdate", "writeDelete"],
-      "resolved": false,
-      "granted": { "read": false, "writeCreate": false, "writeUpdate": false, "writeDelete": false }
+      "capabilities": ["read"],
+      // Strava + Fitbit both resolve to .read; agent's read tool fans out across both.
+      "resolved": { "read": true }
+    },
+    {
+      "id": "composio.fitbit",
+      "subject": "fitness",
+      "displayName": "Fitbit",
+      "available": true,
+      "linked": true,
+      "capabilities": ["read"],
+      "resolved": { "read": true }
     }
   ]
 }
 ```
 
-The `resolved` flag is the v1 addition — runtime can tell at a glance which provider per subject is the routed one and skip surfacing alternates as tools.
+The per-capability `resolved` map is what makes federation legible to the runtime — counting how many providers have `resolved.read == true` for a given subject tells the runtime whether to expect a federated read result shape.
 
 ### When the manifest is rewritten
 
@@ -448,52 +507,49 @@ Resolver lives in `ConvosCore/Sources/ConvosCore/CapabilityResolution/` (new dir
 | Scenario | Behavior |
 |---|---|
 | Agent invokes before any `capability_request` has happened | `capabilityNotEnabled` result with hint |
-| Resolution exists but the requested verb hasn't been granted | `requiresConfirmation` result; verb-only consent card surfaces on next user view |
-| Resolution points at a provider that's since been unlinked | Clear stale resolution, return `capabilityNotEnabled` with hint; next invocation re-prompts |
+| Resolution exists for one verb but the requested verb has no resolution row | `capabilityNotEnabled` with hint; the verb-only consent card surfaces next time the user views the conversation, defaulted to the same provider(s) when applicable |
+| Resolution points at a provider that's since been unlinked, single-element set | Clear the row, return `capabilityNotEnabled` with hint; next invocation re-prompts |
+| Resolution points at a provider that's since been unlinked, multi-element federation set | Remove the unlinked provider from the set; if remaining set is non-empty, continue routing; otherwise treat as the single-element-cleared case |
 | User taps Approve but OAuth linking fails | Surface error on the card, stay in pending state; user can retry or Deny |
 | User backgrounds app during card display | Card dismisses; client posts `capability_request_result(status: .cancelled)` |
-| Resolution points at a provider that's unavailable at call time | Return `executionFailed` with the provider ID in the error; do not silently fall back to another provider |
+| Resolution points at a provider that's unavailable at call time, single-target | Return `executionFailed` with the provider ID in the error; do not silently fall back to another provider |
+| Federated read with mixed success across providers | Return aggregated payload + `partialFailures: [{providerId, error}]` so the agent can decide whether to surface or retry per-provider |
 
 ## v1 Success criteria
 
-- [ ] `CapabilitySubject`, `ProviderID`, `CapabilityProvider`, `CapabilityProviderRegistry`, `CapabilityResolver` types defined in `ConvosCore/Sources/ConvosCore/CapabilityResolution/`
+- [ ] `CapabilitySubject` (with `allowsReadFederation: Bool` extension), `ProviderID`, `CapabilityProvider`, `CapabilityProviderRegistry`, `CapabilityResolver` types defined in `ConvosCore/Sources/ConvosCore/CapabilityResolution/`
 - [ ] `ProviderChange` enum + `providerChanges: AsyncStream<ProviderChange>` on the registry
-- [ ] GRDB migration adding `capabilityResolution` and `capabilityGrant` tables
+- [ ] GRDB migration adding `capabilityResolution` table
 - [ ] Both `ConvosConnections` (device) and `CloudConnections` register providers at their respective bootstrap points
 - [ ] `capability_request` and `capability_request_result` content codecs added (`convos.org/capability_request/1.0`, `.../capability_request_result/1.0`)
-- [ ] Confirmation card renders Variant 1 / 2 / 3 based on linked-provider count
+- [ ] Card renders Variant 1 / 2a / 2b / 3 based on linked-provider count, the subject's federation flag, and the verb shape
 - [ ] Card refreshes reactively when a new provider is linked mid-display (subscribes to `providerChanges`)
-- [ ] `preferredProvider` hint defaults the card to that provider when satisfiable
-- [ ] Verb-only consent card renders when the resolution exists but the verb isn't granted yet
-- [ ] Router dispatches `ConnectionInvocation` by subject to the resolved provider's execution path
-- [ ] Resolutions auto-clear on provider unlink; do *not* auto-clear on iOS permission revoke
-- [ ] Client publishes `profile.metadata["capabilities"]` manifest with the `resolved` flag on every relevant state change
+- [ ] `preferredProviders` hint defaults the card to that selection when satisfiable
+- [ ] Verb-only consent card renders when a resolution exists for one verb but not the requested one (defaulted to same provider(s) when applicable)
+- [ ] Router dispatches `ConnectionInvocation` by `(subject, capability)` to the resolved provider's execution path; fans out for federated reads
+- [ ] Resolutions auto-clear / shrink on provider unlink; do *not* auto-clear on iOS permission revoke
+- [ ] Client publishes `profile.metadata["capabilities"]` manifest with the per-capability `resolved` map on every relevant state change
 - [ ] CloudConnections stops publishing `profile.metadata["connections"]` (subsumed by `capabilities`)
-- [ ] Tests: first-time request → confirmation card → approve → invocation routes correctly; provider unlink clears resolution; write with no resolution returns `capabilityNotEnabled`; verb-only consent flow on second-verb request; `preferredProvider` hint defaults the card; manifest republishes after resolution changes; reactive card refresh on `providerChanges`
+- [ ] Tests: first-time request → card → approve → invocation routes correctly (single + multi-set); provider unlink shrinks/clears resolution; write with no resolution returns `capabilityNotEnabled`; verb-only consent flow on second-verb request; `preferredProviders` hint defaults the card; federated read fan-out aggregates results; partialFailures surface per-provider errors; manifest republishes after resolution changes; reactive card refresh on `providerChanges`
 
 ## Out of scope for v1
 
-- **Federated reads** across multiple providers in one conversation. Single resolution per subject for now; see [Future: federated reads / split-verb resolutions](#future-federated-reads--split-verb-resolutions).
-- **Split-verb resolutions** (e.g. read from Apple, write to Google in the same conversation). Same future-work bucket.
+- **Federation on subjects flagged `allowsReadFederation: false`**. Calendar, contacts, photos, music, and the rest enforce single-provider for v1. We can flip more subjects to true as use cases emerge.
+- **Per-verb provider differences within a non-federating subject** (e.g. read from Apple Calendar, write to Google Calendar in the same conversation). All verbs route to the same provider for non-federating subjects in v1.
 - Per-subject default preferences at the user account level ("always use Google Calendar everywhere") — may be added in v2 as a shortcut over per-conversation resolution.
 - Conflict resolution when two conversations resolve the same subject to different providers — intentional, each conversation is independent.
 - Resolver sync across the user's devices — per-device for v1; cross-device TBD alongside the broader enablement-sync design.
 - Collapsing `ConnectionKind` into `CapabilitySubject` — see decision #5 below; deferred to a future cleanup once both systems route by `subject`.
 
-## Future: federated reads / split-verb resolutions
+## Future: more subjects opt into federation
 
-The single-provider scope cut keeps v1 simple but leaves real product asks on the table:
+The opt-in federation flag means we can ship more federated subjects without a schema change — flipping `.contacts` or `.photos` to `allowsReadFederation: true` later just expands the picker to a multi-select form for those subjects. Things to think through when adding more:
 
-- **Federated reads.** A user with both Apple Calendar and Google Calendar linked plausibly wants the agent to see both. v1 forces a choice; v2 would let the resolution be a *set* for read-shaped capabilities, with results merged at the router.
-- **Split-verb resolutions.** A user might trust Apple Calendar for reads but only want writes going to a specific Google Calendar shared with their partner. v1 forces both to the same provider; v2 would let each verb resolve independently.
+- **Result-shape compatibility.** Federation works well when results from different providers are independently meaningful and can be concatenated (fitness activities, photo metadata, contact entries). It doesn't work for subjects where the providers compete for the same logical entity — e.g. two calendars both claiming "your work calendar." Calendar federation specifically gets stuck on conflict resolution and the "which calendar did this event land on?" trust problem; that's why it's permanently single-provider barring a separate product design.
+- **Quota / rate-limit fan-out.** A federated read on a subject with N providers is N API calls; rate-limit budgets need to account for that.
+- **Order semantics.** Some subjects have a natural ordering (calendar events by date, photos by capture date). Aggregation needs a defined merge order.
 
-When we revisit:
-- The resolution shape becomes a map keyed by capability instead of a single `ProviderID`.
-- The picker grows back the multi-select read variant from earlier drafts of this PRD.
-- The router gains fan-out logic for read-shaped invocations, with partial-success error reporting.
-- The capabilities manifest's `resolved` flag becomes per-capability instead of per-subject.
-
-The v1 wire formats and persistence schema are designed so that the v2 expansion is additive (new optional fields), not a rewrite.
+When relaxing more subjects, just update the table at the top of [v1 scope cut](#v1-scope-cut-federation-is-opt-in-per-subject) and write tests for the new fan-out path.
 
 ## Design decisions
 
@@ -503,7 +559,7 @@ The v1 wire formats and persistence schema are designed so that the v2 expansion
 
 3. **Unified runtime visibility**: solved by the [capabilities manifest](#runtime-capabilities-manifest). Both device and OAuth providers appear in `profile.metadata["capabilities"]`. The runtime reads this single key and learns about all subjects/providers/grants/resolutions across both systems.
 
-4. **Agent `preferredProvider` hint**: honored. When the agent supplies a satisfiable hint, the client renders the Variant 1 confirmation card pointing at that provider. The user can still escape to Variant 2 to switch.
+4. **Agent `preferredProviders` hint**: honored as an array. When the hint is satisfiable, the client renders Variant 1 (single hint) or Variant 2b with rows pre-checked (multi-element hint on a federating subject). The user can still escape to Variant 2 to change the selection.
 
 5. **`CapabilitySubject` vs `ConnectionKind`**: kept separate for v1.
    - `ConnectionKind` is the device-layer identity key inside `ConvosConnections` — routes payloads and invocations within that package; not all `ConnectionKind` values map cleanly to a user-facing subject (`.motion`, for example).
@@ -512,7 +568,9 @@ The v1 wire formats and persistence schema are designed so that the v2 expansion
    - Collapsing them would force OAuth providers to invent fake `ConnectionKind` values. Wrong direction.
    - Revisit once both systems route by `subject` at the wire layer.
 
-6. **Single provider per (subject, conversation) for v1**: see [the scope cut](#v1-scope-cut-one-provider-per-subject-conversation). The simpler model lets us ship the routing surface and the manifest in one PR; federated reads and split-verb resolutions get their own PR once we have usage data.
+6. **Federation is per-subject, not global**: see [the scope cut](#v1-scope-cut-federation-is-opt-in-per-subject). Subjects opt in via `allowsReadFederation: Bool`. Default is false (safer); fitness is the v1 yes. Lets us ship aggregated reads where they make product sense (fitness across Strava + Fitbit + Apple Health) without forcing the same UX on subjects where multi-provider is a trust hazard (calendar, contacts).
+
+7. **Writes never federate, regardless of subject**: a write that lands on "whichever calendar" is a trust-breaking outcome — the user opens Apple Calendar and doesn't see the new event, or opens Google Calendar and doesn't see it there either. Forcing single-provider on writes is a hard-won reliability property that holds even on subjects that opt into read federation.
 
 ## Migration / ordering
 
@@ -535,12 +593,20 @@ Steps 2–6 are roughly independent after #1; can be stacked or parallel. Step 7
 
 ## Appendix: why a single provider per subject for v1
 
-When the user links both Apple Calendar and Google Calendar, three product behaviors are plausible:
+## Appendix: why the appropriate federation behavior depends on the subject
 
-1. **Pick one, every time.** User commits per conversation. Agent always knows where it's reading and writing. Simple, predictable, matches how users think about the question "which calendar?"
-2. **Federate reads, single-target writes.** Reads merge across all linked calendars; writes target one chosen one. Maximizes the agent's information without the "which calendar did it land in?" trust problem.
+The federation question — "if a user has linked multiple providers for a subject, should the agent see all of them at once?" — has three plausible answers, and which one is right depends on what the data looks like.
+
+1. **Pick one, every time.** User commits per conversation. Agent always knows where it's reading and writing. Predictable; matches how users think about questions like "which calendar?"
+2. **Federate reads, single-target writes.** Reads merge across all linked providers; writes target one. Maximizes the agent's information without the "which calendar did it land in?" trust problem.
 3. **Per-verb selection.** Read from Apple, write to Google. Maximally flexible; maximally complex consent UI.
 
-(2) and (3) are real asks, but the implementation cost is high (fan-out, merge logic, partial-success error shapes, multi-select picker UX, audit trail). v1 ships (1) because it's enough for almost every conversation an agent will have, and we can extend to (2) and (3) without rewriting the wire format.
+(3) is uniformly more cost than benefit and isn't on the roadmap. The interesting choice is between (1) and (2), and it's not the same call for every subject:
 
-The [Future](#future-federated-reads--split-verb-resolutions) section traces the path forward.
+- **`.fitness` favors (2).** Activity data from Strava, Fitbit, and Apple Health is independently meaningful and union-shaped — a week's runs across all three is a strict superset of any single source, with no conflict. Aggregation is just concatenation. The v1 yes.
+- **`.calendar` favors (1).** Two calendars logically compete for the same entity (your work calendar, your personal calendar). Federated reads beg the question "which calendar should the agent file this event suggestion under?" and the federated-write answer is the trust-breaking failure mode the original PRD called out. Apple Calendar's own UI already merges multiple calendar accounts within one app; there's no clean way to *unmerge* at the routing layer. Permanent (1).
+- **`.contacts` is closer to `.fitness`.** Apple Contacts and Google Contacts can both have entries; federated reads return both and the agent can dedupe by name. Worth flipping to true once we have product feedback.
+- **`.photos` is uncertain.** Apple Photos + Google Photos may have substantial overlap for users who back up both; federation could surface the same photo twice. Needs design work on dedup.
+- **`.location`, `.screen_time`, `.home`, `.music`** — single provider per device, federation moot.
+
+The flag-per-subject approach lets us flip these one at a time without changing the routing layer, the wire format, or the picker code. v1 ships fitness federation; the rest are conservative defaults that we revise based on usage.
