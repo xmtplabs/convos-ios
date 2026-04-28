@@ -295,15 +295,16 @@ struct CapabilityPickerCardView: View {
 
     @ViewBuilder
     private func actionButtons(approveEnabled: Bool) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            Button("Deny", action: onDeny)
-                .convosButtonStyle(.outline(fullWidth: true))
-
+        VStack(spacing: DesignConstants.Spacing.stepX) {
             Button("Approve") {
                 onApprove(selection)
             }
             .convosButtonStyle(.rounded(fullWidth: true))
             .disabled(!approveEnabled)
+
+            Button("Deny", action: onDeny)
+                .convosButtonStyle(.text)
+                .frame(maxWidth: .infinity)
         }
     }
 }
