@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
 import Observation
@@ -125,6 +126,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private var observedCapabilityRequestsConversationId: String?
     @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
+    @ObservationIgnored
+    private var locallyHandledCapabilityRequestIds: Set<String> = []
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
@@ -724,12 +727,21 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         let handler = CapabilityRequestHandler()
         pendingCapabilityPickerLayout = nil
         latestObservedCapabilityRequest = nil
+        locallyHandledCapabilityRequestIds.removeAll()
         capabilityRequestsCancellable?.cancel()
         capabilityRequestsCancellable = session.capabilityRequestRepository(for: conversationId)
             .pendingRequestPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] request in
                 guard let self else { return }
+                // The user already approved/denied this request locally — keep the picker
+                // hidden until the result row lands and the publisher emits a different
+                // request (or nil). Without this guard, an unrelated DB change between the
+                // tap and the result write re-emits the same pending request and revives
+                // the card.
+                if let request, self.locallyHandledCapabilityRequestIds.contains(request.requestId) {
+                    return
+                }
                 self.latestObservedCapabilityRequest = request
                 guard let request else {
                     self.pendingCapabilityPickerLayout = nil
@@ -854,6 +866,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             pendingCapabilityPickerLayout = nil
             return
         }
+        locallyHandledCapabilityRequestIds.insert(request.requestId)
         pendingCapabilityPickerLayout = nil
         sendCapabilityResult(
             request: request,
@@ -870,6 +883,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             pendingCapabilityPickerLayout = nil
             return
         }
+        locallyHandledCapabilityRequestIds.insert(request.requestId)
         pendingCapabilityPickerLayout = nil
         sendCapabilityResult(
             request: request,
@@ -923,12 +937,61 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
 
-    /// User tapped a Connect row. Forwarding to the iOS permission flow (for
-    /// `device.*` providers) or the OAuth flow (for `composio.*` providers) is the
-    /// host's job; on completion the registry's `providerChanges` stream will refresh
-    /// the picker layout in place. No-op here so the picker stays open while the user
-    /// completes the linking flow.
+    /// User tapped a Connect row. For `device.<kind>` providers we route into the
+    /// matching iOS permission prompt via the session's `DeviceConnectionAuthorizer`,
+    /// then re-register the provider so the picker re-renders with the new linked
+    /// state. Cloud (`composio.*`) providers are not yet wired here.
     func onCapabilityConnect(providerId: ProviderID) {
+        guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else {
+            Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
+            return
+        }
+        guard let request = pendingCapabilityPickerLayout?.request else { return }
+        let conversationId = conversation.id
+        let session = self.session
+        let registry = session.capabilityProviderRegistry()
+        let authorizer = session.deviceConnectionAuthorizer()
+        Task { [weak self] in
+            do {
+                _ = try await authorizer.requestAuthorization(for: kind)
+            } catch {
+                Log.error("Authorization request failed for \(kind.rawValue): \(error.localizedDescription)")
+            }
+            let status = await authorizer.currentAuthorization(for: kind)
+            let isLinked = status.canDeliverData
+            if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
+                let updated = DeviceCapabilityProvider(
+                    id: spec.id,
+                    subject: spec.subject,
+                    displayName: spec.displayName,
+                    iconName: spec.iconName,
+                    capabilities: spec.capabilities,
+                    subjectNounPhrase: spec.subjectNounPhrase,
+                    linkedByUser: { isLinked }
+                )
+                await registry.register(updated)
+            }
+            await MainActor.run { [weak self] in
+                self?.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+            }
+        }
+    }
+
+    private func recomputeCapabilityPickerLayout(for request: CapabilityRequest, conversationId: String) {
+        let registry = session.capabilityProviderRegistry()
+        let resolver = session.capabilityResolver()
+        let handler = CapabilityRequestHandler()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let layout = await handler.computeLayout(
+                request: request,
+                registry: registry,
+                resolver: resolver,
+                conversationId: conversationId
+            )
+            guard self.latestObservedCapabilityRequest == request else { return }
+            self.pendingCapabilityPickerLayout = layout
+        }
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {

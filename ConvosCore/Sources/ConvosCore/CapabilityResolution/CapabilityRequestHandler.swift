@@ -147,7 +147,8 @@ public struct CapabilityRequestHandler: Sendable {
                     iconName: provider.iconName,
                     subject: provider.subject,
                     linked: linked,
-                    supportsCapability: provider.capabilities.contains(requestedCapability)
+                    supportsCapability: provider.capabilities.contains(requestedCapability),
+                    subjectNounPhrase: provider.subjectNounPhrase
                 )
             )
         }

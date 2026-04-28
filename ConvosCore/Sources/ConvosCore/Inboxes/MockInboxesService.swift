@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 import GRDB
 
@@ -192,6 +193,15 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
         MockCapabilityRequestRepository()
     }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        MockDeviceConnectionAuthorizer()
+    }
+}
+
+private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
+    func currentAuthorization(for kind: ConnectionKind) async -> ConnectionAuthorizationStatus { .notDetermined }
+    func requestAuthorization(for kind: ConnectionKind) async throws -> ConnectionAuthorizationStatus { .authorized }
 }
 
 private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {

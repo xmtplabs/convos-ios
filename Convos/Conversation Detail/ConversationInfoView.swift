@@ -716,8 +716,12 @@ struct DebugLogsTextView: View {
     }
 }
 
+@MainActor
+private func makeConversationInfoPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
+    ConversationInfoView(viewModel: makeConversationInfoPreviewViewModel(), focusCoordinator: focusCoordinator)
 }

@@ -30,12 +30,20 @@ public protocol CapabilityProvider: Sendable {
     /// about HomeKit but the user hasn't configured it" vs "this device can't run HomeKit
     /// at all."
     var available: Bool { get async }
+
+    /// Optional override for the picker header noun phrase. When the picker has a single
+    /// eligible provider (e.g. only Apple Health for `.fitness`), it uses this phrase
+    /// instead of the subject's generic noun so the prompt reads as "...read your health
+    /// data" rather than "...read your fitness". Returns `nil` to defer to the subject.
+    var subjectNounPhrase: String? { get }
 }
 
 public extension CapabilityProvider {
     var available: Bool {
         get async { true }
     }
+
+    var subjectNounPhrase: String? { nil }
 }
 
 /// Emitted on `CapabilityProviderRegistry.providerChanges` to drive reactive UI refresh

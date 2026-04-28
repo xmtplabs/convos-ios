@@ -49,4 +49,22 @@ public extension CapabilitySubject {
         case .screenTime: return "Screen Time"
         }
     }
+
+    /// Generic noun phrase used in picker headers ("...read your <noun>"). Providers
+    /// with a more specific framing (e.g. Apple Health is fitness-data specifically)
+    /// can override via `CapabilityProvider.subjectNounPhrase`.
+    var subjectNounPhrase: String {
+        switch self {
+        case .calendar: return "calendar"
+        case .contacts: return "contacts"
+        case .tasks: return "tasks"
+        case .mail: return "mail"
+        case .photos: return "photos"
+        case .fitness: return "fitness data"
+        case .music: return "music"
+        case .location: return "location"
+        case .home: return "home devices"
+        case .screenTime: return "screen time data"
+        }
+    }
 }

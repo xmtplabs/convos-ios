@@ -32,12 +32,13 @@ struct CapabilityPickerCardView: View {
 
     var body: some View {
         cardContent
-            .padding(DesignConstants.Spacing.step3x)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step5x)
             .glassEffect(
                 .regular,
                 in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
             )
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
             // `@State` initialValue runs once per view identity. If the parent passes a
             // new layout (e.g. a fresh `capability_request` arrives) while SwiftUI keeps
             // this view alive, sync the seed selection across so we don't show stale rows
@@ -129,7 +130,7 @@ struct CapabilityPickerCardView: View {
                         Button("Connect") {
                             onConnect(provider.id)
                         }
-                        .convosButtonStyle(.outline(fullWidth: false))
+                        .convosButtonStyle(.outlineCapsule(fullWidth: false))
                     }
                     .padding(DesignConstants.Spacing.step2x)
                 }
@@ -164,6 +165,7 @@ struct CapabilityPickerCardView: View {
                 }
                 Spacer(minLength: 0)
             }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
             actionButtons(approveEnabled: !selection.isEmpty)
         }
     }
@@ -183,17 +185,28 @@ struct CapabilityPickerCardView: View {
                     .lineLimit(3)
             }
         }
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
     }
 
     private var headerTitle: String {
         let action = verbDisplayPhrase
-        return "Assistant wants to \(action) your \(layout.request.subject.displayName.lowercased())"
+        return "Assistant wants to \(action) your \(headerNoun)"
+    }
+
+    private var headerNoun: String {
+        let eligible = layout.providers.filter(\.supportsCapability)
+        if eligible.count == 1, let only = eligible.first, let custom = only.subjectNounPhrase {
+            return custom
+        }
+        return layout.request.subject.subjectNounPhrase
     }
 
     private var verbConsentTitle: String {
         let action = verbDisplayPhrase
-        let providerName = layout.providers.first { layout.defaultSelection.contains($0.id) }?.displayName ?? "this provider"
-        return "Allow \(providerName) to \(action) \(layout.request.subject.displayName.lowercased())?"
+        let provider = layout.providers.first { layout.defaultSelection.contains($0.id) }
+        let providerName = provider?.displayName ?? "this provider"
+        let noun = provider?.subjectNounPhrase ?? layout.request.subject.subjectNounPhrase
+        return "Allow \(providerName) to \(action) \(noun)?"
     }
 
     private var verbDisplayPhrase: String {

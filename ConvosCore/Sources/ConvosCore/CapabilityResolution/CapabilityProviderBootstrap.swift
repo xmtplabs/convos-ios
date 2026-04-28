@@ -27,6 +27,7 @@ public enum CapabilityProviderBootstrap {
                 displayName: spec.displayName,
                 iconName: spec.iconName,
                 capabilities: spec.capabilities,
+                subjectNounPhrase: spec.subjectNounPhrase,
                 linkedByUser: linkedByUser(spec.kind),
                 available: available(spec.kind)
             )

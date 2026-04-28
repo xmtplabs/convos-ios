@@ -13,5 +13,27 @@
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Convos uses your photo library when an assistant asks to read recent photos for a conversation.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Convos uses your contacts when an assistant asks to look up a person you've mentioned in a conversation.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Convos uses your calendar when an assistant asks to summarize or schedule events from a conversation.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Convos uses your calendar when an assistant asks to summarize or schedule events from a conversation.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Convos uses your reminders when an assistant asks to capture tasks from a conversation.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Convos uses your Apple Music library when an assistant asks about what you've been listening to.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Convos uses your location when an assistant asks where you are or to plan something nearby.</string>
+	<key>NSHomeKitUsageDescription</key>
+	<string>Convos uses HomeKit when an assistant asks to check or control your home accessories.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Convos uses Apple Health when an assistant asks about your activity, workouts, or sleep.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Convos uses Apple Health when an assistant logs a workout or activity for you.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Convos uses motion data when an assistant asks about your daily movement or workouts.</string>
 </dict>
 </plist>

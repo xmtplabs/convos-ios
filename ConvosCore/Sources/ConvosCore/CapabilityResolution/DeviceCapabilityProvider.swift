@@ -12,6 +12,7 @@ public struct DeviceCapabilityProvider: CapabilityProvider, Sendable {
     public let displayName: String
     public let iconName: String
     public let capabilities: Set<ConnectionCapability>
+    public let subjectNounPhrase: String?
     private let linkedProvider: @Sendable () async -> Bool
     private let availableProvider: @Sendable () async -> Bool
 
@@ -21,6 +22,7 @@ public struct DeviceCapabilityProvider: CapabilityProvider, Sendable {
         displayName: String,
         iconName: String,
         capabilities: Set<ConnectionCapability>,
+        subjectNounPhrase: String? = nil,
         linkedByUser: @escaping @Sendable () async -> Bool,
         available: @escaping @Sendable () async -> Bool = { true }
     ) {
@@ -29,6 +31,7 @@ public struct DeviceCapabilityProvider: CapabilityProvider, Sendable {
         self.displayName = displayName
         self.iconName = iconName
         self.capabilities = capabilities
+        self.subjectNounPhrase = subjectNounPhrase
         self.linkedProvider = linkedByUser
         self.availableProvider = available
     }
@@ -64,6 +67,25 @@ public extension DeviceCapabilityProvider {
         public let displayName: String
         public let iconName: String
         public let capabilities: Set<ConnectionCapability>
+        public let subjectNounPhrase: String?
+
+        public init(
+            kind: ConnectionKind,
+            id: ProviderID,
+            subject: CapabilitySubject,
+            displayName: String,
+            iconName: String,
+            capabilities: Set<ConnectionCapability>,
+            subjectNounPhrase: String? = nil
+        ) {
+            self.kind = kind
+            self.id = id
+            self.subject = subject
+            self.displayName = displayName
+            self.iconName = iconName
+            self.capabilities = capabilities
+            self.subjectNounPhrase = subjectNounPhrase
+        }
     }
 
     /// Default specs covering every ConnectionKind that maps to a user-facing subject.
@@ -99,7 +121,8 @@ public extension DeviceCapabilityProvider {
             subject: .fitness,
             displayName: "Apple Health",
             iconName: "heart.text.square",
-            capabilities: [.read, .writeCreate]
+            capabilities: [.read, .writeCreate],
+            subjectNounPhrase: "health data"
         ),
         Spec(
             kind: .music,
@@ -137,4 +160,16 @@ public extension DeviceCapabilityProvider {
         // subject. Agents asking for `.fitness` route to `.health` (or a cloud fitness
         // provider).
     ]
+}
+
+public extension ConnectionKind {
+    /// Inverse of `DeviceCapabilityProvider.providerId(for:)`. Returns `nil` for any
+    /// `ProviderID` that doesn't follow the `device.<kind>` convention (cloud providers,
+    /// unknown kinds).
+    static func fromDeviceProviderId(_ providerId: ProviderID) -> ConnectionKind? {
+        let prefix = "device."
+        let raw = providerId.rawValue
+        guard raw.hasPrefix(prefix) else { return nil }
+        return ConnectionKind(rawValue: String(raw.dropFirst(prefix.count)))
+    }
 }

@@ -104,6 +104,11 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// layout whenever a fresh request lands or the most recent one gets a
     /// matching result.
     func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol
+
+    /// Routes per-`ConnectionKind` permission prompts into ConvosConnections data
+    /// sources. The picker's Connect path calls this to drive the iOS prompt without
+    /// the view model having to know about HealthKit / EventKit / etc.
+    func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer
 }
 
 extension SessionManagerProtocol {

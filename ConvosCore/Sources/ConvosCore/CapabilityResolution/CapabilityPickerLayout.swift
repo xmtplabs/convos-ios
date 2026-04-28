@@ -50,6 +50,7 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
         public let subject: CapabilitySubject
         public let linked: Bool
         public let supportsCapability: Bool
+        public let subjectNounPhrase: String?
 
         public init(
             id: ProviderID,
@@ -57,7 +58,8 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
             iconName: String,
             subject: CapabilitySubject,
             linked: Bool,
-            supportsCapability: Bool
+            supportsCapability: Bool,
+            subjectNounPhrase: String? = nil
         ) {
             self.id = id
             self.displayName = displayName
@@ -65,6 +67,7 @@ public struct CapabilityPickerLayout: Sendable, Equatable {
             self.subject = subject
             self.linked = linked
             self.supportsCapability = supportsCapability
+            self.subjectNounPhrase = subjectNounPhrase
         }
     }
 }
