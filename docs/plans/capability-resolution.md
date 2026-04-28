@@ -49,7 +49,7 @@ The list is conservative on purpose: defaulting a new subject to single-provider
 - Re-unifying device and cloud connections under a single `DataSource`/`DataSink` abstraction. The [comparison doc](./connections-device-vs-cloud.md) already argued against that.
 - Per-verb federation. Reads federate (when the subject opts in); writes always target exactly one provider. The asymmetry is intentional — see the [appendix](#appendix-why-a-single-provider-per-subject-for-v1).
 - Per-verb provider differences within a non-federating subject (e.g. read from Apple Calendar, write to Google Calendar in the same conversation). Same `(subject, conversation)` resolution covers all verbs.
-- Runtime / backend *implementation* — this PRD defines the `profile.metadata["capabilities"]` contract the runtime reads, but the runtime-side reader is someone else's PR.
+- Runtime / backend *implementation* — this PRD defines the `profile.metadata["connections"]` contract the runtime reads, but the runtime-side reader is someone else's PR.
 - Provider *discovery* — what providers to offer. That's a product decision we make per-subject; this PRD is about routing once providers exist.
 - Cross-user federation. A resolution is always scoped to one user's account + one conversation.
 - Cross-device sync of resolutions. Per-device for v1; tracked alongside the broader enablement-sync design.
@@ -395,11 +395,11 @@ Resolutions are the **source of truth** for routing. The existing `Enablement` t
 
 ## Runtime capabilities manifest
 
-The client publishes a unified per-sender manifest in conversation metadata so the agent's runtime knows what subjects/providers are available and what's currently granted. This **replaces** the `connections` metadata entry that PR #719 (CloudConnections) was going to publish — the unified shape covers both bodies of work.
+The client publishes a unified per-sender manifest in conversation metadata so the agent's runtime knows what subjects/providers are available and what's currently granted. This is published under the same `connections` key that PR #719 (CloudConnections) was going to use, with an expanded shape that covers both subsystems.
 
 ### Location
 
-`profile.metadata["capabilities"]` on each sender's own `ProfileUpdate` message. Same delivery pattern CloudConnections was using for its `connections` entry, just under a different key with a unified shape.
+`profile.metadata["connections"]` on each sender's own `ProfileUpdate` message — same key the cloud subsystem already plumbed; only the payload shape changes.
 
 ### Shape
 
@@ -471,7 +471,7 @@ Any change that affects the manifest triggers a republish on the next `ProfileUp
 
 ### Runtime behavior (defines the contract for the runtime PR)
 
-On every `ProfileUpdate` arrival, agent infrastructure reads `metadata["capabilities"]`:
+On every `ProfileUpdate` arrival, agent infrastructure reads `metadata["connections"]`:
 
 - `resolved == true` AND `granted[capability] == true` → agent surfaces the corresponding tool; can call freely.
 - `resolved == true` AND `granted[capability] == false` → agent can request that specific verb via `capability_request`; the picker is skipped, just a verb-consent card.
@@ -483,9 +483,9 @@ The `preferredProvider` hint in subsequent `capability_request` messages lets th
 
 ### Relationship to PR #719's `connections` metadata
 
-PR #719 (CloudConnections) was going to publish its own `profile.metadata["connections"]` payload listing OAuth grants. That key becomes redundant — cloud grants now appear as `providers[].granted` entries inside the unified `capabilities` manifest.
+PR #719 (CloudConnections) was going to publish a flat list of OAuth grants under `profile.metadata["connections"]`. That payload's shape is subsumed by the unified manifest defined here — cloud grants now appear as `providers[].resolved` / `granted` entries alongside device providers.
 
-**Decision**: CloudConnections skips publishing the `connections` key from day one. Neither side has shipped to the wire yet, so the coordination cost is zero. The runtime reader is built once, against `capabilities`.
+**Decision**: keep the `["connections"]` key (matches the user-facing "Connections" tab in settings, and the manifest's outer-level `capabilities` field would otherwise collide with each provider's inner `capabilities` array). CloudConnections's old grant-list shape is replaced wholesale by the manifest below — neither shape has shipped to the wire yet, so the runtime reader is built once against the new shape.
 
 ### Concerns
 
@@ -528,8 +528,8 @@ Resolver lives in `ConvosCore/Sources/ConvosCore/CapabilityResolution/` (new dir
 - [ ] Verb-only consent card renders when a resolution exists for one verb but not the requested one (defaulted to same provider(s) when applicable)
 - [ ] Router dispatches `ConnectionInvocation` by `(subject, capability)` to the resolved provider's execution path; fans out for federated reads
 - [ ] Resolutions auto-clear / shrink on provider unlink; do *not* auto-clear on iOS permission revoke
-- [ ] Client publishes `profile.metadata["capabilities"]` manifest with the per-capability `resolved` map on every relevant state change
-- [ ] CloudConnections stops publishing `profile.metadata["connections"]` (subsumed by `capabilities`)
+- [ ] Client publishes `profile.metadata["connections"]` manifest with the per-capability `resolved` map on every relevant state change
+- [ ] CloudConnections stops publishing `profile.metadata["connections"]` (old shape replaced by the unified manifest)
 - [ ] Tests: first-time request → card → approve → invocation routes correctly (single + multi-set); provider unlink shrinks/clears resolution; write with no resolution returns `capabilityNotEnabled`; verb-only consent flow on second-verb request; `preferredProviders` hint defaults the card; federated read fan-out aggregates results; partialFailures surface per-provider errors; manifest republishes after resolution changes; reactive card refresh on `providerChanges`
 
 ## Out of scope for v1
@@ -557,7 +557,7 @@ When relaxing more subjects, just update the table at the top of [v1 scope cut](
 
 2. **Mid-card provider link reactivity**: card refreshes in place via `CapabilityProviderRegistry.providerChanges: AsyncStream<ProviderChange>`. When the user taps "Connect," completes OAuth, and returns to the card, the new provider row appears without dismissing. SwiftUI view subscribes; no manual refresh needed.
 
-3. **Unified runtime visibility**: solved by the [capabilities manifest](#runtime-capabilities-manifest). Both device and OAuth providers appear in `profile.metadata["capabilities"]`. The runtime reads this single key and learns about all subjects/providers/grants/resolutions across both systems.
+3. **Unified runtime visibility**: solved by the [capabilities manifest](#runtime-capabilities-manifest). Both device and OAuth providers appear in `profile.metadata["connections"]`. The runtime reads this single key and learns about all subjects/providers/grants/resolutions across both systems.
 
 4. **Agent `preferredProviders` hint**: honored as an array. When the hint is satisfiable, the client renders Variant 1 (single hint) or Variant 2b with rows pre-checked (multi-element hint on a federating subject). The user can still escape to Variant 2 to change the selection.
 
@@ -580,14 +580,14 @@ When relaxing more subjects, just update the table at the top of [v1 scope cut](
    - GRDB migration adding `capabilityResolution` and `capabilityGrant`
    - Wire content codecs (`capability_request`, `capability_request_result`)
    - Router with subject-keyed dispatch
-   - Capabilities manifest writer (publishes `profile.metadata["capabilities"]` on resolution/registry changes)
+   - Capabilities manifest writer (publishes `profile.metadata["connections"]` on resolution/registry changes)
 3. **ConvosConnections provider registration** — small patch: register providers at `ConnectionsManager` init.
 4. **CloudConnections provider registration + manifest cutover** — small patch:
    - Register providers at link time
    - Stop publishing `profile.metadata["connections"]`; rely on the unified `capabilities` manifest
 5. **Card UI** — main-app SwiftUI view that observes the resolver, registry, and `providerChanges` stream. Includes Variant 1 / 2 / 3 plus the verb-only consent variant.
 6. **Main-app wiring** — codec registration in `InboxStateMachine`'s `ClientOptions(codecs: [...])`, hook `capability_request` messages into the existing decoded-message dispatch.
-7. **Runtime PR (someone else)** — agent infrastructure reads `profile.metadata["capabilities"]` and provisions tools accordingly. Not in this PRD's scope but the contract is locked here.
+7. **Runtime PR (someone else)** — agent infrastructure reads `profile.metadata["connections"]` and provisions tools accordingly. Not in this PRD's scope but the contract is locked here.
 
 Steps 2–6 are roughly independent after #1; can be stacked or parallel. Step 7 unblocks once steps 2 and 4 land (so the wire format is stable).
 

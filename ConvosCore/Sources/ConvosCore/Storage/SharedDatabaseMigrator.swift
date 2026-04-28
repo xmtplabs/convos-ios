@@ -61,6 +61,28 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("createCapabilityResolution") { db in
+            // Per-(subject, conversation, capability) routing decision. Set cardinality is
+            // enforced in CapabilityResolutionValidator, not the schema, because the
+            // schema needs to support both single and multi-provider rows uniformly.
+            try db.create(table: "capabilityResolution") { t in
+                t.column("subject", .text).notNull()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("capability", .text).notNull()
+                t.column("providerIds", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["subject", "conversationId", "capability"])
+            }
+
+            try db.create(
+                index: "capabilityResolution_conversationId",
+                on: "capabilityResolution",
+                columns: ["conversationId"]
+            )
+        }
+
         return migrator
     }
 
