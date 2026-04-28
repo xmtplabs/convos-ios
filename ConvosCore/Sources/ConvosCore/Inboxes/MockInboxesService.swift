@@ -2,8 +2,11 @@ import Combine
 import Foundation
 import GRDB
 
-public final class MockInboxesService: SessionManagerProtocol {
+public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendable {
     private let mockMessagingService: MockMessagingService
+    /// Single shared registry so providers registered through this mock are visible to
+    /// the resolver `capabilityResolver()` returns.
+    private let mockCapabilityRegistry: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
 
     public init(mockMessagingService: MockMessagingService = MockMessagingService()) {
         self.mockMessagingService = mockMessagingService
@@ -179,11 +182,11 @@ public final class MockInboxesService: SessionManagerProtocol {
     }
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
-        InMemoryCapabilityProviderRegistry()
+        mockCapabilityRegistry
     }
 
     public func capabilityResolver() -> any CapabilityResolver {
-        InMemoryCapabilityResolver(registry: capabilityProviderRegistry())
+        InMemoryCapabilityResolver(registry: mockCapabilityRegistry)
     }
 
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {

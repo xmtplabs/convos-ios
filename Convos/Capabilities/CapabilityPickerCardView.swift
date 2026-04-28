@@ -38,6 +38,13 @@ struct CapabilityPickerCardView: View {
                 in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
             )
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            // `@State` initialValue runs once per view identity. If the parent passes a
+            // new layout (e.g. a fresh `capability_request` arrives) while SwiftUI keeps
+            // this view alive, sync the seed selection across so we don't show stale rows
+            // checked.
+            .onChange(of: layout.defaultSelection) { _, newValue in
+                selection = newValue
+            }
     }
 
     @ViewBuilder

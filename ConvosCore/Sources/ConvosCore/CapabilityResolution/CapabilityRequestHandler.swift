@@ -24,7 +24,10 @@ public struct CapabilityRequestHandler: Sendable {
             providers: providersForSubject,
             requestedCapability: request.capability
         )
-        let linkedSummaries = summaries.filter(\.linked)
+        // Linked AND supports the requested verb. A provider that's linked but doesn't
+        // implement the verb (e.g. Strava is read-only and the agent asks for
+        // writeCreate) shouldn't be eligible for default-approve / pre-selection.
+        let linkedSummaries = summaries.filter { $0.linked && $0.supportsCapability }
 
         // Look at existing resolutions on this subject so we can short-circuit to the
         // verb-consent card when the answer is already implied by a previous verb's
@@ -226,8 +229,12 @@ public struct CapabilityRequestHandler: Sendable {
         guard !defaultSet.isEmpty else { return nil }
 
         // Filter the picker's provider list to only those in the default set so the
-        // verb-consent card surfaces just the relevant rows.
+        // verb-consent card surfaces just the relevant rows. If `relevant` ends up
+        // empty — every provider in the default set has been unregistered since the
+        // resolution was written — fall back to the standard variant logic so we don't
+        // render a card with `providers: []` and a non-empty `defaultSelection`.
         let relevant = summaries.filter { defaultSet.contains($0.id) }
+        guard !relevant.isEmpty else { return nil }
         return CapabilityPickerLayout(
             request: request,
             variant: .verbConsent,
