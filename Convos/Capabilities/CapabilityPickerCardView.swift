@@ -33,13 +33,9 @@ struct CapabilityPickerCardView: View {
     var body: some View {
         cardContent
             .padding(DesignConstants.Spacing.step3x)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(Color.colorBackgroundSurfaceless)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                            .stroke(Color.colorBorderSubtle, lineWidth: 1)
-                    )
+            .glassEffect(
+                .regular,
+                in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
             )
             .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
@@ -295,16 +291,16 @@ struct CapabilityPickerCardView: View {
 
     @ViewBuilder
     private func actionButtons(approveEnabled: Bool) -> some View {
-        VStack(spacing: DesignConstants.Spacing.stepX) {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Button("Deny", action: onDeny)
+                .convosButtonStyle(.text)
+                .frame(maxWidth: .infinity)
+
             Button("Approve") {
                 onApprove(selection)
             }
             .convosButtonStyle(.rounded(fullWidth: true))
             .disabled(!approveEnabled)
-
-            Button("Deny", action: onDeny)
-                .convosButtonStyle(.text)
-                .frame(maxWidth: .infinity)
         }
     }
 }
