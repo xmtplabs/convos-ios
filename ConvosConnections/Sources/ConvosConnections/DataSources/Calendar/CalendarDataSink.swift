@@ -62,6 +62,8 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
                 return updateEvent(invocation)
             case CalendarActionSchemas.deleteEvent.actionName:
                 return deleteEvent(invocation)
+            case CalendarActionSchemas.createCalendar.actionName:
+                return createCalendar(invocation)
             default:
                 return Self.makeResult(
                     for: invocation,
@@ -255,6 +257,100 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
                 return .success(defaultCalendar)
             }
             return .failure("No default calendar for new events is configured.")
+        }
+
+        private func createCalendar(_ invocation: ConnectionInvocation) -> ConnectionInvocationResult {
+            let args = invocation.action.arguments
+
+            guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
+                return Self.makeResult(for: invocation, status: .authorizationDenied, errorMessage: "Calendar access is not granted.")
+            }
+
+            guard let title = args["title"]?.stringValue, !title.isEmpty else {
+                return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: "Missing required argument 'title'.")
+            }
+
+            let source: EKSource
+            switch resolveSource(preferred: args["sourceType"]?.enumRawValue) {
+            case .success(let value):
+                source = value
+            case .failure(let message):
+                return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: message)
+            }
+
+            let calendar = EKCalendar(for: .event, eventStore: store)
+            calendar.title = title
+            calendar.source = source
+
+            if let raw = args["color"]?.stringValue {
+                guard let cgColor = Self.parseHexColor(raw) else {
+                    return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: "Could not parse 'color' as a hex string. Expected #RRGGBB or #RRGGBBAA.")
+                }
+                calendar.cgColor = cgColor
+            }
+
+            do {
+                try store.saveCalendar(calendar, commit: true)
+            } catch {
+                return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: "Failed to save calendar: \(error.localizedDescription)")
+            }
+
+            return Self.makeResult(
+                for: invocation,
+                status: .success,
+                result: ["calendarId": .string(calendar.calendarIdentifier)]
+            )
+        }
+
+        private func resolveSource(preferred: String?) -> Resolution<EKSource> {
+            let sources = store.sources
+            let iCloud = sources.first { $0.sourceType == .calDAV && $0.title.localizedCaseInsensitiveContains("icloud") }
+            let local = sources.first { $0.sourceType == .local }
+
+            switch preferred {
+            case "iCloud":
+                guard let source = iCloud else {
+                    return .failure("No iCloud calendar source is configured on this device.")
+                }
+                return .success(source)
+            case "local":
+                guard let source = local else {
+                    return .failure("No local calendar source is available.")
+                }
+                return .success(source)
+            case .some(let other):
+                return .failure("Unknown 'sourceType' value '\(other)'. Allowed: iCloud, local.")
+            case .none:
+                if let source = iCloud ?? local {
+                    return .success(source)
+                }
+                return .failure("No writable calendar source (iCloud or local) is available on this device.")
+            }
+        }
+
+        private static func parseHexColor(_ raw: String) -> CGColor? {
+            var hex = raw
+            if hex.hasPrefix("#") { hex.removeFirst() }
+            guard hex.count == 6 || hex.count == 8 else { return nil }
+            var value: UInt64 = 0
+            guard Scanner(string: hex).scanHexInt64(&value) else { return nil }
+            let red: CGFloat
+            let green: CGFloat
+            let blue: CGFloat
+            let alpha: CGFloat
+            if hex.count == 6 {
+                red = CGFloat((value >> 16) & 0xFF) / 255.0
+                green = CGFloat((value >> 8) & 0xFF) / 255.0
+                blue = CGFloat(value & 0xFF) / 255.0
+                alpha = 1.0
+            } else {
+                red = CGFloat((value >> 24) & 0xFF) / 255.0
+                green = CGFloat((value >> 16) & 0xFF) / 255.0
+                blue = CGFloat((value >> 8) & 0xFF) / 255.0
+                alpha = CGFloat(value & 0xFF) / 255.0
+            }
+            let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+            return CGColor(colorSpace: space, components: [red, green, blue, alpha])
         }
 
         private static func resolveSpan(_ argument: ArgumentValue?) -> Resolution<EKSpan> {

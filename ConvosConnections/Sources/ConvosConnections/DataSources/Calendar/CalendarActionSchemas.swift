@@ -57,5 +57,25 @@ public enum CalendarActionSchemas {
         outputs: []
     )
 
-    public static let all: [ActionSchema] = [createEvent, updateEvent, deleteEvent]
+    public static let createCalendar: ActionSchema = ActionSchema(
+        kind: .calendar,
+        actionName: "create_calendar",
+        capability: .writeCreate,
+        summary: "Create a new calendar.",
+        inputs: [
+            ActionParameter(name: "title", type: .string, description: "Display name of the new calendar.", isRequired: true),
+            ActionParameter(name: "color", type: .string, description: "Optional hex color, e.g. \"#FF8800\" or \"#FF8800AA\". Falls back to the source's default.", isRequired: false),
+            ActionParameter(
+                name: "sourceType",
+                type: .enumValue(allowed: ["iCloud", "local"]),
+                description: "Where to host the calendar. Defaults to iCloud if available, falling back to local.",
+                isRequired: false
+            ),
+        ],
+        outputs: [
+            ActionParameter(name: "calendarId", type: .string, description: "Identifier of the newly-created calendar.", isRequired: true),
+        ]
+    )
+
+    public static let all: [ActionSchema] = [createEvent, updateEvent, deleteEvent, createCalendar]
 }
