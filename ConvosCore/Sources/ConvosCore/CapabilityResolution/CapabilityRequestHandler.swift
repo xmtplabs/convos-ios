@@ -236,7 +236,7 @@ public struct CapabilityRequestHandler: Sendable {
         // actually fulfill the request. If `relevant` ends up empty, fall back to the
         // standard variant logic so we don't render a card with `providers: []` and a
         // non-empty `defaultSelection`.
-        let relevant = summaries.filter { defaultSet.contains($0.id) && $0.supportsCapability }
+        let relevant = summaries.filter { defaultSet.contains($0.id) && $0.supportsCapability && $0.linked }
         guard !relevant.isEmpty else { return nil }
         // Restrict the default selection to providers we actually rendered. A
         // write-only provider that survived the `defaultSet` fallback but is now
