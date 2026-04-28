@@ -268,10 +268,11 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
         private static func coerceInt(_ argument: ArgumentValue) -> Any? {
             if case .int(let value) = argument { return NSNumber(value: value) }
             if case .double(let value) = argument {
-                guard value.isFinite,
-                      value >= Double(Int.min),
-                      value <= Double(Int.max) else { return nil }
-                return NSNumber(value: Int(value))
+                // `Int(exactly:)` rejects non-finite values and any Double that doesn't
+                // round-trip exactly to Int — including the off-by-one from
+                // `Double(Int.max).rounded(.up) > Int.max` that traps a plain `Int(value)`.
+                guard let intValue = Int(exactly: value) else { return nil }
+                return NSNumber(value: intValue)
             }
             if case .string(let value) = argument, let parsed = Int(value) { return NSNumber(value: parsed) }
             return nil

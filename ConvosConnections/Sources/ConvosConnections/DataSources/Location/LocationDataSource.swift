@@ -185,15 +185,22 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
         }
 
         fileprivate func onVisit(_ visit: CLVisit) {
-            let isDeparture = visit.departureDate != Date.distantFuture
+            // CoreLocation uses sentinels for unknown times: `Date.distantFuture` means
+            // departure hasn't happened, `Date.distantPast` means arrival is unknown. Map
+            // those to nil for consumers, and use the observation time for `eventDate`
+            // when neither real timestamp is available.
+            let arrivalDate: Date? = visit.arrivalDate == Date.distantPast ? nil : visit.arrivalDate
+            let departureDate: Date? = visit.departureDate == Date.distantFuture ? nil : visit.departureDate
+            let isDeparture = departureDate != nil
+            let eventDate = (isDeparture ? departureDate : arrivalDate) ?? Date()
             let event = LocationEvent(
                 type: isDeparture ? .visitDeparture : .visitArrival,
                 latitude: visit.coordinate.latitude,
                 longitude: visit.coordinate.longitude,
                 horizontalAccuracy: visit.horizontalAccuracy,
-                eventDate: isDeparture ? visit.departureDate : visit.arrivalDate,
-                arrivalDate: visit.arrivalDate,
-                departureDate: isDeparture ? visit.departureDate : nil
+                eventDate: eventDate,
+                arrivalDate: arrivalDate,
+                departureDate: departureDate
             )
             emit(events: [event])
         }
