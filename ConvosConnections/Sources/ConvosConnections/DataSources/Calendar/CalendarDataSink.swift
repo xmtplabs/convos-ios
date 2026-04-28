@@ -336,6 +336,7 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
             var hex = raw
             if hex.hasPrefix("#") { hex.removeFirst() }
             guard hex.count == 6 || hex.count == 8 else { return nil }
+            guard hex.allSatisfy(\.isHexDigit) else { return nil }
             var value: UInt64 = 0
             guard Scanner(string: hex).scanHexInt64(&value) else { return nil }
             let red: CGFloat
