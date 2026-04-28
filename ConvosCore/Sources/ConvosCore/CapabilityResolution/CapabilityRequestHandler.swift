@@ -238,11 +238,15 @@ public struct CapabilityRequestHandler: Sendable {
         // non-empty `defaultSelection`.
         let relevant = summaries.filter { defaultSet.contains($0.id) && $0.supportsCapability }
         guard !relevant.isEmpty else { return nil }
+        // Restrict the default selection to providers we actually rendered. A
+        // write-only provider that survived the `defaultSet` fallback but is now
+        // filtered out of `relevant` (because the new verb is `.read`) shouldn't
+        // pre-select a row that isn't on the card.
         return CapabilityPickerLayout(
             request: request,
             variant: .verbConsent,
             providers: relevant,
-            defaultSelection: defaultSet
+            defaultSelection: Set(relevant.map(\.id))
         )
     }
 

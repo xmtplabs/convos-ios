@@ -867,7 +867,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             pendingCapabilityPickerLayout = nil
             return
         }
-        approveCapabilityRequest(request, providerIds: providerIds)
+        approveCapabilityRequest(request, providerIds: providerIds, conversationId: conversation.id)
     }
 
     /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
@@ -878,35 +878,48 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             pendingCapabilityPickerLayout = nil
             return
         }
-        denyCapabilityRequest(request)
+        denyCapabilityRequest(request, conversationId: conversation.id)
     }
 
-    private func approveCapabilityRequest(_ request: CapabilityRequest, providerIds: Set<ProviderID>) {
+    private func approveCapabilityRequest(
+        _ request: CapabilityRequest,
+        providerIds: Set<ProviderID>,
+        conversationId: String
+    ) {
         locallyHandledCapabilityRequestIds.insert(request.requestId)
-        pendingCapabilityPickerLayout = nil
+        // Only dismiss the picker if it's still showing *this* request — a newer
+        // request might have arrived during the async hop and replaced the layout,
+        // and we mustn't blow that one away on the old request's behalf.
+        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+            pendingCapabilityPickerLayout = nil
+        }
         sendCapabilityResult(
             request: request,
             status: .approved,
-            providerIds: providerIds
+            providerIds: providerIds,
+            conversationId: conversationId
         )
     }
 
-    private func denyCapabilityRequest(_ request: CapabilityRequest) {
+    private func denyCapabilityRequest(_ request: CapabilityRequest, conversationId: String) {
         locallyHandledCapabilityRequestIds.insert(request.requestId)
-        pendingCapabilityPickerLayout = nil
+        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+            pendingCapabilityPickerLayout = nil
+        }
         sendCapabilityResult(
             request: request,
             status: .denied,
-            providerIds: []
+            providerIds: [],
+            conversationId: conversationId
         )
     }
 
     private func sendCapabilityResult(
         request: CapabilityRequest,
         status: CapabilityRequestResult.Status,
-        providerIds: Set<ProviderID>
+        providerIds: Set<ProviderID>,
+        conversationId: String
     ) {
-        let conversationId = conversation.id
         let resolver = session.capabilityResolver()
         let writer = messagingService.capabilityRequestResultWriter()
         Task {
@@ -1012,7 +1025,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     // Always approve the *captured* request — a newer request might
                     // have arrived during the OS prompt and replaced the picker
                     // layout's request, and we must not approve it on its behalf.
-                    self.approveCapabilityRequest(request, providerIds: [providerId])
+                    // Also pass the captured conversationId so the result lands in
+                    // the conversation that originated the request even if the user
+                    // navigated away during the prompt.
+                    self.approveCapabilityRequest(request, providerIds: [providerId], conversationId: conversationId)
                 } else {
                     self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
                 }
