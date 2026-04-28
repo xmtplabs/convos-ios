@@ -59,13 +59,13 @@ do
 			[ -n "$path" ] && lint_paths+=("$path")
 		done < <(
 			find "$git_root" \
-				-type d \( \
+				\( -type d \( \
 					-name .git -o \
 					-name .build -o \
 					-name .derivedData -o \
-					-name .derivedData-device -o \
-				\) -prune -o \
-				-path "$git_root/.claude/worktrees" -prune -o \
+					-name .derivedData-device \
+				\) \) -prune -o \
+				\( -path "$git_root/.claude/worktrees" \) -prune -o \
 				-name '*.swift' -print
 		)
 		if [ ${#lint_paths[@]} -eq 0 ]; then
