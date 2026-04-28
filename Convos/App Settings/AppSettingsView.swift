@@ -58,170 +58,15 @@ struct AppSettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                        Text("Convos")
-                            .font(.convosTitle)
-                            .tracking(Font.convosTitleTracking)
-                            .foregroundStyle(.colorTextPrimary)
-                        Text("Private chat for the AI world")
-                            .font(.subheadline)
-                            .foregroundStyle(.colorTextPrimary)
-                    }
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .listRowBackground(Color.clear)
-                }
-                .listRowSeparator(.hidden)
-                .listRowSpacing(0.0)
-                .listRowInsets(.all, DesignConstants.Spacing.step2x)
-                .listSectionMargins(.top, 0.0)
-                .listSectionSeparator(.hidden)
-
-                Section {
-                    NavigationLink {
-                        MyInfoView(
-                            profile: .constant(.empty()),
-                            profileImage: .constant(nil),
-                            editingDisplayName: .constant(""),
-                            quicknameViewModel: quicknameViewModel,
-                            showsCancelButton: false,
-                            showsProfile: false,
-                            showsUseQuicknameButton: false,
-                            canEditQuickname: true
-                        ) { _ in
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "lanyardcard.fill")
-                                .foregroundStyle(.colorTextPrimary)
-
-                            Text("My info")
-                                .foregroundStyle(.colorTextPrimary)
-
-                            Spacer()
-
-                            if !quicknameViewModel.quicknameSettings.isDefault {
-                                Text(quicknameViewModel.editingDisplayName)
-                                    .foregroundStyle(.colorTextSecondary)
-
-                                ProfileAvatarView(
-                                    profile: quicknameViewModel.profile,
-                                    profileImage: quicknameViewModel.profileImage,
-                                    useSystemPlaceholder: false
-                                )
-                                .frame(width: 16.0, height: 16.0)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("my-info-row")
-                } footer: {
-                    Text("Private unless you choose to share")
-                }
-
+                headerSection
+                myInfoSection
                 if FeatureFlags.shared.isAssistantEnabled {
-                    Section {
-                        NavigationLink {
-                            AssistantSettingsView(session: session)
-                        } label: {
-                            Text("Assistants")
-                                .foregroundStyle(.colorTextPrimary)
-                        }
-                        .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-                    } footer: {
-                        Text("Optional AI for groups")
-                    }
+                    assistantsSection
                 }
-
                 connectionsSection
-
-                Section {
-                    NavigationLink {
-                        CustomizeSettingsView()
-                    } label: {
-                        HStack(spacing: DesignConstants.Spacing.step2x) {
-                            Text("Customize")
-                                .foregroundStyle(.colorTextPrimary)
-
-                            Spacer()
-                        }
-                    }
-                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-                }
-                .listRowSeparatorTint(.colorBorderSubtle)
-
-                Section {
-                    Button {
-                        openExternalURL("https://xmtp.org")
-                    } label: {
-                        NavigationLink {
-                            EmptyView()
-                        } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                                Text("Secured by ")
-                                Image("xmtpIcon")
-                                    .renderingMode(.template)
-                                    .foregroundStyle(.colorTextPrimary)
-                                    .padding(.trailing, 1.0)
-                                Text("XMTP")
-                            }
-                            .foregroundStyle(.colorTextPrimary)
-                        }
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    Button {
-                        openExternalURL("https://hq.convos.org/privacy-and-terms")
-                    } label: {
-                        NavigationLink("Privacy & Terms", destination: EmptyView())
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    Button {
-                        sendFeedback()
-                    } label: {
-                        Text("Send feedback")
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    if !ConfigManager.shared.currentEnvironment.isProduction {
-                        NavigationLink {
-                            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
-                        } label: {
-                            Text("Debug")
-                        }
-                        .foregroundStyle(.colorTextPrimary)
-                    }
-                } footer: {
-                    HStack {
-                        Text("Made in the open by XMTP Labs")
-                        Spacer()
-                        Text("V\(Bundle.appVersion)")
-                            .foregroundStyle(.colorTextTertiary)
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
-                .listRowSeparatorTint(.colorBorderSubtle)
-
-                Section {
-                    Button(role: .destructive) {
-                        showingDeleteAllDataConfirmation = true
-                    } label: {
-                        Text("Delete all app data")
-                    }
-                    .accessibilityLabel("Delete all app data")
-                    .accessibilityHint("Permanently deletes all conversations and your quickname")
-                    .accessibilityIdentifier("delete-all-data-button")
-                    .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
-                        DeleteAllDataView(
-                            viewModel: viewModel,
-                            onComplete: {
-                                dismiss()
-                                onDeleteAllData()
-                            }
-                        )
-                        .interactiveDismissDisabled(viewModel.isDeleting)
-                    }
-                }
+                customizeSection
+                aboutSection
+                deleteAllDataSection
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
@@ -257,6 +102,190 @@ struct AppSettingsView: View {
     private func openExternalURL(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
         openURL(url)
+    }
+
+    @ViewBuilder
+    private var headerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text("Convos")
+                    .font(.convosTitle)
+                    .tracking(Font.convosTitleTracking)
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Private chat for the AI world")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .listRowBackground(Color.clear)
+        }
+        .listRowSeparator(.hidden)
+        .listRowSpacing(0.0)
+        .listRowInsets(.all, DesignConstants.Spacing.step2x)
+        .listSectionMargins(.top, 0.0)
+        .listSectionSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private var myInfoSection: some View {
+        Section {
+            NavigationLink {
+                MyInfoView(
+                    profile: .constant(.empty()),
+                    profileImage: .constant(nil),
+                    editingDisplayName: .constant(""),
+                    quicknameViewModel: quicknameViewModel,
+                    showsCancelButton: false,
+                    showsProfile: false,
+                    showsUseQuicknameButton: false,
+                    canEditQuickname: true
+                ) { _ in
+                }
+            } label: {
+                myInfoRowLabel
+            }
+            .accessibilityIdentifier("my-info-row")
+        } footer: {
+            Text("Private unless you choose to share")
+        }
+    }
+
+    @ViewBuilder
+    private var myInfoRowLabel: some View {
+        HStack {
+            Image(systemName: "lanyardcard.fill")
+                .foregroundStyle(.colorTextPrimary)
+
+            Text("My info")
+                .foregroundStyle(.colorTextPrimary)
+
+            Spacer()
+
+            if !quicknameViewModel.quicknameSettings.isDefault {
+                Text(quicknameViewModel.editingDisplayName)
+                    .foregroundStyle(.colorTextSecondary)
+
+                ProfileAvatarView(
+                    profile: quicknameViewModel.profile,
+                    profileImage: quicknameViewModel.profileImage,
+                    useSystemPlaceholder: false
+                )
+                .frame(width: 16.0, height: 16.0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var assistantsSection: some View {
+        Section {
+            NavigationLink {
+                AssistantSettingsView(session: session)
+            } label: {
+                Text("Assistants")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+        } footer: {
+            Text("Optional AI for groups")
+        }
+    }
+
+    @ViewBuilder
+    private var customizeSection: some View {
+        Section {
+            NavigationLink {
+                CustomizeSettingsView()
+            } label: {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Text("Customize")
+                        .foregroundStyle(.colorTextPrimary)
+
+                    Spacer()
+                }
+            }
+            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+        }
+        .listRowSeparatorTint(.colorBorderSubtle)
+    }
+
+    @ViewBuilder
+    private var aboutSection: some View {
+        Section {
+            Button {
+                openExternalURL("https://xmtp.org")
+            } label: {
+                NavigationLink {
+                    EmptyView()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 0.0) {
+                        Text("Secured by ")
+                        Image("xmtpIcon")
+                            .renderingMode(.template)
+                            .foregroundStyle(.colorTextPrimary)
+                            .padding(.trailing, 1.0)
+                        Text("XMTP")
+                    }
+                    .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            Button {
+                openExternalURL("https://hq.convos.org/privacy-and-terms")
+            } label: {
+                NavigationLink("Privacy & Terms", destination: EmptyView())
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            Button {
+                sendFeedback()
+            } label: {
+                Text("Send feedback")
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            if !ConfigManager.shared.currentEnvironment.isProduction {
+                NavigationLink {
+                    DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+                } label: {
+                    Text("Debug")
+                }
+                .foregroundStyle(.colorTextPrimary)
+            }
+        } footer: {
+            HStack {
+                Text("Made in the open by XMTP Labs")
+                Spacer()
+                Text("V\(Bundle.appVersion)")
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .foregroundStyle(.colorTextSecondary)
+        }
+        .listRowSeparatorTint(.colorBorderSubtle)
+    }
+
+    @ViewBuilder
+    private var deleteAllDataSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showingDeleteAllDataConfirmation = true
+            } label: {
+                Text("Delete all app data")
+            }
+            .accessibilityLabel("Delete all app data")
+            .accessibilityHint("Permanently deletes all conversations and your quickname")
+            .accessibilityIdentifier("delete-all-data-button")
+            .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
+                DeleteAllDataView(
+                    viewModel: viewModel,
+                    onComplete: {
+                        dismiss()
+                        onDeleteAllData()
+                    }
+                )
+                .interactiveDismissDisabled(viewModel.isDeleting)
+            }
+        }
     }
 }
 

@@ -60,29 +60,39 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "Your name"
     }
 
-    var body: some View {
+    @ViewBuilder
+    private var bottomStack: some View {
         VStack(spacing: 0) {
             bottomBarContent()
             VoiceMemoKeyboardFocusKeeper(
                 focusState: $focusState,
                 text: $voiceMemoKeyboardKeeperText
             )
-            GlassEffectContainer {
-                ZStack {
-                    if !isExpanded {
-                        collapsedInputView
-                    }
+            inputGlassContainer
+        }
+    }
 
-                    if isExpanded {
-                        expandedQuickEditView
-                    }
+    @ViewBuilder
+    private var inputGlassContainer: some View {
+        GlassEffectContainer {
+            ZStack {
+                if !isExpanded {
+                    collapsedInputView
+                }
+
+                if isExpanded {
+                    expandedQuickEditView
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.bottom, DesignConstants.Spacing.step4x)
         }
-        .background(HeightReader())
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step2x)
+        .padding(.bottom, DesignConstants.Spacing.step4x)
+    }
+
+    var body: some View {
+        bottomStack
+            .background(HeightReader())
         .onPreferenceChange(HeightPreferenceKey.self) { height in
             onBaseHeightChanged(height)
         }
