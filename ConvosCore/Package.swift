@@ -52,6 +52,7 @@ let package = Package(
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
+                .product(name: "ConvosConnections", package: "ConvosConnections"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
