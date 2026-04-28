@@ -124,6 +124,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockConnectionGrantWriter()
     }
 
+    public func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
+        MockCapabilityRequestResultWriter()
+    }
+
     public func uploadImage(data: Data, filename: String) async throws -> String {
         "https://example.com/uploads/\(filename)"
     }
@@ -143,5 +147,15 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
+    }
+}
+
+public final class MockCapabilityRequestResultWriter: CapabilityRequestResultWriterProtocol, @unchecked Sendable {
+    public private(set) var sentResults: [(result: CapabilityRequestResult, conversationId: String)] = []
+
+    public init() {}
+
+    public func sendResult(_ result: CapabilityRequestResult, in conversationId: String) async throws {
+        sentResults.append((result: result, conversationId: conversationId))
     }
 }

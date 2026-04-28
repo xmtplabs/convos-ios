@@ -32,53 +32,62 @@ struct CloudConnectionGrantRequestCardView: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                icon
-
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text("Connect \(displayName)")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.colorTextPrimary)
-                    Text(request.reason)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(3)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            if isTrustedSender {
-                let action = { openGrantLink() }
-                Button(action: action) {
-                    Text("Open Settings")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, DesignConstants.Spacing.step3x)
-                        .background(
-                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                                .fill(Color.colorFillPrimary)
-                        )
-                }
-                .buttonStyle(.plain)
-            } else {
-                Text("This request was not sent by a verified assistant.")
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            cardHeader
+            cardAction
         }
         .padding(DesignConstants.Spacing.step3x)
-        .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                .fill(Color.colorBackgroundSurfaceless)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .stroke(Color.colorBorderSubtle, lineWidth: 1)
-                )
-        )
+        .background(cardBackground)
         .padding(.horizontal, DesignConstants.Spacing.step4x)
+    }
+
+    @ViewBuilder
+    private var cardHeader: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            icon
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text("Connect \(displayName)")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text(request.reason)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(3)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var cardAction: some View {
+        if isTrustedSender {
+            let action = { openGrantLink() }
+            Button(action: action) {
+                Text("Open Settings")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DesignConstants.Spacing.step3x)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                            .fill(Color.colorFillPrimary)
+                    )
+            }
+            .buttonStyle(.plain)
+        } else {
+            Text("This request was not sent by a verified assistant.")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+            .fill(Color.colorBackgroundSurfaceless)
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                    .stroke(Color.colorBorderSubtle, lineWidth: 1)
+            )
     }
 
     @ViewBuilder

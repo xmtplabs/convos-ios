@@ -843,18 +843,81 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         pendingCapabilityPickerLayout = layout
     }
 
-    /// User tapped Approve in the picker card with this provider selection. Final
-    /// resolver-side persistence and the outbound `capability_request_result` message
-    /// are wired in by the host that supplies the picker layout; this method just
-    /// hides the card so the UI stops blocking the conversation.
+    /// User tapped Approve in the picker card with this provider selection.
+    /// Persists the resolution so future tool calls route to the same set, then
+    /// posts a `capability_request_result(.approved)` reply for the agent.
     func onCapabilityApprove(providerIds: Set<ProviderID>) {
+        guard let request = pendingCapabilityPickerLayout?.request else {
+            pendingCapabilityPickerLayout = nil
+            return
+        }
         pendingCapabilityPickerLayout = nil
+        sendCapabilityResult(
+            request: request,
+            status: .approved,
+            providerIds: providerIds
+        )
     }
 
-    /// User tapped Deny. Same handoff pattern — the deny-side message-sending lives in
-    /// the host that owns the resolver.
+    /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
+    /// tool call doesn't silently route through stale state, then posts a
+    /// `capability_request_result(.denied)` reply for the agent.
     func onCapabilityDeny() {
+        guard let request = pendingCapabilityPickerLayout?.request else {
+            pendingCapabilityPickerLayout = nil
+            return
+        }
         pendingCapabilityPickerLayout = nil
+        sendCapabilityResult(
+            request: request,
+            status: .denied,
+            providerIds: []
+        )
+    }
+
+    private func sendCapabilityResult(
+        request: CapabilityRequest,
+        status: CapabilityRequestResult.Status,
+        providerIds: Set<ProviderID>
+    ) {
+        let conversationId = conversation.id
+        let resolver = session.capabilityResolver()
+        let writer = messagingService.capabilityRequestResultWriter()
+        Task {
+            do {
+                switch status {
+                case .approved:
+                    try await resolver.setResolution(
+                        providerIds,
+                        subject: request.subject,
+                        capability: request.capability,
+                        conversationId: conversationId
+                    )
+                case .denied, .cancelled:
+                    try await resolver.clearResolution(
+                        subject: request.subject,
+                        capability: request.capability,
+                        conversationId: conversationId
+                    )
+                }
+            } catch {
+                Log.error("Capability resolver update failed: \(error.localizedDescription)")
+                return
+            }
+
+            let result = CapabilityRequestResult(
+                requestId: request.requestId,
+                status: status,
+                subject: request.subject,
+                capability: request.capability,
+                providers: Array(providerIds)
+            )
+            do {
+                try await writer.sendResult(result, in: conversationId)
+            } catch {
+                Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// User tapped a Connect row. Forwarding to the iOS permission flow (for
