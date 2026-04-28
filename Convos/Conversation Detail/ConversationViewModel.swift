@@ -124,6 +124,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     private var observedCapabilityRequestsConversationId: String?
     @ObservationIgnored
+    private var latestObservedCapabilityRequest: CapabilityRequest?
+    @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
     var pendingReadReceiptTask: Task<Void, Never>?
@@ -721,12 +723,14 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         let resolver = session.capabilityResolver()
         let handler = CapabilityRequestHandler()
         pendingCapabilityPickerLayout = nil
+        latestObservedCapabilityRequest = nil
         capabilityRequestsCancellable?.cancel()
         capabilityRequestsCancellable = session.capabilityRequestRepository(for: conversationId)
             .pendingRequestPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] request in
                 guard let self else { return }
+                self.latestObservedCapabilityRequest = request
                 guard let request else {
                     self.pendingCapabilityPickerLayout = nil
                     return
@@ -739,11 +743,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                         resolver: resolver,
                         conversationId: conversationId
                     )
-                    // Don't replace an in-progress picker if only the registry ticked
-                    // (request unchanged) — preserves the user's selection mid-flow.
-                    if self.pendingCapabilityPickerLayout?.request != request {
-                        self.pendingCapabilityPickerLayout = layout
-                    }
+                    // Discard if a newer request arrived while we were computing —
+                    // otherwise an out-of-order completion can stomp the latest UI.
+                    guard self.latestObservedCapabilityRequest == request else { return }
+                    self.pendingCapabilityPickerLayout = layout
                 }
             }
     }
