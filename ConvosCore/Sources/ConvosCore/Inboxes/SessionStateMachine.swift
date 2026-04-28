@@ -928,6 +928,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec(),
                 CloudConnectionGrantRequestCodec(),
+                CapabilityRequestCodec(),
+                CapabilityRequestResultCodec(),
                 TypingIndicatorCodec(),
                 ReadReceiptCodec()
             ],

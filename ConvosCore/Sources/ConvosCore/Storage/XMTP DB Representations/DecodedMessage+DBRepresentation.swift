@@ -69,6 +69,10 @@ extension XMTPiOS.DecodedMessage {
             components = try handleAssistantJoinRequestContent()
         case ContentTypeCloudConnectionGrantRequest:
             components = try handleConnectionGrantRequestContent()
+        case ContentTypeCapabilityRequest:
+            components = try handleCapabilityRequestContent()
+        case ContentTypeCapabilityRequestResult:
+            components = try handleCapabilityRequestResultContent()
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
@@ -505,6 +509,42 @@ extension XMTPiOS.DecodedMessage {
             )
             throw DecodedMessageDBRepresentationError.untrustedSender
         }
+    }
+
+    private func handleCapabilityRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? CapabilityRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(request)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .capabilityRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleCapabilityRequestResultContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let result = content as? CapabilityRequestResult else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(result)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .capabilityRequestResult,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
     }
 
     private func handleExplodeSettingsContent() throws -> DBMessageComponents {

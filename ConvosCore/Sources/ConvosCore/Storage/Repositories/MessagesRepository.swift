@@ -518,6 +518,11 @@ extension Array where Element == DBMessage {
                     } else {
                         messageContent = .text("")
                     }
+                case .capabilityRequest, .capabilityRequestResult:
+                    // Capability request / result messages drive picker presentation
+                    // out-of-band (see `ConversationViewModel.pendingCapabilityPickerLayout`).
+                    // They aren't surfaced in the message list as user-visible content.
+                    return nil
                 }
 
                 let message = Message(
@@ -579,7 +584,11 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .capabilityRequest,
+             .capabilityRequestResult:
             return nil
         }
 
@@ -616,7 +625,11 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text(sourceDBMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .capabilityRequest,
+             .capabilityRequestResult:
             parentContent = .text("[Update]")
         }
 

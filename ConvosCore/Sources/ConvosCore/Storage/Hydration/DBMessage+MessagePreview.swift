@@ -56,7 +56,10 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent a link"
                 }
-            case .assistantJoinRequest, .connectionGrantRequest:
+            case .assistantJoinRequest,
+                 .connectionGrantRequest,
+                 .capabilityRequest,
+                 .capabilityRequestResult:
                 text = ""
             }
 
@@ -89,7 +92,10 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "replied with a link"
                 }
-            case .assistantJoinRequest, .connectionGrantRequest:
+            case .assistantJoinRequest,
+                 .connectionGrantRequest,
+                 .capabilityRequest,
+                 .capabilityRequestResult:
                 text = ""
             }
 
