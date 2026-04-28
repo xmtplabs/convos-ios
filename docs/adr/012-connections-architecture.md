@@ -118,38 +118,38 @@ each have different consent UIs that we don't try to homogenize.
 
 ### Subsystem B — Cloud Connections (Composio OAuth)
 
-Lives inside ConvosCore at `Sources/ConvosCore/Connections/`. Tied to
+Lives inside ConvosCore at `Sources/ConvosCore/CloudConnections/`. Tied to
 ConvosCore because grants persist in GRDB and ride on member-profile
 custom metadata.
 
 **Domain types**:
-- `Connection` / `ConnectionGrant` — value objects representing a service
+- `CloudConnection` / `CloudConnectionGrant` — value objects representing a service
   a user has linked (Google Calendar, Slack, Notion, …) and the per-
   conversation grant that lets agents act on it.
-- `ConnectionsMetadataPayload` — JSON-string payload stored on the
+- `CloudConnectionsMetadataPayload` — JSON-string payload stored on the
   member-profile under the `connections` key. Contains the sender's
   grants only (each member writes their own profile).
-- `ConnectionGrantEntry` — one entry inside that payload, shape matches
+- `CloudConnectionGrantEntry` — one entry inside that payload, shape matches
   the agent runtime's expected format exactly so an agent reading the
   member profile can route directly to a Composio entity.
 
 **Wire**:
 - `convos.org/connection_grant_request/1.0` — agent → user content type.
-  Renders as a `ConnectionGrantRequestCardView` in the conversation; the
+  Renders as a `CloudConnectionGrantRequestCardView` in the conversation; the
   user taps "Open Settings" to start the OAuth flow.
 - The grant itself is **not** transmitted as a message. Once the OAuth
-  flow completes via `ConvosAPIClient.completeConnection`, a
-  `ConnectionGrantEntry` is appended to the sender's
-  `ConnectionsMetadataPayload` and re-published as part of the next
+  flow completes via `ConvosAPIClient.completeCloudConnection`, a
+  `CloudConnectionGrantEntry` is appended to the sender's
+  `CloudConnectionsMetadataPayload` and re-published as part of the next
   `ProfileUpdate`. Agents observe grants by reading the member profile;
   there is no separate handshake.
 
 **Authorization**: a single OAuth flow per service per device, brokered
 by Composio. The user authorizes once for an account; the
-`ConnectionGrantEntry` records the per-conversation scope (currently
+`CloudConnectionGrantEntry` records the per-conversation scope (currently
 fixed at `"conversation"`).
 
-**Storage**: GRDB tables (`DBConnection`, `DBConnectionGrant`) for the
+**Storage**: GRDB tables (`DBCloudConnection`, `DBCloudConnectionGrant`) for the
 local materialized view; the canonical state is the member-profile
 metadata, which the sync layer keeps in sync with the runtime.
 
@@ -280,8 +280,8 @@ ConvosConnections/                       — Subsystem A, device data sources
 ConvosCore/Sources/ConvosConnectionsXMTP/  — XMTP adapter for Subsystem A
 ConvosCore/Tests/ConvosConnectionsXMTPTests/
 
-ConvosCore/Sources/ConvosCore/Connections/  — Subsystem B, cloud OAuth
-ConvosCore/Sources/ConvosCore/Custom Content Types/ConnectionGrantRequestCodec.swift
+ConvosCore/Sources/ConvosCore/CloudConnections/  — Subsystem B, cloud OAuth
+ConvosCore/Sources/ConvosCore/Custom Content Types/CloudConnectionGrantRequestCodec.swift
 ```
 
 **Wire format examples**:

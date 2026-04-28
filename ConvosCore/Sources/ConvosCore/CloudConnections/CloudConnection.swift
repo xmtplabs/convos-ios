@@ -1,31 +1,31 @@
 import Foundation
 
-public enum ConnectionStatus: String, Codable, Sendable {
+public enum CloudConnectionStatus: String, Codable, Sendable {
     case active, expired, revoked
 }
 
-public enum ConnectionProvider: String, Codable, Sendable {
+public enum CloudConnectionProvider: String, Codable, Sendable {
     case composio
 }
 
-public struct Connection: Codable, Identifiable, Sendable, Hashable {
+public struct CloudConnection: Codable, Identifiable, Sendable, Hashable {
     public let id: String
     public let serviceId: String
     public let serviceName: String
-    public let provider: ConnectionProvider
+    public let provider: CloudConnectionProvider
     public let composioEntityId: String
     public let composioConnectionId: String
-    public let status: ConnectionStatus
+    public let status: CloudConnectionStatus
     public let connectedAt: Date
 
     public init(
         id: String,
         serviceId: String,
         serviceName: String,
-        provider: ConnectionProvider,
+        provider: CloudConnectionProvider,
         composioEntityId: String,
         composioConnectionId: String,
-        status: ConnectionStatus,
+        status: CloudConnectionStatus,
         connectedAt: Date
     ) {
         self.id = id

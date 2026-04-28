@@ -65,7 +65,7 @@ final class DeepLinkHandler {
             return nil
         }
 
-        guard ConnectionServiceCatalog.info(for: service) != nil else {
+        guard CloudConnectionServiceCatalog.info(for: service) != nil else {
             Log.warning("Connection grant deep link references unknown service; dropping")
             return nil
         }

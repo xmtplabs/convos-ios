@@ -427,17 +427,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 .deleteAll(db)
             try DBInbox.deleteAll(db)
 
-            // DBConnection has no FK to DBInbox or DBConversation, so the MLS
+            // DBCloudConnection has no FK to DBInbox or DBConversation, so the MLS
             // cleanup path and the deletes above both miss it. Wipe it here so
             // "Delete All Data" doesn't leave the next identity holding stale
             // Composio entity/connection ids from the previous user. The FK
-            // cascade from DBConnection removes DBConnectionGrant as well.
+            // cascade from DBCloudConnection removes DBCloudConnectionGrant as well.
             //
             // Server-side revoke is intentionally skipped: by the time this
             // runs, identityStore.delete() has already nuked the JWT signer
-            // so apiClient.revokeConnection would fail auth, and the abandoned
+            // so apiClient.revokeCloudConnection would fail auth, and the abandoned
             // entity ids aren't reachable from any new identity anyway.
-            try DBConnection.deleteAll(db)
+            try DBCloudConnection.deleteAll(db)
         }
     }
 
@@ -652,10 +652,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Connections
 
-    public func connectionManager(
+    public func cloudConnectionManager(
         callbackURLScheme: String
-    ) -> any ConnectionManagerProtocol {
-        ConnectionManager(
+    ) -> any CloudConnectionManagerProtocol {
+        CloudConnectionManager(
             apiClient: apiClient,
             oauthProvider: platformProviders.oauthSessionProvider,
             databaseWriter: databaseWriter,
@@ -666,7 +666,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func connectionRepository() -> any ConnectionRepositoryProtocol {
-        ConnectionRepository(databaseReader: databaseReader)
+    public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        CloudConnectionRepository(databaseReader: databaseReader)
     }
 }

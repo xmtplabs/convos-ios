@@ -1,7 +1,7 @@
 import ConvosCore
 import SwiftUI
 
-struct ConnectionServiceInfo: Identifiable, Hashable {
+struct CloudConnectionServiceInfo: Identifiable, Hashable {
     let id: String
     let displayName: String
     let iconSystemName: String
@@ -9,16 +9,16 @@ struct ConnectionServiceInfo: Identifiable, Hashable {
     let subtitle: String
 }
 
-enum ConnectionServiceCatalog {
-    static let all: [ConnectionServiceInfo] = [
-        ConnectionServiceInfo(
+enum CloudConnectionServiceCatalog {
+    static let all: [CloudConnectionServiceInfo] = [
+        CloudConnectionServiceInfo(
             id: "google_calendar",
             displayName: "Google Calendar",
             iconSystemName: "calendar",
             iconBackgroundColor: .blue,
             subtitle: "Share your calendar with conversations"
         ),
-        ConnectionServiceInfo(
+        CloudConnectionServiceInfo(
             id: "google_drive",
             displayName: "Google Drive",
             iconSystemName: "folder",
@@ -27,7 +27,7 @@ enum ConnectionServiceCatalog {
         ),
     ]
 
-    static func info(for serviceId: String) -> ConnectionServiceInfo? {
+    static func info(for serviceId: String) -> CloudConnectionServiceInfo? {
         all.first { $0.id == serviceId }
     }
 

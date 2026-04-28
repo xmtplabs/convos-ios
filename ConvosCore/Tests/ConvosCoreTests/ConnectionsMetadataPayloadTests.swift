@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("ConnectionsMetadataPayload Tests")
+@Suite("CloudConnectionsMetadataPayload Tests")
 struct ConnectionsMetadataPayloadTests {
     private func entry(
         id: String = "grant_conn_123",
@@ -13,8 +13,8 @@ struct ConnectionsMetadataPayloadTests {
         composioEntityId: String = "entity_device",
         composioConnectionId: String = "ca_abc",
         grantedAt: String = "2026-04-21T15:00:00Z"
-    ) -> ConnectionGrantEntry {
-        ConnectionGrantEntry(
+    ) -> CloudConnectionGrantEntry {
+        CloudConnectionGrantEntry(
             id: id,
             senderId: senderId,
             service: service,
@@ -28,21 +28,21 @@ struct ConnectionsMetadataPayloadTests {
 
     @Test("Round-trips an empty payload")
     func roundTripEmpty() throws {
-        let payload = ConnectionsMetadataPayload()
+        let payload = CloudConnectionsMetadataPayload()
         #expect(payload.isEmpty)
 
         let json = try payload.toJsonString()
-        let decoded = try ConnectionsMetadataPayload.fromJsonString(json)
+        let decoded = try CloudConnectionsMetadataPayload.fromJsonString(json)
         #expect(decoded.isEmpty)
         #expect(decoded.version == 1)
     }
 
     @Test("Round-trips a single grant preserving all fields")
     func roundTripSingleGrant() throws {
-        let original = ConnectionsMetadataPayload(grants: [entry()])
+        let original = CloudConnectionsMetadataPayload(grants: [entry()])
 
         let json = try original.toJsonString()
-        let decoded = try ConnectionsMetadataPayload.fromJsonString(json)
+        let decoded = try CloudConnectionsMetadataPayload.fromJsonString(json)
 
         #expect(decoded.version == 1)
         #expect(decoded.grants.count == 1)
@@ -51,7 +51,7 @@ struct ConnectionsMetadataPayloadTests {
 
     @Test("Serialises keys in sorted order for deterministic output")
     func sortedKeys() throws {
-        let payload = ConnectionsMetadataPayload(grants: [entry()])
+        let payload = CloudConnectionsMetadataPayload(grants: [entry()])
         let json = try payload.toJsonString()
 
         // The version field comes after grants alphabetically.
@@ -86,7 +86,7 @@ struct ConnectionsMetadataPayloadTests {
         }
         """
 
-        let decoded = try ConnectionsMetadataPayload.fromJsonString(json)
+        let decoded = try CloudConnectionsMetadataPayload.fromJsonString(json)
         #expect(decoded.version == 1)
         #expect(decoded.grants.count == 1)
         let grant = try #require(decoded.grants.first)
@@ -103,7 +103,7 @@ struct ConnectionsMetadataPayloadTests {
     @Test("Malformed JSON throws")
     func malformedJsonThrows() {
         #expect(throws: (any Error).self) {
-            try ConnectionsMetadataPayload.fromJsonString("not json")
+            try CloudConnectionsMetadataPayload.fromJsonString("not json")
         }
     }
 
@@ -111,9 +111,9 @@ struct ConnectionsMetadataPayloadTests {
     func multipleGrants() throws {
         let a = entry(id: "grant_a", service: "google_calendar")
         let b = entry(id: "grant_b", service: "google_drive")
-        let payload = ConnectionsMetadataPayload(grants: [a, b])
+        let payload = CloudConnectionsMetadataPayload(grants: [a, b])
 
-        let decoded = try ConnectionsMetadataPayload.fromJsonString(payload.toJsonString())
+        let decoded = try CloudConnectionsMetadataPayload.fromJsonString(payload.toJsonString())
         #expect(decoded.grants == [a, b])
     }
 }

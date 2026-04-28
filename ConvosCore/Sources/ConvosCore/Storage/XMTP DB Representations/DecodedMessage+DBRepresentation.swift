@@ -67,7 +67,7 @@ extension XMTPiOS.DecodedMessage {
             components = try handleExplodeSettingsContent()
         case ContentTypeAssistantJoinRequest:
             components = try handleAssistantJoinRequestContent()
-        case ContentTypeConnectionGrantRequest:
+        case ContentTypeCloudConnectionGrantRequest:
             components = try handleConnectionGrantRequestContent()
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
@@ -468,7 +468,7 @@ extension XMTPiOS.DecodedMessage {
 
     private func handleConnectionGrantRequestContent() throws -> DBMessageComponents {
         let content = try content() as Any
-        guard let request = content as? ConnectionGrantRequest else {
+        guard let request = content as? CloudConnectionGrantRequest else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         try Self.validateConnectionGrantRequest(
@@ -489,19 +489,19 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    /// Validates a `ConnectionGrantRequest` against its actual sender. Throws
+    /// Validates a `CloudConnectionGrantRequest` against its actual sender. Throws
     /// `untrustedSender` when the payload's `requestedByInboxId` does not match
     /// the XMTP-attested sender — a hostile member could otherwise attribute
     /// the request to the assistant and trick the user into running a grant
     /// flow for services the real assistant never asked for.
     static func validateConnectionGrantRequest(
-        _ request: ConnectionGrantRequest,
+        _ request: CloudConnectionGrantRequest,
         senderInboxId: String,
         messageId: String
     ) throws {
         guard request.requestedByInboxId == senderInboxId else {
             Log.warning(
-                "Dropping ConnectionGrantRequest \(messageId): sender \(senderInboxId) does not match requestedByInboxId \(request.requestedByInboxId)"
+                "Dropping CloudConnectionGrantRequest \(messageId): sender \(senderInboxId) does not match requestedByInboxId \(request.requestedByInboxId)"
             )
             throw DecodedMessageDBRepresentationError.untrustedSender
         }

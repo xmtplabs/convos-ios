@@ -11,7 +11,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
          update(ConversationUpdate),
          linkPreview(LinkPreview),
          assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String),
-         connectionGrantRequest(ConnectionGrantRequest)
+         connectionGrantRequest(CloudConnectionGrantRequest)
 
     public var showsInMessagesList: Bool {
         switch self {

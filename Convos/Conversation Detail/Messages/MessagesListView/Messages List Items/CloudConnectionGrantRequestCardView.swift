@@ -1,19 +1,19 @@
 import ConvosCore
 import SwiftUI
 
-struct ConnectionGrantRequestCardView: View {
-    let request: ConnectionGrantRequest
+struct CloudConnectionGrantRequestCardView: View {
+    let request: CloudConnectionGrantRequest
     let conversationId: String
     let sender: ConversationMember
 
     @Environment(\.openURL) private var openURL: OpenURLAction
 
-    private var serviceInfo: ConnectionServiceInfo? {
-        ConnectionServiceCatalog.info(for: request.service)
+    private var serviceInfo: CloudConnectionServiceInfo? {
+        CloudConnectionServiceCatalog.info(for: request.service)
     }
 
     private var displayName: String {
-        ConnectionServiceCatalog.displayName(for: request.service, fallback: request.service)
+        CloudConnectionServiceCatalog.displayName(for: request.service, fallback: request.service)
     }
 
     private var isTrustedSender: Bool {

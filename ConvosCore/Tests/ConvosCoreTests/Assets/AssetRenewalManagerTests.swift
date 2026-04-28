@@ -489,15 +489,15 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
         .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
     }
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

@@ -231,8 +231,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                                           databaseReader: databaseReader)
     }
 
-    func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
-        ConnectionGrantWriter(
+    func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
+        CloudConnectionGrantWriter(
             sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,

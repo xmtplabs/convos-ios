@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct DBConnection: Codable, FetchableRecord, PersistableRecord, Identifiable, Hashable {
+struct DBCloudConnection: Codable, FetchableRecord, PersistableRecord, Identifiable, Hashable {
     static let databaseTableName: String = "connection"
 
     enum Columns {
@@ -25,21 +25,21 @@ struct DBConnection: Codable, FetchableRecord, PersistableRecord, Identifiable, 
     let connectedAt: Date
 }
 
-extension DBConnection {
-    func toConnection() -> Connection {
-        Connection(
+extension DBCloudConnection {
+    func toConnection() -> CloudConnection {
+        CloudConnection(
             id: id,
             serviceId: serviceId,
             serviceName: serviceName,
-            provider: ConnectionProvider(rawValue: provider) ?? .composio,
+            provider: CloudConnectionProvider(rawValue: provider) ?? .composio,
             composioEntityId: composioEntityId,
             composioConnectionId: composioConnectionId,
-            status: ConnectionStatus(rawValue: status) ?? .active,
+            status: CloudConnectionStatus(rawValue: status) ?? .active,
             connectedAt: connectedAt
         )
     }
 
-    init(from connection: Connection) {
+    init(from connection: CloudConnection) {
         self.id = connection.id
         self.serviceId = connection.serviceId
         self.serviceName = connection.serviceName

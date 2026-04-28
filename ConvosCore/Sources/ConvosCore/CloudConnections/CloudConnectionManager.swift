@@ -1,25 +1,25 @@
 import Foundation
 import GRDB
 
-public protocol ConnectionManagerProtocol: Sendable {
-    func connect(serviceId: String) async throws -> Connection
+public protocol CloudConnectionManagerProtocol: Sendable {
+    func connect(serviceId: String) async throws -> CloudConnection
     func disconnect(connectionId: String) async throws
-    func refreshConnections() async throws -> [Connection]
+    func refreshConnections() async throws -> [CloudConnection]
 }
 
-public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Sendable {
+public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unchecked Sendable {
     private let apiClient: any ConvosAPIClientProtocol
     private let oauthProvider: any OAuthSessionProvider
     private let databaseWriter: any DatabaseWriter
     private let callbackURLScheme: String
-    private let grantWriterProvider: @Sendable () -> (any ConnectionGrantWriterProtocol)?
+    private let grantWriterProvider: @Sendable () -> (any CloudConnectionGrantWriterProtocol)?
 
     public init(
         apiClient: any ConvosAPIClientProtocol,
         oauthProvider: any OAuthSessionProvider,
         databaseWriter: any DatabaseWriter,
         callbackURLScheme: String,
-        grantWriterProvider: @escaping @Sendable () -> (any ConnectionGrantWriterProtocol)? = { nil }
+        grantWriterProvider: @escaping @Sendable () -> (any CloudConnectionGrantWriterProtocol)? = { nil }
     ) {
         self.apiClient = apiClient
         self.oauthProvider = oauthProvider
@@ -28,39 +28,39 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         self.grantWriterProvider = grantWriterProvider
     }
 
-    public func connect(serviceId canonicalServiceId: String) async throws -> Connection {
+    public func connect(serviceId canonicalServiceId: String) async throws -> CloudConnection {
         let redirectUri = "\(callbackURLScheme)://connections/callback"
-        let toolkitSlug = ConnectionServiceNaming.composioToolkitSlug(for: canonicalServiceId)
+        let toolkitSlug = CloudConnectionServiceNaming.composioToolkitSlug(for: canonicalServiceId)
 
-        let initiation = try await apiClient.initiateConnection(
+        let initiation = try await apiClient.initiateCloudConnection(
             serviceId: toolkitSlug,
             redirectUri: redirectUri
         )
 
         guard let oauthURL = URL(string: initiation.redirectUrl) else {
-            throw ConnectionManagerError.invalidOAuthURL
+            throw CloudConnectionManagerError.invalidOAuthURL
         }
 
         _ = try await oauthProvider.authenticate(url: oauthURL, callbackURLScheme: callbackURLScheme)
 
-        let completion = try await apiClient.completeConnection(connectionRequestId: initiation.connectionRequestId)
+        let completion = try await apiClient.completeCloudConnection(connectionRequestId: initiation.connectionRequestId)
 
         // Backend echoes whatever slug Composio returns; normalise back to canonical.
-        let canonicalFromResponse = ConnectionServiceNaming.canonicalService(fromComposioSlug: completion.serviceId)
+        let canonicalFromResponse = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: completion.serviceId)
         let finalCanonical = canonicalFromResponse == completion.serviceId ? canonicalServiceId : canonicalFromResponse
 
-        let connection = Connection(
+        let connection = CloudConnection(
             id: completion.connectionId,
             serviceId: finalCanonical,
             serviceName: displayName(for: completion.serviceName, fallbackFrom: finalCanonical),
             provider: .composio,
             composioEntityId: completion.composioEntityId,
             composioConnectionId: completion.composioConnectionId,
-            status: ConnectionStatus.from(composioStatus: completion.status),
+            status: CloudConnectionStatus.from(composioStatus: completion.status),
             connectedAt: Date()
         )
 
-        let dbConnection = DBConnection(from: connection)
+        let dbConnection = DBCloudConnection(from: connection)
         try await databaseWriter.write { db in
             try dbConnection.save(db)
         }
@@ -69,7 +69,7 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     }
 
     public func disconnect(connectionId: String) async throws {
-        try await apiClient.revokeConnection(connectionId: connectionId)
+        try await apiClient.revokeCloudConnection(connectionId: connectionId)
 
         // Collect conversations that currently reference this connection so we
         // can republish per-conversation metadata after the local rows are gone.
@@ -77,8 +77,8 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         // groups still carries the revoked grants and the agent would keep
         // using them.
         let affectedConversationIds = try await databaseWriter.read { db in
-            try DBConnectionGrant
-                .filter(DBConnectionGrant.Columns.connectionId == connectionId)
+            try DBCloudConnectionGrant
+                .filter(DBCloudConnectionGrant.Columns.connectionId == connectionId)
                 .fetchAll(db)
                 .map { $0.conversationId }
         }
@@ -87,7 +87,7 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         // revokeGrant deletes the row and republishes metadata for that
         // conversation. We go through the public writer interface so the two
         // paths stay in sync. A republish failure here is logged but doesn't
-        // block the subsequent DBConnection delete — the ON DELETE CASCADE
+        // block the subsequent DBCloudConnection delete — the ON DELETE CASCADE
         // guarantees any grant revokeGrant restored on failure still gets
         // removed locally. The stale metadata on XMTP is the best we can do
         // if the sync is down at wipe time.
@@ -116,7 +116,7 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         // connectionId are therefore safe — both end with the same DB state.
         // Log the second one so concurrent disconnects are observable.
         try await databaseWriter.write { db in
-            let deleted = try DBConnection.deleteOne(db, key: connectionId)
+            let deleted = try DBCloudConnection.deleteOne(db, key: connectionId)
             if !deleted {
                 Log.warning(
                     "[CloudConnections] disconnect found connection \(connectionId) already deleted; another disconnect path likely raced with this one"
@@ -125,11 +125,11 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         }
     }
 
-    public func refreshConnections() async throws -> [Connection] {
-        let responses = try await apiClient.listConnections()
+    public func refreshConnections() async throws -> [CloudConnection] {
+        let responses = try await apiClient.listCloudConnections()
 
-        // Delta update rather than deleteAll-then-reinsert: DBConnectionGrant
-        // rows have ON DELETE CASCADE on DBConnection.id, so deleting every
+        // Delta update rather than deleteAll-then-reinsert: DBCloudConnectionGrant
+        // rows have ON DELETE CASCADE on DBCloudConnection.id, so deleting every
         // connection (even momentarily within the same transaction) wipes
         // every grant on the device. Since refresh() fires every time the
         // Connections settings screen appears, that path would destroy every
@@ -145,14 +145,14 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
         // Before deleting orphaned connections, republish ProfileUpdate
         // metadata for every conversation that referenced them — same
         // rationale as disconnect(). Without this, the FK cascade deletes
-        // local DBConnectionGrant rows but the XMTP group metadata still
+        // local DBCloudConnectionGrant rows but the XMTP group metadata still
         // carries the revoked grants and the assistant keeps using them.
         let orphanedGrants = try await databaseWriter.read { db in
-            let existingIds = Set(try DBConnection.fetchAll(db).map { $0.id })
+            let existingIds = Set(try DBCloudConnection.fetchAll(db).map { $0.id })
             let toDelete = existingIds.subtracting(serverIds)
-            guard !toDelete.isEmpty else { return [DBConnectionGrant]() }
-            return try DBConnectionGrant
-                .filter(toDelete.contains(DBConnectionGrant.Columns.connectionId))
+            guard !toDelete.isEmpty else { return [DBCloudConnectionGrant]() }
+            return try DBCloudConnectionGrant
+                .filter(toDelete.contains(DBCloudConnectionGrant.Columns.connectionId))
                 .fetchAll(db)
         }
 
@@ -178,34 +178,34 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
             }
         }
 
-        let connections: [Connection] = try await databaseWriter.write { [self] db in
+        let connections: [CloudConnection] = try await databaseWriter.write { [self] db in
             let existingById = try Dictionary(
-                uniqueKeysWithValues: DBConnection.fetchAll(db).map { ($0.id, $0) }
+                uniqueKeysWithValues: DBCloudConnection.fetchAll(db).map { ($0.id, $0) }
             )
 
-            let refreshed: [Connection] = responses.map { response in
-                let canonical = ConnectionServiceNaming.canonicalService(fromComposioSlug: response.serviceId)
+            let refreshed: [CloudConnection] = responses.map { response in
+                let canonical = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: response.serviceId)
                 let existingConnectedAt = existingById[response.connectionId]?.connectedAt
-                return Connection(
+                return CloudConnection(
                     id: response.connectionId,
                     serviceId: canonical,
                     serviceName: self.displayName(for: response.serviceName, fallbackFrom: canonical),
                     provider: .composio,
                     composioEntityId: response.composioEntityId,
                     composioConnectionId: response.composioConnectionId,
-                    status: ConnectionStatus.from(composioStatus: response.status),
+                    status: CloudConnectionStatus.from(composioStatus: response.status),
                     connectedAt: existingConnectedAt ?? Date()
                 )
             }
 
             for connection in refreshed {
-                try DBConnection(from: connection).save(db)
+                try DBCloudConnection(from: connection).save(db)
             }
 
             let idsToDelete = Set(existingById.keys).subtracting(serverIds)
             if !idsToDelete.isEmpty {
-                try DBConnection
-                    .filter(idsToDelete.contains(DBConnection.Columns.id))
+                try DBCloudConnection
+                    .filter(idsToDelete.contains(DBCloudConnection.Columns.id))
                     .deleteAll(db)
             }
 
@@ -216,11 +216,11 @@ public final class ConnectionManager: ConnectionManagerProtocol, @unchecked Send
     }
 
     private func displayName(for serviceName: String, fallbackFrom serviceId: String) -> String {
-        ConnectionServiceNaming.displayName(for: serviceName, fallbackFrom: serviceId)
+        CloudConnectionServiceNaming.displayName(for: serviceName, fallbackFrom: serviceId)
     }
 }
 
-enum ConnectionManagerError: LocalizedError {
+enum CloudConnectionManagerError: LocalizedError {
     case invalidOAuthURL
 
     var errorDescription: String? {
@@ -231,8 +231,8 @@ enum ConnectionManagerError: LocalizedError {
     }
 }
 
-extension ConnectionStatus {
-    static func from(composioStatus raw: String) -> ConnectionStatus {
+extension CloudConnectionStatus {
+    static func from(composioStatus raw: String) -> CloudConnectionStatus {
         switch raw.uppercased() {
         case "ACTIVE", "INITIATED", "INITIALIZING":
             return .active

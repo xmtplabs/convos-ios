@@ -2,12 +2,12 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
-public protocol ConnectionGrantWriterProtocol: Sendable {
+public protocol CloudConnectionGrantWriterProtocol: Sendable {
     func grantConnection(_ connectionId: String, to conversationId: String) async throws
     func revokeGrant(connectionId: String, from conversationId: String) async throws
 }
 
-final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sendable {
+final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unchecked Sendable {
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -27,16 +27,16 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
     func grantConnection(_ connectionId: String, to conversationId: String) async throws {
         let connection = try await databaseReader.read { db in
-            try DBConnection.fetchOne(db, key: connectionId)
+            try DBCloudConnection.fetchOne(db, key: connectionId)
         }
         guard let connection else {
-            throw ConnectionGrantError.connectionNotFound(connectionId)
+            throw CloudConnectionGrantError.connectionNotFound(connectionId)
         }
-        guard connection.status == ConnectionStatus.active.rawValue else {
-            throw ConnectionGrantError.connectionNotActive(connectionId, status: connection.status)
+        guard connection.status == CloudConnectionStatus.active.rawValue else {
+            throw CloudConnectionGrantError.connectionNotActive(connectionId, status: connection.status)
         }
 
-        let grant = DBConnectionGrant(
+        let grant = DBCloudConnectionGrant(
             connectionId: connectionId,
             conversationId: conversationId,
             serviceId: connection.serviceId,
@@ -60,10 +60,10 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
     func revokeGrant(connectionId: String, from conversationId: String) async throws {
         let existing = try await databaseReader.read { db in
-            try DBConnectionGrant
+            try DBCloudConnectionGrant
                 .filter(
-                    DBConnectionGrant.Columns.connectionId == connectionId
-                        && DBConnectionGrant.Columns.conversationId == conversationId
+                    DBCloudConnectionGrant.Columns.connectionId == connectionId
+                        && DBCloudConnectionGrant.Columns.conversationId == conversationId
                 )
                 .fetchOne(db)
         }
@@ -83,10 +83,10 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
         try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
 
         try await databaseWriter.write { db in
-            try DBConnectionGrant
+            try DBCloudConnectionGrant
                 .filter(
-                    DBConnectionGrant.Columns.connectionId == connectionId
-                        && DBConnectionGrant.Columns.conversationId == conversationId
+                    DBCloudConnectionGrant.Columns.connectionId == connectionId
+                        && DBCloudConnectionGrant.Columns.conversationId == conversationId
                 )
                 .deleteAll(db)
         }
@@ -94,12 +94,12 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
     private func projectedGrants(
         for conversationId: String,
-        addingOrReplacing addition: DBConnectionGrant?,
+        addingOrReplacing addition: DBCloudConnectionGrant?,
         removing removal: (connectionId: String, conversationId: String)?
-    ) async throws -> [DBConnectionGrant] {
+    ) async throws -> [DBCloudConnectionGrant] {
         let existing = try await databaseReader.read { db in
-            try DBConnectionGrant
-                .filter(DBConnectionGrant.Columns.conversationId == conversationId)
+            try DBCloudConnectionGrant
+                .filter(DBCloudConnectionGrant.Columns.conversationId == conversationId)
                 .fetchAll(db)
         }
 
@@ -122,25 +122,25 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
 
     private func syncGrantsToMetadata(
         for conversationId: String,
-        desiredGrants: [DBConnectionGrant]
+        desiredGrants: [DBCloudConnectionGrant]
     ) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let senderId = inboxReady.client.inboxId
 
         let connections = try await databaseReader.read { db in
-            try DBConnection
-                .filter(DBConnection.Columns.status == ConnectionStatus.active.rawValue)
+            try DBCloudConnection
+                .filter(DBCloudConnection.Columns.status == CloudConnectionStatus.active.rawValue)
                 .fetchAll(db)
         }
         let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
 
         let iso8601 = ISO8601DateFormatter()
-        let entries: [ConnectionGrantEntry] = desiredGrants.compactMap { grant in
+        let entries: [CloudConnectionGrantEntry] = desiredGrants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
             // Guard against DB rows written before canonical-naming landed: if the
             // stored serviceId is a Composio toolkit slug, translate back to canonical.
-            let canonicalService = ConnectionServiceNaming.canonicalService(fromComposioSlug: conn.serviceId)
-            return ConnectionGrantEntry(
+            let canonicalService = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: conn.serviceId)
+            return CloudConnectionGrantEntry(
                 id: "grant_\(grant.connectionId)_\(conversationId)",
                 senderId: senderId,
                 service: canonicalService,
@@ -152,7 +152,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
             )
         }
 
-        let payload = ConnectionsMetadataPayload(grants: entries)
+        let payload = CloudConnectionsMetadataPayload(grants: entries)
         let grantsJson = payload.isEmpty ? nil : try payload.toJsonString()
 
         if let grantsJson {
@@ -231,7 +231,7 @@ final class ConnectionGrantWriter: ConnectionGrantWriterProtocol, @unchecked Sen
     }
 }
 
-enum ConnectionGrantError: LocalizedError {
+enum CloudConnectionGrantError: LocalizedError {
     case connectionNotFound(String)
     case connectionNotActive(String, status: String)
     case conversationNotFound(String)
@@ -239,9 +239,9 @@ enum ConnectionGrantError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .connectionNotFound(let id):
-            "Connection not found: \(id)"
+            "CloudConnection not found: \(id)"
         case let .connectionNotActive(id, status):
-            "Connection not active (\(status)): \(id)"
+            "CloudConnection not active (\(status)): \(id)"
         case .conversationNotFound(let id):
             "Conversation not found: \(id)"
         }

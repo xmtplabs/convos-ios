@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import XMTPiOS
 
-public struct ConnectionGrantRequest: Codable, Sendable, Hashable {
+public struct CloudConnectionGrantRequest: Codable, Sendable, Hashable {
     /// Highest protocol version this client understands. Payloads with a larger
     /// version must be rejected so that we don't render untrusted future fields.
     public static let supportedVersion: Int = 1
@@ -17,7 +17,7 @@ public struct ConnectionGrantRequest: Codable, Sendable, Hashable {
     public let reason: String
 
     public init(
-        version: Int = ConnectionGrantRequest.supportedVersion,
+        version: Int = CloudConnectionGrantRequest.supportedVersion,
         service: String,
         requestedByInboxId: String,
         targetInboxId: String,
@@ -50,14 +50,14 @@ public struct ConnectionGrantRequest: Codable, Sendable, Hashable {
     }
 }
 
-public let ContentTypeConnectionGrantRequest = ContentTypeID(
+public let ContentTypeCloudConnectionGrantRequest = ContentTypeID(
     authorityID: "convos.org",
     typeID: "connection_grant_request",
     versionMajor: 1,
     versionMinor: 0
 )
 
-public enum ConnectionGrantRequestCodecError: Error, LocalizedError {
+public enum CloudConnectionGrantRequestCodecError: Error, LocalizedError {
     case emptyContent
     case invalidJSONFormat
     case unsupportedVersion(Int)
@@ -65,50 +65,50 @@ public enum ConnectionGrantRequestCodecError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .emptyContent:
-            "ConnectionGrantRequest content is empty"
+            "CloudConnectionGrantRequest content is empty"
         case .invalidJSONFormat:
-            "Invalid JSON format for ConnectionGrantRequest"
+            "Invalid JSON format for CloudConnectionGrantRequest"
         case .unsupportedVersion(let version):
-            "Unsupported ConnectionGrantRequest version \(version)"
+            "Unsupported CloudConnectionGrantRequest version \(version)"
         }
     }
 }
 
-public struct ConnectionGrantRequestCodec: ContentCodec {
-    public typealias T = ConnectionGrantRequest
+public struct CloudConnectionGrantRequestCodec: ContentCodec {
+    public typealias T = CloudConnectionGrantRequest
 
-    public var contentType: ContentTypeID = ContentTypeConnectionGrantRequest
+    public var contentType: ContentTypeID = ContentTypeCloudConnectionGrantRequest
 
     public init() {}
 
-    public func encode(content: ConnectionGrantRequest) throws -> EncodedContent {
+    public func encode(content: CloudConnectionGrantRequest) throws -> EncodedContent {
         var encodedContent = EncodedContent()
-        encodedContent.type = ContentTypeConnectionGrantRequest
+        encodedContent.type = ContentTypeCloudConnectionGrantRequest
         encodedContent.content = try JSONEncoder().encode(content)
         return encodedContent
     }
 
-    public func decode(content: EncodedContent) throws -> ConnectionGrantRequest {
+    public func decode(content: EncodedContent) throws -> CloudConnectionGrantRequest {
         guard !content.content.isEmpty else {
-            throw ConnectionGrantRequestCodecError.emptyContent
+            throw CloudConnectionGrantRequestCodecError.emptyContent
         }
-        let decoded: ConnectionGrantRequest
+        let decoded: CloudConnectionGrantRequest
         do {
-            decoded = try JSONDecoder().decode(ConnectionGrantRequest.self, from: content.content)
+            decoded = try JSONDecoder().decode(CloudConnectionGrantRequest.self, from: content.content)
         } catch {
-            throw ConnectionGrantRequestCodecError.invalidJSONFormat
+            throw CloudConnectionGrantRequestCodecError.invalidJSONFormat
         }
-        guard decoded.version <= ConnectionGrantRequest.supportedVersion else {
-            throw ConnectionGrantRequestCodecError.unsupportedVersion(decoded.version)
+        guard decoded.version <= CloudConnectionGrantRequest.supportedVersion else {
+            throw CloudConnectionGrantRequestCodecError.unsupportedVersion(decoded.version)
         }
         return decoded
     }
 
-    public func fallback(content: ConnectionGrantRequest) throws -> String? {
+    public func fallback(content: CloudConnectionGrantRequest) throws -> String? {
         "The assistant asked to connect \(content.service)"
     }
 
-    public func shouldPush(content: ConnectionGrantRequest) throws -> Bool {
+    public func shouldPush(content: CloudConnectionGrantRequest) throws -> Bool {
         false
     }
 }

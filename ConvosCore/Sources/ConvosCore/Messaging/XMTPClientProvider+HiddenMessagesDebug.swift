@@ -108,7 +108,7 @@ private extension HiddenMessageDebugEntry {
         ContentTypeGroupUpdated,
         ContentTypeExplodeSettings,
         ContentTypeAssistantJoinRequest,
-        ContentTypeConnectionGrantRequest,
+        ContentTypeCloudConnectionGrantRequest,
     ]
 
     static func profileUpdateSummary(content: EncodedContent) -> String {

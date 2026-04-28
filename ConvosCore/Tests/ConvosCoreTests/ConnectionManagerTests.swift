@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 import Testing
 
-@Suite("ConnectionManager Tests", .serialized)
+@Suite("CloudConnectionManager Tests", .serialized)
 struct ConnectionManagerTests {
     // MARK: - H1: refreshConnections() delta update
 
@@ -21,7 +21,7 @@ struct ConnectionManagerTests {
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: conversationId).insert(db)
             try makeDBConnection(id: connectionId).insert(db)
-            try DBConnectionGrant(
+            try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: "google_calendar",
@@ -36,12 +36,12 @@ struct ConnectionManagerTests {
         _ = try await manager.refreshConnections()
 
         let grantCount = try await fixtures.dbReader.read { db in
-            try DBConnectionGrant.fetchCount(db)
+            try DBCloudConnectionGrant.fetchCount(db)
         }
         #expect(grantCount == 1, "Delta update must not cascade-delete grants for connections the server still returns")
 
         let connectionCount = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchCount(db)
+            try DBCloudConnection.fetchCount(db)
         }
         #expect(connectionCount == 1)
     }
@@ -66,7 +66,7 @@ struct ConnectionManagerTests {
         _ = try await manager.refreshConnections()
 
         let remaining = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchAll(db).map(\.id).sorted()
+            try DBCloudConnection.fetchAll(db).map(\.id).sorted()
         }
         #expect(remaining == ["conn-keep"], "Delta update must drop rows the server no longer returns")
     }
@@ -83,14 +83,14 @@ struct ConnectionManagerTests {
         let originalConnectedAt = Date(timeIntervalSince1970: 1_700_000_000)
 
         try await fixtures.dbWriter.write { db in
-            try DBConnection(
+            try DBCloudConnection(
                 id: connectionId,
                 serviceId: "google_calendar",
                 serviceName: "Google Calendar",
-                provider: ConnectionProvider.composio.rawValue,
+                provider: CloudConnectionProvider.composio.rawValue,
                 composioEntityId: "entity-\(connectionId)",
                 composioConnectionId: "ca-\(connectionId)",
-                status: ConnectionStatus.active.rawValue,
+                status: CloudConnectionStatus.active.rawValue,
                 connectedAt: originalConnectedAt
             ).insert(db)
         }
@@ -105,11 +105,11 @@ struct ConnectionManagerTests {
                 "Refresh must not overwrite an existing connectedAt with Date()")
 
         let stored = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchOne(db, key: connectionId)
+            try DBCloudConnection.fetchOne(db, key: connectionId)
         }
         #expect(stored?.connectedAt == originalConnectedAt,
                 "Database must preserve the original connectedAt across refresh")
-        #expect(stored?.status == ConnectionStatus.expired.rawValue,
+        #expect(stored?.status == CloudConnectionStatus.expired.rawValue,
                 "Refresh should still apply status updates from the server")
     }
 
@@ -147,8 +147,8 @@ struct ConnectionManagerTests {
 
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: conversationId).insert(db)
-            try makeDBConnection(id: connectionId, status: ConnectionStatus.active.rawValue).insert(db)
-            try DBConnectionGrant(
+            try makeDBConnection(id: connectionId, status: CloudConnectionStatus.active.rawValue).insert(db)
+            try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: "google_calendar",
@@ -163,12 +163,12 @@ struct ConnectionManagerTests {
         _ = try await manager.refreshConnections()
 
         let storedStatus = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchOne(db, key: connectionId)?.status
+            try DBCloudConnection.fetchOne(db, key: connectionId)?.status
         }
-        #expect(storedStatus == ConnectionStatus.expired.rawValue)
+        #expect(storedStatus == CloudConnectionStatus.expired.rawValue)
 
         let grantCount = try await fixtures.dbReader.read { db in
-            try DBConnectionGrant.fetchCount(db)
+            try DBCloudConnectionGrant.fetchCount(db)
         }
         #expect(grantCount == 1)
     }
@@ -191,20 +191,20 @@ struct ConnectionManagerTests {
             try makeDBConnection(id: connectionId).insert(db)
             try makeDBConnection(id: "conn-other").insert(db)
 
-            try DBConnectionGrant(
+            try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
                 grantedAt: Date()
             ).insert(db)
-            try DBConnectionGrant(
+            try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-b",
                 serviceId: "google_calendar",
                 grantedAt: Date()
             ).insert(db)
             // Unrelated grant for a different connection — must not trigger republish.
-            try DBConnectionGrant(
+            try DBCloudConnectionGrant(
                 connectionId: "conn-other",
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
@@ -222,7 +222,7 @@ struct ConnectionManagerTests {
         #expect(revokedPairs.allSatisfy { $0.connectionId == connectionId })
 
         let connectionRow = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchOne(db, key: connectionId)
+            try DBCloudConnection.fetchOne(db, key: connectionId)
         }
         #expect(connectionRow == nil, "Local connection row must still be deleted after republish")
     }
@@ -245,7 +245,7 @@ struct ConnectionManagerTests {
         #expect(revoked.isEmpty)
 
         let connectionRow = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchOne(db, key: "conn-1")
+            try DBCloudConnection.fetchOne(db, key: "conn-1")
         }
         #expect(connectionRow == nil)
     }
@@ -264,7 +264,7 @@ struct ConnectionManagerTests {
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: "convo-a").insert(db)
             try makeDBConnection(id: connectionId).insert(db)
-            try DBConnectionGrant(
+            try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
@@ -275,7 +275,7 @@ struct ConnectionManagerTests {
         try await manager.disconnect(connectionId: connectionId)
 
         let connectionRow = try await fixtures.dbReader.read { db in
-            try DBConnection.fetchOne(db, key: connectionId)
+            try DBCloudConnection.fetchOne(db, key: connectionId)
         }
         #expect(connectionRow == nil)
     }
@@ -298,8 +298,8 @@ private extension ConnectionManagerTests {
         fixtures: TestFixtures,
         apiClient: any ConvosAPIClientProtocol,
         grantWriter: RecordingGrantWriter
-    ) -> ConnectionManager {
-        ConnectionManager(
+    ) -> CloudConnectionManager {
+        CloudConnectionManager(
             apiClient: apiClient,
             oauthProvider: StubOAuthSessionProvider(),
             databaseWriter: fixtures.dbWriter,
@@ -338,13 +338,13 @@ private extension ConnectionManagerTests {
     func makeDBConnection(
         id: String,
         serviceId: String = "google_calendar",
-        status: String = ConnectionStatus.active.rawValue
-    ) -> DBConnection {
-        DBConnection(
+        status: String = CloudConnectionStatus.active.rawValue
+    ) -> DBCloudConnection {
+        DBCloudConnection(
             id: id,
             serviceId: serviceId,
             serviceName: "Google Calendar",
-            provider: ConnectionProvider.composio.rawValue,
+            provider: CloudConnectionProvider.composio.rawValue,
             composioEntityId: "entity-\(id)",
             composioConnectionId: "ca-\(id)",
             status: status,
@@ -356,8 +356,8 @@ private extension ConnectionManagerTests {
         connectionId: String,
         serviceId: String,
         status: String = "ACTIVE"
-    ) -> ConnectionsAPI.ConnectionResponse {
-        ConnectionsAPI.ConnectionResponse(
+    ) -> CloudConnectionsAPI.ConnectionResponse {
+        CloudConnectionsAPI.ConnectionResponse(
             connectionId: connectionId,
             serviceId: serviceId,
             serviceName: "Google Calendar",
@@ -371,7 +371,7 @@ private extension ConnectionManagerTests {
 // MARK: - Doubles
 
 private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
-    var stubbedConnections: [ConnectionsAPI.ConnectionResponse] = []
+    var stubbedConnections: [CloudConnectionsAPI.ConnectionResponse] = []
     private(set) var revokedConnectionIds: [String] = []
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
@@ -425,11 +425,11 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         .init(code: code, name: nil, maxRedemptions: 0, redemptionCount: 0, remainingRedemptions: 0)
     }
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "stub-request", redirectUrl: "https://example.com/oauth")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(
             connectionId: "stub-conn",
             serviceId: "google_calendar",
@@ -440,11 +440,11 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         )
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] {
         stubbedConnections
     }
 
-    func revokeConnection(connectionId: String) async throws {
+    func revokeCloudConnection(connectionId: String) async throws {
         revokedConnectionIds.append(connectionId)
     }
 
@@ -453,7 +453,7 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     }
 }
 
-private actor RecordingGrantWriter: ConnectionGrantWriterProtocol {
+private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
     struct Call: Sendable, Equatable {
         let connectionId: String
         let conversationId: String

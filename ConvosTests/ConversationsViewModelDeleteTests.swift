@@ -336,11 +336,11 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.makeAssetRenewalManager()
     }
 
-    func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol {
-        base.connectionManager(callbackURLScheme: callbackURLScheme)
+    func cloudConnectionManager(callbackURLScheme: String) -> any CloudConnectionManagerProtocol {
+        base.cloudConnectionManager(callbackURLScheme: callbackURLScheme)
     }
 
-    func connectionRepository() -> any ConnectionRepositoryProtocol {
-        base.connectionRepository()
+    func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        base.cloudConnectionRepository()
     }
 }

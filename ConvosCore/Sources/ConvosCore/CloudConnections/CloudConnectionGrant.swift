@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ConnectionGrant: Codable, Sendable, Hashable {
+public struct CloudConnectionGrant: Codable, Sendable, Hashable {
     public let connectionId: String
     public let conversationId: String
     public let serviceId: String

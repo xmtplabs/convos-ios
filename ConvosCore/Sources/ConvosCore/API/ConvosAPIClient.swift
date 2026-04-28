@@ -62,10 +62,10 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
 
     // Connections
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse]
-    func revokeConnection(connectionId: String) async throws
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse]
+    func revokeCloudConnection(connectionId: String) async throws
 }
 
 extension ConvosAPIClientProtocol {
@@ -644,7 +644,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Connections
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         var request = try authenticatedRequest(for: "v2/connections/initiate", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -659,7 +659,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return try await performRequest(request)
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         var request = try authenticatedRequest(for: "v2/connections/complete", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -671,13 +671,13 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return try await performRequest(request)
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] {
         let request = try authenticatedRequest(for: "v2/connections", method: "GET")
-        let response: ConnectionsAPI.ListResponse = try await performRequest(request)
+        let response: CloudConnectionsAPI.ListResponse = try await performRequest(request)
         return response.connections
     }
 
-    func revokeConnection(connectionId: String) async throws {
+    func revokeCloudConnection(connectionId: String) async throws {
         let request = try authenticatedRequest(for: "v2/connections/\(connectionId)", method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
     }

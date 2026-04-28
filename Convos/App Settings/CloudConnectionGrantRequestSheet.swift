@@ -10,8 +10,8 @@ struct PendingGrantRequest: Identifiable, Hashable {
 }
 
 @MainActor @Observable
-final class ConnectionGrantRequestSheetViewModel {
-    private(set) var connection: Connection?
+final class CloudConnectionGrantRequestSheetViewModel {
+    private(set) var connection: CloudConnection?
     private(set) var isLoading: Bool = true
     private(set) var isBusy: Bool = false
     private(set) var error: Error?
@@ -22,8 +22,8 @@ final class ConnectionGrantRequestSheetViewModel {
     let conversation: Conversation?
 
     private let session: any SessionManagerProtocol
-    private let connectionManager: any ConnectionManagerProtocol
-    private let connectionRepository: any ConnectionRepositoryProtocol
+    private let cloudConnectionManager: any CloudConnectionManagerProtocol
+    private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
     private var cancellable: AnyCancellable?
 
     init(
@@ -38,12 +38,12 @@ final class ConnectionGrantRequestSheetViewModel {
         self.session = session
 
         let callbackScheme = ConfigManager.shared.appUrlScheme
-        self.connectionManager = session.connectionManager(
+        self.cloudConnectionManager = session.cloudConnectionManager(
             callbackURLScheme: callbackScheme
         )
-        self.connectionRepository = session.connectionRepository()
+        self.cloudConnectionRepository = session.cloudConnectionRepository()
 
-        cancellable = connectionRepository.connectionsPublisher()
+        cancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connections in
                 self?.connection = connections.first { $0.serviceId == self?.serviceId }
@@ -51,12 +51,12 @@ final class ConnectionGrantRequestSheetViewModel {
             }
     }
 
-    private func resolveGrantWriter() -> any ConnectionGrantWriterProtocol {
+    private func resolveGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         session.messagingService().connectionGrantWriter()
     }
 
     var displayName: String {
-        ConnectionServiceCatalog.displayName(for: serviceId, fallback: connection?.serviceName)
+        CloudConnectionServiceCatalog.displayName(for: serviceId, fallback: connection?.serviceName)
     }
 
     var conversationDisplayName: String {
@@ -88,7 +88,7 @@ final class ConnectionGrantRequestSheetViewModel {
         error = nil
         Task {
             do {
-                let newConnection = try await connectionManager.connect(serviceId: serviceId)
+                let newConnection = try await cloudConnectionManager.connect(serviceId: serviceId)
                 let writer = resolveGrantWriter()
                 try await writer.grantConnection(newConnection.id, to: conversationId)
                 didComplete = true
@@ -117,8 +117,8 @@ enum GrantSheetError: LocalizedError {
     }
 }
 
-struct ConnectionGrantRequestSheet: View {
-    @Bindable var viewModel: ConnectionGrantRequestSheetViewModel
+struct CloudConnectionGrantRequestSheet: View {
+    @Bindable var viewModel: CloudConnectionGrantRequestSheetViewModel
     let onDismiss: () -> Void
 
     var body: some View {
@@ -157,7 +157,7 @@ struct ConnectionGrantRequestSheet: View {
     }
 
     private var icon: some View {
-        let info = ConnectionServiceCatalog.info(for: viewModel.serviceId)
+        let info = CloudConnectionServiceCatalog.info(for: viewModel.serviceId)
         return Image(systemName: info?.iconSystemName ?? "link")
             .font(.largeTitle)
             .foregroundStyle(.white)

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Shape matches the runtime's expected format exactly. See:
 /// `runtime/convos-platform/skills/connections/scripts/connections.mjs`.
-public struct ConnectionGrantEntry: Codable, Sendable, Hashable {
+public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
     public let id: String                    // grant identifier (grant_…)
     public let senderId: String               // XMTP inbox ID of the user who granted
     public let service: String                // canonical service name, e.g. "google_calendar"
@@ -38,11 +38,11 @@ public struct ConnectionGrantEntry: Codable, Sendable, Hashable {
 /// Payload stored as a JSON string on a sender's member profile under the
 /// `connections` key. Contains only that sender's grants — each member
 /// writes their own profile.
-public struct ConnectionsMetadataPayload: Codable, Sendable {
+public struct CloudConnectionsMetadataPayload: Codable, Sendable {
     public let version: Int
-    public var grants: [ConnectionGrantEntry]
+    public var grants: [CloudConnectionGrantEntry]
 
-    public init(version: Int = 1, grants: [ConnectionGrantEntry] = []) {
+    public init(version: Int = 1, grants: [CloudConnectionGrantEntry] = []) {
         self.version = version
         self.grants = grants
     }
@@ -56,20 +56,20 @@ public struct ConnectionsMetadataPayload: Codable, Sendable {
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(self)
         guard let json = String(data: data, encoding: .utf8) else {
-            throw ConnectionsMetadataError.encodingFailed
+            throw CloudConnectionsMetadataError.encodingFailed
         }
         return json
     }
 
-    public static func fromJsonString(_ json: String) throws -> ConnectionsMetadataPayload {
+    public static func fromJsonString(_ json: String) throws -> CloudConnectionsMetadataPayload {
         guard let data = json.data(using: .utf8) else {
-            throw ConnectionsMetadataError.decodingFailed
+            throw CloudConnectionsMetadataError.decodingFailed
         }
-        return try JSONDecoder().decode(ConnectionsMetadataPayload.self, from: data)
+        return try JSONDecoder().decode(CloudConnectionsMetadataPayload.self, from: data)
     }
 }
 
-public enum ConnectionsMetadataError: Error {
+public enum CloudConnectionsMetadataError: Error {
     case encodingFailed
     case decodingFailed
 }

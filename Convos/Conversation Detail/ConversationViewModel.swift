@@ -1555,7 +1555,7 @@ extension ConversationViewModel {
     func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
         ConversationConnectionsViewModel(
             conversationId: conversation.id,
-            connectionRepository: session.connectionRepository(),
+            cloudConnectionRepository: session.cloudConnectionRepository(),
             grantWriter: messagingService.connectionGrantWriter()
         )
     }

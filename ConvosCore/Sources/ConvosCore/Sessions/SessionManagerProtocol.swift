@@ -84,8 +84,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     // MARK: Connections
 
-    func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol
-    func connectionRepository() -> any ConnectionRepositoryProtocol
+    func cloudConnectionManager(callbackURLScheme: String) -> any CloudConnectionManagerProtocol
+    func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol
 }
 
 extension SessionManagerProtocol {

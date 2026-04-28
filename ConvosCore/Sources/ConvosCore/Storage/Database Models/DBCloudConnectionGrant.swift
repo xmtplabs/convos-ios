@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct DBConnectionGrant: Codable, FetchableRecord, PersistableRecord, Hashable {
+struct DBCloudConnectionGrant: Codable, FetchableRecord, PersistableRecord, Hashable {
     static let databaseTableName: String = "connectionGrant"
 
     enum Columns {
@@ -17,9 +17,9 @@ struct DBConnectionGrant: Codable, FetchableRecord, PersistableRecord, Hashable 
     let grantedAt: Date
 }
 
-extension DBConnectionGrant {
-    func toConnectionGrant() -> ConnectionGrant {
-        ConnectionGrant(
+extension DBCloudConnectionGrant {
+    func toConnectionGrant() -> CloudConnectionGrant {
+        CloudConnectionGrant(
             connectionId: connectionId,
             conversationId: conversationId,
             serviceId: serviceId,
@@ -27,7 +27,7 @@ extension DBConnectionGrant {
         )
     }
 
-    init(from grant: ConnectionGrant) {
+    init(from grant: CloudConnectionGrant) {
         self.connectionId = grant.connectionId
         self.conversationId = grant.conversationId
         self.serviceId = grant.serviceId

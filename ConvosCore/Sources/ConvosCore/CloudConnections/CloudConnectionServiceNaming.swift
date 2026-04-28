@@ -8,7 +8,7 @@ import Foundation
 /// translates to the slug only when calling Composio. iOS mirrors that split:
 /// canonical everywhere internally, slug only when talking to the backend's
 /// /initiate endpoint.
-public enum ConnectionServiceNaming {
+public enum CloudConnectionServiceNaming {
     /// Canonical service name -> Composio toolkit slug. Omitted services
     /// pass through unchanged (i.e. canonical == slug, as for `slack`, `github`, etc.).
     private static let canonicalToComposioSlug: [String: String] = [

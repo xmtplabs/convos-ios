@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ConnectionsAPI {
+public enum CloudConnectionsAPI {
     public struct InitiateResponse: Codable, Sendable {
         public let connectionRequestId: String
         public let redirectUrl: String

@@ -2,36 +2,36 @@ import Combine
 import Foundation
 import GRDB
 
-public protocol ConnectionRepositoryProtocol: Sendable {
-    func connections() async throws -> [Connection]
-    func connectionsPublisher() -> AnyPublisher<[Connection], Never>
-    func grantsPublisher(for conversationId: String) -> AnyPublisher<[ConnectionGrant], Never>
-    func grants(for conversationId: String) async throws -> [ConnectionGrant]
+public protocol CloudConnectionRepositoryProtocol: Sendable {
+    func connections() async throws -> [CloudConnection]
+    func connectionsPublisher() -> AnyPublisher<[CloudConnection], Never>
+    func grantsPublisher(for conversationId: String) -> AnyPublisher<[CloudConnectionGrant], Never>
+    func grants(for conversationId: String) async throws -> [CloudConnectionGrant]
 }
 
-public final class ConnectionRepository: ConnectionRepositoryProtocol, Sendable {
+public final class CloudConnectionRepository: CloudConnectionRepositoryProtocol, Sendable {
     private let databaseReader: any DatabaseReader
 
     public init(databaseReader: any DatabaseReader) {
         self.databaseReader = databaseReader
     }
 
-    public func connections() async throws -> [Connection] {
+    public func connections() async throws -> [CloudConnection] {
         try await databaseReader.read { db in
-            try DBConnection
-                .filter(DBConnection.Columns.status == ConnectionStatus.active.rawValue)
-                .order(DBConnection.Columns.connectedAt.desc)
+            try DBCloudConnection
+                .filter(DBCloudConnection.Columns.status == CloudConnectionStatus.active.rawValue)
+                .order(DBCloudConnection.Columns.connectedAt.desc)
                 .fetchAll(db)
                 .map { $0.toConnection() }
         }
     }
 
-    public func connectionsPublisher() -> AnyPublisher<[Connection], Never> {
+    public func connectionsPublisher() -> AnyPublisher<[CloudConnection], Never> {
         ValueObservation
             .tracking { db in
-                try DBConnection
-                    .filter(DBConnection.Columns.status == ConnectionStatus.active.rawValue)
-                    .order(DBConnection.Columns.connectedAt.desc)
+                try DBCloudConnection
+                    .filter(DBCloudConnection.Columns.status == CloudConnectionStatus.active.rawValue)
+                    .order(DBCloudConnection.Columns.connectedAt.desc)
                     .fetchAll(db)
                     .map { $0.toConnection() }
             }
@@ -40,13 +40,13 @@ public final class ConnectionRepository: ConnectionRepositoryProtocol, Sendable 
             .eraseToAnyPublisher()
     }
 
-    public func grants(for conversationId: String) async throws -> [ConnectionGrant] {
+    public func grants(for conversationId: String) async throws -> [CloudConnectionGrant] {
         try await databaseReader.read { db in
             try Self.fetchActiveGrants(conversationId: conversationId, db: db)
         }
     }
 
-    public func grantsPublisher(for conversationId: String) -> AnyPublisher<[ConnectionGrant], Never> {
+    public func grantsPublisher(for conversationId: String) -> AnyPublisher<[CloudConnectionGrant], Never> {
         ValueObservation
             .tracking { db in
                 try Self.fetchActiveGrants(conversationId: conversationId, db: db)
@@ -65,15 +65,15 @@ public final class ConnectionRepository: ConnectionRepositoryProtocol, Sendable 
     private static func fetchActiveGrants(
         conversationId: String,
         db: Database
-    ) throws -> [ConnectionGrant] {
+    ) throws -> [CloudConnectionGrant] {
         let conversation = try DBConversation
             .filter(DBConversation.Columns.id == conversationId)
             .fetchOne(db)
         if let expiresAt = conversation?.expiresAt, expiresAt <= Date() {
             return []
         }
-        return try DBConnectionGrant
-            .filter(DBConnectionGrant.Columns.conversationId == conversationId)
+        return try DBCloudConnectionGrant
+            .filter(DBCloudConnectionGrant.Columns.conversationId == conversationId)
             .fetchAll(db)
             .map { $0.toConnectionGrant() }
     }

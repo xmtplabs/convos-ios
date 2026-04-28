@@ -513,7 +513,7 @@ extension Array where Element == DBMessage {
                 case .connectionGrantRequest:
                     if let jsonText = dbMessage.text,
                        let data = jsonText.data(using: .utf8),
-                       let request = try? JSONDecoder().decode(ConnectionGrantRequest.self, from: data) {
+                       let request = try? JSONDecoder().decode(CloudConnectionGrantRequest.self, from: data) {
                         messageContent = .connectionGrantRequest(request)
                     } else {
                         messageContent = .text("")
