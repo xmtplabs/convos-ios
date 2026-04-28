@@ -48,7 +48,7 @@ public final class MessagesListProcessor: Sendable {
                 lastAssistantJoinIndex = i
                 agentJoinedAfterAssistantRequest = false
             case .update(let update):
-                if lastAssistantJoinIndex != nil, update.addedConvosAssistant {
+                if lastAssistantJoinIndex != nil, update.addedAgent {
                     agentJoinedAfterAssistantRequest = true
                 }
                 var added = 0
