@@ -529,7 +529,7 @@ Resolver lives in `ConvosCore/Sources/ConvosCore/CapabilityResolution/` (new dir
 - [ ] Router dispatches `ConnectionInvocation` by `(subject, capability)` to the resolved provider's execution path; fans out for federated reads
 - [ ] Resolutions auto-clear / shrink on provider unlink; do *not* auto-clear on iOS permission revoke
 - [ ] Client publishes `profile.metadata["connections"]` manifest with the per-capability `resolved` map on every relevant state change
-- [ ] CloudConnections stops publishing `profile.metadata["connections"]` (old shape replaced by the unified manifest)
+- [ ] CloudConnections stops publishing the old flat grant-list shape under `profile.metadata["connections"]` (the unified manifest takes over the same key)
 - [ ] Tests: first-time request → card → approve → invocation routes correctly (single + multi-set); provider unlink shrinks/clears resolution; write with no resolution returns `capabilityNotEnabled`; verb-only consent flow on second-verb request; `preferredProviders` hint defaults the card; federated read fan-out aggregates results; partialFailures surface per-provider errors; manifest republishes after resolution changes; reactive card refresh on `providerChanges`
 
 ## Out of scope for v1
@@ -584,7 +584,7 @@ When relaxing more subjects, just update the table at the top of [v1 scope cut](
 3. **ConvosConnections provider registration** — small patch: register providers at `ConnectionsManager` init.
 4. **CloudConnections provider registration + manifest cutover** — small patch:
    - Register providers at link time
-   - Stop publishing `profile.metadata["connections"]`; rely on the unified `capabilities` manifest
+   - Stop publishing the old flat grant-list shape under `profile.metadata["connections"]`; the unified manifest defined in this PRD takes over the same key
 5. **Card UI** — main-app SwiftUI view that observes the resolver, registry, and `providerChanges` stream. Includes Variant 1 / 2 / 3 plus the verb-only consent variant.
 6. **Main-app wiring** — codec registration in `InboxStateMachine`'s `ClientOptions(codecs: [...])`, hook `capability_request` messages into the existing decoded-message dispatch.
 7. **Runtime PR (someone else)** — agent infrastructure reads `profile.metadata["connections"]` and provisions tools accordingly. Not in this PRD's scope but the contract is locked here.
