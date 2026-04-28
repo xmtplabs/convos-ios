@@ -35,7 +35,8 @@ public struct ConnectionPayload: Codable, Sendable, Equatable, Identifiable {
 /// Source-specific payload body. New cases are added as new `DataSource`s are implemented.
 ///
 /// `unknown` preserves forward compatibility when an older build of the app decodes a
-/// payload produced by a newer build — the raw bytes round-trip without loss.
+/// payload produced by a newer build — the JSON object under `data` round-trips without
+/// loss via `JSONValue`.
 public enum ConnectionPayloadBody: Codable, Sendable, Equatable {
     case health(HealthPayload)
     case calendar(CalendarPayload)
@@ -46,7 +47,7 @@ public enum ConnectionPayloadBody: Codable, Sendable, Equatable {
     case motion(MotionPayload)
     case homeKit(HomePayload)
     case screenTime(ScreenTimePayload)
-    case unknown(rawType: String, data: Data)
+    case unknown(rawType: String, data: JSONValue)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -133,7 +134,7 @@ public enum ConnectionPayloadBody: Codable, Sendable, Equatable {
             let payload = try container.decode(ScreenTimePayload.self, forKey: .data)
             self = .screenTime(payload)
         case .none:
-            let data = try container.decode(Data.self, forKey: .data)
+            let data = try container.decode(JSONValue.self, forKey: .data)
             self = .unknown(rawType: type, data: data)
         }
     }

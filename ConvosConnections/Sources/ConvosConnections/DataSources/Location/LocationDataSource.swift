@@ -101,6 +101,12 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
         private var delegate: Delegate?
         private var emitter: ConnectionPayloadEmitter?
         private var authorizationContinuation: CheckedContinuation<Void, Never>?
+        /// Status the caller is waiting to move OFF of. iOS 14+ fires
+        /// `locationManagerDidChangeAuthorization` once when the delegate is first
+        /// registered — that fire is a no-op for our purposes (status hasn't actually
+        /// changed yet), and would otherwise resume the continuation before the system
+        /// prompt could even appear.
+        private var pendingAuthorizationFrom: CLAuthorizationStatus?
 
         func authorizationStatus() -> ConnectionAuthorizationStatus {
             let manager = manager ?? createManager()
@@ -111,18 +117,27 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
             let manager = manager ?? createManager()
 
             if manager.authorizationStatus == .notDetermined {
-                await withCheckedContinuation { continuation in
-                    authorizationContinuation = continuation
+                await waitForAuthorizationChange(from: .notDetermined) {
                     manager.requestWhenInUseAuthorization()
                 }
             }
             if manager.authorizationStatus == .authorizedWhenInUse {
-                await withCheckedContinuation { continuation in
-                    authorizationContinuation = continuation
+                await waitForAuthorizationChange(from: .authorizedWhenInUse) {
                     manager.requestAlwaysAuthorization()
                 }
             }
             return LocationDataSource.map(manager.authorizationStatus)
+        }
+
+        private func waitForAuthorizationChange(
+            from initialStatus: CLAuthorizationStatus,
+            action: () -> Void
+        ) async {
+            pendingAuthorizationFrom = initialStatus
+            await withCheckedContinuation { continuation in
+                authorizationContinuation = continuation
+                action()
+            }
         }
 
         func start(emit: @escaping ConnectionPayloadEmitter) {
@@ -171,6 +186,9 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
         }
 
         fileprivate func onAuthorizationChange() {
+            guard let pending = pendingAuthorizationFrom else { return }
+            guard manager?.authorizationStatus != pending else { return }
+            pendingAuthorizationFrom = nil
             let continuation = authorizationContinuation
             authorizationContinuation = nil
             continuation?.resume()

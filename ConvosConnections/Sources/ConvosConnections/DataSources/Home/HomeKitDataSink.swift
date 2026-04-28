@@ -256,7 +256,12 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
 
         private static func coerceInt(_ argument: ArgumentValue) -> Any? {
             if case .int(let value) = argument { return NSNumber(value: value) }
-            if case .double(let value) = argument { return NSNumber(value: Int(value)) }
+            if case .double(let value) = argument {
+                guard value.isFinite,
+                      value >= Double(Int.min),
+                      value <= Double(Int.max) else { return nil }
+                return NSNumber(value: Int(value))
+            }
             if case .string(let value) = argument, let parsed = Int(value) { return NSNumber(value: parsed) }
             return nil
         }

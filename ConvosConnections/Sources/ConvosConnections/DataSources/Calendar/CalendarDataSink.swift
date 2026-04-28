@@ -259,14 +259,16 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
 
         private static func resolveSpan(_ argument: ArgumentValue?) -> Resolution<EKSpan> {
             guard let argument else { return .success(.futureEvents) }
-            let raw: String? = {
-                if case .enumValue(let value) = argument { return value }
-                if case .string(let value) = argument { return value }
-                return nil
-            }()
+            let raw: String?
+            switch argument {
+            case .enumValue(let value), .string(let value):
+                raw = value
+            default:
+                return .failure("Invalid 'span' type. Expected string or enum.")
+            }
             switch raw {
             case "thisEvent": return .success(.thisEvent)
-            case "futureEvents", .none: return .success(.futureEvents)
+            case "futureEvents": return .success(.futureEvents)
             default:
                 return .failure("Unknown 'span' value. Allowed: thisEvent, futureEvents.")
             }

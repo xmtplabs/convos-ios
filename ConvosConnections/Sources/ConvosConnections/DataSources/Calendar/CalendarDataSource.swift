@@ -121,10 +121,11 @@ public final class CalendarDataSource: DataSource, @unchecked Sendable {
         return "\(count) events in window."
     }
 
-    private static let formatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
+    /// `ISO8601DateFormatter` is documented thread-safe but doesn't conform to `Sendable`
+    /// in the Swift 6 stdlib, so an `nonisolated(unsafe)` is the canonical opt-out.
+    nonisolated(unsafe) private static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate, .withFullTime, .withTimeZone]
         return formatter
     }()
 

@@ -92,7 +92,7 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
         private var manager: HMHomeManager?
         private var delegate: Delegate?
         private var emitter: ConnectionPayloadEmitter?
-        private var authorizationContinuation: CheckedContinuation<Void, Never>?
+        private var authorizationContinuations: [CheckedContinuation<Void, Never>] = []
         private var hasEmittedInitial: Bool = false
 
         func authorizationStatus() -> ConnectionAuthorizationStatus {
@@ -106,7 +106,7 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
                 return
             }
             await withCheckedContinuation { continuation in
-                authorizationContinuation = continuation
+                authorizationContinuations.append(continuation)
             }
         }
 
@@ -127,9 +127,9 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
         }
 
         fileprivate func onHomesDidUpdate(homes: [HMHome]) {
-            let continuation = authorizationContinuation
-            authorizationContinuation = nil
-            continuation?.resume()
+            let waiters = authorizationContinuations
+            authorizationContinuations = []
+            for waiter in waiters { waiter.resume() }
 
             emitCurrent(homes: homes)
         }

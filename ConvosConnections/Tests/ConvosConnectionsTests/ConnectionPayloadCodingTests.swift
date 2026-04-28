@@ -281,7 +281,7 @@ struct ConnectionPayloadCodingTests {
         #expect(decoded == payload)
     }
 
-    @Test("unknown body type decodes without throwing")
+    @Test("unknown body type decodes the nested JSON object without throwing")
     func unknownBodyTypeFallsBack() throws {
         let envelope: [String: Any] = [
             "id": "00000000-0000-0000-0000-000000000002",
@@ -290,17 +290,45 @@ struct ConnectionPayloadCodingTests {
             "capturedAt": 1_700_000_000.0,
             "body": [
                 "type": "future_source_we_havent_shipped_yet",
-                "data": "AQID",
+                "data": [
+                    "schemaVersion": 1,
+                    "summary": "12 mystery readings today",
+                    "samples": [42, 43, 44],
+                ] as [String: Any],
             ],
         ]
         let jsonData = try JSONSerialization.data(withJSONObject: envelope)
 
         let decoded = try JSONDecoder().decode(ConnectionPayload.self, from: jsonData)
         switch decoded.body {
-        case .unknown(let rawType, _):
+        case let .unknown(rawType, data):
             #expect(rawType == "future_source_we_havent_shipped_yet")
+            guard case .object(let object) = data else {
+                Issue.record("Expected JSON object under unknown.data, got \(data)")
+                return
+            }
+            #expect(object["summary"] == .string("12 mystery readings today"))
         case .health, .calendar, .location, .contacts, .photos, .music, .motion, .homeKit, .screenTime:
             Issue.record("Expected unknown body case")
         }
+    }
+
+    @Test("unknown body type round-trips JSON unchanged")
+    func unknownBodyRoundTrips() throws {
+        let envelope: [String: Any] = [
+            "id": "00000000-0000-0000-0000-000000000003",
+            "schemaVersion": 1,
+            "source": "health",
+            "capturedAt": 1_700_000_000.0,
+            "body": [
+                "type": "future_source",
+                "data": ["schemaVersion": 2, "summary": "later"] as [String: Any],
+            ],
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: envelope)
+        let decoded = try JSONDecoder().decode(ConnectionPayload.self, from: jsonData)
+        let reEncoded = try JSONEncoder().encode(decoded)
+        let redecoded = try JSONDecoder().decode(ConnectionPayload.self, from: reEncoded)
+        #expect(decoded == redecoded)
     }
 }

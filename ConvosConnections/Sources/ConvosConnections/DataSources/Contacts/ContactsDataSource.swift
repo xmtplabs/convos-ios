@@ -87,9 +87,9 @@ public final class ContactsDataSource: DataSource, @unchecked Sendable {
         var preview: [ContactSummary] = []
         let request = CNContactFetchRequest(keysToFetch: keys)
         request.sortOrder = .givenName
-        try store.enumerateContacts(with: request) { contact, stop in
+        try store.enumerateContacts(with: request) { contact, _ in
             total += 1
-            if preview.count < previewLimit {
+            if previewLimit > 0 && preview.count < previewLimit {
                 preview.append(
                     ContactSummary(
                         id: contact.identifier,
@@ -100,8 +100,6 @@ public final class ContactsDataSource: DataSource, @unchecked Sendable {
                         hasPhone: !contact.phoneNumbers.isEmpty
                     )
                 )
-            } else if previewLimit <= 0 {
-                stop.pointee = true
             }
         }
 

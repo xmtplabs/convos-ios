@@ -28,10 +28,14 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
     }
 
     func isEnabled(kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async -> Bool {
-        read().enablements.contains(Enablement(kind: kind, capability: capability, conversationId: conversationId))
+        lock.lock()
+        defer { lock.unlock() }
+        return read().enablements.contains(Enablement(kind: kind, capability: capability, conversationId: conversationId))
     }
 
     func setEnabled(_ enabled: Bool, kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async {
+        lock.lock()
+        defer { lock.unlock() }
         var shape = read()
         var enablementSet = Set(shape.enablements)
         let enablement = Enablement(kind: kind, capability: capability, conversationId: conversationId)
@@ -49,21 +53,29 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
     }
 
     func conversationIds(enabledFor kind: ConnectionKind, capability: ConnectionCapability) async -> [String] {
-        read().enablements
+        lock.lock()
+        defer { lock.unlock() }
+        return read().enablements
             .filter { $0.kind == kind && $0.capability == capability }
             .map(\.conversationId)
             .sorted()
     }
 
     func allEnablements() async -> [Enablement] {
-        read().enablements
+        lock.lock()
+        defer { lock.unlock() }
+        return read().enablements
     }
 
     func alwaysConfirmWrites(kind: ConnectionKind, conversationId: String) async -> Bool {
-        read().alwaysConfirm.contains(AlwaysConfirmEntry(kind: kind, conversationId: conversationId))
+        lock.lock()
+        defer { lock.unlock() }
+        return read().alwaysConfirm.contains(AlwaysConfirmEntry(kind: kind, conversationId: conversationId))
     }
 
     func setAlwaysConfirmWrites(_ alwaysConfirm: Bool, kind: ConnectionKind, conversationId: String) async {
+        lock.lock()
+        defer { lock.unlock() }
         var shape = read()
         var alwaysConfirmSet = Set(shape.alwaysConfirm)
         let entry = AlwaysConfirmEntry(kind: kind, conversationId: conversationId)
@@ -79,9 +91,8 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
         write(shape)
     }
 
+    /// Caller must hold `lock`.
     private func read() -> PersistedShape {
-        lock.lock()
-        defer { lock.unlock() }
         guard let data = defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode(PersistedShape.self, from: data) else {
             return PersistedShape(enablements: [], alwaysConfirm: [])
@@ -89,9 +100,8 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
         return decoded
     }
 
+    /// Caller must hold `lock`.
     private func write(_ shape: PersistedShape) {
-        lock.lock()
-        defer { lock.unlock() }
         guard let data = try? JSONEncoder().encode(shape) else { return }
         defaults.set(data, forKey: key)
     }
