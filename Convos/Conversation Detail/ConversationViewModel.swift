@@ -927,7 +927,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 status: status,
                 subject: request.subject,
                 capability: request.capability,
-                providers: Array(providerIds)
+                providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue })
             )
             do {
                 try await writer.sendResult(result, in: conversationId)
