@@ -112,8 +112,11 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
                 await withCheckedContinuation { continuation in
                     authorizationWaiters[waiterId] = continuation
                 }
-            } onCancel: { [weak self] in
-                Task { await self?.cancelAuthorizationWaiter(id: waiterId) }
+            } onCancel: {
+                // Strong capture: `CheckedContinuation` traps if released without being
+                // resumed, so the actor must outlive any pending waiter even when the
+                // owning host has dropped its reference.
+                Task { await self.cancelAuthorizationWaiter(id: waiterId) }
             }
         }
 

@@ -100,7 +100,9 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
         private var manager: CLLocationManager?
         private var delegate: Delegate?
         private var emitter: ConnectionPayloadEmitter?
-        private var authorizationContinuations: [CheckedContinuation<Void, Never>] = []
+        /// Waiters keyed by a per-call UUID so a cancelled task only resumes its own
+        /// continuation, leaving any concurrent callers waiting for the real callback.
+        private var authorizationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
         /// Status the caller is waiting to move OFF of. iOS 14+ fires
         /// `locationManagerDidChangeAuthorization` once when the delegate is first
         /// registered — that fire is a no-op for our purposes (status hasn't actually
@@ -121,10 +123,12 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
                     manager.requestWhenInUseAuthorization()
                 }
             }
+            // Best-effort upgrade to .always. Don't wait for the response: iOS doesn't fire
+            // the delegate when the user has previously denied "Always" in Settings, and may
+            // defer the upgrade prompt to a later moment in the app's lifecycle. Callers
+            // that need .always confirmed can poll `authorizationStatus()` later.
             if manager.authorizationStatus == .authorizedWhenInUse {
-                await waitForAuthorizationChange(from: .authorizedWhenInUse) {
-                    manager.requestAlwaysAuthorization()
-                }
+                manager.requestAlwaysAuthorization()
             }
             return LocationDataSource.map(manager.authorizationStatus)
         }
@@ -134,10 +138,19 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
             action: () -> Void
         ) async {
             pendingAuthorizationFrom = initialStatus
-            await withCheckedContinuation { continuation in
-                authorizationContinuations.append(continuation)
-                action()
+            let waiterId = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    authorizationWaiters[waiterId] = continuation
+                    action()
+                }
+            } onCancel: {
+                Task { await self.cancelAuthorizationWaiter(id: waiterId) }
             }
+        }
+
+        private func cancelAuthorizationWaiter(id: UUID) {
+            authorizationWaiters.removeValue(forKey: id)?.resume()
         }
 
         func start(emit: @escaping ConnectionPayloadEmitter) {
@@ -189,9 +202,9 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
             guard let pending = pendingAuthorizationFrom else { return }
             guard manager?.authorizationStatus != pending else { return }
             pendingAuthorizationFrom = nil
-            let waiters = authorizationContinuations
-            authorizationContinuations = []
-            for waiter in waiters { waiter.resume() }
+            let waiters = authorizationWaiters
+            authorizationWaiters = [:]
+            for waiter in waiters.values { waiter.resume() }
         }
 
         private func emit(events: [LocationEvent]) {
