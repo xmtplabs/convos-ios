@@ -135,6 +135,16 @@ custom_rules:
     message: "Log an error using Sentry or something else rather than using assertions in non-test code"
     severity: warning
 
+  multiple_ternaries_in_modifier_arg:
+    regex: '(?m)^\s+\.[a-z][a-zA-Z0-9_]*\([^()]*?\s\?\s[^()]*?\s:\s[^()]*?\s\?\s[^()]*?\s:\s[^()]*?\)'
+    name: "Multiple ternaries inside one modifier call"
+    message: "Hoist these conditional values to typed `let`s above the modifier chain. Stacking ternaries inside a single chained .modifier(...) call is a top cause of Swift type-check timeouts. See CLAUDE.md → Build Performance: Type-Check Time."
+    severity: warning
+    excluded_match_kinds:
+      - string
+      - comment
+      - doccomment
+
 excluded:
   - .build/
   - "**/.build"

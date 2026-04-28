@@ -103,65 +103,10 @@ struct MessagesGroupItemView: View {
     private var messageContent: some View {
         switch message.content {
         case .text(let text):
-            MessageBubble(
-                style: message.content.isEmoji ? .none : bubbleType,
-                message: text,
-                isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: message.content.isEmoji ? .none : bubbleType,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("bubble-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
+            textBubble(text: text)
 
         case .emoji(let text):
-            EmojiBubble(
-                emoji: text,
-                isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: .none,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("emoji-bubble-\(message.messageId)")
-            .opacity(isAppearing ? 0.0 : 1.0)
-            .blur(radius: isAppearing ? 10.0 : 0.0)
-            .scaleEffect(isAppearing ? 0.0 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.10 : 0.10)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -200 : 200)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
+            emojiBubble(text: text)
 
         case .invite(let invite):
             MessageInviteContainerView(
@@ -265,6 +210,78 @@ struct MessagesGroupItemView: View {
                 EmptyView()
             }
         }
+    }
+
+    private var bubbleAppearingRotation: Double {
+        guard isAppearing else { return 0 }
+        return message.source == .incoming ? -0.05 : 0.05
+    }
+
+    private var bubbleAppearingOffsetX: CGFloat {
+        guard isAppearing else { return 0 }
+        return message.source == .incoming ? -20 : 20
+    }
+
+    private var bubbleAppearingOffsetY: CGFloat {
+        isAppearing ? 40 : 0
+    }
+
+    private var emojiAppearingRotation: Double {
+        guard isAppearing else { return 0 }
+        return message.source == .incoming ? -0.10 : 0.10
+    }
+
+    private var emojiAppearingOffsetX: CGFloat {
+        guard isAppearing else { return 0 }
+        return message.source == .incoming ? -200 : 200
+    }
+
+    @ViewBuilder
+    private func textBubble(text: String) -> some View {
+        let bubbleStyle: MessageBubbleType = message.content.isEmoji ? .none : bubbleType
+        let scale: CGFloat = isAppearing ? 0.9 : 1.0
+        MessageBubble(
+            style: bubbleStyle,
+            message: text,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: bubbleStyle,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("bubble-\(message.messageId)")
+        .scaleEffect(scale)
+        .rotationEffect(.radians(bubbleAppearingRotation))
+        .offset(x: bubbleAppearingOffsetX, y: bubbleAppearingOffsetY)
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func emojiBubble(text: String) -> some View {
+        let opacity: Double = isAppearing ? 0.0 : 1.0
+        let blur: CGFloat = isAppearing ? 10.0 : 0.0
+        let scale: CGFloat = isAppearing ? 0.0 : 1.0
+        EmojiBubble(
+            emoji: text,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: .none,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("emoji-bubble-\(message.messageId)")
+        .opacity(opacity)
+        .blur(radius: blur)
+        .scaleEffect(scale)
+        .rotationEffect(.radians(emojiAppearingRotation))
+        .offset(x: emojiAppearingOffsetX, y: bubbleAppearingOffsetY)
+        .padding(.trailing, trailingPadding)
     }
 
     @ViewBuilder

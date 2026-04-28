@@ -42,22 +42,15 @@ struct MessageGestureModifier: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content
+        let pressedScale: CGFloat = isPressed && hasAppeared ? 1.03 : 1.0
+        let pressedAnchor: UnitPoint = message.sender.isCurrentUser ? .trailing : .leading
+        let bubbleOpacity: Double = isSourceBubble ? 0 : 1
+        return content
             .environment(\.messagePressed, isPressed)
-            .scaleEffect(
-                isPressed && hasAppeared ? 1.03 : 1.0,
-                anchor: message.sender.isCurrentUser ? .trailing : .leading
-            )
-            .opacity(isSourceBubble ? 0 : 1)
+            .scaleEffect(pressedScale, anchor: pressedAnchor)
+            .opacity(bubbleOpacity)
             .onAppear { hasAppeared = true }
-            .background {
-                if isSourceBubble {
-                    GeometryReader { geo in
-                        Color.clear
-                            .preference(key: SourceFrameKey.self, value: geo.frame(in: .global))
-                    }
-                }
-            }
+            .background { sourceFramePreferenceBackground }
             .onPreferenceChange(SourceFrameKey.self) { frame in
                 if isSourceBubble, let frame {
                     contextMenuState.currentSourceFrame = frame
@@ -68,64 +61,80 @@ struct MessageGestureModifier: ViewModifier {
             }
             .animation(.easeInOut(duration: 0.25), value: isPressed)
             .offset(x: swipeOffset)
-            .background(alignment: .leading) {
-                if swipeOffset > 0 {
-                    let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
-                    Image(systemName: "arrowshape.turn.up.left.fill")
-                        .foregroundStyle(.tertiary)
-                        .scaleEffect(0.4 + progress * 0.6)
-                        .opacity(Double(progress))
-                        .padding(.leading, DesignConstants.Spacing.step2x)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay {
-                GeometryReader { geometry in
-                    GestureOverlayView(
-                        contextMenuState: contextMenuState,
-                        hasSingleTap: onSingleTap != nil,
-                        excludedFrames: interactiveExclusionFrames,
-                        onSingleTap: { onSingleTap?() },
-                        onDoubleTap: {
-                            if let onDoubleTap {
-                                onDoubleTap()
-                            } else {
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                onToggleReaction(doubleTapEmoji, message.messageId)
-                            }
-                        },
-                        onLongPress: {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            let frame = geometry.frame(in: .global)
-                            contextMenuState.present(
-                                message: message,
-                                bubbleFrame: frame,
-                                bubbleStyle: bubbleStyle
-                            )
-                        },
-                        onSwipeOffsetChanged: { offset in
-                            swipeOffset = offset
-                            externalSwipeOffset?.wrappedValue = offset
-                        },
-                        onSwipeEnded: { triggered in
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                swipeOffset = 0
-                                externalSwipeOffset?.wrappedValue = 0
-                            }
-                            if triggered { onReply(message) }
-                        },
-                        onPressChanged: { pressed in
-                            isPressed = pressed
-                        }
-                    )
-                }
-            }
+            .background(alignment: .leading) { swipeReplyIndicator }
+            .overlay { gestureOverlay }
             .accessibilityAction(named: "React") {
                 onToggleReaction(doubleTapEmoji, message.messageId)
             }
             .accessibilityAction(named: "Reply") {
                 onReply(message)
             }
+    }
+
+    @ViewBuilder
+    private var sourceFramePreferenceBackground: some View {
+        if isSourceBubble {
+            GeometryReader { geo in
+                Color.clear
+                    .preference(key: SourceFrameKey.self, value: geo.frame(in: .global))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var swipeReplyIndicator: some View {
+        if swipeOffset > 0 {
+            let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
+            let indicatorScale: CGFloat = 0.4 + progress * 0.6
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .foregroundStyle(.tertiary)
+                .scaleEffect(indicatorScale)
+                .opacity(Double(progress))
+                .padding(.leading, DesignConstants.Spacing.step2x)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var gestureOverlay: some View {
+        GeometryReader { geometry in
+            GestureOverlayView(
+                contextMenuState: contextMenuState,
+                hasSingleTap: onSingleTap != nil,
+                excludedFrames: interactiveExclusionFrames,
+                onSingleTap: { onSingleTap?() },
+                onDoubleTap: {
+                    if let onDoubleTap {
+                        onDoubleTap()
+                    } else {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onToggleReaction(doubleTapEmoji, message.messageId)
+                    }
+                },
+                onLongPress: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    let frame = geometry.frame(in: .global)
+                    contextMenuState.present(
+                        message: message,
+                        bubbleFrame: frame,
+                        bubbleStyle: bubbleStyle
+                    )
+                },
+                onSwipeOffsetChanged: { offset in
+                    swipeOffset = offset
+                    externalSwipeOffset?.wrappedValue = offset
+                },
+                onSwipeEnded: { triggered in
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        swipeOffset = 0
+                        externalSwipeOffset?.wrappedValue = 0
+                    }
+                    if triggered { onReply(message) }
+                },
+                onPressChanged: { pressed in
+                    isPressed = pressed
+                }
+            )
+        }
     }
 
     private enum Constant {
