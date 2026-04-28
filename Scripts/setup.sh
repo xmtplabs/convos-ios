@@ -110,6 +110,16 @@ if ! command -v protoc-gen-swift &> /dev/null; then
     fi
 fi
 
+# Check and install tmux (required by convos-task for parallel worktree sessions)
+if ! command -v tmux &> /dev/null; then
+    echo "Installing tmux..."
+    if ! brew install tmux; then
+        echo "❌ Failed to install tmux. Please try installing manually:"
+        echo "  brew install tmux"
+        exit 1
+    fi
+fi
+
 # Check and install GitHub CLI (skip installing in CI)
 if [ ! "${CI}" = true ]; then
     if ! command -v gh >/dev/null 2>&1; then

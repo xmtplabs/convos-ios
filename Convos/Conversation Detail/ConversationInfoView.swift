@@ -508,6 +508,25 @@ struct ConversationInfoView: View {
                 } label: {
                     Text("Metadata")
                 }
+                NavigationLink {
+                    HiddenMessagesView { try await viewModel.hiddenMessagesDebugInfo() }
+                } label: {
+                    Text("Hidden messages")
+                }
+                if let instanceId = viewModel.assistantInstanceId {
+                    HStack {
+                        Text("Assistant instance ID")
+                        Spacer()
+                        Text(instanceId)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        ShareLink(item: instanceId) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
+                }
                 Button {
                     showingRestoreInviteTagAlert = true
                 } label: {

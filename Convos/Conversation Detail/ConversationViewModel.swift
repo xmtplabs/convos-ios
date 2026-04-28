@@ -1532,6 +1532,22 @@ extension ConversationViewModel {
         }
     }
 
+    @MainActor
+    func hiddenMessagesDebugInfo() async throws -> [HiddenMessageDebugEntry] {
+        let messagingService = session.messagingService()
+        let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+        return try await inboxResult.client.hiddenMessagesDebugInfo(conversationId: conversation.id)
+    }
+
+    var assistantInstanceId: String? {
+        guard let agent = conversation.members.first(where: \.isAgent),
+              case .string(let value) = agent.profile.metadata?["instanceId"],
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {
         session.assistantFilesLinksRepository(for: conversation.id)
     }
