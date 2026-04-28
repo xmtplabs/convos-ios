@@ -68,6 +68,21 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
         addedMembers.contains { $0.isAgent && $0.agentVerification.isConvosAssistant }
     }
 
+    /// `true` when this update added at least one Convos assistant — either
+    /// verified, or pending verification (has attestation metadata but the
+    /// keyset cache hasn't resolved its `kid` yet). Used to dismiss the
+    /// "Assistant is joining…" status the moment the agent shows up, without
+    /// waiting for async keyset resolution. CLI imposters that flip
+    /// `memberKind=agent` without sending attestation metadata are excluded —
+    /// the join status stays visible for them.
+    public var addedConvosAssistant: Bool {
+        addedMembers.contains { member in
+            guard member.isAgent else { return false }
+            if member.agentVerification.isConvosAssistant { return true }
+            return member.profile.metadata?["attestation"] != nil
+        }
+    }
+
     var showsInMessagesList: Bool {
         guard metadataChanges.allSatisfy({ $0.field.showsInMessagesList }) else {
             return false

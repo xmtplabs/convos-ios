@@ -908,6 +908,54 @@ struct MessagesListProcessorAssistantJoinTests {
         #expect(updates.first?.addedVerifiedAssistant == true)
     }
 
+    @Test("Assistant join request hidden when agent has attestation metadata but verification is pending")
+    func hiddenWhenAttestationPending() {
+        // Real Convos agents send `metadata["attestation"]` in their ProfileUpdate
+        // immediately. Verification flips `agentVerification` to `.verified(.convos)`
+        // only after the keyset cache resolves the agent's `kid`, which is async.
+        // During that window the join status was incorrectly staying visible
+        // alongside the "Assistant joined" update — we suppress as soon as we
+        // see the attestation metadata, since CLI imposters can't fake it.
+        let now = Date()
+        let pendingAgent = ConversationMember(
+            profile: Profile(
+                inboxId: "agent-1",
+                conversationId: "test-conv",
+                name: "Assistant",
+                avatar: nil,
+                isAgent: true,
+                metadata: ["attestation": .string("sig-bytes")]
+            ),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .unverified
+        )
+        let messages = [
+            makeAssistantJoinRequest(id: "aj-1", date: now),
+            AnyMessage.message(Message(
+                id: "agent-joined",
+                sender: otherUser,
+                source: .incoming,
+                status: .published,
+                content: .update(ConversationUpdate(
+                    creator: otherUser,
+                    addedMembers: [pendingAgent],
+                    removedMembers: [],
+                    metadataChanges: []
+                )),
+                date: now.addingTimeInterval(5),
+                reactions: []
+            ), .existing),
+        ]
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 1)
+        let ajItems = result.filter {
+            if case .assistantJoinStatus = $0 { return true }
+            return false
+        }
+        #expect(ajItems.isEmpty)
+    }
+
     @Test("Assistant join request stays visible if only an unverified agent joined after")
     func stayVisibleAfterUnverifiedAgentJoined() {
         // Regression coverage: a CLI joiner advertises itself as memberKind=agent
