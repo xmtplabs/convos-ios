@@ -38,6 +38,19 @@ public struct DeviceCapabilityProvider: CapabilityProvider, Sendable {
 }
 
 public extension DeviceCapabilityProvider {
+    /// Subject that a given `ConnectionKind` routes to via the `defaultSpecs` table.
+    /// `nil` for kinds that aren't user-facing subjects (`.motion`).
+    static func subject(for kind: ConnectionKind) -> CapabilitySubject? {
+        defaultSpecs.first { $0.kind == kind }?.subject
+    }
+
+    /// Stable `ProviderID` for the local device's representation of a kind. The string
+    /// shape (`device.<kind.rawValue>`) is deliberate — equals what `defaultSpecs`
+    /// publishes under the same kind.
+    static func providerId(for kind: ConnectionKind) -> ProviderID {
+        ProviderID(rawValue: "device.\(kind.rawValue)")
+    }
+
     /// Static catalog mapping each routable `ConnectionKind` to the user-facing subject,
     /// the verbs the device subsystem can fulfill, and a stable `ProviderID`.
     ///
