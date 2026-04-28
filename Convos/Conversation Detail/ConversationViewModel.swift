@@ -339,6 +339,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// dismiss; replaced wholesale when a newer request arrives (per the "only show the
     /// last request" rule).
     var pendingCapabilityPickerLayout: CapabilityPickerLayout?
+    var showsCapabilityApprovedToast: Bool = false
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
@@ -931,16 +932,35 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             )
             do {
                 try await writer.sendResult(result, in: conversationId)
+                if status == .approved {
+                    await MainActor.run { [weak self] in
+                        self?.flashCapabilityApprovedToast()
+                    }
+                }
             } catch {
                 Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
             }
         }
     }
 
+    private func flashCapabilityApprovedToast() {
+        showsCapabilityApprovedToast = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.0))
+            await MainActor.run { [weak self] in
+                self?.showsCapabilityApprovedToast = false
+            }
+        }
+    }
+
     /// User tapped a Connect row. For `device.<kind>` providers we route into the
     /// matching iOS permission prompt via the session's `DeviceConnectionAuthorizer`,
-    /// then re-register the provider so the picker re-renders with the new linked
-    /// state. Cloud (`composio.*`) providers are not yet wired here.
+    /// then re-register the provider so the registry reflects the new linked state.
+    /// On success we treat the connect tap itself as the user's approval — they came
+    /// to this card from a `capability_request`, just granted permission, and would
+    /// otherwise have to tap Approve again on the same card. If the OS prompt was
+    /// declined we recompute the picker so the user can pick a different provider
+    /// or deny. Cloud (`composio.*`) providers are not yet wired here.
     func onCapabilityConnect(providerId: ProviderID) {
         guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else {
             Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
@@ -972,7 +992,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 await registry.register(updated)
             }
             await MainActor.run { [weak self] in
-                self?.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                guard let self else { return }
+                if isLinked {
+                    self.onCapabilityApprove(providerIds: [providerId])
+                } else {
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
             }
         }
     }

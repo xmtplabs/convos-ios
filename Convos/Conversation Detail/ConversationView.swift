@@ -152,7 +152,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     bottomBarContent()
 
                     Group {
-                        if let layout = viewModel.pendingCapabilityPickerLayout {
+                        if viewModel.showsCapabilityApprovedToast {
+                            CapabilityApprovedToastView()
+                                .transition(.blurReplace)
+                        } else if let layout = viewModel.pendingCapabilityPickerLayout {
                             CapabilityPickerCardView(
                                 layout: layout,
                                 onApprove: { providerIds in
@@ -182,6 +185,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         }
                     }
                     .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.pendingCapabilityPickerLayout)
+                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
