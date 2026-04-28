@@ -1009,8 +1009,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private static func deviceActionSchemas(for kind: ConnectionKind) async -> [ActionSchema]? {
         switch kind {
         case .calendar:
-            let sink = CalendarDataSink(store: EKEventStore())
-            return await sink.actionSchemas()
+            return await CalendarDataSink().actionSchemas()
         case .contacts:
             return await ContactsDataSink().actionSchemas()
         case .photos:
@@ -1021,9 +1020,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             return await MusicDataSink().actionSchemas()
         case .homeKit:
             return await HomeKitDataSink().actionSchemas()
-        case .screenTime:
-            return await ScreenTimeDataSink().actionSchemas()
-        case .location, .motion:
+        case .location, .motion, .screenTime:
             return nil
         }
     }

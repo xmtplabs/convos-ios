@@ -33,6 +33,13 @@ for protected in "${PROTECTED_BRANCHES[@]}"; do
 	fi
 done
 
+# Add Homebrew to PATH if it exists
+if [ -d "/opt/homebrew/bin" ]; then
+	export PATH="/opt/homebrew/bin:$PATH"
+elif [ -d "/usr/local/bin" ]; then
+	export PATH="/usr/local/bin:$PATH"
+fi
+
 # Check if SwiftLint is installed
 if ! command -v swiftlint &> /dev/null; then
 	echo "❌ SwiftLint is not installed"
@@ -81,9 +88,18 @@ fi
 
 echo "🔎 Linting before pushing"
 
-mapfile -t lint_paths < <(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++')
+lint_paths=( $(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++') )
 
-if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" "${lint_paths[@]}"; then
+lint_success=0
+for path in "${lint_paths[@]}"; do
+	if [ -f "$git_root/$path" ] || [ -f "$path" ]; then
+		if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" "$path"; then
+			lint_success=1
+		fi
+	fi
+done
+
+if [ $lint_success -ne 0 ]; then
 	echo ""
 	echo "Done linting"
 	echo ""
