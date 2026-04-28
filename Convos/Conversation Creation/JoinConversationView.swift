@@ -12,68 +12,7 @@ struct JoinConversationView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                QRScannerView(viewModel: viewModel)
-                    .ignoresSafeArea()
-
-                let cutoutSize = 240.0
-                ZStack {
-                    Color.black.opacity(0.8)
-                        .ignoresSafeArea()
-
-                    VStack(spacing: DesignConstants.Spacing.stepX) {
-                        Spacer()
-
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 20)
-                                .frame(width: cutoutSize, height: cutoutSize)
-                                .blendMode(.destinationOut)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .stroke(.white, lineWidth: 4)
-                                        .frame(width: cutoutSize, height: cutoutSize)
-                                )
-
-                            // Show "Enable camera" button when camera is not authorized
-                            if !viewModel.cameraAuthorized {
-                                Button {
-                                    requestCameraAccess()
-                                } label: {
-                                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                                        Image(systemName: "viewfinder")
-                                            .font(.callout)
-                                            .foregroundStyle(.black)
-                                        Text("Scan")
-                                            .font(.callout.weight(.medium))
-                                            .foregroundStyle(.black)
-                                    }
-                                    .padding(.vertical, DesignConstants.Spacing.step3x)
-                                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                                    .background(
-                                        Capsule()
-                                            .fill(.white)
-                                    )
-                                }
-                                .frame(width: cutoutSize, height: cutoutSize)
-                            }
-                        }
-                        .padding(.bottom, DesignConstants.Spacing.step3x)
-
-                        HStack(spacing: DesignConstants.Spacing.step2x) {
-                            Image(systemName: "qrcode")
-                                .foregroundStyle(.white)
-                            Text("Scan a convo code")
-                                .font(.callout)
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.horizontal, DesignConstants.Spacing.step10x)
-
-                        Spacer()
-                    }
-                }
-                .compositingGroup()
-            }
+            scannerStack
             .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             .ignoresSafeArea()
             .toolbar {
@@ -112,6 +51,76 @@ struct JoinConversationView: View {
                 attemptToScanCode(code)
             }
         }
+    }
+
+    private var scannerStack: some View {
+        ZStack {
+            QRScannerView(viewModel: viewModel)
+                .ignoresSafeArea()
+            scannerOverlay
+        }
+    }
+
+    private var scannerOverlay: some View {
+        let cutoutSize = 240.0
+        return ZStack {
+            Color.black.opacity(0.8)
+                .ignoresSafeArea()
+
+            VStack(spacing: DesignConstants.Spacing.stepX) {
+                Spacer()
+                cutout(size: cutoutSize)
+                    .padding(.bottom, DesignConstants.Spacing.step3x)
+                scannerCaption
+                Spacer()
+            }
+        }
+        .compositingGroup()
+    }
+
+    @ViewBuilder
+    private func cutout(size: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 20)
+                .frame(width: size, height: size)
+                .blendMode(.destinationOut)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(.white, lineWidth: 4)
+                        .frame(width: size, height: size)
+                )
+
+            if !viewModel.cameraAuthorized {
+                Button {
+                    requestCameraAccess()
+                } label: {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Image(systemName: "viewfinder")
+                            .font(.callout)
+                            .foregroundStyle(.black)
+                        Text("Scan")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.black)
+                    }
+                    .padding(.vertical, DesignConstants.Spacing.step3x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .background(Capsule().fill(.white))
+                }
+                .frame(width: size, height: size)
+            }
+        }
+    }
+
+    private var scannerCaption: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: "qrcode")
+                .foregroundStyle(.white)
+            Text("Scan a convo code")
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step10x)
     }
 
     private func attemptToScanCode(_ code: String) {

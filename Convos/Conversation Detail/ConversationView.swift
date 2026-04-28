@@ -360,8 +360,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 }
 
+@MainActor
+private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
+    @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)

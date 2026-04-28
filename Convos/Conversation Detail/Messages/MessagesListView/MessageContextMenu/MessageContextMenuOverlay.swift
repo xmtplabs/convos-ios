@@ -253,87 +253,104 @@ struct MessageContextMenuOverlay: View {
         GeometryReader { reader in
             let readerHeight = max(reader.size.height - C.padding * 2, 0)
             ZStack(alignment: .leading) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
-                            emojiButton(emoji: emoji, index: index, messageId: messageId)
-                        }
-                    }
-                    .padding(.horizontal, C.padding)
-                }
-                .frame(height: reader.size.height)
-                .scrollBounceBehavior(.basedOnSize)
-                .contentMargins(.trailing, readerHeight, for: .scrollContent)
-                .mask(
-                    HStack(spacing: 0) {
-                        Rectangle().fill(.black)
-                        LinearGradient(
-                            colors: [.black, .black.opacity(0)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: readerHeight * 0.3)
-                        Rectangle().fill(.clear)
-                            .frame(width: readerHeight)
-                    }
-                )
-
-                HStack(spacing: 0) {
-                    Spacer()
-
-                    ZStack {
-                        Text(selectedEmoji ?? customEmoji ?? "")
-                            .font(.system(size: C.selectedEmojiFontSize))
-                            .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
-                            .scaleEffect(
-                                popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
-                            )
-                            .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
-                            .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
-
-                        Image(systemName: "face.smiling")
-                            .font(.system(size: C.faceSmilingFontSize))
-                            .foregroundStyle(.colorTextSecondary)
-                            .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
-                            .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
-                            .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
-                            .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
-                            .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
-                    }
-                    .frame(width: reader.size.height, height: reader.size.height)
-
-                    let plusAction = {
-                        withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
-                            drawerExpanded.toggle()
-                            showingEmojiPicker = !drawerExpanded
-                        }
-                    }
-                    Button(action: plusAction) {
-                        Image(systemName: "plus")
-                            .font(.system(size: C.plusIconFontSize))
-                            .padding(C.padding)
-                            .tint(.colorTextSecondary)
-                            .offset(x: !showMoreAppeared ? 40 : 0)
-                            .opacity(!showMoreAppeared ? 0 : 1)
-                            .animation(
-                                .spring(response: 0.29, dampingFraction: 0.7),
-                                value: showMoreAppeared
-                            )
-                            .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .frame(minWidth: readerHeight, minHeight: readerHeight)
-                    .padding(.horizontal, C.plusHorizontalPadding)
-                    .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
-                    .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
-                    .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
-                }
+                reactionsScrollView(messageId: messageId, reader: reader, readerHeight: readerHeight)
+                reactionsTrailingControls(reader: reader, readerHeight: readerHeight)
             }
             .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
         }
         .frame(width: width, height: height)
         .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
+    }
+
+    @ViewBuilder
+    private func reactionsScrollView(messageId: String, reader: GeometryProxy, readerHeight: CGFloat) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
+                    emojiButton(emoji: emoji, index: index, messageId: messageId)
+                }
+            }
+            .padding(.horizontal, C.padding)
+        }
+        .frame(height: reader.size.height)
+        .scrollBounceBehavior(.basedOnSize)
+        .contentMargins(.trailing, readerHeight, for: .scrollContent)
+        .mask(reactionsScrollMask(readerHeight: readerHeight))
+    }
+
+    private func reactionsScrollMask(readerHeight: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading, endPoint: .trailing
+            )
+            .frame(width: readerHeight * 0.3)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
+    private func reactionsTrailingControls(reader: GeometryProxy, readerHeight: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Spacer()
+            selectedEmojiPreview
+                .frame(width: reader.size.height, height: reader.size.height)
+            plusButton
+                .frame(minWidth: readerHeight, minHeight: readerHeight)
+                .padding(.horizontal, C.plusHorizontalPadding)
+                .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
+                .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
+        }
+    }
+
+    private var selectedEmojiPreview: some View {
+        ZStack {
+            Text(selectedEmoji ?? customEmoji ?? "")
+                .font(.system(size: C.selectedEmojiFontSize))
+                .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
+                .scaleEffect(
+                    popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
+                )
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
+                .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
+
+            Image(systemName: "face.smiling")
+                .font(.system(size: C.faceSmilingFontSize))
+                .foregroundStyle(.colorTextSecondary)
+                .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
+                .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
+                .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
+        }
+    }
+
+    private var plusButton: some View {
+        let plusAction = {
+            withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
+                drawerExpanded.toggle()
+                showingEmojiPicker = !drawerExpanded
+            }
+        }
+        return Button(action: plusAction) {
+            Image(systemName: "plus")
+                .font(.system(size: C.plusIconFontSize))
+                .padding(C.padding)
+                .tint(.colorTextSecondary)
+                .offset(x: !showMoreAppeared ? 40 : 0)
+                .opacity(!showMoreAppeared ? 0 : 1)
+                .animation(
+                    .spring(response: 0.29, dampingFraction: 0.7),
+                    value: showMoreAppeared
+                )
+                .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 
     private func selectReaction(_ emoji: String, messageId: String) {

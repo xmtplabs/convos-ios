@@ -771,45 +771,15 @@ private struct AttachmentPlaceholder: View {
 
     private func loadVideoAttachment() async {
         let cacheKey = attachment.key
-        if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
-            loadedImage = thumb
-            ImageCache.shared.cacheImage(thumb, for: cacheKey)
-            isLoading = false
-            isLoadingVideo = true
-            videoLoadFailed = false
-            if attachment.width == nil {
-                onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
-            }
-        }
-
+        applyVideoThumbnailDataIfAvailable(cacheKey: cacheKey)
         do {
             let videoURL = try await resolveVideoURL(for: attachment.key)
             if attachment.width == nil {
                 await loadVideoDimensionsIfPossible(from: videoURL)
             }
             let asset = AVURLAsset(url: videoURL)
-            if resolvedDuration == nil {
-                do {
-                    let cmDuration = try await asset.load(.duration)
-                    if cmDuration.seconds.isFinite {
-                        resolvedDuration = cmDuration.seconds
-                    } else {
-                        Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
-                    }
-                } catch {
-                    Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
-                }
-            }
-            if loadedImage == nil {
-                let thumbnailData = try? await VideoCompressionService().generateThumbnail(for: asset)
-                if let thumbnailData, let thumb = UIImage(data: thumbnailData) {
-                    loadedImage = thumb
-                    ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
-                    if attachment.width == nil {
-                        onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
-                    }
-                }
-            }
+            await resolveVideoDurationIfNeeded(asset: asset)
+            await generateVideoThumbnailIfNeeded(asset: asset, cacheKey: cacheKey)
             let player = AVPlayer(url: videoURL)
             await player.seek(to: .zero)
             inlinePlayer = player
@@ -821,6 +791,46 @@ private struct AttachmentPlaceholder: View {
             isLoadingVideo = false
             videoLoadFailed = true
             Log.error("Failed to load video: \(error)")
+        }
+    }
+
+    private func applyVideoThumbnailDataIfAvailable(cacheKey: String) {
+        guard let thumbnailData = attachment.thumbnailData,
+              let thumb = UIImage(data: thumbnailData) else {
+            return
+        }
+        loadedImage = thumb
+        ImageCache.shared.cacheImage(thumb, for: cacheKey)
+        isLoading = false
+        isLoadingVideo = true
+        videoLoadFailed = false
+        if attachment.width == nil {
+            onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+        }
+    }
+
+    private func resolveVideoDurationIfNeeded(asset: AVURLAsset) async {
+        guard resolvedDuration == nil else { return }
+        do {
+            let cmDuration = try await asset.load(.duration)
+            if cmDuration.seconds.isFinite {
+                resolvedDuration = cmDuration.seconds
+            } else {
+                Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
+            }
+        } catch {
+            Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
+        }
+    }
+
+    private func generateVideoThumbnailIfNeeded(asset: AVURLAsset, cacheKey: String) async {
+        guard loadedImage == nil else { return }
+        let thumbnailData = try? await VideoCompressionService().generateThumbnail(for: asset)
+        guard let thumbnailData, let thumb = UIImage(data: thumbnailData) else { return }
+        loadedImage = thumb
+        ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
+        if attachment.width == nil {
+            onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
         }
     }
 

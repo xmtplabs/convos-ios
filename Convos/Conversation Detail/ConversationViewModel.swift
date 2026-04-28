@@ -1837,6 +1837,13 @@ extension ConversationViewModel {
         )
     }
 
+    func makeCapabilityResolutionsViewModel() -> ConversationCapabilityResolutionsViewModel {
+        ConversationCapabilityResolutionsViewModel(
+            conversationId: conversation.id,
+            session: session
+        )
+    }
+
     @MainActor
     func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
         let trimmedTag = expectedTag.trimmingCharacters(in: .whitespacesAndNewlines)

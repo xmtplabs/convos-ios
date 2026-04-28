@@ -704,6 +704,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         DefaultDeviceConnectionAuthorizer()
     }
 
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        CapabilityResolutionsRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
     /// Registers the default device-provider catalog into the registry so the picker
     /// has something to render when a `capability_request` arrives. The `linkedByUser`
     /// closure is a stub that always returns false — the main app refreshes provider

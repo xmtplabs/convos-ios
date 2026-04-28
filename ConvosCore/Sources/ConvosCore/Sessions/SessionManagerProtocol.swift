@@ -109,6 +109,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// sources. The picker's Connect path calls this to drive the iOS prompt without
     /// the view model having to know about HealthKit / EventKit / etc.
     func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer
+
+    /// Per-conversation observer of every `(subject, capability)` resolution the user
+    /// has approved. Conversation Info uses this to render the "Connections" section.
+    func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol
 }
 
 extension SessionManagerProtocol {

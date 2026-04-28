@@ -111,8 +111,13 @@ private extension ConversationMember {
     }
 }
 
+@MainActor
+private func makeMembersListPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
     NavigationStack {
-        ConversationMembersListView(viewModel: .mock)
+        ConversationMembersListView(viewModel: makeMembersListPreviewViewModel())
     }
 }

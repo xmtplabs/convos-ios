@@ -291,4 +291,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
     func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
         base.deviceConnectionAuthorizer()
     }
+
+    func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        base.capabilityResolutionsRepository(for: conversationId)
+    }
 }

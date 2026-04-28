@@ -197,6 +197,14 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
         MockDeviceConnectionAuthorizer()
     }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        MockCapabilityResolutionsRepository()
+    }
+}
+
+private final class MockCapabilityResolutionsRepository: CapabilityResolutionsRepositoryProtocol, @unchecked Sendable {
+    let resolutionsPublisher: AnyPublisher<[CapabilityResolution], Never> = Just([]).eraseToAnyPublisher()
 }
 
 private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {

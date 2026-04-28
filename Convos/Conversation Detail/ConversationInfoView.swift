@@ -74,6 +74,7 @@ struct ConversationInfoView: View {
     let focusCoordinator: FocusCoordinator
 
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
+    @State private var capabilityResolutionsViewModel: ConversationCapabilityResolutionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeSheet: Bool = false
@@ -445,6 +446,11 @@ struct ConversationInfoView: View {
                 ConversationConnectionsSection(viewModel: connectionsViewModel)
             }
 
+            if let capabilityResolutionsViewModel,
+               capabilityResolutionsViewModel.hasResolutions {
+                ConversationCapabilityResolutionsSection(viewModel: capabilityResolutionsViewModel)
+            }
+
             convoCodeSection
 
             if viewModel.canRemoveMembers {
@@ -611,6 +617,9 @@ struct ConversationInfoView: View {
                 .task {
                     if FeatureFlags.shared.isCloudConnectionsEnabled, connectionsViewModel == nil {
                         connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+                    }
+                    if capabilityResolutionsViewModel == nil {
+                        capabilityResolutionsViewModel = viewModel.makeCapabilityResolutionsViewModel()
                     }
                 }
                 .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
