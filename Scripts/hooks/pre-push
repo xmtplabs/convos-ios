@@ -54,8 +54,31 @@ do
 	else
 		echo "🔎 Linting before pushing"
 		git_root="$(git rev-parse --show-toplevel)"
-		swiftlint lint --strict --config "$git_root/.swiftlint.yml" "$git_root"
-		lint_success=$?
+		lint_paths=()
+		while IFS= read -r path; do
+			[ -n "$path" ] && lint_paths+=("$path")
+		done < <(
+			find "$git_root" \
+				-type d \( \
+					-name .git -o \
+					-name .build -o \
+					-name .derivedData -o \
+					-name .derivedData-device -o \
+				\) -prune -o \
+				-path "$git_root/.claude/worktrees" -prune -o \
+				-name '*.swift' -print
+		)
+		if [ ${#lint_paths[@]} -eq 0 ]; then
+			echo "No Swift files found to lint"
+			lint_success=0
+		else
+			lint_success=0
+			for path in "${lint_paths[@]}"; do
+				if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" "$path"; then
+					lint_success=1
+				fi
+			done
+		fi
 
 		echo ""
 		echo "Done linting"
