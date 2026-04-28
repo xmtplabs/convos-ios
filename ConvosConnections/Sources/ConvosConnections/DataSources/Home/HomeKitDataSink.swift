@@ -46,7 +46,7 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
     private actor StateBox {
         private var manager: HMHomeManager?
         private var delegate: Delegate?
-        private var authorizationContinuation: CheckedContinuation<Void, Never>?
+        private var authorizationContinuations: [CheckedContinuation<Void, Never>] = []
 
         func authorizationStatus() -> ConnectionAuthorizationStatus {
             let manager = manager ?? createManager()
@@ -59,14 +59,14 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
                 return
             }
             await withCheckedContinuation { continuation in
-                authorizationContinuation = continuation
+                authorizationContinuations.append(continuation)
             }
         }
 
         fileprivate func onHomesDidUpdate() {
-            let continuation = authorizationContinuation
-            authorizationContinuation = nil
-            continuation?.resume()
+            let waiters = authorizationContinuations
+            authorizationContinuations = []
+            for waiter in waiters { waiter.resume() }
         }
 
         func invoke(_ invocation: ConnectionInvocation) async -> ConnectionInvocationResult {

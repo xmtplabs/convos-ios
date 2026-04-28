@@ -10,8 +10,10 @@ import Foundation
 /// while the app is suspended.
 ///
 /// Volume control: the emitted payload only carries total count and a bounded preview
-/// (`previewLimit`) of contacts sorted by most-recently-modified. Full address-book dumps
-/// would be both expensive to encode and rarely useful in a conversation.
+/// (`previewLimit`) of contacts sorted by given name. `CNContactSortOrder` doesn't expose
+/// modification-date sorting, so the preview is a stable alphabetical slice rather than
+/// a "recent contacts" feed. Full address-book dumps would be both expensive to encode
+/// and rarely useful in a conversation.
 public final class ContactsDataSource: DataSource, @unchecked Sendable {
     public let kind: ConnectionKind = .contacts
     public let previewLimit: Int

@@ -92,7 +92,9 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
         private var manager: HMHomeManager?
         private var delegate: Delegate?
         private var emitter: ConnectionPayloadEmitter?
-        private var authorizationContinuations: [CheckedContinuation<Void, Never>] = []
+        /// Waiters keyed by a per-call UUID so a cancelled task only resumes its own
+        /// continuation, leaving any concurrent callers waiting for the real callback.
+        private var authorizationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
         private var hasEmittedInitial: Bool = false
 
         func authorizationStatus() -> ConnectionAuthorizationStatus {
@@ -105,9 +107,18 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
             if HomeDataSource.map(manager.authorizationStatus) != .notDetermined {
                 return
             }
-            await withCheckedContinuation { continuation in
-                authorizationContinuations.append(continuation)
+            let waiterId = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    authorizationWaiters[waiterId] = continuation
+                }
+            } onCancel: { [weak self] in
+                Task { await self?.cancelAuthorizationWaiter(id: waiterId) }
             }
+        }
+
+        private func cancelAuthorizationWaiter(id: UUID) {
+            authorizationWaiters.removeValue(forKey: id)?.resume()
         }
 
         func start(emit: @escaping ConnectionPayloadEmitter) async {
@@ -127,9 +138,9 @@ public final class HomeDataSource: DataSource, @unchecked Sendable {
         }
 
         fileprivate func onHomesDidUpdate(homes: [HMHome]) {
-            let waiters = authorizationContinuations
-            authorizationContinuations = []
-            for waiter in waiters { waiter.resume() }
+            let waiters = authorizationWaiters
+            authorizationWaiters = [:]
+            for waiter in waiters.values { waiter.resume() }
 
             emitCurrent(homes: homes)
         }

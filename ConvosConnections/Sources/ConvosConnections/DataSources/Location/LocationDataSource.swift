@@ -100,7 +100,7 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
         private var manager: CLLocationManager?
         private var delegate: Delegate?
         private var emitter: ConnectionPayloadEmitter?
-        private var authorizationContinuation: CheckedContinuation<Void, Never>?
+        private var authorizationContinuations: [CheckedContinuation<Void, Never>] = []
         /// Status the caller is waiting to move OFF of. iOS 14+ fires
         /// `locationManagerDidChangeAuthorization` once when the delegate is first
         /// registered — that fire is a no-op for our purposes (status hasn't actually
@@ -135,7 +135,7 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
         ) async {
             pendingAuthorizationFrom = initialStatus
             await withCheckedContinuation { continuation in
-                authorizationContinuation = continuation
+                authorizationContinuations.append(continuation)
                 action()
             }
         }
@@ -189,9 +189,9 @@ public final class LocationDataSource: DataSource, @unchecked Sendable {
             guard let pending = pendingAuthorizationFrom else { return }
             guard manager?.authorizationStatus != pending else { return }
             pendingAuthorizationFrom = nil
-            let continuation = authorizationContinuation
-            authorizationContinuation = nil
-            continuation?.resume()
+            let waiters = authorizationContinuations
+            authorizationContinuations = []
+            for waiter in waiters { waiter.resume() }
         }
 
         private func emit(events: [LocationEvent]) {
