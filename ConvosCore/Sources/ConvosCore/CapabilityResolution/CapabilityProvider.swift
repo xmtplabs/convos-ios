@@ -22,6 +22,20 @@ public protocol CapabilityProvider: Sendable {
     /// `true` for device providers when the iOS framework permission is granted; `true`
     /// for cloud providers when the OAuth grant is active (and not expired).
     var linkedByUser: Bool { get async }
+
+    /// Whether this provider is reachable at all, ignoring per-user state. Defaults to
+    /// `true` for almost everything; false only when the underlying framework is missing
+    /// (e.g. running ScreenTime without the entitlement) or the cloud-side service is
+    /// known-down. Distinct from `linkedByUser` so the manifest can express "the OS knows
+    /// about HomeKit but the user hasn't configured it" vs "this device can't run HomeKit
+    /// at all."
+    var available: Bool { get async }
+}
+
+public extension CapabilityProvider {
+    var available: Bool {
+        get async { true }
+    }
 }
 
 /// Emitted on `CapabilityProviderRegistry.providerChanges` to drive reactive UI refresh
