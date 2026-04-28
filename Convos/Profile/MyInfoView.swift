@@ -79,138 +79,161 @@ struct MyInfoView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                headerSection
-
-                profileSection
-
-                Section {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        if canEditQuickname {
-                            ImagePickerButton(
-                                currentImage: $quicknameViewModel.profileImage,
-                                isPickerPresented: $isImagePickerPresented,
-                                showsCurrentImage: true,
-                                symbolSize: 12.0,
-                                symbolName: "photo.fill"
-                            )
-                            .frame(width: 32.0, height: 32.0)
-                            .accessibilityIdentifier("quickname-image-picker")
-
-                            TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
-                                .scrollDismissesKeyboard(.interactively)
-                                .submitLabel(.done)
-                                .accessibilityIdentifier("quickname-display-name-field")
-                        } else {
-                            ProfileAvatarView(
-                                profile: quicknameViewModel.profile,
-                                profileImage: quicknameViewModel.profileImage,
-                                useSystemPlaceholder: false
-                            )
-                            .frame(width: 32.0, height: 32.0)
-
-                            Text(
-                                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
-                            )
-                            .foregroundStyle(.colorTextPrimary)
-                        }
-
-                        Spacer()
-
-                        if showsUseQuicknameButton {
-                            Button {
-                                withAnimation {
-                                    didUseQuickname = true
-                                }
-                                onUseQuickname(quicknameViewModel.quicknameSettings)
-                            } label: {
-                                ZStack {
-                                    Text("Use")
-                                        .font(.body)
-                                        .foregroundStyle(.colorTextPrimaryInverted)
-                                        .padding(.horizontal, 10.0)
-                                        .padding(.vertical, 6.0)
-                                        .opacity(didUseQuickname ? 0.0 : 1.0)
-
-                                    if didUseQuickname {
-                                        Image(systemName: "checkmark")
-                                            .symbolEffect(.bounce, options: .nonRepeating)
-                                            .font(.body)
-                                            .foregroundStyle(.colorTextPrimaryInverted)
-                                            .padding(.horizontal, 10.0)
-                                            .padding(.vertical, 6.0)
-                                    }
-                                }
-                                .frame(minHeight: DesignConstants.Spacing.step8x)
-                            }
-                            .disabled(didUseQuickname)
-                            .background(Capsule().fill(.colorFillPrimary))
-                            .accessibilityLabel(didUseQuickname ? "Quickname applied" : "Use quickname")
-                            .accessibilityIdentifier("use-quickname-button")
-                        }
+            formContent
+                .scrollContentBackground(.hidden)
+                .background(.colorBackgroundRaisedSecondary)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .contentMargins(.top, 0.0)
+                .listSectionMargins(.all, 0.0)
+                .listRowInsets(.all, 0.0)
+                .listSectionSpacing(DesignConstants.Spacing.step6x)
+                .onDisappear {
+                    if canEditQuickname {
+                        quicknameViewModel.save()
                     }
-                    .buttonStyle(.borderless)
-                    .listRowInsets(.init(top: DesignConstants.Spacing.step2x, leading: 10.0, bottom: DesignConstants.Spacing.step2x, trailing: 10.0))
-                } footer: {
-                    Text("Quickname: a name and pic to use quick")
-                        .foregroundStyle(.colorTextSecondary)
                 }
+                .toolbar { toolbarContent }
+        }
+    }
 
-                Section {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text("Social names · Phone number")
-                            .font(.body)
-                            .foregroundStyle(.colorTextTertiary)
+    @ViewBuilder
+    private var formContent: some View {
+        Form {
+            headerSection
+            profileSection
+            quicknameSection
+            socialNamesSection
+            humanAgeSection
+        }
+    }
 
-                        Spacer()
-
-                        SoonLabel()
-                    }
-                    .padding(.vertical, 10.0)
-                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-                } footer: {
-                    Text("Verified info")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                Section {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text("Human · Age")
-                            .font(.body)
-                            .foregroundStyle(.colorTextTertiary)
-
-                        Spacer()
-
-                        SoonLabel()
-                    }
-                    .padding(.vertical, 10.0)
-                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-                } footer: {
-                    Text("Proofs")
-                        .foregroundStyle(.colorTextSecondary)
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if showsCancelButton {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(role: .cancel) {
+                    dismiss()
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(.colorBackgroundRaisedSecondary)
-            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-            .contentMargins(.top, 0.0)
-            .listSectionMargins(.all, 0.0)
-            .listRowInsets(.all, 0.0)
-            .listSectionSpacing(DesignConstants.Spacing.step6x)
-            .onDisappear {
-                if canEditQuickname {
-                    quicknameViewModel.save()
+        }
+    }
+
+    @ViewBuilder
+    private var quicknameSection: some View {
+        Section {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                quicknameAvatarAndName
+                Spacer()
+                if showsUseQuicknameButton {
+                    useQuicknameButton
                 }
             }
-            .toolbar {
-                if showsCancelButton {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(role: .cancel) {
-                            dismiss()
-                        }
-                    }
+            .buttonStyle(.borderless)
+            .listRowInsets(.init(top: DesignConstants.Spacing.step2x, leading: 10.0, bottom: DesignConstants.Spacing.step2x, trailing: 10.0))
+        } footer: {
+            Text("Quickname: a name and pic to use quick")
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
+    @ViewBuilder
+    private var quicknameAvatarAndName: some View {
+        if canEditQuickname {
+            ImagePickerButton(
+                currentImage: $quicknameViewModel.profileImage,
+                isPickerPresented: $isImagePickerPresented,
+                showsCurrentImage: true,
+                symbolSize: 12.0,
+                symbolName: "photo.fill"
+            )
+            .frame(width: 32.0, height: 32.0)
+            .accessibilityIdentifier("quickname-image-picker")
+
+            TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
+                .scrollDismissesKeyboard(.interactively)
+                .submitLabel(.done)
+                .accessibilityIdentifier("quickname-display-name-field")
+        } else {
+            ProfileAvatarView(
+                profile: quicknameViewModel.profile,
+                profileImage: quicknameViewModel.profileImage,
+                useSystemPlaceholder: false
+            )
+            .frame(width: 32.0, height: 32.0)
+
+            Text(
+                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
+            )
+            .foregroundStyle(.colorTextPrimary)
+        }
+    }
+
+    @ViewBuilder
+    private var useQuicknameButton: some View {
+        Button {
+            withAnimation {
+                didUseQuickname = true
+            }
+            onUseQuickname(quicknameViewModel.quicknameSettings)
+        } label: {
+            ZStack {
+                Text("Use")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .padding(.horizontal, 10.0)
+                    .padding(.vertical, 6.0)
+                    .opacity(didUseQuickname ? 0.0 : 1.0)
+
+                if didUseQuickname {
+                    Image(systemName: "checkmark")
+                        .symbolEffect(.bounce, options: .nonRepeating)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .padding(.horizontal, 10.0)
+                        .padding(.vertical, 6.0)
                 }
             }
+            .frame(minHeight: DesignConstants.Spacing.step8x)
+        }
+        .disabled(didUseQuickname)
+        .background(Capsule().fill(.colorFillPrimary))
+        .accessibilityLabel(didUseQuickname ? "Quickname applied" : "Use quickname")
+        .accessibilityIdentifier("use-quickname-button")
+    }
+
+    @ViewBuilder
+    private var socialNamesSection: some View {
+        Section {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Text("Social names · Phone number")
+                    .font(.body)
+                    .foregroundStyle(.colorTextTertiary)
+                Spacer()
+                SoonLabel()
+            }
+            .padding(.vertical, 10.0)
+            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+        } footer: {
+            Text("Verified info")
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
+    @ViewBuilder
+    private var humanAgeSection: some View {
+        Section {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Text("Human · Age")
+                    .font(.body)
+                    .foregroundStyle(.colorTextTertiary)
+                Spacer()
+                SoonLabel()
+            }
+            .padding(.vertical, 10.0)
+            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+        } footer: {
+            Text("Proofs")
+                .foregroundStyle(.colorTextSecondary)
         }
     }
 }

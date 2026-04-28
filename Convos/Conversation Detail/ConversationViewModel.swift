@@ -120,6 +120,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
     @ObservationIgnored
+    private var capabilityRequestsCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var observedCapabilityRequestsConversationId: String?
+    @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
     var pendingReadReceiptTask: Task<Void, Never>?
@@ -681,6 +685,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
+                    self.observeCapabilityRequests(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
                         self.sendReadReceiptIfNeeded()
@@ -705,11 +710,19 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     private func observeCapabilityRequests() {
+        observeCapabilityRequests(for: conversation.id)
+    }
+
+    private func observeCapabilityRequests(for conversationId: String) {
+        guard conversationId != observedCapabilityRequestsConversationId else { return }
+        observedCapabilityRequestsConversationId = conversationId
+
         let registry = session.capabilityProviderRegistry()
         let resolver = session.capabilityResolver()
         let handler = CapabilityRequestHandler()
-        let conversationId = conversation.id
-        session.capabilityRequestRepository(for: conversationId)
+        pendingCapabilityPickerLayout = nil
+        capabilityRequestsCancellable?.cancel()
+        capabilityRequestsCancellable = session.capabilityRequestRepository(for: conversationId)
             .pendingRequestPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] request in
@@ -726,15 +739,13 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                         resolver: resolver,
                         conversationId: conversationId
                     )
-                    // Only replace the picker if the underlying request actually
-                    // changed; recomputation triggered by an unrelated registry tick
-                    // shouldn't blow away in-progress selections.
+                    // Don't replace an in-progress picker if only the registry ticked
+                    // (request unchanged) — preserves the user's selection mid-flow.
                     if self.pendingCapabilityPickerLayout?.request != request {
                         self.pendingCapabilityPickerLayout = layout
                     }
                 }
             }
-            .store(in: &cancellables)
     }
 
     private func observePhotoPreferences(for conversationId: String) {

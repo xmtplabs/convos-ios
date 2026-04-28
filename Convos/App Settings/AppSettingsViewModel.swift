@@ -39,24 +39,48 @@ final class AppSettingsViewModel {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
+        resetLocalState()
+        Task { await runDeletion(onComplete: onComplete) }
+    }
 
+    private func resetLocalState() {
+        Self.resetQuickname()
+        Self.resetGlobalDefaults()
+        Self.resetConversationDefaults()
+        Self.resetConversationsDefaults()
+        Self.resetOnboardingDefaults()
+    }
+
+    private static func resetQuickname() {
         QuicknameSettingsViewModel.shared.delete()
-        ConversationViewModel.resetUserDefaults()
-        ConversationsViewModel.resetUserDefaults()
-        ConversationOnboardingCoordinator.resetUserDefaults()
-        GlobalConvoDefaults.shared.reset()
+    }
 
-        Task {
-            do {
-                for try await progress in session.deleteAllInboxesWithProgress() {
-                    deletionProgress = progress
-                }
-                isDeleting = false
-                onComplete()
-            } catch {
-                deletionError = error
-                isDeleting = false
+    private static func resetGlobalDefaults() {
+        GlobalConvoDefaults.shared.reset()
+    }
+
+    private static func resetConversationDefaults() {
+        ConversationViewModel.resetUserDefaults()
+    }
+
+    private static func resetConversationsDefaults() {
+        ConversationsViewModel.resetUserDefaults()
+    }
+
+    private static func resetOnboardingDefaults() {
+        ConversationOnboardingCoordinator.resetUserDefaults()
+    }
+
+    private func runDeletion(onComplete: @escaping () -> Void) async {
+        do {
+            for try await progress in session.deleteAllInboxesWithProgress() {
+                deletionProgress = progress
             }
+            isDeleting = false
+            onComplete()
+        } catch {
+            deletionError = error
+            isDeleting = false
         }
     }
 }
