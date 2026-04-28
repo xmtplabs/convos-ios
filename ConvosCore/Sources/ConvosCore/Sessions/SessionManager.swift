@@ -136,8 +136,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
 
             await self.prewarmUnusedConversation()
-
             guard !Task.isCancelled else { return }
+
+            await self.bootstrapCapabilityProviders()
+            guard !Task.isCancelled else { return }
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -695,5 +698,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
         CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    /// Registers the default device-provider catalog into the registry so the picker
+    /// has something to render when a `capability_request` arrives. The `linkedByUser`
+    /// closure is a stub that always returns false — the main app refreshes provider
+    /// link state via `register(_:)` when iOS-framework authorization changes.
+    private func bootstrapCapabilityProviders() async {
+        await CapabilityProviderBootstrap.registerDeviceProviders(
+            registry: capabilityProviderRegistry(),
+            linkedByUser: { _ in { false } }
+        )
     }
 }
