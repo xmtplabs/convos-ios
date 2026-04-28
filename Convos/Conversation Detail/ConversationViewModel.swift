@@ -651,6 +651,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
         setupVoiceMemoPlaybackObserver()
+        observeCapabilityRequests()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -701,6 +702,39 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             }
             .store(in: &cancellables)
         observePhotoPreferences(for: conversation.id)
+    }
+
+    private func observeCapabilityRequests() {
+        let registry = session.capabilityProviderRegistry()
+        let resolver = session.capabilityResolver()
+        let handler = CapabilityRequestHandler()
+        let conversationId = conversation.id
+        session.capabilityRequestRepository(for: conversationId)
+            .pendingRequestPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] request in
+                guard let self else { return }
+                guard let request else {
+                    self.pendingCapabilityPickerLayout = nil
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let layout = await handler.computeLayout(
+                        request: request,
+                        registry: registry,
+                        resolver: resolver,
+                        conversationId: conversationId
+                    )
+                    // Only replace the picker if the underlying request actually
+                    // changed; recomputation triggered by an unrelated registry tick
+                    // shouldn't blow away in-progress selections.
+                    if self.pendingCapabilityPickerLayout?.request != request {
+                        self.pendingCapabilityPickerLayout = layout
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func observePhotoPreferences(for conversationId: String) {

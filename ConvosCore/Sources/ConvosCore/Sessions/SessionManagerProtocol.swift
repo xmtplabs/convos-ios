@@ -98,6 +98,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// `(subject, conversation, capability)` to one or more providers per the
     /// federation rules in `CapabilityResolutionValidator`.
     func capabilityResolver() -> any CapabilityResolver
+
+    /// Per-conversation observer that publishes the latest unresolved
+    /// `capability_request`. The picker view model subscribes; recomputes its
+    /// layout whenever a fresh request lands or the most recent one gets a
+    /// matching result.
+    func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol
 }
 
 extension SessionManagerProtocol {

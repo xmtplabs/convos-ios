@@ -185,4 +185,12 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func capabilityResolver() -> any CapabilityResolver {
         InMemoryCapabilityResolver(registry: capabilityProviderRegistry())
     }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        MockCapabilityRequestRepository()
+    }
+}
+
+private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

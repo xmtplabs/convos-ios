@@ -692,4 +692,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             registry: capabilityProviderRegistry()
         )
     }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
 }
