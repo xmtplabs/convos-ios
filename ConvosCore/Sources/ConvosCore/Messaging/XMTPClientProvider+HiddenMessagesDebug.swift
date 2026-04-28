@@ -8,6 +8,8 @@ public struct HiddenMessageDebugEntry: Sendable, Identifiable, Hashable {
         case typingIndicator = "Typing indicator"
         case readReceipt = "Read receipt"
         case reaction = "Reaction"
+        case capabilityRequest = "Capability request"
+        case capabilityRequestResult = "Capability result"
         case unknown = "Unknown"
     }
 
@@ -81,6 +83,14 @@ private extension HiddenMessageDebugEntry {
         } else if contentType == ContentTypeReaction || contentType == ContentTypeReactionV2 {
             reason = .reaction
             summary = Self.reactionSummary(message: message)
+        } else if contentType.authorityID == ContentTypeCapabilityRequest.authorityID,
+                  contentType.typeID == ContentTypeCapabilityRequest.typeID {
+            reason = .capabilityRequest
+            summary = Self.capabilityRequestSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeCapabilityRequestResult.authorityID,
+                  contentType.typeID == ContentTypeCapabilityRequestResult.typeID {
+            reason = .capabilityRequestResult
+            summary = Self.capabilityRequestResultSummary(content: encodedContent)
         } else if Self.visibleContentTypes.contains(where: {
             $0.authorityID == contentType.authorityID && $0.typeID == contentType.typeID
         }) {
@@ -109,8 +119,6 @@ private extension HiddenMessageDebugEntry {
         ContentTypeExplodeSettings,
         ContentTypeAssistantJoinRequest,
         ContentTypeCloudConnectionGrantRequest,
-        ContentTypeCapabilityRequest,
-        ContentTypeCapabilityRequestResult,
     ]
 
     static func profileUpdateSummary(content: EncodedContent) -> String {
@@ -146,5 +154,36 @@ private extension HiddenMessageDebugEntry {
         }
         let referencePrefix = reaction.reference.prefix(8)
         return "\(reaction.action) \(reaction.content) → \(referencePrefix)"
+    }
+
+    static func capabilityRequestSummary(content: EncodedContent) -> String {
+        guard let request = try? CapabilityRequestCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        var parts: [String] = [
+            "subject=\(request.subject.rawValue)",
+            "verb=\(request.capability.rawValue)",
+            "id=\(request.requestId)",
+        ]
+        if let preferred = request.preferredProviders, !preferred.isEmpty {
+            parts.append("preferred=\(preferred.map(\.rawValue).joined(separator: ","))")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    static func capabilityRequestResultSummary(content: EncodedContent) -> String {
+        guard let result = try? CapabilityRequestResultCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        var parts: [String] = [
+            "status=\(result.status.rawValue)",
+            "subject=\(result.subject.rawValue)",
+            "verb=\(result.capability.rawValue)",
+            "id=\(result.requestId)",
+        ]
+        if !result.providers.isEmpty {
+            parts.append("providers=\(result.providers.map(\.rawValue).joined(separator: ","))")
+        }
+        return parts.joined(separator: ", ")
     }
 }
