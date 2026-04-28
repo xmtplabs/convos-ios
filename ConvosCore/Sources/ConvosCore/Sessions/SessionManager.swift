@@ -669,4 +669,27 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         CloudConnectionRepository(databaseReader: databaseReader)
     }
+
+    // MARK: - Capability resolution
+
+    /// Lazily-constructed singleton registry. Multiple subsystems register providers
+    /// concurrently (device sinks at boot, cloud OAuth at link/unlink), so we want one
+    /// shared registry per session instead of per-callsite copies.
+    private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        capabilityRegistryLock.withLock { registry in
+            if let registry { return registry }
+            let new: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
+            registry = new
+            return new
+        }
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        GRDBCapabilityResolver(
+            database: databaseWriter,
+            registry: capabilityProviderRegistry()
+        )
+    }
 }

@@ -86,6 +86,18 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func cloudConnectionManager(callbackURLScheme: String) -> any CloudConnectionManagerProtocol
     func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol
+
+    // MARK: Capability resolution
+
+    /// Session-scoped registry of `CapabilityProvider`s. Both the device subsystem
+    /// (`ConvosConnections`) and the cloud subsystem (`CloudConnectionManager`) register
+    /// providers here at session bootstrap and on link/unlink.
+    func capabilityProviderRegistry() -> any CapabilityProviderRegistry
+
+    /// Session-scoped capability resolver, GRDB-backed. Routes
+    /// `(subject, conversation, capability)` to one or more providers per the
+    /// federation rules in `CapabilityResolutionValidator`.
+    func capabilityResolver() -> any CapabilityResolver
 }
 
 extension SessionManagerProtocol {

@@ -177,4 +177,12 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         MockConnectionRepository()
     }
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        InMemoryCapabilityProviderRegistry()
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        InMemoryCapabilityResolver(registry: capabilityProviderRegistry())
+    }
 }
