@@ -44,55 +44,57 @@ fi
 # Do not push if SwiftLint warnings
 z40=0000000000000000000000000000000000000000
 
+git_root="$(git rev-parse --show-toplevel)"
+lint_paths=()
+
 IFS=' '
-while read -r _ local_sha _ _
-do
-	if [ "$local_sha" = $z40 ]
-	then
+while read -r _ local_sha _ remote_sha
+ do
+	if [ "$local_sha" = "$z40" ]; then
 		# Handle delete
 		exit 0
-	else
-		echo "🔎 Linting before pushing"
-		git_root="$(git rev-parse --show-toplevel)"
-		lint_paths=()
-		while IFS= read -r path; do
-			[ -n "$path" ] && lint_paths+=("$path")
-		done < <(
-			find "$git_root" \
-				\( -type d \( \
-					-name .git -o \
-					-name .build -o \
-					-name .derivedData -o \
-					-name .derivedData-device \
-				\) \) -prune -o \
-				\( -path "$git_root/.claude/worktrees" \) -prune -o \
-				-name '*.swift' -print
-		)
-		if [ ${#lint_paths[@]} -eq 0 ]; then
-			echo "No Swift files found to lint"
-			lint_success=0
-		else
-			lint_success=0
-			for path in "${lint_paths[@]}"; do
-				if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" "$path"; then
-					lint_success=1
-				fi
-			done
-		fi
-
-		echo ""
-		echo "Done linting"
-		if [ $lint_success -eq 0 ]
-		then
-			echo "✅ No SwiftLint violations on pre-push, pushing!"
-			echo ""
-		else
-			echo ""
-			echo "❌ Found SwiftLint violations, fix them before pushing."
-			exit 1
-		fi
 	fi
+
+	if [ "$remote_sha" = "$z40" ]; then
+		diff_base="$(git merge-base HEAD origin/dev 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo '')"
+		if [ -n "$diff_base" ]; then
+			range="$diff_base..$local_sha"
+		else
+			range="$local_sha"
+		fi
+	else
+		range="$remote_sha..$local_sha"
+	fi
+
+	while IFS= read -r path; do
+		[ -n "$path" ] && lint_paths+=("$path")
+	done < <(
+		git -C "$git_root" diff --name-only "$range" -- '*.swift' | \
+			grep -v -E '(^|/)\.build/|(^|/)\.derivedData/|(^|/)\.derivedData-device/|^\.claude/worktrees/' || true
+	)
 done
+
+if [ ${#lint_paths[@]} -eq 0 ]; then
+	echo "🔎 No changed Swift files to lint before pushing"
+	exit 0
+fi
+
+echo "🔎 Linting before pushing"
+
+mapfile -t lint_paths < <(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++')
+
+if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" "${lint_paths[@]}"; then
+	echo ""
+	echo "Done linting"
+	echo ""
+	echo "❌ Found SwiftLint violations, fix them before pushing."
+	exit 1
+fi
+
+echo ""
+echo "Done linting"
+echo "✅ No SwiftLint violations on pre-push, pushing!"
+echo ""
 
 # Exit on any error and ensure pipeline failures are caught
 set -o errexit -o nounset
