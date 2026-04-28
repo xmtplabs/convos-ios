@@ -110,9 +110,6 @@ struct CapabilityPickerCardView: View {
     private var connectAndApproveCard: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             header
-            Text("Connect one to continue:")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
 
             VStack(spacing: DesignConstants.Spacing.stepX) {
                 ForEach(layout.providers, id: \.id) { provider in
