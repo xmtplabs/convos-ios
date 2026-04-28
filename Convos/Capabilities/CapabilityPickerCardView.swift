@@ -126,37 +126,18 @@ struct CapabilityPickerCardView: View {
                             .font(.body)
                             .foregroundStyle(.colorTextPrimary)
                         Spacer(minLength: 0)
-                        Button {
+                        Button("Connect") {
                             onConnect(provider.id)
-                        } label: {
-                            Text("Connect")
-                                .font(.callout.weight(.semibold))
-                                .foregroundStyle(.colorTextPrimary)
-                                .padding(.horizontal, DesignConstants.Spacing.step2x)
-                                .padding(.vertical, DesignConstants.Spacing.stepX)
-                                .background(
-                                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                                        .fill(Color.colorBackgroundSurfaceless)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                                                .stroke(Color.colorBorderSubtle, lineWidth: 1)
-                                        )
-                                )
                         }
-                        .buttonStyle(.plain)
+                        .convosButtonStyle(.outline(fullWidth: false))
                     }
                     .padding(DesignConstants.Spacing.step2x)
                 }
             }
 
-            Button(action: onDeny) {
-                Text("Deny")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
-            }
-            .buttonStyle(.plain)
+            Button("Deny", action: onDeny)
+                .convosButtonStyle(.text)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -315,37 +296,13 @@ struct CapabilityPickerCardView: View {
     @ViewBuilder
     private func actionButtons(approveEnabled: Bool) -> some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Button(action: onDeny) {
-                Text("Deny")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                            .fill(Color.colorBackgroundSurfaceless)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                                    .stroke(Color.colorBorderSubtle, lineWidth: 1)
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
+            Button("Deny", action: onDeny)
+                .convosButtonStyle(.outline(fullWidth: true))
 
-            Button {
+            Button("Approve") {
                 onApprove(selection)
-            } label: {
-                Text("Approve")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                            .fill(approveEnabled ? Color.colorFillPrimary : Color.colorFillPrimary.opacity(0.4))
-                    )
             }
-            .buttonStyle(.plain)
+            .convosButtonStyle(.rounded(fullWidth: true))
             .disabled(!approveEnabled)
         }
     }
