@@ -284,6 +284,60 @@ Logger.error("Error message")
 - Minimize view body complexity
 - Extract complex views into separate components
 
+## Build Performance: Type-Check Time
+
+The project builds with `-warn-long-expression-type-checking 100` and `-warn-long-function-bodies 100`, with `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`. **Any expression or function body the type-checker spends more than 100ms on becomes a hard build failure.** Do not raise the thresholds. Write expressions the solver can resolve quickly.
+
+The two patterns that consume nearly all of these errors:
+1. Several ternaries stacked across many SwiftUI modifier arguments in one chain.
+2. Big `@ViewBuilder` `switch` statements where each case has its own modifier chain with conditional values.
+
+### Rules
+
+- **Annotate the type on any non-trivial `let`.** If the RHS uses ternaries, optionals, generics, or arithmetic across types, write the type. Type inference is what gives the solver too many candidates.
+- **Never stack ternaries inside SwiftUI modifier arguments.** Hoist each conditional to a typed `let` above the modifier chain.
+
+  ```swift
+  // ❌ — three ternaries × N chained modifiers blows up the solver
+  content
+      .scaleEffect(isPressed ? 1.03 : 1.0, anchor: isCurrentUser ? .trailing : .leading)
+      .opacity(isSourceBubble ? 0 : 1)
+      .offset(x: swipeOffset > 0 ? min(swipeOffset, maxOffset) : 0)
+
+  // ✅ — typed lets above, plain modifier chain below
+  let scale: CGFloat = isPressed ? 1.03 : 1.0
+  let anchor: UnitPoint = isCurrentUser ? .trailing : .leading
+  let bubbleOpacity: Double = isSourceBubble ? 0 : 1
+  let xOffset: CGFloat = swipeOffset > 0 ? min(swipeOffset, maxOffset) : 0
+  content
+      .scaleEffect(scale, anchor: anchor)
+      .opacity(bubbleOpacity)
+      .offset(x: xOffset)
+  ```
+
+- **No nested ternaries.** One ternary per expression. Two-deep is the cap; three-deep → use `switch` or extract a helper.
+- **Cap SwiftUI `body` / `body(content:)` at ~50 lines or ~10 modifiers.** Beyond that, extract subviews or `@ViewBuilder` computed properties.
+- **For `@ViewBuilder switch` statements:** if any case has more than 3 chained modifiers or a conditional argument, extract that case to its own `@ViewBuilder` helper.
+- **No `+` for string concatenation across optionals or non-`String` types.** Always use interpolation: `"\(a)\(b ?? "")"`.
+- **One numeric type per expression.** Don't mix `Int`, `Double`, `CGFloat` in a single `let` — cast at the boundary.
+- **Annotate parameter and return types in non-trivial `.map` / `.reduce` / `.sorted` closures.**
+
+  ```swift
+  array.map { (item: Item) -> Value in … }
+  ```
+
+- **Build arrays and dicts with `var` + `append`, not conditional `+` chains.**
+
+### When you hit a type-check timeout
+
+Fix the expression. Do not bump the threshold and do not `// swiftlint:disable` past it.
+
+1. Find the line in the error message — it points at the exact offender.
+2. Hoist the most complex sub-expression(s) to typed `let` bindings above.
+3. Replace nested ternaries with `switch` or `if/else`.
+4. Extract subviews or `@ViewBuilder` helpers from oversized SwiftUI bodies.
+5. Rebuild.
+
 ## Build & Release
 
 ### Build Commands
