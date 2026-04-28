@@ -151,17 +151,37 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     bottomBarContent()
 
-                    ConversationOnboardingView(
-                        coordinator: onboardingCoordinator,
-                        focusCoordinator: focusCoordinator,
-                        scrollOverscrollAmount: scrollOverscrollAmount,
-                        onTapSetupQuickname: {
-                            onboardingCoordinator.didTapProfilePhoto()
-                            viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-                        },
-                        onUseQuickname: viewModel.onUseQuickname(_:_:),
-                        onPresentProfileSettings: viewModel.onProfileSettings
-                    )
+                    Group {
+                        if let layout = viewModel.pendingCapabilityPickerLayout {
+                            CapabilityPickerCardView(
+                                layout: layout,
+                                onApprove: { providerIds in
+                                    viewModel.onCapabilityApprove(providerIds: providerIds)
+                                },
+                                onDeny: {
+                                    viewModel.onCapabilityDeny()
+                                },
+                                onConnect: { providerId in
+                                    viewModel.onCapabilityConnect(providerId: providerId)
+                                }
+                            )
+                            .transition(.blurReplace)
+                        } else {
+                            ConversationOnboardingView(
+                                coordinator: onboardingCoordinator,
+                                focusCoordinator: focusCoordinator,
+                                scrollOverscrollAmount: scrollOverscrollAmount,
+                                onTapSetupQuickname: {
+                                    onboardingCoordinator.didTapProfilePhoto()
+                                    viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
+                                },
+                                onUseQuickname: viewModel.onUseQuickname(_:_:),
+                                onPresentProfileSettings: viewModel.onProfileSettings
+                            )
+                            .transition(.blurReplace)
+                        }
+                    }
+                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.pendingCapabilityPickerLayout)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }

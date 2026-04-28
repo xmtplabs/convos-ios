@@ -323,6 +323,13 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
+
+    /// The agent's most-recent unresolved `capability_request` for this conversation.
+    /// When non-nil, `ConversationView` renders the picker card in the same slot the
+    /// `ConversationOnboardingView` would otherwise occupy. Cleared on Approve / Deny /
+    /// dismiss; replaced wholesale when a newer request arrives (per the "only show the
+    /// last request" rule).
+    var pendingCapabilityPickerLayout: CapabilityPickerLayout?
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
@@ -779,6 +786,38 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         Task { @MainActor in
             await onboardingCoordinator.inviteWasAccepted(for: conversation.id)
         }
+    }
+
+    // MARK: - Capability picker
+
+    /// Replaces any pending capability request with `layout`. When the agent sends a new
+    /// `capability_request` and we want the picker to display, the host computes the
+    /// layout via `CapabilityRequestHandler.computeLayout` and calls this. Setting nil
+    /// hides the picker and lets the onboarding view take its slot back.
+    func presentCapabilityPicker(_ layout: CapabilityPickerLayout?) {
+        pendingCapabilityPickerLayout = layout
+    }
+
+    /// User tapped Approve in the picker card with this provider selection. Final
+    /// resolver-side persistence and the outbound `capability_request_result` message
+    /// are wired in by the host that supplies the picker layout; this method just
+    /// hides the card so the UI stops blocking the conversation.
+    func onCapabilityApprove(providerIds: Set<ProviderID>) {
+        pendingCapabilityPickerLayout = nil
+    }
+
+    /// User tapped Deny. Same handoff pattern — the deny-side message-sending lives in
+    /// the host that owns the resolver.
+    func onCapabilityDeny() {
+        pendingCapabilityPickerLayout = nil
+    }
+
+    /// User tapped a Connect row. Forwarding to the iOS permission flow (for
+    /// `device.*` providers) or the OAuth flow (for `composio.*` providers) is the
+    /// host's job; on completion the registry's `providerChanges` stream will refresh
+    /// the picker layout in place. No-op here so the picker stays open while the user
+    /// completes the linking flow.
+    func onCapabilityConnect(providerId: ProviderID) {
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {
