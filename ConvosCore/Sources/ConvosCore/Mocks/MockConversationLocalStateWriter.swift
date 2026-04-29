@@ -5,6 +5,8 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
     public var unreadStates: [String: Bool] = [:]
     public var pinnedStates: [String: Bool] = [:]
     public var mutedStates: [String: Bool] = [:]
+    public var activeStates: [String: Bool] = [:]
+    public var markAllInactiveCallCount: Int = 0
 
     public init() {}
 
@@ -18,5 +20,16 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
 
     public func setMuted(_ isMuted: Bool, for conversationId: String) async throws {
         mutedStates[conversationId] = isMuted
+    }
+
+    public func setActive(_ isActive: Bool, for conversationId: String) async throws {
+        activeStates[conversationId] = isActive
+    }
+
+    public func markAllConversationsInactive() async throws {
+        markAllInactiveCallCount += 1
+        for key in activeStates.keys {
+            activeStates[key] = false
+        }
     }
 }

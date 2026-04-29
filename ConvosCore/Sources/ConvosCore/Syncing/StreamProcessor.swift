@@ -70,6 +70,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
+    private let reactivator: InactiveConversationReactivator
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
@@ -96,10 +97,16 @@ actor StreamProcessor: StreamProcessorProtocol {
             messageWriter: messageWriter
         )
         self.messageWriter = messageWriter
-        self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        self.localStateWriter = localStateWriter
         self.joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,
             databaseWriter: databaseWriter
+        )
+        self.reactivator = InactiveConversationReactivator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            localStateWriter: localStateWriter
         )
     }
 
@@ -202,10 +209,12 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    let dbConversation = try await conversationWriter.store(
+                    let storeResult = try await storeConversationWithFallback(
                         conversation: conversation,
                         inboxId: params.client.inboxId
                     )
+                    let dbConversation = storeResult.conversation
+                    let conversationSyncFailed = storeResult.syncFailed
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
                     let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
@@ -232,6 +241,17 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
+
+                    // Reactivation check runs only when the conversation sync
+                    // above succeeded. A failed sync means the installation
+                    // can't participate yet — the message landed on the
+                    // stream but the MLS state is still stale.
+                    if !conversationSyncFailed {
+                        await reactivator.markReconnectionIfNeeded(
+                            messageId: message.id,
+                            conversationId: conversation.id
+                        )
+                    }
 
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
@@ -266,6 +286,42 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
+
+    // MARK: - Conversation store (with sync-failure fallback)
+
+    private struct ConversationStoreResult {
+        let conversation: DBConversation
+        let syncFailed: Bool
+    }
+
+    /// Stores the conversation via `ConversationWriter.store`, and on failure
+    /// falls back to the existing `DBConversation` row so the caller can still
+    /// persist the message. `syncFailed == true` signals that the MLS group
+    /// is still inactive (e.g. post-restore, installation not yet re-admitted),
+    /// so reactivation must be skipped for this event.
+    private func storeConversationWithFallback(
+        conversation: XMTPiOS.Group,
+        inboxId: String
+    ) async throws -> ConversationStoreResult {
+        do {
+            let dbConversation = try await conversationWriter.store(
+                conversation: conversation,
+                inboxId: inboxId
+            )
+            return ConversationStoreResult(conversation: dbConversation, syncFailed: false)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            Log.warning("conversationWriter.store failed, falling back to existing DBConversation: \(error)")
+            let conversationId = conversation.id
+            guard let existing = try await databaseReader.read({ db in
+                try DBConversation.fetchOne(db, id: conversationId)
+            }) else {
+                throw error
+            }
+            return ConversationStoreResult(conversation: existing, syncFailed: true)
+        }
     }
 
     // MARK: - Read Receipts

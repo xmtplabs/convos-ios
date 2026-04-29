@@ -18,6 +18,52 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         let removedInboxIds: [String]
         let metadataChanges: [MetadataChange]
         let expiresAt: Date?
+        /// True when this `update` row has been re-tagged post-restore to
+        /// indicate the MLS group is reconnecting to the user's new
+        /// installation. `StreamProcessor.markReconnectionIfNeeded` sets
+        /// this on the first incoming message after a restore, and
+        /// `markRecentUpdatesAsReconnection` back-fills it on up to the
+        /// five most recent prior update rows so the UI can style the
+        /// reconnection event visibly.
+        var isReconnection: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case initiatedByInboxId
+            case addedInboxIds
+            case removedInboxIds
+            case metadataChanges
+            case expiresAt
+            case isReconnection
+        }
+
+        init(
+            initiatedByInboxId: String,
+            addedInboxIds: [String],
+            removedInboxIds: [String],
+            metadataChanges: [MetadataChange],
+            expiresAt: Date?,
+            isReconnection: Bool = false
+        ) {
+            self.initiatedByInboxId = initiatedByInboxId
+            self.addedInboxIds = addedInboxIds
+            self.removedInboxIds = removedInboxIds
+            self.metadataChanges = metadataChanges
+            self.expiresAt = expiresAt
+            self.isReconnection = isReconnection
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.initiatedByInboxId = try container.decode(String.self, forKey: .initiatedByInboxId)
+            self.addedInboxIds = try container.decode([String].self, forKey: .addedInboxIds)
+            self.removedInboxIds = try container.decode([String].self, forKey: .removedInboxIds)
+            self.metadataChanges = try container.decode([MetadataChange].self, forKey: .metadataChanges)
+            self.expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+            // Older rows persisted before the inactive-conversation feature
+            // landed do not have this key; default to false so the decode
+            // succeeds and the row is treated as a plain update.
+            self.isReconnection = try container.decodeIfPresent(Bool.self, forKey: .isReconnection) ?? false
+        }
     }
 
     enum Columns {
@@ -303,6 +349,28 @@ extension DBMessage {
             status: status,
             messageType: messageType,
             contentType: invite != nil ? .invite : contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            linkPreview: linkPreview,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
+    func with(update: Update?) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: contentType,
             text: text,
             emoji: emoji,
             invite: invite,
