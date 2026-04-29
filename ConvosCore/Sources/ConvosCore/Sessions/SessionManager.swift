@@ -625,6 +625,43 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         RestoreInProgressFlag.set(false, environment: environment)
         notificationChangeReporter.notifyChangesInDatabase()
         await prewarmUnusedConversation()
+        kickPostRestoreSync()
+    }
+
+    /// Spawns a background task that, once the real post-restore client
+    /// is up, calls `syncAllConversations` to pull any commits peers
+    /// have already issued that admit this newly-minted installation
+    /// (B1) into their groups.
+    ///
+    /// Without this, B sits on whatever state the welcome topic
+    /// happened to deliver during the throwaway-import window. If a
+    /// peer's libxmtp had already committed B1 in by the time the real
+    /// client comes up, that commit doesn't get pulled until something
+    /// else (next stream tick, foreground catch-up, NSE wake) triggers
+    /// a sync. In the post-restore window with most groups still
+    /// `GroupInactive`, that "something else" can be tens of minutes
+    /// away — meanwhile the user stares at "Awaiting reconnection"
+    /// banners on conversations whose peers may already be ready.
+    ///
+    /// Non-blocking, non-fatal. Errors are logged and ignored — the
+    /// regular sync path will retry on the next stream tick.
+    private func kickPostRestoreSync() {
+        Task { [weak self] in
+            guard let self else { return }
+            let service = self.loadOrCreateService()
+            do {
+                let inboxReady = try await service.sessionStateManager.waitForInboxReadyResult()
+                Log.info("SessionManager: post-restore syncAllConversations starting")
+                let summary = try await inboxReady.client.conversationsProvider
+                    .syncAllConversations(consentStates: nil)
+                Log.info(
+                    "SessionManager: post-restore syncAllConversations complete — "
+                    + "synced=\(summary.numSynced)/\(summary.numEligible)"
+                )
+            } catch {
+                Log.warning("SessionManager: post-restore syncAllConversations failed (non-fatal): \(error)")
+            }
+        }
     }
 
     // MARK: - Messaging Services
