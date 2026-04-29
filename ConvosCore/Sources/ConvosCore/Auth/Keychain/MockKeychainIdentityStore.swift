@@ -41,6 +41,22 @@ actor MockKeychainIdentityStore: KeychainIdentityStoreProtocol {
         // mirrors what `save` would re-write.
     }
 
+    // MARK: - Two-key model (synced backup-only key)
+
+    private let backupKey: OSAllocatedUnfairLock<Data?> = .init(initialState: nil)
+
+    func loadBackupKeySync() throws -> Data? {
+        backupKey.withLock { $0 }
+    }
+
+    func saveBackupKey(_ key: Data) throws {
+        backupKey.withLock { $0 = key }
+    }
+
+    func deleteBackupKey() throws {
+        backupKey.withLock { $0 = nil }
+    }
+
     /// Test-only — inject an error for the next `loadSync`/`load` calls.
     /// Pass `nil` to clear.
     nonisolated func _setLoadError(_ error: (any Error)?) {

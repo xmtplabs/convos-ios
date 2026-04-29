@@ -171,6 +171,33 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     /// so other Apple-ID-paired devices receive the identity at the same
     /// time as the bundle. No-op when the slot is empty.
     func nudgeICloudSync() throws
+
+    // MARK: - Two-key model (synced backup-only key)
+    //
+    // See docs/plans/single-inbox-two-key-model.md. The backup key is the
+    // ONLY synced keychain slot in the new layout. It exists independently
+    // of the identity — paired devices can have a backup key (for unsealing
+    // bundles) without having an identity (those land via Restore).
+    //
+    // The accessors below are additive; existing callers (`save`, `load`,
+    // `delete`, `nudgeICloudSync`) keep operating on the identity slot
+    // until the migration flips storage modes per Step 2 of the plan.
+
+    /// Reads the synced backup key. Returns `nil` when no backup key has
+    /// been generated for this Apple ID yet (fresh device, never opened
+    /// the app on any paired device, or pre-migration build).
+    func loadBackupKeySync() throws -> Data?
+
+    /// Writes the backup key to the synced slot. Overwrites any prior
+    /// value — callers should not rotate this without going through the
+    /// "Start fresh" path because rotating invalidates every existing
+    /// bundle on iCloud.
+    func saveBackupKey(_ key: Data) throws
+
+    /// Removes the synced backup key. Use with care — this propagates
+    /// via iCloud Keychain to every paired device and renders every
+    /// existing bundle on iCloud unreadable.
+    func deleteBackupKey() throws
 }
 
 /// Secure storage for the user's XMTP identity keys in the device keychain.
@@ -188,8 +215,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
+    /// Service name for the synced backup-key slot — distinct from the
+    /// identity service so the two slots never collide in keychain
+    /// queries. See `single-inbox-two-key-model.md`.
+    static let backupKeyService: String = "org.convos.ios.KeychainIdentityStore.v4-backup"
+
     /// Fixed account key for the stored identity.
     static let identityAccount: String = "convos-identity"
+
+    /// Fixed account key for the synced backup-key slot.
+    static let backupKeyAccount: String = "convos-backup-key"
 
     // MARK: - Initialization
 
@@ -254,6 +289,40 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             inboxId: existing.inboxId,
             clientId: existing.clientId,
             keys: existing.keys
+        )
+    }
+
+    // MARK: - Two-key model (synced backup-only key)
+
+    public func loadBackupKeySync() throws -> Data? {
+        let query = backupKeyQuery()
+        do {
+            return try Self.loadKeychainData(with: query.toReadDictionary())
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
+    }
+
+    public func saveBackupKey(_ key: Data) throws {
+        let query = backupKeyQuery()
+        try saveData(key, with: query)
+    }
+
+    public func deleteBackupKey() throws {
+        let query = backupKeyQuery()
+        try deleteData(with: query)
+    }
+
+    private func backupKeyQuery() -> KeychainQuery {
+        KeychainQuery(
+            account: Self.backupKeyAccount,
+            service: Self.backupKeyService,
+            accessGroup: keychainAccessGroup,
+            // Same as the identity slot — needs to be readable post-
+            // first-unlock so the NSE can decrypt notifications without
+            // requiring the user to unlock the device first.
+            accessible: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
     }
 

@@ -144,6 +144,8 @@ That's it. No salt, no info string, no sidecar derivation parameter. The nonce i
 
 ### Two keys, two roles — don't collapse them
 
+> **Update — 2026-04-29**: the assumption below that the **outer-seal key is `identity.databaseKey`** is being superseded. Under the [single-inbox two-key model](./single-inbox-two-key-model.md), the outer-seal key becomes a separate `backupKey` stored synced (the only synced item), while the identity itself becomes per-device (not synced). The "two keys, two roles" framing remains correct; the source of the outer-seal key is what changes. The migration is described in the linked plan.
+
 The bundle's outer AES-GCM seal uses `identity.databaseKey` as just described. The inner XMTP archive (`xmtp-archive.bin`) uses a **separate** 32-byte `archiveKey` generated fresh per bundle via `SecRandomCopyBytes`, stored inside the GRDB-sidecar metadata tar entry. The outer seal therefore protects `archiveKey` along with everything else — decryption remains a single-key operation from the caller's perspective.
 
 | Key | Role | Lifetime | Source |
