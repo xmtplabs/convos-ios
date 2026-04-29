@@ -453,9 +453,8 @@ public actor RestoreManager {
             do {
                 try fileManager.moveItem(at: entry, to: destination)
             } catch {
-                Log.warning(
-                    "RestoreManager: failed to stash XMTP file "
-                    + "\(entry.lastPathComponent): \(error)"
+                throw RestoreError.replaceDatabaseFailed(
+                    "failed to stash XMTP file \(entry.lastPathComponent): \(error.localizedDescription)"
                 )
             }
         }

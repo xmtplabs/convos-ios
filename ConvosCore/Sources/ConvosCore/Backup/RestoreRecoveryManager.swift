@@ -63,6 +63,15 @@ public struct RestoreRecoveryManager {
         case .committed:
             return finalizeCommitted(transaction: transaction)
         case .paused, .databaseReplaced:
+            // `.paused` doesn't mean "nothing destructive happened" —
+            // RestoreManager sets the phase before stageXMTPFiles +
+            // replaceDatabase, both of which run while the persisted
+            // phase is still `.paused`. An out-of-process crash anywhere
+            // in that window leaves the xmtp stash on disk; routing
+            // `.paused` to `clear` would delete the transaction dir
+            // (including the stash) and permanently lose those files.
+            // Always go through `attemptRollback`, which restores the
+            // stash if it exists regardless of phase.
             return attemptRollback(transaction: transaction)
         }
     }
