@@ -157,8 +157,55 @@ public struct RestoreRecoveryManager {
                 at: dst.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try? fileManager.removeItem(at: dst)
-            try? fileManager.copyItem(at: src, to: dst)
+            restoreSingleStashItem(from: src, to: dst)
+        }
+    }
+
+    /// Restores one stashed file in place. The previous shape did
+    /// `removeItem(dst)` + `copyItem(src, to: dst)` — if the copy
+    /// failed, `dst` was already deleted and the source would be
+    /// permanently discarded a few lines later by `cleanupArtifacts`.
+    /// Use copy-to-temp + atomic replace so a failure leaves whatever
+    /// was at `dst` intact.
+    private func restoreSingleStashItem(from src: URL, to dst: URL) {
+        if !fileManager.fileExists(atPath: dst.path) {
+            do {
+                try fileManager.copyItem(at: src, to: dst)
+            } catch {
+                Log.error(
+                    "RestoreRecoveryManager: failed to restore stash file "
+                    + "\(src.lastPathComponent): \(error)"
+                )
+            }
+            return
+        }
+
+        // Stage the source under a temp name in the destination
+        // directory, then atomically swap. `replaceItemAt` is atomic
+        // when temp + dst share a volume (they always will here —
+        // both live in the shared app-group container).
+        let tempName = "convos-restore-stash-\(UUID().uuidString)-\(src.lastPathComponent)"
+        let temp = dst.deletingLastPathComponent().appendingPathComponent(tempName)
+        do {
+            try fileManager.copyItem(at: src, to: temp)
+        } catch {
+            Log.error(
+                "RestoreRecoveryManager: failed to stage stash file "
+                + "\(src.lastPathComponent) to temp: \(error)"
+            )
+            return
+        }
+        do {
+            _ = try fileManager.replaceItemAt(dst, withItemAt: temp)
+        } catch {
+            // Replace failed — clean up the temp and leave dst alone.
+            // The user keeps whatever interrupted-restore state they
+            // had, but at least we did not delete it irrecoverably.
+            try? fileManager.removeItem(at: temp)
+            Log.error(
+                "RestoreRecoveryManager: failed to atomic-replace "
+                + "\(dst.lastPathComponent): \(error)"
+            )
         }
     }
 }

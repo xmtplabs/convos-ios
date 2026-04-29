@@ -179,16 +179,42 @@ public actor RestoreManager {
         }
 
         state = .decrypting
-        let identity = try await awaitIdentityWithTimeout()
 
-        let stagingDir = try BackupBundle.createStagingDirectory()
+        // Pre-transaction phase: identity wait, staging dir creation,
+        // bundle decrypt + validate. Each can throw — wrap them so the
+        // observable `state` reflects `.failed` instead of being stuck
+        // at `.decrypting` forever (UI would still show the spinner).
+        // Split into three do-catches so the staging-dir cleanup
+        // `defer` is registered immediately after the dir is created
+        // and fires even if `decryptAndValidateBundle` throws.
+        let identity: KeychainIdentity
+        do {
+            identity = try await awaitIdentityWithTimeout()
+        } catch {
+            state = .failed(error.localizedDescription)
+            throw error
+        }
+
+        let stagingDir: URL
+        do {
+            stagingDir = try BackupBundle.createStagingDirectory()
+        } catch {
+            state = .failed(error.localizedDescription)
+            throw error
+        }
         defer { BackupBundle.cleanup(directory: stagingDir) }
 
-        let innerMetadata = try decryptAndValidateBundle(
-            bundleURL: bundleURL,
-            identity: identity,
-            stagingDir: stagingDir
-        )
+        let innerMetadata: BackupBundleMetadata
+        do {
+            innerMetadata = try decryptAndValidateBundle(
+                bundleURL: bundleURL,
+                identity: identity,
+                stagingDir: stagingDir
+            )
+        } catch {
+            state = .failed(error.localizedDescription)
+            throw error
+        }
 
         // Begin transaction. Pre-commit artifacts live in the shared container
         // so crash recovery on next launch can find them. Setup itself is
