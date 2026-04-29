@@ -300,17 +300,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func nudgeICloudSync() throws {
-        guard let existing = try loadSync() else {
+        // Two-key model: the only synced slot is the backup key. The
+        // identity slot is per-device (synchronizable: false), so
+        // re-saving it does nothing for iCloud propagation. Re-write
+        // the backup key instead — `saveData`'s update path is enough
+        // to make CKKS schedule a sync push so paired devices receive
+        // the key alongside (or before) the bundle that needs it.
+        guard let key = try loadBackupKeySync() else {
             return
         }
-        // `save` does an in-place update via `SecItemUpdate` when the
-        // slot is already populated. The byte payload is identical, but
-        // the update is enough to make CKKS schedule a sync push.
-        _ = try save(
-            inboxId: existing.inboxId,
-            clientId: existing.clientId,
-            keys: existing.keys
-        )
+        try saveBackupKey(key)
     }
 
     // MARK: - Two-key model (synced backup-only key)

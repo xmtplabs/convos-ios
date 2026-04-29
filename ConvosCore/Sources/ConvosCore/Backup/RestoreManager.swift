@@ -223,6 +223,20 @@ public actor RestoreManager {
             throw error
         }
 
+        // Capture the prior identity (if any) so every throw past the
+        // adoption point can revert the keychain. Without this, a
+        // failure between adopt and successful commit leaves the device
+        // with the bundle's identity but the device's previous DB
+        // files — encrypted under a different `databaseKey` — which
+        // makes the next launch unable to open XMTP.
+        let prevIdentity: KeychainIdentity?
+        do {
+            prevIdentity = try await identityStore.load()
+        } catch {
+            Log.warning("RestoreManager: could not read prior identity for rollback snapshot: \(error)")
+            prevIdentity = nil
+        }
+
         // Adopt the bundled identity into this device's local slot.
         // After this point the runtime store's `loadSync()` returns the
         // adopted identity — the rest of restore (Client.create with
@@ -253,6 +267,7 @@ public actor RestoreManager {
         } catch {
             RestoreTransactionStore.clear(defaults: restoreFlagDefaults)
             RestoreInProgressFlag.set(false, defaults: restoreFlagDefaults)
+            await restoreIdentitySnapshot(prevIdentity)
             state = .failed(error.localizedDescription)
             throw error
         }
@@ -353,8 +368,39 @@ public actor RestoreManager {
             }
         } catch {
             await rollbackTransaction(transaction: transaction, reason: error)
+            await restoreIdentitySnapshot(prevIdentity)
             state = .failed(error.localizedDescription)
             throw error
+        }
+    }
+
+    /// Re-applies the identity that was in the local keychain slot
+    /// before `adoptIdentityFromBundle` overwrote it. Called from every
+    /// rollback path past the adoption point so a failed restore leaves
+    /// this device's keychain consistent with its (rolled-back) GRDB
+    /// and XMTP files.
+    ///
+    /// Caveat: in-memory only. Crash recovery (which calls
+    /// `rollbackTransaction` from a fresh process via
+    /// `RestoreRecoveryManager`) does not have the prior snapshot in
+    /// scope — that gap is documented in
+    /// `docs/plans/single-inbox-two-key-model.md`. The common case
+    /// (in-process throw) is covered.
+    private func restoreIdentitySnapshot(_ snapshot: KeychainIdentity?) async {
+        do {
+            if let snapshot {
+                _ = try await identityStore.save(
+                    inboxId: snapshot.inboxId,
+                    clientId: snapshot.clientId,
+                    keys: snapshot.keys
+                )
+                Log.info("RestoreManager: restored prior identity to local keychain slot")
+            } else {
+                try await identityStore.delete()
+                Log.info("RestoreManager: cleared adopted identity (no prior identity to restore)")
+            }
+        } catch {
+            Log.error("RestoreManager: identity snapshot restore failed: \(error)")
         }
     }
 
