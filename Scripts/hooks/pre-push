@@ -111,7 +111,20 @@ fi
 
 export SCRIPT_INPUT_FILE_COUNT="$index"
 
-if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" --use-script-input-files --force-exclude; then
+lint_status=0
+for path in "${lint_paths[@]}"; do
+	file_path="$path"
+	if [ ! -f "$file_path" ] && [ -f "$git_root/$path" ]; then
+		file_path="$git_root/$path"
+	fi
+	if [ -f "$file_path" ]; then
+		if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" --use-stdin < "$file_path"; then
+			lint_status=1
+		fi
+	fi
+done
+
+if [ $lint_status -ne 0 ]; then
 	echo ""
 	echo "Done linting"
 	echo ""
