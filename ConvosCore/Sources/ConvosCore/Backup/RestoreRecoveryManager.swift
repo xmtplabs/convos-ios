@@ -151,12 +151,13 @@ public struct RestoreRecoveryManager {
             return
         }
         for case let src as URL in enumerator {
-            let relative = src.path.replacingOccurrences(of: stashURL.path + "/", with: "")
-            let dst = targetDir.appendingPathComponent(relative)
-            try? fileManager.createDirectory(
-                at: dst.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
+            // The enumerator is flat (`.skipsSubdirectoryDescendants`),
+            // so `lastPathComponent` is the full relative name. The
+            // previous `replacingOccurrences(of: stashURL.path + "/")`
+            // calc could silently fail and produce the absolute path
+            // when `src.path` didn't carry the expected separator —
+            // a fragile shape now that we don't actually need.
+            let dst = targetDir.appendingPathComponent(src.lastPathComponent)
             restoreSingleStashItem(from: src, to: dst)
         }
     }

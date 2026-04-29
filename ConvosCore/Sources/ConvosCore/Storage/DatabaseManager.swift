@@ -101,7 +101,30 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
             try SharedDatabaseMigrator.shared.migrate(database: dbPool)
             Log.info("DatabaseManager: rollback succeeded")
         } catch let rollbackError as any Error {
-            Log.error("DatabaseManager: rollback failed (original: \(swapError)) — \(rollbackError)")
+            // Terminal state. The on-disk SQLite is somewhere between
+            // the snapshot and the partial restore; the in-memory
+            // dbPool still references the same file but its contents
+            // are now indeterminate. There is no safe recovery path
+            // from inside the running app: a fresh `replaceDatabase`
+            // would just hit the same broken pool, and continuing to
+            // write would corrupt user data further. Emit a critical
+            // QA event + error log so the failure is visible in
+            // observability, then surface a rollback-failed error
+            // whose `localizedDescription` instructs the user to
+            // reinstall.
+            Log.error(
+                "DatabaseManager: ROLLBACK FAILED — terminal state, "
+                + "DB pool indeterminate. "
+                + "original=\(swapError) rollback=\(rollbackError)"
+            )
+            QAEvent.emit(
+                .backup,
+                "db_rollback_failed_terminal",
+                [
+                    "original": String(describing: swapError),
+                    "rollback": String(describing: rollbackError)
+                ]
+            )
             throw DatabaseManagerError.rollbackFailed(
                 original: swapError,
                 rollback: rollbackError
@@ -158,17 +181,24 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
 }
 
 public enum DatabaseManagerError: Error, LocalizedError {
-    /// The restore failed AND the rollback also failed. The DB is in a
-    /// potentially-inconsistent state — the caller should treat this as
-    /// recoverable only via app reinstall or a fresh restore attempt.
+    /// **Terminal state.** The restore failed AND the rollback also
+    /// failed. The on-disk SQLite file is somewhere between the
+    /// pre-restore snapshot and the partial restore, and the live
+    /// `DatabasePool` still references it but its contents are now
+    /// indeterminate. There is no safe in-app recovery path — running
+    /// further writes would compound the corruption. The user must
+    /// reinstall (which wipes the app-group container) to start
+    /// clean. Caller surfaces the localizedDescription to the user.
     case rollbackFailed(original: any Error, rollback: any Error)
 
     public var errorDescription: String? {
         switch self {
         case let .rollbackFailed(original, rollback):
-            return "Database restore failed and rollback also failed. "
-                + "Original error: \(original.localizedDescription). "
-                + "Rollback error: \(rollback.localizedDescription)"
+            return "Restore couldn't be applied and the rollback to your previous data "
+                + "also failed. The local database is in an unrecoverable state — please "
+                + "delete and reinstall Convos to start fresh. "
+                + "(restore: \(original.localizedDescription); "
+                + "rollback: \(rollback.localizedDescription))"
         }
     }
 }
