@@ -4,6 +4,7 @@ import SwiftUI
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    var backupCoordinator: BackupCoordinator?
 
     @Namespace private var namespace: Namespace.ID
     @State private var presentingAppSettings: Bool = false
@@ -13,15 +14,66 @@ struct ConversationsView: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var presentingRestoreChooser: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
     }
 
+    /// True while the bootstrap gate is parked at `.restoreAvailable`
+    /// or while the coordinator is still waiting for iCloud to settle —
+    /// session construction is blocked in both cases, so anything that
+    /// creates or joins a conversation will hang on
+    /// `RestoreDecisionPendingError`.
+    ///
+    /// The `availableRestore != nil` guard avoids a UI dead-end: if the
+    /// coordinator is in `showRestorePrompt = true` but the backup has
+    /// since vanished (deleted from iCloud, or a refresh between gate
+    /// resolution and render returned nothing), the prompt-card branch
+    /// in `emptyConversationsViewScrollable` won't render and we'd hide
+    /// the empty CTA too — leaving the user staring at a blank scroll
+    /// view. In that state we let the empty CTA show; tapping "Start a
+    /// convo" will still be gated server-side by the bootstrap decision.
+    private var isRestorePromptBlocking: Bool {
+        guard let coordinator = backupCoordinator else { return false }
+        if coordinator.isAwaitingICloud { return true }
+        return coordinator.showRestorePrompt && coordinator.viewModel.availableRestore != nil
+    }
+
     var emptyConversationsViewScrollable: some View {
         ScrollView {
             LazyVStack(spacing: 0.0) {
-                emptyConversationsView
+                if let coordinator = backupCoordinator, coordinator.isAwaitingICloud {
+                    AwaitingICloudCard(
+                        secondsRemaining: coordinator.iCloudSettleSecondsRemaining
+                    )
+                    .padding(.top, DesignConstants.Spacing.step4x)
+                } else if let coordinator = backupCoordinator,
+                          coordinator.showRestorePrompt,
+                          let available = coordinator.viewModel.availableRestore {
+                    let restore = { coordinator.beginRestore(available) }
+                    let dismiss = { coordinator.dismissRestorePrompt() }
+                    let chooseBackup: (() -> Void)? = coordinator.viewModel.availableRestores.count > 1
+                        ? { presentingRestoreChooser = true }
+                        : nil
+                    RestorePromptCard(
+                        sidecar: available.sidecar,
+                        backupCount: coordinator.viewModel.availableRestores.count,
+                        isRestoring: coordinator.isRestoring,
+                        onRestore: restore,
+                        onChooseBackup: chooseBackup,
+                        onSkip: dismiss
+                    )
+                    .padding(.top, DesignConstants.Spacing.step4x)
+                }
+                // Hide the "Pop-up private convos" CTA while the restore
+                // prompt is blocking — its "Start a convo" button would
+                // try to register a fresh identity, which is exactly what
+                // the bootstrap gate is trying to prevent until the user
+                // has chosen Restore vs Start fresh.
+                if !isRestorePromptBlocking {
+                    emptyConversationsView
+                }
             }
         }
     }
@@ -161,6 +213,7 @@ struct ConversationsView: View {
             }
             .accessibilityLabel("Scan to join a conversation")
             .accessibilityIdentifier("scan-button")
+            .disabled(isRestorePromptBlocking)
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
 
@@ -170,6 +223,7 @@ struct ConversationsView: View {
             }
             .accessibilityLabel("Start a new conversation")
             .accessibilityIdentifier("compose-button")
+            .disabled(isRestorePromptBlocking)
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
     }
@@ -241,9 +295,31 @@ struct ConversationsView: View {
             presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
             quicknameViewModel: quicknameViewModel,
+            backupCoordinator: backupCoordinator,
             conversationPendingExplosion: $conversationPendingExplosion,
             namespace: namespace
         ))
+        .modifier(RestoreErrorAlertModifier(coordinator: backupCoordinator))
+        .sheet(isPresented: $presentingRestoreChooser) {
+            if let coordinator = backupCoordinator {
+                RestoreBackupChooserView(
+                    backups: coordinator.viewModel.availableRestores,
+                    onRestore: { backup in
+                        coordinator.beginRestore(backup)
+                    }
+                )
+            }
+        }
+        .onChange(of: backupCoordinator?.lastRestoreSuccessId) { _, newValue in
+            // A restore initiated from the settings sheet leaves the
+            // sheet stranded over the (now-restored) conversations list.
+            // Drop both sheets so the user lands back on the list with
+            // their just-restored data, not on the screen they kicked
+            // the action off from.
+            guard newValue != nil else { return }
+            presentingAppSettings = false
+            presentingRestoreChooser = false
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)
@@ -259,6 +335,7 @@ private struct ConversationsSheetModifier: ViewModifier {
     @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
     let quicknameViewModel: QuicknameSettingsViewModel
+    var backupCoordinator: BackupCoordinator?
     @Binding var conversationPendingExplosion: Conversation?
     var namespace: Namespace.ID
 
@@ -269,7 +346,8 @@ private struct ConversationsSheetModifier: ViewModifier {
                     viewModel: viewModel.appSettingsViewModel,
                     quicknameViewModel: quicknameViewModel,
                     session: viewModel.session,
-                    onDeleteAllData: viewModel.deleteAllData
+                    onDeleteAllData: viewModel.deleteAllData,
+                    backupCoordinator: backupCoordinator
                 )
                 .navigationTransition(
                     .zoom(sourceID: "app-settings-transition-source", in: namespace)
@@ -324,6 +402,42 @@ private struct ConversationsSheetModifier: ViewModifier {
                         transaction.disablesAnimations = true
                     }
             }
+    }
+}
+
+/// Presents an alert when `BackupCoordinator.restoreErrorMessage` is
+/// non-nil. Dismissing the alert writes `nil` back through the
+/// two-way binding so the user can try again. Separate from the main
+/// sheet modifier because restore failures can surface on the empty
+/// conversations list (fresh install restoring a backup) as well as
+/// on a populated list (a retry from settings), so it sits on the
+/// view root.
+private struct RestoreErrorAlertModifier: ViewModifier {
+    var coordinator: BackupCoordinator?
+
+    func body(content: Content) -> some View {
+        if let coordinator {
+            content.alert(
+                "Restore failed",
+                isPresented: Binding(
+                    get: { coordinator.restoreErrorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            coordinator.restoreErrorMessage = nil
+                        }
+                    }
+                ),
+                presenting: coordinator.restoreErrorMessage
+            ) { _ in
+                Button("OK", role: .cancel) {
+                    coordinator.restoreErrorMessage = nil
+                }
+            } message: { message in
+                Text(message)
+            }
+        } else {
+            content
+        }
     }
 }
 

@@ -11,6 +11,8 @@ struct ConvosApp: App {
     private let convos: ConvosClient
     let conversationsViewModel: ConversationsViewModel
     let quicknameViewModel: QuicknameSettingsViewModel = .shared
+    @MainActor let backupCoordinator: BackupCoordinator
+    @MainActor let staleDeviceObserver: StaleDeviceObserver = .init()
 
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
@@ -57,12 +59,31 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
+        // Register BGProcessingTask for daily backups. Must happen
+        // during app init per BGTaskScheduler's contract. Factory
+        // returns a fresh BackupManager each call so a restore that
+        // rebuilds the cached service doesn't leave the scheduler
+        // holding a stale client.
+        let convosRef = convos
+        BackupScheduler.shared.register(
+            environment: { convosRef.environment },
+            factory: { convosRef.makeBackupManager() }
+        )
+
         let dbWriter = convos.databaseWriter
         Task {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
         self.conversationsViewModel = .init(session: convos.session)
+        let coordinator = BackupCoordinator(convos: convos)
+        self.backupCoordinator = coordinator
+        // Resolve the fresh-install bootstrap gate: if a compatible
+        // backup is visible, leave the gate closed and show the prompt
+        // card; otherwise release the gate so normal registration runs.
+        Task { @MainActor in
+            await coordinator.resolveBootstrapDecision()
+        }
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
     }
@@ -71,10 +92,50 @@ struct ConvosApp: App {
         WindowGroup {
             ConversationsView(
                 viewModel: conversationsViewModel,
-                quicknameViewModel: quicknameViewModel
+                quicknameViewModel: quicknameViewModel,
+                backupCoordinator: backupCoordinator
             )
+            .environment(staleDeviceObserver)
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
+            .overlay(alignment: .top) {
+                // The restore-prompt card and the in-progress restore
+                // surface their own actions for "this device is stale" —
+                // letting the StaleDeviceBanner sit on top of them
+                // double-stacks UI and offers a Reset button that would
+                // race with whatever the user is mid-decision on.
+                let restoreUITakesPrecedence = backupCoordinator.showRestorePrompt
+                    || backupCoordinator.isRestoring
+                    || backupCoordinator.isAwaitingICloud
+                if staleDeviceObserver.isDeviceReplaced && !restoreUITakesPrecedence {
+                    let coordinator = backupCoordinator
+                    let reset: () -> Void = {
+                        Task { @MainActor in
+                            try? await convos.session.deleteAllInboxes()
+                            // Re-resolve the bootstrap gate so the rebuilt
+                            // session is observed again. Without this the
+                            // observer stays bound to the torn-down state
+                            // machine and a subsequent revocation goes
+                            // unnoticed.
+                            await coordinator.notifySessionReset()
+                        }
+                    }
+                    StaleDeviceBanner(onReset: reset)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .task(id: backupCoordinator.sessionObservationGeneration) { @MainActor in
+                // While the gate is .unknown / .restoreAvailable (generation
+                // still 0 or the user hasn't decided yet) there is no real
+                // session state machine to observe — only the bootstrap-gate
+                // placeholder. Wait until a real decision lands before
+                // binding the observer to avoid tethering it to a placeholder.
+                guard backupCoordinator.sessionObservationGeneration > 0 else { return }
+                let service = convos.session.messagingService()
+                staleDeviceObserver.bind(to: service.sessionStateManager)
+                await BackupScheduler.shared.runForegroundCatchUpIfNeeded()
+            }
         }
     }
 }

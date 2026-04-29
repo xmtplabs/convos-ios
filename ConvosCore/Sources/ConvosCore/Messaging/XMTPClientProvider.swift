@@ -107,6 +107,14 @@ public protocol XMTPClientProvider: AnyObject {
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
+    /// Writes a single-inbox XMTP archive to `path`, sealed under `encryptionKey`.
+    /// Used by the backup stack — see `ConvosBackupArchiveProvider`.
+    func createArchive(atPath path: String, encryptionKey: Data) async throws
+    /// Imports a previously-sealed XMTP archive into the client's local DB.
+    /// Used by the restore stack's throwaway-client path — see
+    /// `ConvosRestoreArchiveImporter`. Non-fatal at the call site; the bundle
+    /// GRDB restore remains the primary contract.
+    func importArchive(fromPath path: String, encryptionKey: Data) async throws
 }
 
 enum XMTPClientProviderError: Error {
@@ -206,6 +214,22 @@ extension XMTPiOS.Client: XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
+    }
+
+    public func createArchive(atPath path: String, encryptionKey: Data) async throws {
+        // The archive element set is [.messages] by design. `.consent` is
+        // excluded so restore doesn't pin a stale consent state — consent
+        // is resolved by the GRDB restore + the XMTP consent stream after
+        // the client comes back online.
+        try await createArchive(
+            path: path,
+            encryptionKey: encryptionKey,
+            opts: ArchiveOptions(archiveElements: [.messages])
+        )
+    }
+
+    public func importArchive(fromPath path: String, encryptionKey: Data) async throws {
+        try await importArchive(path: path, encryptionKey: encryptionKey)
     }
 }
 

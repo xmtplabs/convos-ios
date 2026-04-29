@@ -216,6 +216,38 @@ actor StreamProcessor: StreamProcessorProtocol {
                     let dbConversation = storeResult.conversation
                     let conversationSyncFailed = storeResult.syncFailed
 
+                    // Reactivate the conversation as early as possible — a
+                    // successful MLS sync proves the peer re-admitted this
+                    // installation, regardless of whether the arriving
+                    // message is a regular text, an update, or one of the
+                    // ephemeral types (ExplodeSettings / ProfileMessage /
+                    // TypingIndicator / ReadReceipt) that would otherwise
+                    // hit `return` below before the legacy reactivation
+                    // call could fire. Without this, an inactive
+                    // conversation whose first post-sync signal is one of
+                    // those special types stays stuck on `isActive = false`
+                    // forever even though MLS is healthy. Idempotent —
+                    // re-calling on the regular-message path below is a
+                    // single DB read no-op once active.
+                    if !conversationSyncFailed {
+                        await reactivator.markReconnectionIfNeeded(
+                            messageId: message.id,
+                            conversationId: conversation.id
+                        )
+                    } else {
+                        // Visibility for the post-restore reactivation
+                        // path: when this fires, the inbound message
+                        // delivered but the MLS group sync (which proves
+                        // the peer admitted this installation) didn't
+                        // succeed. Without this log there's no way to
+                        // tell whether the reactivation logic ran and
+                        // refused, or never got the chance.
+                        Log.info(
+                            "StreamProcessor: skipping reactivation for \(conversation.id) — "
+                            + "conversation sync failed (group likely still inactive at MLS layer)"
+                        )
+                    }
+
                     // Handle ExplodeSettings - skip storing message if this is an explode message
                     let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
                     if let explodeSettings {
@@ -242,10 +274,11 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
-                    // Reactivation check runs only when the conversation sync
-                    // above succeeded. A failed sync means the installation
-                    // can't participate yet — the message landed on the
-                    // stream but the MLS state is still stale.
+                    // Second reactivation pass after the message is stored,
+                    // so the just-arrived message itself can be tagged with
+                    // `isReconnection = true` if it's an `update`-type row.
+                    // No-op when the conversation is already active (the
+                    // pre-return call above just flipped it).
                     if !conversationSyncFailed {
                         await reactivator.markReconnectionIfNeeded(
                             messageId: message.id,

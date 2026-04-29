@@ -86,6 +86,15 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol
     func connectionRepository() -> any ConnectionRepositoryProtocol
+
+    // MARK: Restore lifecycle
+
+    /// Advances the fresh-install bootstrap gate. Called by the app-layer
+    /// restore prompt card once the user has chosen Restore / Start fresh,
+    /// and by `BackupCoordinator` after a successful restore. No-op until
+    /// the gate is actually closed (i.e. the app was constructed with
+    /// `initialBootstrapDecision = .unknown`).
+    func setRestoreBootstrapDecision(_ decision: RestoreBootstrapDecision)
 }
 
 extension SessionManagerProtocol {

@@ -90,6 +90,12 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
 
     func reconnectLocalDatabase() async throws {
     }
+
+    func createArchive(atPath path: String, encryptionKey: Data) async throws {
+    }
+
+    func importArchive(fromPath path: String, encryptionKey: Data) async throws {
+    }
 }
 
 class TestableMockConversations: ConversationsProvider, @unchecked Sendable {

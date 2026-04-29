@@ -242,4 +242,40 @@ public extension AppEnvironment {
     var defaultDatabasesDirectory: String {
         defaultDatabasesDirectoryURL.path
     }
+
+    /// Root directory under the app-group container reserved for backup/restore
+    /// bookkeeping (rollback artifacts, staged bundles). Kept inside the shared
+    /// container so the NSE can observe in-flight transactions and so crash
+    /// recovery on next launch can inspect them.
+    var backupBookkeepingDirectoryURL: URL {
+        defaultDatabasesDirectoryURL.appendingPathComponent("backup", isDirectory: true)
+    }
+
+    /// iCloud container identifier used for backup bundle persistence.
+    ///
+    /// Matches the entitlement's `$(ICLOUD_CONTAINER_IDENTIFIER)` build
+    /// variable (`iCloud.<bundleId>`). Derived from the configured
+    /// `appGroupIdentifier` (stripping the `group.` prefix) to match
+    /// PR #602's convention — using `Bundle.main.bundleIdentifier` is
+    /// fragile in weird contexts (e.g. NSE in Prod builds). Returns
+    /// `nil` in the testing environment where no entitlement exists.
+    /// At runtime, `BackupManager` falls back to the local app-group
+    /// directory when `FileManager.url(forUbiquityContainerIdentifier:)`
+    /// returns nil (user signed out, container not provisioned, etc).
+    var iCloudContainerIdentifier: String? {
+        guard !isTestingEnvironment else { return nil }
+        let groupPrefix = "group."
+        let appGroup = appGroupIdentifier
+        let bundleId = appGroup.hasPrefix(groupPrefix)
+            ? String(appGroup.dropFirst(groupPrefix.count))
+            : appGroup
+        return "iCloud.\(bundleId)"
+    }
+
+    /// App marketing version read from the host bundle. Defaults to `"0.0.0"`
+    /// when unavailable (e.g. in SPM test runs where `Bundle.main` belongs to
+    /// the XCTest host). Written into backup metadata for diagnostic use.
+    var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
+    }
 }

@@ -29,6 +29,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var didReleasePastThreshold: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
+    /// Optional because the observer is only injected in the live app —
+    /// previews and unit-test hosts construct ConversationView directly.
+    @Environment(StaleDeviceObserver.self) private var staleDeviceObserver: StaleDeviceObserver?
+
+    /// Distinguishes "this device was replaced" (Device A — its
+    /// installation got revoked when another device restored from its
+    /// backup) from the default "Restored from backup" (Device B — just
+    /// completed a restore, conversations are inactive until peers
+    /// resync).
+    private var inactiveBannerVariant: InactiveConversationBanner.Variant {
+        staleDeviceObserver?.isDeviceReplaced == true ? .deviceReplaced : .restoredFromBackup
+    }
 
     private var showPullToAddAssistant: Bool {
         !viewModel.conversation.hasAgent
@@ -158,9 +170,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     didReleasePastThreshold = true
                 }
             },
-            onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
+            onVoiceMemoTap: {
+                if viewModel.isInactive {
+                    showingReconnectionAlert = true
+                } else {
+                    viewModel.onVoiceMemoTapped()
+                }
+            },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
-            onSendVoiceMemo: { viewModel.sendVoiceMemo() },
+            onSendVoiceMemo: {
+                if viewModel.isInactive {
+                    showingReconnectionAlert = true
+                } else {
+                    viewModel.sendVoiceMemo()
+                }
+            },
             onConvosAction: { viewModel.onConvosButtonTapped() },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
@@ -180,7 +204,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     bottomBarContent()
 
                     if viewModel.isInactive {
-                        InactiveConversationBanner {
+                        InactiveConversationBanner(variant: inactiveBannerVariant) {
                             if let url = reconnectionLearnMoreURL {
                                 openURL(url)
                             }
@@ -202,6 +226,58 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+    }
+
+    // Extracted from `body` so the modifier chain on `messagesView`
+    // stays under the project's 100ms warn-long-function-bodies budget.
+    @ToolbarContentBuilder
+    private var topBarTrailingItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            if viewModel.isLocked {
+                Button {
+                    showingLockedInfo = true
+                } label: {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                .accessibilityLabel("Conversation locked")
+                .accessibilityHint("Tap for lock details")
+                .accessibilityIdentifier("lock-info-button")
+            } else {
+                switch messagesTopBarTrailingItem {
+                case .share:
+                    AddToConversationMenu(
+                        isFull: viewModel.isFull,
+                        hasAssistant: viewModel.conversation.hasAgent,
+                        isAssistantJoinPending: viewModel.isAssistantJoinPending,
+                        isEnabled: messagesTopBarTrailingItemEnabled,
+                        onConvoCode: {
+                            if viewModel.isFull {
+                                showingFullInfo = true
+                            } else {
+                                viewModel.presentingShareView = true
+                            }
+                        },
+                        onCopyLink: {
+                            viewModel.copyInviteLink()
+                        },
+                        onInviteAssistant: {
+                            viewModel.onRequestAssistantJoin()
+                        }
+                    )
+                case .scan:
+                    Button {
+                        onScanInviteCode()
+                    } label: {
+                        Image(systemName: "viewfinder")
+                    }
+                    .buttonBorderShape(.circle)
+                    .disabled(!messagesTopBarTrailingItemEnabled)
+                    .accessibilityLabel("Scan invite code")
+                    .accessibilityIdentifier("scan-invite-button")
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -251,54 +327,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         } message: {
             Text("You can see and send new messages, reactions and more after another member sends a message.")
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if viewModel.isLocked {
-                    Button {
-                        showingLockedInfo = true
-                    } label: {
-                        Image(systemName: "lock.fill")
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                    .accessibilityLabel("Conversation locked")
-                    .accessibilityHint("Tap for lock details")
-                    .accessibilityIdentifier("lock-info-button")
-                } else {
-                    switch messagesTopBarTrailingItem {
-                    case .share:
-                        AddToConversationMenu(
-                            isFull: viewModel.isFull,
-                            hasAssistant: viewModel.conversation.hasAgent,
-                            isAssistantJoinPending: viewModel.isAssistantJoinPending,
-                            isEnabled: messagesTopBarTrailingItemEnabled,
-                            onConvoCode: {
-                                if viewModel.isFull {
-                                    showingFullInfo = true
-                                } else {
-                                    viewModel.presentingShareView = true
-                                }
-                            },
-                            onCopyLink: {
-                                viewModel.copyInviteLink()
-                            },
-                            onInviteAssistant: {
-                                viewModel.onRequestAssistantJoin()
-                            }
-                        )
-                    case .scan:
-                        Button {
-                            onScanInviteCode()
-                        } label: {
-                            Image(systemName: "viewfinder")
-                        }
-                        .buttonBorderShape(.circle)
-                        .disabled(!messagesTopBarTrailingItemEnabled)
-                        .accessibilityLabel("Scan invite code")
-                        .accessibilityIdentifier("scan-invite-button")
-                    }
-                }
-            }
-        }
+        .toolbar { topBarTrailingItem }
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,

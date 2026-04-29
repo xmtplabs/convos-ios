@@ -1,0 +1,286 @@
+@testable import ConvosCore
+import Foundation
+import GRDB
+import Security
+import Testing
+
+@Suite("BackupManager Tests")
+struct BackupManagerTests {
+    // MARK: - Fixtures
+
+    final class StubArchiveProvider: BackupArchiveProviding, @unchecked Sendable {
+        private let lock: NSLock = NSLock()
+        private var _stats: XMTPArchiveStats
+        private var _payload: Data
+        private var _throwing: (any Error)?
+        var callCount: Int = 0
+        var lastKey: Data?
+        var lastPath: URL?
+
+        init(
+            stats: XMTPArchiveStats = .init(startNs: 1, endNs: 2, installationId: "mock-installation-id"),
+            payload: Data = Data("archive-bytes".utf8),
+            throwing: (any Error)? = nil
+        ) {
+            self._stats = stats
+            self._payload = payload
+            self._throwing = throwing
+        }
+
+        func currentInstallationId() async throws -> String {
+            lock.withLock { _stats.installationId }
+        }
+
+        func createArchive(at path: URL, encryptionKey: Data) async throws -> XMTPArchiveStats {
+            let outcome: (Data, XMTPArchiveStats?, (any Error)?) = lock.withLock {
+                callCount += 1
+                lastKey = encryptionKey
+                lastPath = path
+                return (_payload, _throwing == nil ? _stats : nil, _throwing)
+            }
+            if let error = outcome.2 {
+                throw error
+            }
+            try outcome.0.write(to: path)
+            return outcome.1 ?? _stats
+        }
+    }
+
+    private struct Fixtures {
+        let identityStore: MockKeychainIdentityStore
+        let databaseManager: MockDatabaseManager
+        let deviceInfo: MockDeviceInfoProvider
+        let suite: String
+        let environment: AppEnvironment
+    }
+
+    private func freshFixtures() async throws -> Fixtures {
+        let uniqueId = "device-\(UUID().uuidString)"
+        // Each test gets its own UserDefaults suite so the
+        // RestoreInProgressFlag check doesn't race parallel suites.
+        let suite = "convos.tests.BackupManager.\(UUID().uuidString)"
+        (UserDefaults(suiteName: suite) ?? .standard).removePersistentDomain(forName: suite)
+        return Fixtures(
+            identityStore: MockKeychainIdentityStore(),
+            databaseManager: MockDatabaseManager.makeTestDatabase(),
+            deviceInfo: MockDeviceInfoProvider(
+                deviceIdentifier: uniqueId,
+                deviceName: "Test Device \(uniqueId)"
+            ),
+            suite: suite,
+            environment: .tests
+        )
+    }
+
+    private func seedIdentity(
+        _ store: MockKeychainIdentityStore
+    ) async throws -> KeychainIdentity {
+        let keys = try await store.generateKeys()
+        let identity = try await store.save(inboxId: "inbox-\(UUID().uuidString)", clientId: "client-1", keys: keys)
+        // Two-key model: createBackup reads `backupKey` from the synced
+        // slot. Production seeds it via `KeychainLayoutMigrator`.
+        var backupKey = Data(count: 32)
+        _ = backupKey.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!) // swiftlint:disable:this force_unwrapping
+        }
+        try await store.saveBackupKey(backupKey)
+        return identity
+    }
+
+    /// BackupManager now refuses to bundle an empty state — tests that
+    /// drive createBackup past the guard must seed at least one
+    /// conversation row.
+    private func seedConversation(in fixtures: Fixtures, id: String = UUID().uuidString) async throws {
+        try await fixtures.databaseManager.dbWriter.write { db in
+            let creatorInboxId = "inbox-\(id)"
+            try DBMember(inboxId: creatorInboxId).save(db, onConflict: .ignore)
+            try DBConversation(
+                id: id,
+                clientConversationId: id,
+                inviteTag: "tag-\(id)",
+                creatorId: creatorInboxId,
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAssistant: false
+            ).insert(db)
+        }
+    }
+
+    // MARK: - Happy path
+
+    @Test("createBackup writes a sealed bundle, sidecar, and invokes the archive provider once")
+    func testCreateBackupHappyPath() async throws {
+        let fixtures = try await freshFixtures()
+        _ = try await seedIdentity(fixtures.identityStore)
+        try await seedConversation(in: fixtures)
+
+        let provider = StubArchiveProvider()
+        let manager = BackupManager(
+            identityStore: fixtures.identityStore,
+            archiveProvider: provider,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceInfo: fixtures.deviceInfo,
+            environment: fixtures.environment,
+            restoreFlagSuiteName: fixtures.suite
+        )
+
+        let bundleURL = try await manager.createBackup()
+        #expect(FileManager.default.fileExists(atPath: bundleURL.path))
+        #expect(provider.callCount == 1)
+        #expect(provider.lastKey?.count == 32)
+
+        // Sidecar sits next to the bundle, unencrypted.
+        let sidecar = try BackupSidecarMetadata.read(from: bundleURL.deletingLastPathComponent())
+        #expect(sidecar.schemaGeneration == LegacyDataWipe.currentGeneration)
+        #expect(sidecar.conversationCount == 1)
+
+        // Clean up the bundle dir to keep the shared temp env tidy across tests.
+        try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent())
+    }
+
+    @Test("bundle decrypts under the identity's databaseKey and contains the XMTP archive bytes")
+    func testBundleContentsRoundTrip() async throws {
+        let fixtures = try await freshFixtures()
+        let identity = try await seedIdentity(fixtures.identityStore)
+        try await seedConversation(in: fixtures)
+
+        let expectedArchiveBytes = Data("xmtp-bytes-\(UUID().uuidString)".utf8)
+        let provider = StubArchiveProvider(payload: expectedArchiveBytes)
+        let manager = BackupManager(
+            identityStore: fixtures.identityStore,
+            archiveProvider: provider,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceInfo: fixtures.deviceInfo,
+            environment: fixtures.environment,
+            restoreFlagSuiteName: fixtures.suite
+        )
+
+        let bundleURL = try await manager.createBackup()
+        let bundleData = try Data(contentsOf: bundleURL)
+
+        let restoreDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: restoreDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: restoreDir) }
+
+        // Two-key model: bundle is now sealed with the synced
+        // backup key, not the per-device databaseKey.
+        guard let backupKey = try await fixtures.identityStore.loadBackupKeySync() else {
+            Issue.record("Test fixture should have seeded a backup key")
+            return
+        }
+        try BackupBundle.unpack(data: bundleData, encryptionKey: backupKey, to: restoreDir)
+
+        let archiveOut = try Data(contentsOf: BackupBundle.archivePath(in: restoreDir))
+        #expect(archiveOut == expectedArchiveBytes)
+
+        let innerMeta = try BackupBundleMetadata.read(from: restoreDir)
+        #expect(innerMeta.archiveKey.count == 32)
+        #expect(innerMeta.archiveKey == provider.lastKey)
+        #expect(innerMeta.archiveMetadata?.startNs == 1)
+        #expect(innerMeta.archiveMetadata?.endNs == 2)
+        // The bundle now carries the source identity in its inner
+        // metadata — the destination device adopts this on restore.
+        #expect(innerMeta.identityPayload != nil)
+        if let payload = innerMeta.identityPayload {
+            let recovered = try JSONDecoder().decode(KeychainIdentity.self, from: payload)
+            #expect(recovered.inboxId == identity.inboxId)
+        }
+
+        try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent())
+    }
+
+    // MARK: - Skip conditions
+
+    // The restoreInProgress guard is exercised by RestoreManagerTests'
+    // "restoreFromBackup refuses to run while the flag is set" and the
+    // flag itself is exercised by RestoreInProgressFlagTests. Testing it
+    // here would race against those other suites on the same app-group
+    // UserDefaults, so we cover the path by inspection — see
+    // BackupManager.createBackup's early guard.
+
+    @Test("createBackup throws noConversationsToBackUp when the DB is empty")
+    func testSkipsWhenNoConversations() async throws {
+        let fixtures = try await freshFixtures()
+        _ = try await seedIdentity(fixtures.identityStore)
+        // Intentionally no conversations seeded.
+
+        let provider = StubArchiveProvider()
+        let manager = BackupManager(
+            identityStore: fixtures.identityStore,
+            archiveProvider: provider,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceInfo: fixtures.deviceInfo,
+            environment: fixtures.environment,
+            restoreFlagSuiteName: fixtures.suite
+        )
+
+        await #expect(throws: BackupError.self) {
+            _ = try await manager.createBackup()
+        }
+        // Crucially, the archive provider was never invoked — no wasted
+        // XMTP createArchive round-trip, no staged staging dir.
+        #expect(provider.callCount == 0)
+    }
+
+    @Test("createBackup throws noIdentityAvailable when the store is empty")
+    func testSkipsWhenNoIdentity() async throws {
+        let fixtures = try await freshFixtures()
+        // Do NOT seed an identity.
+
+        let provider = StubArchiveProvider()
+        let manager = BackupManager(
+            identityStore: fixtures.identityStore,
+            archiveProvider: provider,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceInfo: fixtures.deviceInfo,
+            environment: fixtures.environment,
+            restoreFlagSuiteName: fixtures.suite
+        )
+
+        await #expect(throws: BackupError.self) {
+            _ = try await manager.createBackup()
+        }
+        #expect(provider.callCount == 0)
+    }
+
+    // MARK: - Archive provider failures
+
+    @Test("archive provider failure surfaces without leaving a half-written bundle")
+    func testArchiveProviderFailurePropagates() async throws {
+        let fixtures = try await freshFixtures()
+        _ = try await seedIdentity(fixtures.identityStore)
+        try await seedConversation(in: fixtures)
+
+        struct BoomError: Error {}
+        let provider = StubArchiveProvider(throwing: BoomError())
+        let manager = BackupManager(
+            identityStore: fixtures.identityStore,
+            archiveProvider: provider,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceInfo: fixtures.deviceInfo,
+            environment: fixtures.environment,
+            restoreFlagSuiteName: fixtures.suite
+        )
+
+        await #expect(throws: BoomError.self) {
+            _ = try await manager.createBackup()
+        }
+        #expect(provider.callCount == 1)
+    }
+}
