@@ -60,99 +60,126 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "Your name"
     }
 
-    var body: some View {
+    @ViewBuilder
+    private var bottomStack: some View {
         VStack(spacing: 0) {
             bottomBarContent()
             VoiceMemoKeyboardFocusKeeper(
                 focusState: $focusState,
                 text: $voiceMemoKeyboardKeeperText
             )
-            GlassEffectContainer {
-                ZStack {
-                    if !isExpanded {
-                        collapsedInputView
-                    }
+            inputGlassContainer
+        }
+    }
 
-                    if isExpanded {
-                        expandedQuickEditView
-                    }
+    @ViewBuilder
+    private var inputGlassContainer: some View {
+        GlassEffectContainer {
+            ZStack {
+                if !isExpanded {
+                    collapsedInputView
                 }
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.bottom, DesignConstants.Spacing.step4x)
-        }
-        .background(HeightReader())
-        .onPreferenceChange(HeightPreferenceKey.self) { height in
-            onBaseHeightChanged(height)
-        }
-        .onChange(of: focusCoordinator.currentFocus) { _, newValue in
-            guard !isImagePickerPresented else { return }
 
-            withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                isExpanded = newValue == .displayName
-                isMessageInputFocused = newValue == .message
-                    || newValue == .voiceMemoRecording
-                    || newValue == .sideConvoName
-            }
-        }
-        .onChange(of: messageText) { _, _ in
-            guard !isMessageInputFocused, focusCoordinator.currentFocus != .displayName else { return }
-            withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                isMessageInputFocused = true
-            }
-        }
-        .onChange(of: isVoiceMemoActive) { wasActive, isActive in
-            guard wasActive, !isActive else { return }
-            restoreVoiceMemoFocusIfNeeded()
-        }
-        .onChange(of: isPhotoPickerPresented) { _, newValue in
-            if newValue {
-                previousFocus = focusCoordinator.currentFocus
-                didSelectPhotoThisSession = false
-                focusState = nil
-            } else {
-                if !didSelectPhotoThisSession, let previousFocus {
-                    focusCoordinator.moveFocus(to: previousFocus)
+                if isExpanded {
+                    expandedQuickEditView
                 }
             }
         }
-        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .any(of: [.images, .videos]))
-        .onChange(of: selectedPhoto) { _, newValue in
-            Task {
-                guard let newValue else { return }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step2x)
+        .padding(.bottom, DesignConstants.Spacing.step4x)
+    }
 
-                if let videoFile = try? await newValue.loadTransferable(type: VideoFile.self) {
-                    onVideoSelected(videoFile.url)
-                    selectedPhoto = nil
-                    didSelectPhotoThisSession = true
-                    isPhotoPickerPresented = false
-                    focusCoordinator.moveFocus(to: .message)
-                } else if let data = try? await newValue.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) {
-                    selectedAttachmentImage = image
-                    selectedPhoto = nil
-                    didSelectPhotoThisSession = true
-                    isPhotoPickerPresented = false
-                    focusCoordinator.moveFocus(to: .message)
-                }
+    var body: some View {
+        bottomStack
+            .background(HeightReader())
+            .onPreferenceChange(HeightPreferenceKey.self) { height in
+                onBaseHeightChanged(height)
+            }
+            .onChange(of: focusCoordinator.currentFocus) { _, newValue in
+                handleFocusChanged(newValue)
+            }
+            .onChange(of: messageText) { _, _ in
+                handleMessageTextChanged()
+            }
+            .onChange(of: isVoiceMemoActive) { wasActive, isActive in
+                guard wasActive, !isActive else { return }
+                restoreVoiceMemoFocusIfNeeded()
+            }
+            .onChange(of: isPhotoPickerPresented) { _, newValue in
+                handlePhotoPickerPresentedChanged(newValue)
+            }
+            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .any(of: [.images, .videos]))
+            .onChange(of: selectedPhoto) { _, newValue in
+                Task { await handleSelectedPhotoChanged(newValue) }
+            }
+            .fullScreenCover(isPresented: $isCameraPresented) {
+                cameraPicker
+            }
+    }
+
+    private func handleFocusChanged(_ newValue: MessagesViewInputFocus?) {
+        guard !isImagePickerPresented else { return }
+        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+            isExpanded = newValue == .displayName
+            isMessageInputFocused = newValue == .message
+                || newValue == .voiceMemoRecording
+                || newValue == .sideConvoName
+        }
+    }
+
+    private func handleMessageTextChanged() {
+        guard !isMessageInputFocused, focusCoordinator.currentFocus != .displayName else { return }
+        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+            isMessageInputFocused = true
+        }
+    }
+
+    private func handlePhotoPickerPresentedChanged(_ newValue: Bool) {
+        if newValue {
+            previousFocus = focusCoordinator.currentFocus
+            didSelectPhotoThisSession = false
+            focusState = nil
+        } else {
+            if !didSelectPhotoThisSession, let previousFocus {
+                focusCoordinator.moveFocus(to: previousFocus)
             }
         }
-        .fullScreenCover(isPresented: $isCameraPresented) {
-            CameraPickerView(
-                onImageCaptured: { image in
-                    selectedAttachmentImage = image
-                    isCameraPresented = false
-                    focusCoordinator.moveFocus(to: .message)
-                },
-                onVideoCaptured: { url in
-                    onVideoSelected(url)
-                    isCameraPresented = false
-                    focusCoordinator.moveFocus(to: .message)
-                }
-            )
-            .ignoresSafeArea()
+    }
+
+    @MainActor
+    private func handleSelectedPhotoChanged(_ newValue: PhotosPickerItem?) async {
+        guard let newValue else { return }
+        if let videoFile = try? await newValue.loadTransferable(type: VideoFile.self) {
+            onVideoSelected(videoFile.url)
+            selectedPhoto = nil
+            didSelectPhotoThisSession = true
+            isPhotoPickerPresented = false
+            focusCoordinator.moveFocus(to: .message)
+        } else if let data = try? await newValue.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) {
+            selectedAttachmentImage = image
+            selectedPhoto = nil
+            didSelectPhotoThisSession = true
+            isPhotoPickerPresented = false
+            focusCoordinator.moveFocus(to: .message)
         }
+    }
+
+    private var cameraPicker: some View {
+        CameraPickerView(
+            onImageCaptured: { image in
+                selectedAttachmentImage = image
+                isCameraPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            },
+            onVideoCaptured: { url in
+                onVideoSelected(url)
+                isCameraPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            }
+        )
+        .ignoresSafeArea()
     }
 
     private var isVoiceMemoActive: Bool {

@@ -2,6 +2,15 @@ import Foundation
 import UniformTypeIdentifiers
 
 extension DBLastMessageWithSource {
+    private var connectionEventSummaryText: String {
+        guard let text,
+              let data = text.data(using: .utf8),
+              let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) else {
+            return text ?? ""
+        }
+        return summary.text
+    }
+
     func hydrateMessagePreview(
         conversationKind: ConversationKind,
         currentInboxId: String,
@@ -56,8 +65,13 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent a link"
                 }
-            case .assistantJoinRequest, .connectionGrantRequest:
+            case .assistantJoinRequest,
+                 .connectionGrantRequest,
+                 .capabilityRequest,
+                 .capabilityRequestResult:
                 text = ""
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+                text = connectionEventSummaryText
             }
 
         case .reply:
@@ -89,8 +103,13 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "replied with a link"
                 }
-            case .assistantJoinRequest, .connectionGrantRequest:
+            case .assistantJoinRequest,
+                 .connectionGrantRequest,
+                 .capabilityRequest,
+                 .capabilityRequestResult:
                 text = ""
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+                text = connectionEventSummaryText
             }
 
         case .reaction:

@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 
 /// Progress events for inbox deletion
@@ -86,6 +87,34 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func cloudConnectionManager(callbackURLScheme: String) -> any CloudConnectionManagerProtocol
     func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol
+
+    // MARK: Capability resolution
+
+    /// Session-scoped registry of `CapabilityProvider`s. Both the device subsystem
+    /// (`ConvosConnections`) and the cloud subsystem (`CloudConnectionManager`) register
+    /// providers here at session bootstrap and on link/unlink.
+    func capabilityProviderRegistry() -> any CapabilityProviderRegistry
+
+    /// Session-scoped capability resolver, GRDB-backed. Routes
+    /// `(subject, conversation, capability)` to one or more providers per the
+    /// federation rules in `CapabilityResolutionValidator`.
+    func capabilityResolver() -> any CapabilityResolver
+
+    /// Per-conversation observer that publishes the latest unresolved
+    /// `capability_request`. The picker view model subscribes; recomputes its
+    /// layout whenever a fresh request lands or the most recent one gets a
+    /// matching result.
+    func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol
+
+    /// Routes per-`ConnectionKind` permission prompts into ConvosConnections data
+    /// sources. The picker's Connect path calls this to drive the iOS prompt without
+    /// the view model having to know about HealthKit / EventKit / etc.
+    func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer
+
+    /// Per-conversation observer of every `(subject, capability)` resolution the user
+    /// has approved. Conversation Info uses this to render the "Connections" section.
+    func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol
+    func connectionEnablementStore() -> any EnablementStore
 }
 
 extension SessionManagerProtocol {

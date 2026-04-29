@@ -124,6 +124,10 @@ struct MessagesListView: View {
         case let .assistantPresentInfo(agent, inviterName):
             assistantPresentView(agent: agent, inviterName: inviterName)
 
+        case let .connectionEvent(_, summary, _):
+            ConnectionEventSummaryView(summary: summary)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+
         case .typingIndicator:
             EmptyView()
         }

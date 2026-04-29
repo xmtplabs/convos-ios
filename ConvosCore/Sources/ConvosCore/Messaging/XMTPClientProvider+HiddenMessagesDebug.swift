@@ -1,3 +1,4 @@
+import ConvosConnectionsXMTP
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -8,6 +9,11 @@ public struct HiddenMessageDebugEntry: Sendable, Identifiable, Hashable {
         case typingIndicator = "Typing indicator"
         case readReceipt = "Read receipt"
         case reaction = "Reaction"
+        case capabilityRequest = "Capability request"
+        case capabilityRequestResult = "Capability result"
+        case connectionEvent = "Connection event"
+        case connectionInvocation = "Connection invocation"
+        case connectionInvocationResult = "Connection result"
         case unknown = "Unknown"
     }
 
@@ -81,6 +87,26 @@ private extension HiddenMessageDebugEntry {
         } else if contentType == ContentTypeReaction || contentType == ContentTypeReactionV2 {
             reason = .reaction
             summary = Self.reactionSummary(message: message)
+        } else if contentType.authorityID == ContentTypeCapabilityRequest.authorityID,
+                  contentType.typeID == ContentTypeCapabilityRequest.typeID {
+            reason = .capabilityRequest
+            summary = Self.capabilityRequestSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeCapabilityRequestResult.authorityID,
+                  contentType.typeID == ContentTypeCapabilityRequestResult.typeID {
+            reason = .capabilityRequestResult
+            summary = Self.capabilityRequestResultSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeConnectionEvent.authorityID,
+                  contentType.typeID == ContentTypeConnectionEvent.typeID {
+            reason = .connectionEvent
+            summary = Self.connectionEventSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeConnectionInvocation.authorityID,
+                  contentType.typeID == ContentTypeConnectionInvocation.typeID {
+            reason = .connectionInvocation
+            summary = Self.connectionInvocationSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeConnectionInvocationResult.authorityID,
+                  contentType.typeID == ContentTypeConnectionInvocationResult.typeID {
+            reason = .connectionInvocationResult
+            summary = Self.connectionInvocationResultSummary(content: encodedContent)
         } else if Self.visibleContentTypes.contains(where: {
             $0.authorityID == contentType.authorityID && $0.typeID == contentType.typeID
         }) {
@@ -144,5 +170,80 @@ private extension HiddenMessageDebugEntry {
         }
         let referencePrefix = reaction.reference.prefix(8)
         return "\(reaction.action) \(reaction.content) → \(referencePrefix)"
+    }
+
+    static func capabilityRequestSummary(content: EncodedContent) -> String {
+        guard let request = try? CapabilityRequestCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        var parts: [String] = [
+            "subject=\(request.subject.rawValue)",
+            "verb=\(request.capability.rawValue)",
+            "id=\(request.requestId)",
+        ]
+        if let preferred = request.preferredProviders, !preferred.isEmpty {
+            parts.append("preferred=\(preferred.map(\.rawValue).joined(separator: ","))")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    static func capabilityRequestResultSummary(content: EncodedContent) -> String {
+        guard let result = try? CapabilityRequestResultCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        var parts: [String] = [
+            "status=\(result.status.rawValue)",
+            "subject=\(result.subject.rawValue)",
+            "verb=\(result.capability.rawValue)",
+            "id=\(result.requestId)",
+        ]
+        if !result.providers.isEmpty {
+            parts.append("providers=\(result.providers.map(\.rawValue).joined(separator: ","))")
+        }
+        if !result.availableActions.isEmpty {
+            parts.append("actions=\(result.availableActions.count)")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    static func connectionEventSummary(content: EncodedContent) -> String {
+        guard let event = try? ConnectionEventCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        return [
+            "action=\(event.action.rawValue)",
+            "provider=\(event.providerId)",
+        ].joined(separator: ", ")
+    }
+
+    static func connectionInvocationSummary(content: EncodedContent) -> String {
+        guard let invocation = try? ConnectionInvocationCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        return [
+            "kind=\(invocation.kind.rawValue)",
+            "action=\(invocation.action.name)",
+            "id=\(invocation.invocationId)",
+            "args=\(invocation.action.arguments.count)",
+        ].joined(separator: ", ")
+    }
+
+    static func connectionInvocationResultSummary(content: EncodedContent) -> String {
+        guard let result = try? ConnectionInvocationResultCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        var parts: [String] = [
+            "status=\(result.status.rawValue)",
+            "kind=\(result.kind.rawValue)",
+            "action=\(result.actionName)",
+            "id=\(result.invocationId)",
+        ]
+        if !result.result.isEmpty {
+            parts.append("outputs=\(result.result.count)")
+        }
+        if let errorMessage = result.errorMessage, !errorMessage.isEmpty {
+            parts.append("error=\(errorMessage)")
+        }
+        return parts.joined(separator: ", ")
     }
 }

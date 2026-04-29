@@ -74,6 +74,7 @@ struct ConversationInfoView: View {
     let focusCoordinator: FocusCoordinator
 
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
+    @State private var capabilityResolutionsViewModel: ConversationCapabilityResolutionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeSheet: Bool = false
@@ -439,10 +440,9 @@ struct ConversationInfoView: View {
 
             assistantSection
 
-            if FeatureFlags.shared.isCloudConnectionsEnabled,
-               let connectionsViewModel,
-               connectionsViewModel.hasConnections {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            if let capabilityResolutionsViewModel,
+               capabilityResolutionsViewModel.hasResolutions {
+                ConversationCapabilityResolutionsSection(viewModel: capabilityResolutionsViewModel)
             }
 
             convoCodeSection
@@ -458,6 +458,11 @@ struct ConversationInfoView: View {
             }
 
             preferencesSection
+
+            if viewModel.conversation.hasAgent,
+               let connectionsViewModel {
+                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            }
 
             convoRulesSection
 
@@ -609,8 +614,11 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if FeatureFlags.shared.isCloudConnectionsEnabled, connectionsViewModel == nil {
+                    if viewModel.conversation.hasAgent, connectionsViewModel == nil {
                         connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+                    }
+                    if capabilityResolutionsViewModel == nil {
+                        capabilityResolutionsViewModel = viewModel.makeCapabilityResolutionsViewModel()
                     }
                 }
                 .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
@@ -716,8 +724,12 @@ struct DebugLogsTextView: View {
     }
 }
 
+@MainActor
+private func makeConversationInfoPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
+    ConversationInfoView(viewModel: makeConversationInfoPreviewViewModel(), focusCoordinator: focusCoordinator)
 }

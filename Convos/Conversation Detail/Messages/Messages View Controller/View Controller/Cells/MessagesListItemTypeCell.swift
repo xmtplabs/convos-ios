@@ -165,6 +165,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         }
                     }
 
+                case let .connectionEvent(_, summary, _):
+                    ConnectionEventSummaryView(summary: summary)
+                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+
                 case .typingIndicator:
                     EmptyView()
                 }

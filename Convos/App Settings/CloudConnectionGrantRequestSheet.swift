@@ -46,7 +46,9 @@ final class CloudConnectionGrantRequestSheetViewModel {
         cancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connections in
-                self?.connection = connections.first { $0.serviceId == self?.serviceId }
+                self?.connection = connections.first {
+                    $0.provider == .composio && $0.serviceId == self?.serviceId
+                }
                 self?.isLoading = false
             }
     }

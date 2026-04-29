@@ -30,8 +30,10 @@ struct ReplyReferenceView: View {
             return "invite"
         case .linkPreview(let preview):
             return preview.title ?? preview.displayHost
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest, .connectionEvent:
             return ""
+        case .connectionInvocation(let summary), .connectionInvocationResult(let summary):
+            return String(summary.text.prefix(80))
         }
     }
 

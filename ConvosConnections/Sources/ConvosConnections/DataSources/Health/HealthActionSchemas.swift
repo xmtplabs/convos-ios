@@ -2,8 +2,10 @@ import Foundation
 
 /// Static `ActionSchema` values published by `HealthDataSink`.
 ///
-/// All three `log_*` actions are mapped to `.writeCreate` since they append a new sample.
-/// Updating or deleting existing samples is out of scope for v1.
+/// `log_*` actions are mapped to `.writeCreate` since they append a new sample.
+/// `fetch_*` actions are mapped to `.read` so invocation gating uses the conversation's
+/// read grant instead of a write verb. Updating or deleting existing samples is out of
+/// scope for v1.
 public enum HealthActionSchemas {
     public static let logWater: ActionSchema = ActionSchema(
         kind: .health,
@@ -48,5 +50,44 @@ public enum HealthActionSchemas {
         ]
     )
 
-    public static let all: [ActionSchema] = [logWater, logCaffeine, logMindfulMinutes]
+    public static let fetchSummaryLast24Hours: ActionSchema = ActionSchema(
+        kind: .health,
+        actionName: "fetch_summary_last_24h",
+        capability: .read,
+        summary: "Fetch a read-only health summary for the last 24 hours.",
+        inputs: [],
+        outputs: [
+            ActionParameter(name: "summary", type: .string, description: "Human-readable summary of the window.", isRequired: true),
+            ActionParameter(name: "sampleCount", type: .int, description: "Number of mapped samples in the window.", isRequired: true),
+            ActionParameter(name: "rangeStart", type: .iso8601DateTime, description: "Window start (RFC 3339 with offset).", isRequired: true),
+            ActionParameter(name: "rangeEnd", type: .iso8601DateTime, description: "Window end (RFC 3339 with offset).", isRequired: true),
+            ActionParameter(name: "payloadJson", type: .string, description: "Full HealthPayload JSON string for callers that need richer structured data.", isRequired: true),
+        ]
+    )
+
+    public static let fetchSamples: ActionSchema = ActionSchema(
+        kind: .health,
+        actionName: "fetch_samples",
+        capability: .read,
+        summary: "Fetch read-only health samples for an explicit date range.",
+        inputs: [
+            ActionParameter(name: "startDate", type: .iso8601DateTime, description: "Window start (RFC 3339 with offset).", isRequired: true),
+            ActionParameter(name: "endDate", type: .iso8601DateTime, description: "Window end (RFC 3339 with offset). Must be later than startDate.", isRequired: true),
+        ],
+        outputs: [
+            ActionParameter(name: "summary", type: .string, description: "Human-readable summary of the window.", isRequired: true),
+            ActionParameter(name: "sampleCount", type: .int, description: "Number of mapped samples in the window.", isRequired: true),
+            ActionParameter(name: "rangeStart", type: .iso8601DateTime, description: "Window start (RFC 3339 with offset).", isRequired: true),
+            ActionParameter(name: "rangeEnd", type: .iso8601DateTime, description: "Window end (RFC 3339 with offset).", isRequired: true),
+            ActionParameter(name: "payloadJson", type: .string, description: "Full HealthPayload JSON string for callers that need richer structured data.", isRequired: true),
+        ]
+    )
+
+    public static let all: [ActionSchema] = [
+        logWater,
+        logCaffeine,
+        logMindfulMinutes,
+        fetchSummaryLast24Hours,
+        fetchSamples,
+    ]
 }

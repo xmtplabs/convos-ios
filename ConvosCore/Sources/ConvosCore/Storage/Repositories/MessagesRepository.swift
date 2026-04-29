@@ -518,6 +518,35 @@ extension Array where Element == DBMessage {
                     } else {
                         messageContent = .text("")
                     }
+                case .capabilityRequest, .capabilityRequestResult:
+                    // Capability request / result messages drive picker presentation
+                    // out-of-band (see `ConversationViewModel.pendingCapabilityPickerLayout`).
+                    // They aren't surfaced in the message list as user-visible content.
+                    return nil
+                case .connectionEvent:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) {
+                        messageContent = .connectionEvent(summary: summary)
+                    } else {
+                        messageContent = .text("")
+                    }
+                case .connectionInvocation:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) {
+                        messageContent = .connectionInvocation(summary: summary)
+                    } else {
+                        messageContent = .text("")
+                    }
+                case .connectionInvocationResult:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) {
+                        messageContent = .connectionInvocationResult(summary: summary)
+                    } else {
+                        messageContent = .text("")
+                    }
                 }
 
                 let message = Message(
@@ -579,7 +608,14 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .capabilityRequest,
+             .capabilityRequestResult,
+             .connectionEvent:
+            return nil
+        case .connectionInvocation, .connectionInvocationResult:
             return nil
         }
 
@@ -616,8 +652,15 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text(sourceDBMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .capabilityRequest,
+             .capabilityRequestResult,
+             .connectionEvent:
             parentContent = .text("[Update]")
+        case .connectionInvocation, .connectionInvocationResult:
+            parentContent = .text("")
         }
 
         let parentMessage = Message(

@@ -107,6 +107,42 @@ struct ConnectionsManagerInvocationTests {
         #expect(result.status == .success)
     }
 
+    @Test("read actions use read capability gate")
+    func readActionUsesReadCapability() async {
+        let readSchema = ActionSchema(
+            kind: .health,
+            actionName: "fetch_summary_last_24h",
+            capability: .read,
+            summary: "Read summary",
+            inputs: [],
+            outputs: []
+        )
+        let sink = TestSink(kind: .health, schemas: [readSchema], response: .init(status: .success))
+        let store = InMemoryEnablementStore()
+        let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: RecordingDelivering())
+
+        let disabled = await manager.handleInvocation(
+            ConnectionInvocation(
+                invocationId: "read-1",
+                kind: .health,
+                action: ConnectionAction(name: "fetch_summary_last_24h", arguments: [:])
+            ),
+            from: "conv-1"
+        )
+        #expect(disabled.status == .capabilityNotEnabled)
+
+        await store.setEnabled(true, kind: .health, capability: .read, conversationId: "conv-1")
+        let enabled = await manager.handleInvocation(
+            ConnectionInvocation(
+                invocationId: "read-2",
+                kind: .health,
+                action: ConnectionAction(name: "fetch_summary_last_24h", arguments: [:])
+            ),
+            from: "conv-1"
+        )
+        #expect(enabled.status == .success)
+    }
+
     @Test("appends to recentInvocationLog")
     func recordsInvocation() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))

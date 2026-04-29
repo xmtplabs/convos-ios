@@ -1,9 +1,13 @@
 import Combine
+import ConvosConnections
 import Foundation
 import GRDB
 
-public final class MockInboxesService: SessionManagerProtocol {
+public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendable {
     private let mockMessagingService: MockMessagingService
+    /// Single shared registry so providers registered through this mock are visible to
+    /// the resolver `capabilityResolver()` returns.
+    private let mockCapabilityRegistry: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
 
     public init(mockMessagingService: MockMessagingService = MockMessagingService()) {
         self.mockMessagingService = mockMessagingService
@@ -177,4 +181,41 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         MockConnectionRepository()
     }
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        mockCapabilityRegistry
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        InMemoryCapabilityResolver(registry: mockCapabilityRegistry)
+    }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        MockCapabilityRequestRepository()
+    }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        MockDeviceConnectionAuthorizer()
+    }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        MockCapabilityResolutionsRepository()
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        InMemoryEnablementStore()
+    }
+}
+
+private final class MockCapabilityResolutionsRepository: CapabilityResolutionsRepositoryProtocol, @unchecked Sendable {
+    let resolutionsPublisher: AnyPublisher<[CapabilityResolution], Never> = Just([]).eraseToAnyPublisher()
+}
+
+private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
+    func currentAuthorization(for kind: ConnectionKind) async -> ConnectionAuthorizationStatus { .notDetermined }
+    func requestAuthorization(for kind: ConnectionKind) async throws -> ConnectionAuthorizationStatus { .authorized }
+}
+
+private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

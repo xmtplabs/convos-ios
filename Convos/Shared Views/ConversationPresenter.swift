@@ -12,7 +12,8 @@ struct ConversationPresenter<Content: View>: View {
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
 
     private var isShowingShareOverlay: Bool {
-        viewModel?.presentingShareView == true
+        guard let viewModel else { return false }
+        return viewModel.presentingShareView
     }
 
     var body: some View {
@@ -124,8 +125,13 @@ private struct ConversationIndicatorWrapper: View {
     }
 }
 
+@MainActor
+private func makePresenterPreviewViewModel() -> ConversationViewModel? {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var conversationViewModel: ConversationViewModel? = .mock
+    @Previewable @State var conversationViewModel: ConversationViewModel? = makePresenterPreviewViewModel()
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @Previewable @State var sidebarColumnWidth: CGFloat = 0
     ConversationPresenter(

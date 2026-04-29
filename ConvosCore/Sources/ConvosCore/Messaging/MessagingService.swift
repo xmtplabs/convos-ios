@@ -240,6 +240,14 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    func connectionEventWriter() -> any ConnectionEventWriterProtocol {
+        ConnectionEventWriter(sessionStateManager: sessionStateManager)
+    }
+
+    func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
+        CapabilityRequestResultWriter(sessionStateManager: sessionStateManager)
+    }
+
     func uploadImage(data: Data, filename: String) async throws -> String {
         let result = try await sessionStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachment(

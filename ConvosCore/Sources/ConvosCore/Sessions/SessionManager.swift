@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 import GRDB
 import os
@@ -41,8 +42,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         var isOnConversationsList: Bool = false
     }
 
-    private let databaseWriter: any DatabaseWriter
-    private let databaseReader: any DatabaseReader
+    let databaseWriter: any DatabaseWriter
+    let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private var initializationTask: Task<Void, Never>?
@@ -136,8 +137,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
 
             await self.prewarmUnusedConversation()
-
             guard !Task.isCancelled else { return }
+
+            await self.bootstrapCapabilityProviders()
+            guard !Task.isCancelled else { return }
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -668,5 +672,61 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         CloudConnectionRepository(databaseReader: databaseReader)
+    }
+
+    // MARK: - Capability resolution
+
+    /// Lazily-constructed singleton registry. Multiple subsystems register providers
+    /// concurrently (device sinks at boot, cloud OAuth at link/unlink), so we want one
+    /// shared registry per session instead of per-callsite copies.
+    private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
+    private let connectionEnablementStoreLock: OSAllocatedUnfairLock<(any EnablementStore)?> = .init(initialState: nil)
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        capabilityRegistryLock.withLock { registry in
+            if let registry { return registry }
+            let new: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
+            registry = new
+            return new
+        }
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        GRDBCapabilityResolver(
+            database: databaseWriter,
+            registry: capabilityProviderRegistry()
+        )
+    }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        DefaultDeviceConnectionAuthorizer()
+    }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        CapabilityResolutionsRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        connectionEnablementStoreLock.withLock { store in
+            if let store { return store }
+            let new: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+            store = new
+            return new
+        }
+    }
+
+    /// Registers the default device-provider catalog into the registry so the picker
+    /// has something to render when a `capability_request` arrives. The `linkedByUser`
+    /// closure is a stub that always returns false — the main app refreshes provider
+    /// link state via `register(_:)` when iOS-framework authorization changes.
+    private func bootstrapCapabilityProviders() async {
+        await CapabilityProviderBootstrap.registerDeviceProviders(
+            registry: capabilityProviderRegistry(),
+            linkedByUser: { _ in { false } }
+        )
     }
 }

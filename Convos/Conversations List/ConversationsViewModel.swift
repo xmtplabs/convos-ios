@@ -127,18 +127,25 @@ final class ConversationsViewModel {
     var activeFilter: ConversationFilter = .all
 
     var pinnedConversations: [Conversation] {
-        let baseConversations = conversations
+        let baseConversations = pinnedBaseConversations
+        return Self.applyFilter(activeFilter, to: baseConversations)
+    }
+
+    private var pinnedBaseConversations: [Conversation] {
+        conversations
             .filter { $0.isPinned }
             .filter { $0.kind == .group }
             .sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
+    }
 
-        switch activeFilter {
+    private static func applyFilter(_ filter: ConversationFilter, to conversations: [Conversation]) -> [Conversation] {
+        switch filter {
         case .all:
-            return baseConversations
+            return conversations
         case .unread:
-            return baseConversations.filter { $0.isUnread }
+            return conversations.filter { $0.isUnread }
         case .exploding:
-            return baseConversations.filter { $0.scheduledExplosionDate != nil }
+            return conversations.filter { $0.scheduledExplosionDate != nil }
         }
     }
 

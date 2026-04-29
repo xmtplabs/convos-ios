@@ -151,17 +151,41 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     bottomBarContent()
 
-                    ConversationOnboardingView(
-                        coordinator: onboardingCoordinator,
-                        focusCoordinator: focusCoordinator,
-                        scrollOverscrollAmount: scrollOverscrollAmount,
-                        onTapSetupQuickname: {
-                            onboardingCoordinator.didTapProfilePhoto()
-                            viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-                        },
-                        onUseQuickname: viewModel.onUseQuickname(_:_:),
-                        onPresentProfileSettings: viewModel.onProfileSettings
-                    )
+                    Group {
+                        if viewModel.showsCapabilityApprovedToast {
+                            CapabilityApprovedToastView()
+                                .transition(.blurReplace)
+                        } else if let layout = viewModel.pendingCapabilityPickerLayout {
+                            CapabilityPickerCardView(
+                                layout: layout,
+                                onApprove: { providerIds in
+                                    viewModel.onCapabilityApprove(providerIds: providerIds)
+                                },
+                                onDeny: {
+                                    viewModel.onCapabilityDeny()
+                                },
+                                onConnect: { providerId in
+                                    viewModel.onCapabilityConnect(providerId: providerId)
+                                }
+                            )
+                            .transition(.blurReplace)
+                        } else {
+                            ConversationOnboardingView(
+                                coordinator: onboardingCoordinator,
+                                focusCoordinator: focusCoordinator,
+                                scrollOverscrollAmount: scrollOverscrollAmount,
+                                onTapSetupQuickname: {
+                                    onboardingCoordinator.didTapProfilePhoto()
+                                    viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
+                                },
+                                onUseQuickname: viewModel.onUseQuickname(_:_:),
+                                onPresentProfileSettings: viewModel.onProfileSettings
+                            )
+                            .transition(.blurReplace)
+                        }
+                    }
+                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.pendingCapabilityPickerLayout)
+                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
@@ -336,8 +360,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 }
 
+@MainActor
+private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
+    @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)

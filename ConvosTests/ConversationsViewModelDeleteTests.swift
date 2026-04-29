@@ -343,4 +343,24 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
     func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         base.cloudConnectionRepository()
     }
+
+    func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        base.capabilityProviderRegistry()
+    }
+
+    func capabilityResolver() -> any CapabilityResolver {
+        base.capabilityResolver()
+    }
+
+    func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        base.capabilityRequestRepository(for: conversationId)
+    }
+
+    func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        base.deviceConnectionAuthorizer()
+    }
+
+    func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        base.capabilityResolutionsRepository(for: conversationId)
+    }
 }

@@ -103,167 +103,137 @@ struct MessagesGroupItemView: View {
     private var messageContent: some View {
         switch message.content {
         case .text(let text):
-            MessageBubble(
-                style: message.content.isEmoji ? .none : bubbleType,
-                message: text,
-                isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: message.content.isEmoji ? .none : bubbleType,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("bubble-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            textBubble(text: text)
         case .emoji(let text):
-            EmojiBubble(
-                emoji: text,
-                isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: .none,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("emoji-bubble-\(message.messageId)")
-            .opacity(isAppearing ? 0.0 : 1.0)
-            .blur(radius: isAppearing ? 10.0 : 0.0)
-            .scaleEffect(isAppearing ? 0.0 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.10 : 0.10)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -200 : 200)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            emojiBubble(text: text)
         case .invite(let invite):
-            MessageInviteContainerView(
-                invite: invite,
-                style: bubbleType,
-                isOutgoing: message.source == .outgoing,
-                profile: message.sender.profile,
-                onTapInvite: onTapInvite,
-                onTapAvatar: { onTapAvatar(message) }
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: bubbleType,
-                onSingleTap: { onTapInvite(invite) },
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("message-invite-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            inviteBubble(invite: invite)
         case .linkPreview(let preview):
-            LinkPreviewBubbleView(
-                preview: preview,
-                style: bubbleType,
-                isOutgoing: message.source == .outgoing,
-                profile: message.sender.profile,
-                messageId: message.messageId
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: bubbleType,
-                onSingleTap: {
-                    if let url = preview.resolvedURL {
-                        UIApplication.shared.open(url)
-                    }
-                },
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("link-preview-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            linkPreviewBubble(preview: preview)
         case .attachment(let attachment):
             attachmentView(for: attachment)
-
         case .attachments(let attachments):
             if let attachment = attachments.first {
                 attachmentView(for: attachment)
             }
-
         case .update, .assistantJoinRequest:
             EmptyView()
-
         case .connectionGrantRequest(let request):
-            // Cloud Connections is feature-flagged. With the flag off, an
-            // authorized assistant can still send a grant-request payload —
-            // we receive and decode it but render nothing so the unsupported
-            // feature isn't surfaced to the user.
-            if FeatureFlags.shared.isCloudConnectionsEnabled {
-                CloudConnectionGrantRequestCardView(
-                    request: request,
-                    conversationId: conversationId,
-                    sender: message.sender
-                )
-                .messageGesture(
-                    message: message,
-                    bubbleStyle: bubbleType,
-                    onReply: onReply,
-                    onToggleReaction: onToggleReaction
-                )
-                .padding(.trailing, trailingPadding)
-            } else {
-                EmptyView()
+            connectionGrantRequestBubble(request: request)
+        case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func textBubble(text: String) -> some View {
+        MessageBubble(
+            style: message.content.isEmoji ? .none : bubbleType,
+            message: text,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: message.content.isEmoji ? .none : bubbleType,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("bubble-\(message.messageId)")
+        .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func emojiBubble(text: String) -> some View {
+        EmojiBubble(
+            emoji: text,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: .none,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("emoji-bubble-\(message.messageId)")
+        .opacity(isAppearing ? 0.0 : 1.0)
+        .blur(radius: isAppearing ? 10.0 : 0.0)
+        .scaleEffect(isAppearing ? 0.0 : 1.0)
+        .rotationEffect(.radians(isAppearing ? (message.source == .incoming ? -0.10 : 0.10) : 0))
+        .offset(
+            x: isAppearing ? (message.source == .incoming ? -200 : 200) : 0,
+            y: isAppearing ? 40 : 0
+        )
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func inviteBubble(invite: MessageInvite) -> some View {
+        MessageInviteContainerView(
+            invite: invite,
+            style: bubbleType,
+            isOutgoing: message.source == .outgoing,
+            profile: message.sender.profile,
+            onTapInvite: onTapInvite,
+            onTapAvatar: { onTapAvatar(message) }
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: bubbleType,
+            onSingleTap: { onTapInvite(invite) },
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("message-invite-\(message.messageId)")
+        .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func linkPreviewBubble(preview: LinkPreview) -> some View {
+        let openAction: () -> Void = {
+            if let url = preview.resolvedURL {
+                UIApplication.shared.open(url)
             }
+        }
+        LinkPreviewBubbleView(
+            preview: preview,
+            style: bubbleType,
+            isOutgoing: message.source == .outgoing,
+            profile: message.sender.profile,
+            messageId: message.messageId
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: bubbleType,
+            onSingleTap: openAction,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("link-preview-\(message.messageId)")
+        .modifier(MessageAppearanceModifier(isAppearing: isAppearing, source: message.source))
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func connectionGrantRequestBubble(request: CloudConnectionGrantRequest) -> some View {
+        if FeatureFlags.shared.isCloudConnectionsEnabled {
+            CloudConnectionGrantRequestCardView(
+                request: request,
+                conversationId: conversationId,
+                sender: message.sender
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .padding(.trailing, trailingPadding)
+        } else {
+            EmptyView()
         }
     }
 
@@ -334,6 +304,21 @@ struct MessagesGroupItemView: View {
             )
             .id(message.messageId)
         }
+    }
+}
+
+private struct MessageAppearanceModifier: ViewModifier {
+    let isAppearing: Bool
+    let source: MessageSource
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .rotationEffect(.radians(isAppearing ? (source == .incoming ? -0.05 : 0.05) : 0))
+            .offset(
+                x: isAppearing ? (source == .incoming ? -20 : 20) : 0,
+                y: isAppearing ? 40 : 0
+            )
     }
 }
 
@@ -597,83 +582,106 @@ private struct AttachmentPlaceholder: View {
     }
 
     var body: some View {
-        Group {
-            if let player = inlinePlayer {
-                InlineVideoPlayerView(player: player)
-                    .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-                    .blur(radius: showBlurOverlay ? blurRadius : 0)
-                    .overlay(alignment: .top) {
-                        if !isPlaying {
-                            MediaTopGradient()
-                        }
-                    }
-                    .overlay {
-                        if !isPlaying, !videoLoadFailed {
-                            videoOverlay
-                        }
-                    }
-                    .aspectRatio(placeholderAspectRatio, contentMode: .fit)
-                    .clipped()
-                    .compositingGroup()
-                .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-                .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-                .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-                .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
-                .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
-            } else if let image = loadedImage {
-                ZStack {
-                    photoContent(image: image)
-
-                    if isVideo, !videoLoadFailed {
-                        if isLoadingVideo {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            videoOverlay
-                        }
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-                .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-                .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-                .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
-            } else if isLoading {
-                loadingPlaceholder
-            } else {
-                errorPlaceholder
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .accessibilityLabel(isVideo ? "Video message" : "Photo message")
-        .onChange(of: videoPlayTrigger) {
-            handleVideoPlayTap()
-        }
-        .onChange(of: shouldBlur) {
-            if shouldBlur, isPlaying {
-                inlinePlayer?.pause()
-                isPlaying = false
-            } else if !shouldBlur, pendingPlayAfterReveal {
-                pendingPlayAfterReveal = false
+        contentGroup
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .accessibilityLabel(isVideo ? "Video message" : "Photo message")
+            .onChange(of: videoPlayTrigger) {
                 handleVideoPlayTap()
             }
+            .onChange(of: shouldBlur) {
+                handleBlurChange()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
+                handlePlaybackEnd(notification: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Self.videoPlaybackStarted)) { notification in
+                handlePlaybackStartedElsewhere(notification: notification)
+            }
+            .task {
+                await loadAttachment()
+            }
+    }
+
+    @ViewBuilder
+    private var contentGroup: some View {
+        if let player = inlinePlayer {
+            inlineVideoView(player: player)
+        } else if let image = loadedImage {
+            loadedImageView(image: image)
+        } else if isLoading {
+            loadingPlaceholder
+        } else {
+            errorPlaceholder
         }
-        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
-            guard let finishedItem = notification.object as? AVPlayerItem,
-                  finishedItem === inlinePlayer?.currentItem
-            else { return }
-            isPlaying = false
+    }
+
+    @ViewBuilder
+    private func inlineVideoView(player: AVPlayer) -> some View {
+        InlineVideoPlayerView(player: player)
+            .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
+            .blur(radius: showBlurOverlay ? blurRadius : 0)
+            .overlay(alignment: .top) {
+                if !isPlaying {
+                    MediaTopGradient()
+                }
+            }
+            .overlay {
+                if !isPlaying, !videoLoadFailed {
+                    videoOverlay
+                }
+            }
+            .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+            .clipped()
+            .compositingGroup()
+            .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+            .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+            .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+            .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+            .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
+    }
+
+    @ViewBuilder
+    private func loadedImageView(image: UIImage) -> some View {
+        ZStack {
+            photoContent(image: image)
+            if isVideo, !videoLoadFailed {
+                if isLoadingVideo {
+                    ProgressView().tint(.white)
+                } else {
+                    videoOverlay
+                }
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: Self.videoPlaybackStarted)) { notification in
-            guard let senderID = notification.object as? UUID,
-                  senderID != instanceID,
-                  isPlaying
-            else { return }
+        .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+        .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+        .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+        .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+    }
+
+    private func handleBlurChange() {
+        if shouldBlur, isPlaying {
             inlinePlayer?.pause()
             isPlaying = false
+        } else if !shouldBlur, pendingPlayAfterReveal {
+            pendingPlayAfterReveal = false
+            handleVideoPlayTap()
         }
-        .task {
-            await loadAttachment()
-        }
+    }
+
+    private func handlePlaybackEnd(notification: Notification) {
+        guard let finishedItem = notification.object as? AVPlayerItem,
+              finishedItem === inlinePlayer?.currentItem
+        else { return }
+        isPlaying = false
+    }
+
+    private func handlePlaybackStartedElsewhere(notification: Notification) {
+        guard let senderID = notification.object as? UUID,
+              senderID != instanceID,
+              isPlaying
+        else { return }
+        inlinePlayer?.pause()
+        isPlaying = false
     }
 
     private var videoOverlay: some View {
@@ -765,45 +773,15 @@ private struct AttachmentPlaceholder: View {
 
     private func loadVideoAttachment() async {
         let cacheKey = attachment.key
-        if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
-            loadedImage = thumb
-            ImageCache.shared.cacheImage(thumb, for: cacheKey)
-            isLoading = false
-            isLoadingVideo = true
-            videoLoadFailed = false
-            if attachment.width == nil {
-                onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
-            }
-        }
-
+        applyVideoThumbnailDataIfAvailable(cacheKey: cacheKey)
         do {
             let videoURL = try await resolveVideoURL(for: attachment.key)
             if attachment.width == nil {
                 await loadVideoDimensionsIfPossible(from: videoURL)
             }
             let asset = AVURLAsset(url: videoURL)
-            if resolvedDuration == nil {
-                do {
-                    let cmDuration = try await asset.load(.duration)
-                    if cmDuration.seconds.isFinite {
-                        resolvedDuration = cmDuration.seconds
-                    } else {
-                        Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
-                    }
-                } catch {
-                    Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
-                }
-            }
-            if loadedImage == nil {
-                let thumbnailData = try? await VideoCompressionService().generateThumbnail(for: asset)
-                if let thumbnailData, let thumb = UIImage(data: thumbnailData) {
-                    loadedImage = thumb
-                    ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
-                    if attachment.width == nil {
-                        onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
-                    }
-                }
-            }
+            await resolveVideoDurationIfNeeded(asset: asset)
+            await generateVideoThumbnailIfNeeded(asset: asset, cacheKey: cacheKey)
             let player = AVPlayer(url: videoURL)
             await player.seek(to: .zero)
             inlinePlayer = player
@@ -815,6 +793,46 @@ private struct AttachmentPlaceholder: View {
             isLoadingVideo = false
             videoLoadFailed = true
             Log.error("Failed to load video: \(error)")
+        }
+    }
+
+    private func applyVideoThumbnailDataIfAvailable(cacheKey: String) {
+        guard let thumbnailData = attachment.thumbnailData,
+              let thumb = UIImage(data: thumbnailData) else {
+            return
+        }
+        loadedImage = thumb
+        ImageCache.shared.cacheImage(thumb, for: cacheKey)
+        isLoading = false
+        isLoadingVideo = true
+        videoLoadFailed = false
+        if attachment.width == nil {
+            onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+        }
+    }
+
+    private func resolveVideoDurationIfNeeded(asset: AVURLAsset) async {
+        guard resolvedDuration == nil else { return }
+        do {
+            let cmDuration = try await asset.load(.duration)
+            if cmDuration.seconds.isFinite {
+                resolvedDuration = cmDuration.seconds
+            } else {
+                Log.warning("Resolved non-finite video duration for attachment: \(attachment.key)")
+            }
+        } catch {
+            Log.warning("Failed to resolve video duration for attachment \(attachment.key): \(error.localizedDescription)")
+        }
+    }
+
+    private func generateVideoThumbnailIfNeeded(asset: AVURLAsset, cacheKey: String) async {
+        guard loadedImage == nil else { return }
+        let thumbnailData = try? await VideoCompressionService().generateThumbnail(for: asset)
+        guard let thumbnailData, let thumb = UIImage(data: thumbnailData) else { return }
+        loadedImage = thumb
+        ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
+        if attachment.width == nil {
+            onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
         }
     }
 

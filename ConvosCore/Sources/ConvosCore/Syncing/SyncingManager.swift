@@ -1,3 +1,4 @@
+import ConvosConnections
 import ConvosInvites
 import Foundation
 import GRDB
@@ -140,12 +141,14 @@ actor SyncingManager: SyncingManagerProtocol {
          notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
         self.databaseReader = databaseReader
+        let enablementStore: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager,
-            notificationCenter: notificationCenter
+            notificationCenter: notificationCenter,
+            invocationRuntime: ConnectionInvocationRuntime(store: enablementStore)
         )
     }
 

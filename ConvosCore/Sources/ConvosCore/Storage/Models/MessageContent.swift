@@ -1,5 +1,34 @@
 import Foundation
 
+public struct ConnectionEventSummary: Hashable, Codable, Sendable {
+    public enum Outcome: String, Hashable, Codable, Sendable {
+        case pending
+        case success
+        case failure
+    }
+
+    public enum Icon: String, Hashable, Codable, Sendable {
+        case health
+        case calendar
+        case contacts
+        case photos
+        case music
+        case home
+        case generic
+        case error
+    }
+
+    public let text: String
+    public let outcome: Outcome
+    public let icon: Icon
+
+    public init(text: String, outcome: Outcome, icon: Icon) {
+        self.text = text
+        self.outcome = outcome
+        self.icon = icon
+    }
+}
+
 // MARK: - MessageContent
 
 public enum MessageContent: Hashable, Codable, Sendable {
@@ -11,7 +40,10 @@ public enum MessageContent: Hashable, Codable, Sendable {
          update(ConversationUpdate),
          linkPreview(LinkPreview),
          assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String),
-         connectionGrantRequest(CloudConnectionGrantRequest)
+         connectionGrantRequest(CloudConnectionGrantRequest),
+         connectionEvent(summary: ConnectionEventSummary),
+         connectionInvocation(summary: ConnectionEventSummary),
+         connectionInvocationResult(summary: ConnectionEventSummary)
 
     public var showsInMessagesList: Bool {
         switch self {
@@ -42,7 +74,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
 
     public var showsSender: Bool {
         switch self {
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest, .connectionEvent, .connectionInvocation, .connectionInvocationResult:
             false
         default:
             true

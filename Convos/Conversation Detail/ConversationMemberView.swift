@@ -215,6 +215,11 @@ struct ConversationMemberView: View {
     }
 }
 
+@MainActor
+private func makeMemberPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    ConversationMemberView(viewModel: .mock, member: .mock())
+    ConversationMemberView(viewModel: makeMemberPreviewViewModel(), member: .mock())
 }

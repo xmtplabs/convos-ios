@@ -1,0 +1,56 @@
+import ConvosConnections
+import Foundation
+
+/// Provider — a concrete way to fulfill a `CapabilitySubject`. Both `ConvosConnections`
+/// (device sources) and the cloud-OAuth subsystem register one provider per linked
+/// service/permission.
+public protocol CapabilityProvider: Sendable {
+    var id: ProviderID { get }
+    var subject: CapabilitySubject { get }
+
+    /// User-visible display name ("Apple Calendar", "Google Calendar", "Strava").
+    var displayName: String { get }
+
+    /// SF Symbol name used in picker / confirmation cards.
+    var iconName: String { get }
+
+    /// Which capability verbs this provider supports. Independent of the subject's
+    /// federation flag — a Strava-style read-only provider just publishes `[.read]`.
+    var capabilities: Set<ConnectionCapability> { get }
+
+    /// Whether the user has the credentials/permission for this provider right now.
+    /// `true` for device providers when the iOS framework permission is granted; `true`
+    /// for cloud providers when the OAuth grant is active (and not expired).
+    var linkedByUser: Bool { get async }
+
+    /// Whether this provider is reachable at all, ignoring per-user state. Defaults to
+    /// `true` for almost everything; false only when the underlying framework is missing
+    /// (e.g. running ScreenTime without the entitlement) or the cloud-side service is
+    /// known-down. Distinct from `linkedByUser` so the manifest can express "the OS knows
+    /// about HomeKit but the user hasn't configured it" vs "this device can't run HomeKit
+    /// at all."
+    var available: Bool { get async }
+
+    /// Optional override for the picker header noun phrase. When the picker has a single
+    /// eligible provider (e.g. only Apple Health for `.fitness`), it uses this phrase
+    /// instead of the subject's generic noun so the prompt reads as "...read your health
+    /// data" rather than "...read your fitness". Returns `nil` to defer to the subject.
+    var subjectNounPhrase: String? { get }
+}
+
+public extension CapabilityProvider {
+    var available: Bool {
+        get async { true }
+    }
+
+    var subjectNounPhrase: String? { nil }
+}
+
+/// Emitted on `CapabilityProviderRegistry.providerChanges` to drive reactive UI refresh
+/// (e.g. the picker card subscribes so it can update in place when the user taps "Connect"
+/// and completes OAuth).
+public enum ProviderChange: Sendable, Equatable {
+    case added(ProviderID)
+    case removed(ProviderID)
+    case linkedStateChanged(ProviderID)
+}

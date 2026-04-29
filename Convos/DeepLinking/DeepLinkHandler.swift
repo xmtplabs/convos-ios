@@ -41,18 +41,22 @@ final class DeepLinkHandler {
             return nil
         }
 
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        let pathComponents: [String] = url.pathComponents.filter { $0 != "/" }
+        let scheme: String = url.scheme ?? ""
+        let host: String = url.host ?? ""
 
         // Custom scheme: `convos://connections/grant?…` → host="connections", path="/grant"
-        let matchesCustomScheme = url.scheme == ConfigManager.shared.appUrlScheme
-            && url.host == "connections"
-            && pathComponents.first == "grant"
+        let firstPath: String = pathComponents.first ?? ""
+        let isCustomScheme: Bool = scheme == ConfigManager.shared.appUrlScheme
+        let matchesCustomScheme: Bool = isCustomScheme && host == "connections" && firstPath == "grant"
 
         // Universal link: `https://<domain>/connections/grant?…` → path="/connections/grant"
-        let matchesHttps = url.scheme == "https"
-            && pathComponents.count >= 2
-            && pathComponents[0] == "connections"
-            && pathComponents[1] == "grant"
+        let matchesHttps: Bool
+        if scheme == "https", pathComponents.count >= 2 {
+            matchesHttps = pathComponents[0] == "connections" && pathComponents[1] == "grant"
+        } else {
+            matchesHttps = false
+        }
 
         guard matchesCustomScheme || matchesHttps else {
             return nil

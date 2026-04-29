@@ -43,6 +43,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .assistantPresentInfo:
                 return .estimated(CGSize(width: width, height: 48.0))
+            case .connectionEvent:
+                return .estimated(CGSize(width: width, height: 48.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }
@@ -167,6 +169,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 30.0
         case .connectionGrantRequest:
             height = 160.0
+        case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+            height = 0.0
         }
 
         if case .reply(let reply, _) = message {

@@ -133,7 +133,7 @@ public final class HealthDataSource: DataSource, @unchecked Sendable {
         )
     }
 
-    private func fetchSamples(from start: Date, to end: Date) async throws -> [HealthSample] {
+    func fetchSamples(from start: Date, to end: Date) async throws -> [HealthSample] {
         var all: [HealthSample] = []
         for type in types {
             guard let hkType = type.hkSampleType else { continue }
@@ -159,7 +159,7 @@ public final class HealthDataSource: DataSource, @unchecked Sendable {
         return all.sorted(by: { $0.startDate < $1.startDate })
     }
 
-    private static func summarize(samples: [HealthSample], from start: Date, to end: Date) -> String {
+    static func summarize(samples: [HealthSample], from start: Date, to end: Date) -> String {
         guard !samples.isEmpty else {
             return "No new health data between \(Self.format(start)) and \(Self.format(end))."
         }
