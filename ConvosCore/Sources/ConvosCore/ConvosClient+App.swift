@@ -14,6 +14,18 @@ extension ConvosClient {
         if recoveryOutcome != .noTransaction {
             Log.warning("Restore recovery completed with outcome: \(recoveryOutcome)")
         }
+        // Run the keychain layout migration before constructing the
+        // identity store so the runtime store reads from the right
+        // slot (v4-local) on its first call. Idempotent and gated on
+        // an app-group UserDefaults marker — see
+        // `docs/plans/single-inbox-two-key-model.md` for the rollout
+        // notes (in particular: the destructive v3 deletion propagates
+        // via iCloud Keychain, so this must not run while paired
+        // devices are still on the pre-refactor build).
+        let migrationOutcome = KeychainLayoutMigrator.migrateIfNeeded(environment: environment)
+        if migrationOutcome != .alreadyMigrated && migrationOutcome != .freshInstall {
+            Log.info("KeychainLayoutMigrator outcome: \(migrationOutcome)")
+        }
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
         let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)

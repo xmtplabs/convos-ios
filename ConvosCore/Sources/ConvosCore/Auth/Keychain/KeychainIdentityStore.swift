@@ -202,23 +202,46 @@ public protocol KeychainIdentityStoreProtocol: Actor {
 
 /// Secure storage for the user's XMTP identity keys in the device keychain.
 ///
-/// The app holds one identity per install. iCloud Keychain sync is enabled via
-/// `kSecAttrSynchronizable = true` + `kSecAttrAccessibleAfterFirstUnlock` so the
-/// identity follows the user across devices on the same Apple ID. The item is
-/// stored in the app-group keychain so the Notification Service Extension can
-/// read it.
+/// Two-key layout (see `docs/plans/single-inbox-two-key-model.md`):
+///
+/// - **Identity slot** (signing key + databaseKey) at service
+///   `…v4-local`, account `convos-identity`, **synchronizable: false**.
+///   Per-device. Encrypts the local SQLCipher XMTP DB and signs MLS
+///   commits. Cannot leak to paired devices via iCloud Keychain.
+///
+/// - **Backup-key slot** at service `…v4-backup`, account
+///   `convos-backup-key`, **synchronizable: true**. The ONLY synced
+///   slot. Wraps backup bundles. Lets a paired device unseal a
+///   bundle and adopt the bundled identity through Restore.
+///
+/// `KeychainLayoutMigrator` handles the one-shot copy from the
+/// pre-refactor v3 synced-identity slot into this layout on first
+/// launch with the new code path.
+///
+/// The slots live in the app-group keychain so the Notification
+/// Service Extension can read the local identity to decrypt
+/// notifications.
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
-    private let keychainService: String
     private let keychainAccessGroup: String
 
-    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
+    /// Pre-refactor synced identity service — used only by
+    /// `KeychainLayoutMigrator` for the v3 → v4 transition. Live code
+    /// must not write here.
+    static let legacySyncedIdentityService: String = "org.convos.ios.KeychainIdentityStore.v3"
+
+    /// Per-device identity slot (synchronizable: false).
+    static let localIdentityService: String = "org.convos.ios.KeychainIdentityStore.v4-local"
 
     /// Service name for the synced backup-key slot — distinct from the
     /// identity service so the two slots never collide in keychain
-    /// queries. See `single-inbox-two-key-model.md`.
+    /// queries.
     static let backupKeyService: String = "org.convos.ios.KeychainIdentityStore.v4-backup"
+
+    /// Aliased for backwards-source-compat with prior call sites that
+    /// referenced `KeychainIdentityStore.defaultService`.
+    static let defaultService: String = localIdentityService
 
     /// Fixed account key for the stored identity.
     static let identityAccount: String = "convos-identity"
@@ -230,7 +253,6 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     public init(accessGroup: String) {
         self.keychainAccessGroup = accessGroup
-        self.keychainService = Self.defaultService
     }
 
     // MARK: - Public Interface
@@ -242,12 +264,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     public func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
         let data = try JSONEncoder().encode(identity)
-        let query = KeychainQuery(
-            account: Self.identityAccount,
-            service: keychainService,
-            accessGroup: keychainAccessGroup
-        )
-        try saveData(data, with: query)
+        try saveData(data, with: localIdentityQuery())
         return identity
     }
 
@@ -256,13 +273,8 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public nonisolated func loadSync() throws -> KeychainIdentity? {
-        let query = KeychainQuery(
-            account: Self.identityAccount,
-            service: keychainService,
-            accessGroup: keychainAccessGroup
-        )
         do {
-            let data = try Self.loadKeychainData(with: query.toReadDictionary())
+            let data = try Self.loadKeychainData(with: localIdentityQuery().toReadDictionary())
             return try JSONDecoder().decode(KeychainIdentity.self, from: data)
         } catch KeychainIdentityStoreError.identityNotFound {
             return nil
@@ -270,12 +282,21 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func delete() throws {
-        let query = KeychainQuery(
+        try deleteData(with: localIdentityQuery())
+    }
+
+    private nonisolated func localIdentityQuery() -> KeychainQuery {
+        KeychainQuery(
             account: Self.identityAccount,
-            service: keychainService,
-            accessGroup: keychainAccessGroup
+            service: Self.localIdentityService,
+            accessGroup: keychainAccessGroup,
+            // Same accessibility as the legacy v3 slot so NSE can read
+            // the identity post-first-unlock without requiring the user
+            // to unlock the device first.
+            accessible: kSecAttrAccessibleAfterFirstUnlock,
+            // Per-device. The whole point of the two-key model.
+            synchronizable: false
         )
-        try deleteData(with: query)
     }
 
     public func nudgeICloudSync() throws {
