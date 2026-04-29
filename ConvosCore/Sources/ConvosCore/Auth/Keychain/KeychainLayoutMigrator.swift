@@ -82,9 +82,6 @@ public enum KeychainLayoutMigrator {
         if defaults.string(forKey: layoutGenerationKey) == layoutGenerationCurrent {
             return .alreadyMigrated
         }
-        if !enabled {
-            return .skippedDeletion(reason: "migration disabled by caller")
-        }
 
         let legacyData: Data?
         do {
@@ -120,6 +117,22 @@ public enum KeychainLayoutMigrator {
         } catch {
             Log.warning("KeychainLayoutMigrator: ensureBackupKey during migration failed — \(error)")
             return .failed(reason: "generate backup key during migration: \(error)")
+        }
+        // The non-destructive half (v4-local copy + backup-key
+        // generation) has now run regardless of `enabled`. The runtime
+        // store can read v4-local on its first call, so the user is
+        // never locked out if a caller disables the migration mid-way.
+        // `enabled` only gates the destructive v3 deletion — that's
+        // the step that propagates via iCloud Keychain to every paired
+        // device on the Apple ID and would brick a pre-migration peer
+        // that hasn't been updated yet.
+        guard enabled else {
+            Log.info(
+                "KeychainLayoutMigrator: v4-local + backup key in place; "
+                + "v3 deletion deferred (caller disabled). Marker not set; "
+                + "next launch with enabled=true will finish the migration."
+            )
+            return .skippedDeletion(reason: "v3 deletion gated off by caller")
         }
         do {
             try deleteLegacyIdentity(accessGroup: accessGroup)
