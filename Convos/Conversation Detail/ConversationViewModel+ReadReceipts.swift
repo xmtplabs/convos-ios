@@ -15,6 +15,13 @@ extension ConversationViewModel {
     func sendReadReceiptIfNeeded() {
         guard isViewingConversation else { return }
         guard !conversation.isDraft, !conversation.isPendingInvite else { return }
+        // While the conversation is inactive (post-restore, MLS group hasn't
+        // re-admitted this installation yet), libxmtp rejects the send with
+        // `GroupError::GroupInactive`. The user-facing send-message path
+        // already gates on `isInactive`; auto-fired read receipts need the
+        // same gate so they don't spam the log every time the user opens
+        // a still-inactive conversation.
+        guard !isInactive else { return }
         guard sendReadReceipts else { return }
 
         let debounceInterval: TimeInterval = 1

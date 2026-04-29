@@ -33,7 +33,19 @@ struct InactiveConversationReactivator: Sendable {
     /// rather than a cliff.
     func markReconnectionIfNeeded(messageId: String, conversationId: String) async {
         do {
-            guard try await isConversationInactive(conversationId: conversationId) else { return }
+            guard try await isConversationInactive(conversationId: conversationId) else {
+                // Already active — common when a second message lands and
+                // the post-store call fires after the pre-return one
+                // already flipped the flag. Trace-only so it doesn't add
+                // noise on healthy conversations.
+                return
+            }
+
+            // Visibility: log the moment we see an inbound on an inactive
+            // conversation. Pairs with the StreamProcessor "skipping
+            // reactivation — conversation sync failed" log so the
+            // reactivation path is observable from launch logs.
+            Log.info("InactiveConversationReactivator: reactivating \(conversationId) (messageId=\(messageId))")
 
             try await databaseWriter.write { db in
                 if var dbMessage = try DBMessage.fetchOne(db, key: messageId),

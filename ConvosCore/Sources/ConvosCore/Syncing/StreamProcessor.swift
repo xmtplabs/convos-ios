@@ -234,6 +234,18 @@ actor StreamProcessor: StreamProcessorProtocol {
                             messageId: message.id,
                             conversationId: conversation.id
                         )
+                    } else {
+                        // Visibility for the post-restore reactivation
+                        // path: when this fires, the inbound message
+                        // delivered but the MLS group sync (which proves
+                        // the peer admitted this installation) didn't
+                        // succeed. Without this log there's no way to
+                        // tell whether the reactivation logic ran and
+                        // refused, or never got the chance.
+                        Log.info(
+                            "StreamProcessor: skipping reactivation for \(conversation.id) — "
+                            + "conversation sync failed (group likely still inactive at MLS layer)"
+                        )
                     }
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
