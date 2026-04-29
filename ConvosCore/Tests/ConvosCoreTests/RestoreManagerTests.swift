@@ -374,6 +374,45 @@ struct RestoreManagerTests {
         #expect(available?.bundleURL.lastPathComponent == "backup-latest.encrypted")
     }
 
+    @Test("findAvailableBackup accepts sidecars from compatible-but-prior schemaGeneration")
+    func testFindAvailableBackupAcceptsCompatibleSchemaGeneration() async throws {
+        let f = makeFixtures()
+        // Bundles produced in the broken-build window carry sidecar
+        // schemaGeneration="v1-single-inbox". Under the fixed build
+        // (currentGeneration="single-inbox-v2") they must remain
+        // restorable — otherwise the user's iCloud backup is silently
+        // hidden after they upgrade.
+        let backupsDir = f.environment.defaultDatabasesDirectoryURL
+            .appendingPathComponent("backups", isDirectory: true)
+            .appendingPathComponent("compat-device-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: backupsDir.deletingLastPathComponent()) }
+
+        let compatSidecar = BackupSidecarMetadata(
+            deviceId: "compat",
+            deviceName: "Compat Device",
+            osString: "ios",
+            conversationCount: 1,
+            schemaGeneration: "v1-single-inbox",
+            appVersion: "0.0.1"
+        )
+        try BackupSidecarMetadata.write(compatSidecar, to: backupsDir)
+        // Bundle file is required for the directory to surface as restorable.
+        let bundlePath = backupsDir.appendingPathComponent("backup-latest.encrypted")
+        try Data("placeholder-bundle".utf8).write(to: bundlePath)
+
+        let manager = RestoreManager(
+            identityStore: f.identityStore,
+            databaseManager: f.databaseManager,
+            archiveImporter: f.archiveImporter,
+            environment: f.environment,
+            restoreFlagSuiteName: f.suite
+        )
+        let found = await manager.findAvailableBackup()
+        #expect(found != nil)
+        #expect(found?.sidecar.schemaGeneration == "v1-single-inbox")
+    }
+
     @Test("findAvailableBackup rejects sidecars with stale schemaGeneration")
     func testFindAvailableBackupRejectsStale() async throws {
         let f = makeFixtures()

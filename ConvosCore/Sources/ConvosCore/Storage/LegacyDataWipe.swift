@@ -10,7 +10,35 @@ import Security
 /// re-wipe on next launch when the on-disk format changes incompatibly.
 public enum LegacyDataWipe {
     /// Current schema generation. Bump when a schema change requires a wipe.
-    public static let currentGeneration: String = "v1-single-inbox"
+    public static let currentGeneration: String = "single-inbox-v2"
+
+    /// Generation strings that are functionally equivalent to
+    /// `currentGeneration` and must not trigger a wipe. Bumping the
+    /// canonical name (e.g. for cosmetic alignment with the GRDB
+    /// migration identifier) would otherwise wipe every install whose
+    /// stored marker is one of these — and on the single-inbox file
+    /// layout the wipe deletes the active `xmtp-*.db3` files, which is
+    /// catastrophic. Add the previous canonical name here when renaming.
+    ///
+    /// `v1-single-inbox` covers two populations:
+    /// - users who shipped the (now reverted) v1-single-inbox build
+    /// - users whose marker got forwarded to v1-single-inbox by the
+    ///   broken wipe in build 800 (the wipe deleted xmtp-*.db3 but
+    ///   left convos-single-inbox.sqlite; their GRDB rows now refer
+    ///   to conversations that no longer exist in libxmtp's local
+    ///   store, and rerunning the wipe would not help)
+    private static let compatibleGenerations: Set<String> = [
+        currentGeneration,
+        "v1-single-inbox"
+    ]
+
+    /// Returns `true` when `value` may be treated as the current
+    /// generation. Used by `RestoreManager` so backups produced under
+    /// a compatible-but-stale generation remain restorable on the
+    /// fixed build.
+    public static func isCompatibleGeneration(_ value: String) -> Bool {
+        compatibleGenerations.contains(value)
+    }
 
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 
@@ -37,7 +65,12 @@ public enum LegacyDataWipe {
     ) {
         let stored = defaults.string(forKey: schemaGenerationKey)
 
-        if stored == currentGeneration {
+        if let stored, compatibleGenerations.contains(stored) {
+            // Bring the marker forward to the current canonical name so
+            // future launches short-circuit on the cheap equality check.
+            if stored != currentGeneration {
+                defaults.set(currentGeneration, forKey: schemaGenerationKey)
+            }
             return
         }
 
@@ -126,9 +159,11 @@ public enum LegacyDataWipe {
     /// every subsequent launch the marker short-circuits before the scan.
     private static func detectLegacyArtifacts(databasesDirectory: URL) -> Bool {
         let fileManager = FileManager.default
-        let grdbURL = databasesDirectory.appendingPathComponent("convos.sqlite")
-        if fileManager.fileExists(atPath: grdbURL.path) {
-            return true
+        for filename in legacyGRDBFilenames {
+            let url = databasesDirectory.appendingPathComponent(filename)
+            if fileManager.fileExists(atPath: url.path) {
+                return true
+            }
         }
 
         guard let entries = try? fileManager.contentsOfDirectory(
@@ -154,12 +189,7 @@ public enum LegacyDataWipe {
     private static func wipeDatabases(at directory: URL) {
         let fileManager = FileManager.default
 
-        let grdbFiles = [
-            "convos.sqlite",
-            "convos.sqlite-shm",
-            "convos.sqlite-wal"
-        ]
-        for filename in grdbFiles {
+        for filename in legacyGRDBFilenames {
             removeItem(at: directory.appendingPathComponent(filename), fileManager: fileManager)
         }
 
@@ -172,6 +202,20 @@ public enum LegacyDataWipe {
             }
         }
     }
+
+    /// GRDB databases the wipe must remove. Includes the new
+    /// single-inbox name (`convos-single-inbox.sqlite`) — the broken
+    /// build 800 wipe targeted only the obsolete `convos.sqlite`,
+    /// leaving the active GRDB intact while libxmtp's xmtp-*.db3 was
+    /// deleted, which is what stranded conversations.
+    private static let legacyGRDBFilenames: [String] = [
+        "convos.sqlite",
+        "convos.sqlite-shm",
+        "convos.sqlite-wal",
+        "convos-single-inbox.sqlite",
+        "convos-single-inbox.sqlite-shm",
+        "convos-single-inbox.sqlite-wal"
+    ]
 
     private static func removeItem(at url: URL, fileManager: FileManager) {
         guard fileManager.fileExists(atPath: url.path) else { return }

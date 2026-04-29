@@ -132,6 +132,7 @@ actor SyncingManager: SyncingManagerProtocol {
     // MARK: - Initialization
 
     private let databaseReader: any DatabaseReader
+    private let databaseWriter: any DatabaseWriter
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
@@ -140,6 +141,7 @@ actor SyncingManager: SyncingManagerProtocol {
          notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
         self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
@@ -394,7 +396,22 @@ actor SyncingManager: SyncingManagerProtocol {
             // This handles cases where the joiner was added to a group while
             // the inbox was paused, stopped, or the stream had a timeout.
             await discoverNewConversations(params: params)
+
+            // Heal GRDB rows whose libxmtp counterpart is missing — see
+            // OrphanedConversationReconciler. Runs after discovery so newly
+            // delivered groups are present in GRDB before the diff. Foreground
+            // (paused → ready) transitions go through handleResume and skip
+            // this on purpose: the local store hasn't been replaced under us.
+            await reconcileOrphanedConversations(params: params)
         }
+    }
+
+    private func reconcileOrphanedConversations(params: SyncClientParams) async {
+        let reconciler = OrphanedConversationReconciler(
+            databaseReader: databaseReader,
+            stateWriter: ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        )
+        await reconciler.reconcile(client: params.client)
     }
 
     /// Lists all XMTP groups and processes any that are missing from the local database.
