@@ -42,29 +42,30 @@ public enum ConnectionMessageSummaryFormatter {
     }
 
     public static func resultSummary(_ result: ConnectionInvocationResult, senderName: String? = nil) -> ConnectionEventSummary {
+        let actor = senderName ?? "Assistant"
         switch result.status {
         case .success:
             switch (result.kind, result.actionName) {
             case (.health, "fetch_summary_last_24h"):
-                return .init(text: "Assistant read last 24 hours of health data", outcome: .success, icon: .health)
+                return .init(text: "\(actor) read last 24 hours of health data", outcome: .success, icon: .health)
             case (.health, "fetch_samples"):
-                return .init(text: "Assistant read health samples", outcome: .success, icon: .health)
+                return .init(text: "\(actor) read health samples", outcome: .success, icon: .health)
             case (.health, "log_water"):
-                return .init(text: "Assistant logged water intake", outcome: .success, icon: .health)
+                return .init(text: "\(actor) logged water intake", outcome: .success, icon: .health)
             case (.health, "log_caffeine"):
-                return .init(text: "Assistant logged caffeine intake", outcome: .success, icon: .health)
+                return .init(text: "\(actor) logged caffeine intake", outcome: .success, icon: .health)
             case (.health, "log_mindful_minutes"):
-                return .init(text: "Assistant logged mindful minutes", outcome: .success, icon: .health)
+                return .init(text: "\(actor) logged mindful minutes", outcome: .success, icon: .health)
             default:
                 return .init(
-                    text: "Completed \(result.kind.displayName.lowercased()) \(humanize(result.actionName))",
+                    text: "\(actor) completed \(result.kind.displayName.lowercased()) \(humanize(result.actionName))",
                     outcome: .success,
                     icon: icon(for: result.kind)
                 )
             }
         case .capabilityNotEnabled, .capabilityRevoked, .authorizationDenied, .requiresConfirmation, .unknownAction, .executionFailed:
             return .init(
-                text: failedText(for: result),
+                text: failedText(for: result, actor: actor),
                 outcome: .failure,
                 icon: .error
             )
@@ -121,14 +122,14 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func failedText(for result: ConnectionInvocationResult) -> String {
+    private static func failedText(for result: ConnectionInvocationResult, actor: String) -> String {
         switch (result.kind, result.actionName) {
         case (.health, "fetch_summary_last_24h"):
-            return "Assistant failed to read last 24 hours of health data"
+            return "\(actor) failed to read last 24 hours of health data"
         case (.health, "fetch_samples"):
-            return "Assistant failed to read health samples"
+            return "\(actor) failed to read health samples"
         default:
-            return "Assistant failed to use \(result.kind.displayName.lowercased()) \(humanize(result.actionName))"
+            return "\(actor) failed to use \(result.kind.displayName.lowercased()) \(humanize(result.actionName))"
         }
     }
 

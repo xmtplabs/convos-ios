@@ -54,20 +54,22 @@ z40=0000000000000000000000000000000000000000
 git_root="$(git rev-parse --show-toplevel)"
 lint_paths=()
 
+null_tree="$(git hash-object -t tree /dev/null)"
+
 IFS=' '
 while read -r _ local_sha _ remote_sha
  do
 	if [ "$local_sha" = "$z40" ]; then
 		# Handle delete
-		exit 0
+		continue
 	fi
 
 	if [ "$remote_sha" = "$z40" ]; then
-		diff_base="$(git merge-base HEAD origin/dev 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo '')"
+		diff_base="$(git merge-base "$local_sha" origin/dev 2>/dev/null || git rev-parse "$local_sha^" 2>/dev/null || echo '')"
 		if [ -n "$diff_base" ]; then
 			range="$diff_base..$local_sha"
 		else
-			range="$local_sha"
+			range="$null_tree $local_sha"
 		fi
 	else
 		range="$remote_sha..$local_sha"
@@ -76,7 +78,7 @@ while read -r _ local_sha _ remote_sha
 	while IFS= read -r path; do
 		[ -n "$path" ] && lint_paths+=("$path")
 	done < <(
-		git -C "$git_root" diff --name-only "$range" -- '*.swift' | \
+		git -C "$git_root" diff --name-only --diff-filter=AM $range -- '*.swift' | \
 			grep -v -E '(^|/)\.build/|(^|/)\.derivedData/|(^|/)\.derivedData-device/|^\.claude/worktrees/' || true
 	)
 done
@@ -88,7 +90,11 @@ fi
 
 echo "🔎 Linting before pushing"
 
-lint_paths=( $(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++') )
+deduped_lint_paths=()
+while IFS= read -r path; do
+	[ -n "$path" ] && deduped_lint_paths+=("$path")
+done < <(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++')
+lint_paths=("${deduped_lint_paths[@]}")
 
 index=0
 for path in "${lint_paths[@]}"; do

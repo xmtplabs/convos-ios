@@ -70,15 +70,18 @@ final class ConversationConnectionsViewModel {
     }
 
     func toggleDeviceConnection(_ kind: ConnectionKind) {
-        let isEnabled = deviceConnections.first(where: { $0.kind == kind })?.isEnabled ?? false
+        guard let index = deviceConnections.firstIndex(where: { $0.kind == kind }) else { return }
+        let newValue = !deviceConnections[index].isEnabled
+        deviceConnections[index] = DeviceConnection(kind: kind, isEnabled: newValue)
+
         Task {
             for capability in ConnectionCapability.allCases {
-                await enablementStore.setEnabled(!isEnabled, kind: kind, capability: capability, conversationId: conversationId)
+                await enablementStore.setEnabled(newValue, kind: kind, capability: capability, conversationId: conversationId)
             }
-            if isEnabled {
-                try? await connectionEventWriter.sendRevoked(providerId: "device.\(kind.rawValue)", in: conversationId)
-            } else {
+            if newValue {
                 try? await connectionEventWriter.sendGranted(providerId: "device.\(kind.rawValue)", in: conversationId)
+            } else {
+                try? await connectionEventWriter.sendRevoked(providerId: "device.\(kind.rawValue)", in: conversationId)
             }
             await MainActor.run {
                 refreshDeviceConnections()
