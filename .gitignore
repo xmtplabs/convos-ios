@@ -134,3 +134,8 @@ qa/cxdb/qa.sqlite-shm
 
 # Runtime artifacts
 .claude/scheduled_tasks.lock
+
+# nix local cache
+.direnv
+.direnv/**
+**/.direnv/**
