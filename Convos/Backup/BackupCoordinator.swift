@@ -128,10 +128,14 @@ final class BackupCoordinator {
             await viewModel.refresh()
             showRestorePrompt = true
             convos.session.setRestoreBootstrapDecision(.restoreAvailable)
-        case .identityArrived, .timeout:
-            // Identity present but no backup → take the .authorize
-            // branch by releasing the gate. Timeout → assume true fresh
-            // install (or iCloud is unavailable; user can still register).
+        case .backupKeyArrived, .timeout:
+            // Backup key arrived via iCloud Keychain but no bundle is
+            // visible yet (still propagating, or no paired device has
+            // ever made one). Or timeout — iCloud is genuinely
+            // unreachable / this is the first device. Either way we
+            // release the gate so the user can register fresh; if a
+            // bundle shows up later they can still hit Restore from
+            // settings.
             await viewModel.refresh()
             showRestorePrompt = false
             convos.session.setRestoreBootstrapDecision(.noRestoreAvailable)
@@ -141,14 +145,20 @@ final class BackupCoordinator {
 
     private enum ICloudSettleOutcome {
         case backupArrived
-        case identityArrived
+        /// Backup key arrived via iCloud Keychain — under the two-key
+        /// model this means a paired device has set up Convos before
+        /// and we should be ready to restore. The actual bundle may
+        /// still be downloading via iCloud Documents, but the key half
+        /// is here.
+        case backupKeyArrived
         case timeout
     }
 
-    /// Polls `findAvailableBackup` and `identityStore.loadSync` until
-    /// either returns non-nil, or the settle timeout expires. The
-    /// remaining time is published via `iCloudSettleSecondsRemaining`
-    /// so the UI can show a countdown instead of a frozen spinner.
+    /// Polls `findAvailableBackup` and `identityStore.loadBackupKeySync`
+    /// until either returns non-nil, or the settle timeout expires.
+    /// Under the two-key model the backup key is the SOLE synced item
+    /// — its arrival is the strong "this Apple ID has Convos
+    /// elsewhere" signal we used to get from the synced identity.
     private func waitForICloudSettle(manager: RestoreManager) async -> ICloudSettleOutcome {
         let identityStore = convos.identityStore
         let deadline = ContinuousClock.now.advanced(by: Self.iCloudSettleTimeout)
@@ -167,8 +177,8 @@ final class BackupCoordinator {
             if await manager.findAvailableBackup() != nil {
                 return .backupArrived
             }
-            if (try? identityStore.loadSync()) != nil {
-                return .identityArrived
+            if (try? await identityStore.loadBackupKeySync()) != nil {
+                return .backupKeyArrived
             }
         }
         return .timeout
@@ -209,8 +219,27 @@ final class BackupCoordinator {
     /// Called by the fresh-install restore prompt when the user chooses
     /// "Start fresh." Releases the bootstrap gate so registration can
     /// proceed normally.
+    ///
+    /// Two-key model: also rotate the synced backup key. The presence
+    /// of a backup key in iCloud Keychain is the I-am-already-on-this-
+    /// account signal. By the time the user has consciously confirmed
+    /// "Start fresh on this Apple ID" through the destructive-action
+    /// alert, they have explicitly opted to break that signal — and
+    /// the right way to break it is to delete the synced slot so paired
+    /// devices on the same Apple ID converge to "no key, will register
+    /// fresh on their next launch." Existing bundles in iCloud
+    /// Documents become unreadable as the design intends.
     func dismissRestorePrompt() {
         showRestorePrompt = false
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.convos.identityStore.deleteBackupKey()
+                Log.info("BackupCoordinator: Start fresh — synced backup key deleted; existing bundles are now unreadable")
+            } catch {
+                Log.warning("BackupCoordinator: Start fresh — backup key delete failed (non-fatal): \(error)")
+            }
+        }
         convos.session.setRestoreBootstrapDecision(.dismissedByUser)
         advanceSessionObservationGeneration()
     }
