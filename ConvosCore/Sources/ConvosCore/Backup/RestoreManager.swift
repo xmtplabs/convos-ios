@@ -102,7 +102,7 @@ public actor RestoreManager {
                       let sidecar = try? BackupSidecarMetadata.read(from: dir) else {
                     continue
                 }
-                guard sidecar.schemaGeneration == LegacyDataWipe.currentGeneration else {
+                guard LegacyDataWipe.isCompatibleGeneration(sidecar.schemaGeneration) else {
                     Log.info("RestoreManager: skipping bundle with incompatible schema " +
                         "(\(sidecar.schemaGeneration) vs \(LegacyDataWipe.currentGeneration))")
                     continue
@@ -438,7 +438,7 @@ public actor RestoreManager {
         }
 
         let currentGeneration = LegacyDataWipe.currentGeneration
-        guard metadata.schemaGeneration == currentGeneration else {
+        guard LegacyDataWipe.isCompatibleGeneration(metadata.schemaGeneration) else {
             QAEvent.emit(
                 .backup,
                 "schema_generation_mismatch",
