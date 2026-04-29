@@ -58,6 +58,10 @@ public struct BackupSidecarMetadata: Codable, Sendable, Equatable {
 /// sidecar plus the per-bundle `archiveKey` that seals `xmtp-archive.bin`. The
 /// archive key lives only here so it travels under the outer AES-GCM seal —
 /// never in the sidecar, which has to stay unencrypted for discovery.
+///
+/// Under the two-key model (see `single-inbox-two-key-model.md`), the inner
+/// metadata also carries the JSON-encoded `KeychainIdentity` that the
+/// destination device adopts on restore. The outer AES-GCM seal protects it.
 struct BackupBundleMetadata: Codable, Sendable, Equatable {
     struct ArchiveMetadata: Codable, Sendable, Equatable {
         let startNs: Int64?
@@ -74,6 +78,13 @@ struct BackupBundleMetadata: Codable, Sendable, Equatable {
     let appVersion: String
     let archiveKey: Data
     let archiveMetadata: ArchiveMetadata?
+    /// Two-key model: the source device's `KeychainIdentity` JSON. The
+    /// destination device adopts this on restore and writes it to its
+    /// per-device identity slot. Optional so legacy v1 bundles (pre two-
+    /// key refactor) still decode — those produce a `nil` value here and
+    /// `RestoreManager` reports `decryptionFailed("legacy bundle has no
+    /// identity payload")` when it can't unseal the new way.
+    let identityPayload: Data?
 
     init(
         version: Int = BackupSidecarMetadata.currentVersion,
@@ -85,7 +96,8 @@ struct BackupBundleMetadata: Codable, Sendable, Equatable {
         schemaGeneration: String,
         appVersion: String,
         archiveKey: Data,
-        archiveMetadata: ArchiveMetadata? = nil
+        archiveMetadata: ArchiveMetadata? = nil,
+        identityPayload: Data? = nil
     ) {
         self.version = version
         self.createdAt = createdAt
@@ -97,6 +109,24 @@ struct BackupBundleMetadata: Codable, Sendable, Equatable {
         self.appVersion = appVersion
         self.archiveKey = archiveKey
         self.archiveMetadata = archiveMetadata
+        self.identityPayload = identityPayload
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        deviceId = try container.decode(String.self, forKey: .deviceId)
+        deviceName = try container.decode(String.self, forKey: .deviceName)
+        osString = try container.decode(String.self, forKey: .osString)
+        conversationCount = try container.decode(Int.self, forKey: .conversationCount)
+        schemaGeneration = try container.decode(String.self, forKey: .schemaGeneration)
+        appVersion = try container.decode(String.self, forKey: .appVersion)
+        archiveKey = try container.decode(Data.self, forKey: .archiveKey)
+        archiveMetadata = try container.decodeIfPresent(ArchiveMetadata.self, forKey: .archiveMetadata)
+        // Optional decode so pre-two-key bundles still parse. They'll
+        // simply have a nil payload and fail at the adoption step.
+        identityPayload = try container.decodeIfPresent(Data.self, forKey: .identityPayload)
     }
 
     var sidecar: BackupSidecarMetadata {

@@ -1,6 +1,7 @@
 @testable import ConvosCore
 import Foundation
 import GRDB
+import Security
 import Testing
 
 @Suite("BackupManager Tests")
@@ -76,6 +77,13 @@ struct BackupManagerTests {
     ) async throws -> KeychainIdentity {
         let keys = try await store.generateKeys()
         let identity = try await store.save(inboxId: "inbox-\(UUID().uuidString)", clientId: "client-1", keys: keys)
+        // Two-key model: createBackup reads `backupKey` from the synced
+        // slot. Production seeds it via `KeychainLayoutMigrator`.
+        var backupKey = Data(count: 32)
+        _ = backupKey.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!) // swiftlint:disable:this force_unwrapping
+        }
+        try await store.saveBackupKey(backupKey)
         return identity
     }
 
@@ -170,7 +178,13 @@ struct BackupManagerTests {
         try FileManager.default.createDirectory(at: restoreDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: restoreDir) }
 
-        try BackupBundle.unpack(data: bundleData, encryptionKey: identity.keys.databaseKey, to: restoreDir)
+        // Two-key model: bundle is now sealed with the synced
+        // backup key, not the per-device databaseKey.
+        guard let backupKey = try await fixtures.identityStore.loadBackupKeySync() else {
+            Issue.record("Test fixture should have seeded a backup key")
+            return
+        }
+        try BackupBundle.unpack(data: bundleData, encryptionKey: backupKey, to: restoreDir)
 
         let archiveOut = try Data(contentsOf: BackupBundle.archivePath(in: restoreDir))
         #expect(archiveOut == expectedArchiveBytes)
@@ -180,6 +194,13 @@ struct BackupManagerTests {
         #expect(innerMeta.archiveKey == provider.lastKey)
         #expect(innerMeta.archiveMetadata?.startNs == 1)
         #expect(innerMeta.archiveMetadata?.endNs == 2)
+        // The bundle now carries the source identity in its inner
+        // metadata — the destination device adopts this on restore.
+        #expect(innerMeta.identityPayload != nil)
+        if let payload = innerMeta.identityPayload {
+            let recovered = try JSONDecoder().decode(KeychainIdentity.self, from: payload)
+            #expect(recovered.inboxId == identity.inboxId)
+        }
 
         try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent())
     }

@@ -8,6 +8,7 @@ public enum BackupError: LocalizedError {
     case noConversationsToBackUp
     case archiveKeyGenerationFailed
     case currentInstallationRevoked
+    case backupKeyMissing
     case bundleWriteFailed(String)
 
     public var errorDescription: String? {
@@ -22,6 +23,8 @@ public enum BackupError: LocalizedError {
             return "Failed to generate a per-bundle archive key."
         case .currentInstallationRevoked:
             return "This device has been replaced; skipping backup."
+        case .backupKeyMissing:
+            return "Backup key missing from synced keychain slot — migration may not have run yet."
         case .bundleWriteFailed(let reason):
             return "Failed to write backup bundle: \(reason)"
         }
@@ -159,6 +162,19 @@ public actor BackupManager {
             throw BackupError.currentInstallationRevoked
         }
 
+        // Two-key model: the bundle's outer seal uses the synced
+        // `backupKey` (not the per-device `identity.databaseKey`), and
+        // the inner metadata carries the source identity so the
+        // destination device can adopt it on restore. See
+        // `docs/plans/single-inbox-two-key-model.md`.
+        guard let backupKey = try await identityStore.loadBackupKeySync() else {
+            // Should never happen post-migration — KeychainLayoutMigrator
+            // generates the backup key on first run.
+            Log.error("BackupManager: backup key missing from synced keychain slot — refusing to write")
+            throw BackupError.backupKeyMissing
+        }
+        let identityPayload = try JSONEncoder().encode(identity)
+
         let innerMetadata = BackupBundleMetadata(
             deviceId: deviceInfo.deviceIdentifier,
             deviceName: deviceInfo.deviceName,
@@ -167,13 +183,14 @@ public actor BackupManager {
             schemaGeneration: LegacyDataWipe.currentGeneration,
             appVersion: environment.appVersion,
             archiveKey: archiveKey,
-            archiveMetadata: .init(startNs: archiveStats.startNs, endNs: archiveStats.endNs)
+            archiveMetadata: .init(startNs: archiveStats.startNs, endNs: archiveStats.endNs),
+            identityPayload: identityPayload
         )
         try BackupBundleMetadata.write(innerMetadata, to: stagingDir)
 
         let bundleData = try BackupBundle.pack(
             directory: stagingDir,
-            encryptionKey: identity.keys.databaseKey
+            encryptionKey: backupKey
         )
         let bundleSizeKB = bundleData.count / 1024
         Log.info(

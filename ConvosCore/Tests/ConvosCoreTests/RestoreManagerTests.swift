@@ -1,6 +1,7 @@
 @testable import ConvosCore
 import Foundation
 import GRDB
+import Security
 import Testing
 
 @Suite("RestoreManager Tests")
@@ -88,11 +89,20 @@ struct RestoreManagerTests {
 
     private func seedIdentity(_ store: MockKeychainIdentityStore) async throws -> KeychainIdentity {
         let keys = try await store.generateKeys()
-        return try await store.save(
+        let identity = try await store.save(
             inboxId: "inbox-\(UUID().uuidString)",
             clientId: "client-\(UUID().uuidString)",
             keys: keys
         )
+        // Two-key model: tests must seed the synced backup key so
+        // `awaitBackupKeyWithTimeout` returns immediately. Production
+        // generates this once via `KeychainLayoutMigrator`.
+        var backupKey = Data(count: 32)
+        _ = backupKey.withUnsafeMutableBytes { bytes in
+            SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!) // swiftlint:disable:this force_unwrapping
+        }
+        try await store.saveBackupKey(backupKey)
+        return identity
     }
 
     /// BackupManager refuses to bundle when there are 0 conversations.
@@ -292,7 +302,7 @@ struct RestoreManagerTests {
     @Test("schemaGeneration mismatch throws distinct error before destructive ops")
     func testSchemaGenerationMismatch() async throws {
         let f = makeFixtures()
-        let identity = try await seedIdentity(f.identityStore)
+        _ = try await seedIdentity(f.identityStore)
 
         // Build a bundle with the wrong schemaGeneration by hand.
         let stagingDir = try BackupBundle.createStagingDirectory()
@@ -309,7 +319,13 @@ struct RestoreManagerTests {
             archiveKey: Data(repeating: 0xAA, count: 32)
         )
         try BackupBundleMetadata.write(badInner, to: stagingDir)
-        let sealed = try BackupBundle.pack(directory: stagingDir, encryptionKey: identity.keys.databaseKey)
+        // Two-key model: outer seal uses the synced backup key,
+        // not the per-device databaseKey.
+        guard let backupKey = try await f.identityStore.loadBackupKeySync() else {
+            Issue.record("Test fixture should have seeded a backup key")
+            return
+        }
+        let sealed = try BackupBundle.pack(directory: stagingDir, encryptionKey: backupKey)
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("stale-bundle-\(UUID().uuidString).encrypted")
         try sealed.write(to: bundleURL)

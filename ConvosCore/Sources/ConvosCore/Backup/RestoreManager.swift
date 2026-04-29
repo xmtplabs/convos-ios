@@ -180,16 +180,23 @@ public actor RestoreManager {
 
         state = .decrypting
 
-        // Pre-transaction phase: identity wait, staging dir creation,
-        // bundle decrypt + validate. Each can throw — wrap them so the
-        // observable `state` reflects `.failed` instead of being stuck
-        // at `.decrypting` forever (UI would still show the spinner).
-        // Split into three do-catches so the staging-dir cleanup
-        // `defer` is registered immediately after the dir is created
-        // and fires even if `decryptAndValidateBundle` throws.
-        let identity: KeychainIdentity
+        // Pre-transaction phase under the two-key model:
+        // 1. Wait for the synced backup key (the bundle is sealed with
+        //    it). The destination device may not have any local
+        //    identity yet — that's the whole point of the new model;
+        //    identity comes FROM the bundle, not before.
+        // 2. Stage + unseal the bundle.
+        // 3. Adopt the bundled identity to the local (per-device,
+        //    non-synced) slot. After this point the rest of the flow
+        //    sees a populated `identityStore.loadSync()`.
+        // Each step can throw — wrap so observable `state` reflects
+        // `.failed` instead of being stuck at `.decrypting`. Split into
+        // separate do-catches so the staging-dir cleanup `defer` is
+        // registered immediately after the dir is created and fires
+        // even if subsequent steps throw.
+        let backupKey: Data
         do {
-            identity = try await awaitIdentityWithTimeout()
+            backupKey = try await awaitBackupKeyWithTimeout()
         } catch {
             state = .failed(error.localizedDescription)
             throw error
@@ -208,9 +215,21 @@ public actor RestoreManager {
         do {
             innerMetadata = try decryptAndValidateBundle(
                 bundleURL: bundleURL,
-                identity: identity,
+                backupKey: backupKey,
                 stagingDir: stagingDir
             )
+        } catch {
+            state = .failed(error.localizedDescription)
+            throw error
+        }
+
+        // Adopt the bundled identity into this device's local slot.
+        // After this point the runtime store's `loadSync()` returns the
+        // adopted identity — the rest of restore (Client.create with
+        // `signingKey`, archive import, revocation) flows from here.
+        let identity: KeychainIdentity
+        do {
+            identity = try await adoptIdentityFromBundle(innerMetadata)
         } catch {
             state = .failed(error.localizedDescription)
             throw error
@@ -343,7 +362,7 @@ public actor RestoreManager {
 
     private func decryptAndValidateBundle(
         bundleURL: URL,
-        identity: KeychainIdentity,
+        backupKey: Data,
         stagingDir: URL
     ) throws -> BackupBundleMetadata {
         let bundleData: Data
@@ -356,7 +375,7 @@ public actor RestoreManager {
         do {
             try BackupBundle.unpack(
                 data: bundleData,
-                encryptionKey: identity.keys.databaseKey,
+                encryptionKey: backupKey,
                 to: stagingDir
             )
         } catch let error as BackupBundleCrypto.CryptoError {
@@ -400,11 +419,77 @@ public actor RestoreManager {
         return metadata
     }
 
-    // MARK: - Identity gate
+    // MARK: - Backup-key gate (two-key model)
+
+    /// Bounded poll on the synced backup-key slot. iCloud Keychain may
+    /// still be delivering it at launch on a fresh paired device — the
+    /// bundle is unsealed with this key, not with any per-device
+    /// identity (which under the two-key model comes FROM the bundle).
+    private func awaitBackupKeyWithTimeout(
+        timeout: Duration = .seconds(30)
+    ) async throws -> Data {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            do {
+                if let key = try await identityStore.loadBackupKeySync() {
+                    return key
+                }
+            } catch let error as KeychainIdentityStoreError {
+                if case .identityNotFound = error {
+                    // keep polling
+                } else {
+                    Log.error("RestoreManager: keychain read failed during backup-key wait: \(error)")
+                    throw error
+                }
+            } catch {
+                Log.error("RestoreManager: unexpected error during backup-key wait: \(error)")
+                throw error
+            }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        throw RestoreError.identityNotAvailable
+    }
+
+    /// Adopts the identity packaged inside `innerMetadata` into this
+    /// device's per-device (non-synced) identity slot. Required for the
+    /// rest of the restore flow (`Client.create`, archive import,
+    /// installation revocation) to operate against the inbox the bundle
+    /// belongs to.
+    private func adoptIdentityFromBundle(_ innerMetadata: BackupBundleMetadata) async throws -> KeychainIdentity {
+        guard let payload = innerMetadata.identityPayload else {
+            // Pre-two-key bundle. We have no way to recover the identity
+            // and can't proceed safely.
+            throw RestoreError.bundleCorrupt(
+                "legacy bundle has no identity payload — cannot adopt identity under the two-key model"
+            )
+        }
+        let identity: KeychainIdentity
+        do {
+            identity = try JSONDecoder().decode(KeychainIdentity.self, from: payload)
+        } catch {
+            throw RestoreError.bundleCorrupt("identity payload could not be decoded: \(error.localizedDescription)")
+        }
+        do {
+            _ = try await identityStore.save(
+                inboxId: identity.inboxId,
+                clientId: identity.clientId,
+                keys: identity.keys
+            )
+        } catch {
+            throw RestoreError.replaceDatabaseFailed(
+                "could not write adopted identity to local keychain slot: \(error.localizedDescription)"
+            )
+        }
+        Log.info("RestoreManager: adopted bundled identity for inboxId=\(identity.inboxId)")
+        return identity
+    }
+
+    // MARK: - Identity gate (legacy — pre-two-key)
 
     /// Bounded poll on `identityStore.loadSync`. iCloud Keychain may still be
     /// syncing at launch; minting a new identity now would make the bundle
     /// permanently undecryptable.
+    @available(*, deprecated, message: "Two-key model uses awaitBackupKeyWithTimeout. Kept for binary compat during transition.")
     private func awaitIdentityWithTimeout(
         timeout: Duration = .seconds(30)
     ) async throws -> KeychainIdentity {
