@@ -447,7 +447,7 @@ public actor RestoreManager {
             }
             try await Task.sleep(for: .milliseconds(500))
         }
-        throw RestoreError.identityNotAvailable
+        throw RestoreError.backupKeyNotAvailable
     }
 
     /// Adopts the identity packaged inside `innerMetadata` into this

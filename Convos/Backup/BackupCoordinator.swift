@@ -57,6 +57,13 @@ final class BackupCoordinator {
     /// placeholder.
     private(set) var sessionObservationGeneration: Int = 0
 
+    /// Bumped to a fresh `UUID` on each successful restore. Views that
+    /// own a sheet hosting the restore UI (e.g. `AppSettingsView`) watch
+    /// this via `.onChange` and dismiss themselves when it fires, so the
+    /// user lands back on the conversations list with the restored data
+    /// instead of the now-irrelevant settings sheet.
+    private(set) var lastRestoreSuccessId: UUID?
+
     init(convos: ConvosClient) {
         self.convos = convos
         self.viewModel = BackupRestoreViewModel(
@@ -102,7 +109,22 @@ final class BackupCoordinator {
         let manager = convos.makeRestoreManager()
         // Quick check first — covers the common case where iCloud has
         // already delivered. Avoids the settle wait when unnecessary.
-        if await manager.findAvailableBackup() != nil {
+        if let available = await manager.findAvailableBackup() {
+            if RestorePromptDismissalStorage.isDismissed(
+                available.sidecar,
+                environment: convos.environment
+            ) {
+                // User already tapped "Not now" on this exact bundle on
+                // this device. Don't re-prompt; release the gate so they
+                // can use the app normally. Settings → Backup & Restore
+                // still surfaces the bundle if they change their mind.
+                await viewModel.refresh()
+                isAwaitingICloud = false
+                showRestorePrompt = false
+                convos.session.setRestoreBootstrapDecision(.dismissedByUser)
+                advanceSessionObservationGeneration()
+                return
+            }
             await viewModel.refresh()
             isAwaitingICloud = false
             showRestorePrompt = true
@@ -126,8 +148,18 @@ final class BackupCoordinator {
         switch outcome {
         case .backupArrived:
             await viewModel.refresh()
-            showRestorePrompt = true
-            convos.session.setRestoreBootstrapDecision(.restoreAvailable)
+            if let sidecar = viewModel.availableRestore?.sidecar,
+               RestorePromptDismissalStorage.isDismissed(
+                sidecar,
+                environment: convos.environment
+               ) {
+                showRestorePrompt = false
+                convos.session.setRestoreBootstrapDecision(.dismissedByUser)
+                advanceSessionObservationGeneration()
+            } else {
+                showRestorePrompt = true
+                convos.session.setRestoreBootstrapDecision(.restoreAvailable)
+            }
         case .backupKeyArrived, .timeout:
             // Backup key arrived via iCloud Keychain but no bundle is
             // visible yet (still propagating, or no paired device has
@@ -207,6 +239,7 @@ final class BackupCoordinator {
                 convos.session.setRestoreBootstrapDecision(.restoreSucceeded)
                 showRestorePrompt = false
                 advanceSessionObservationGeneration()
+                lastRestoreSuccessId = UUID()
             } catch {
                 restoreErrorMessageStorage = Self.userFacingMessage(for: error)
                 Log.error("BackupCoordinator: restore failed — \(error)")
@@ -217,31 +250,46 @@ final class BackupCoordinator {
     }
 
     /// Called by the fresh-install restore prompt when the user chooses
-    /// "Start fresh." Releases the bootstrap gate so registration can
-    /// proceed normally.
+    /// "Not now." Per-device, non-destructive — records the dismissed
+    /// bundle's fingerprint in app-group UserDefaults so the prompt
+    /// stays hidden on this device, then releases the bootstrap gate.
     ///
-    /// Two-key model: also rotate the synced backup key. The presence
-    /// of a backup key in iCloud Keychain is the I-am-already-on-this-
-    /// account signal. By the time the user has consciously confirmed
-    /// "Start fresh on this Apple ID" through the destructive-action
-    /// alert, they have explicitly opted to break that signal — and
-    /// the right way to break it is to delete the synced slot so paired
-    /// devices on the same Apple ID converge to "no key, will register
-    /// fresh on their next launch." Existing bundles in iCloud
-    /// Documents become unreadable as the design intends.
+    /// Critically, this does **not** delete the synced backup key.
+    /// Earlier iterations did, on the theory that "Skip" meant "Start
+    /// fresh on this Apple ID" — but iCloud Keychain (CKKS) propagates
+    /// `deleteBackupKey()` to every paired device, so a single tap on
+    /// Device A would silently brick Device B's backup. A genuine
+    /// "Start fresh / wipe iCloud backups" gesture belongs in Settings
+    /// where it can be explicitly labeled and confirmed; "Skip on this
+    /// prompt for now" must remain harmless.
     func dismissRestorePrompt() {
-        showRestorePrompt = false
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.convos.identityStore.deleteBackupKey()
-                Log.info("BackupCoordinator: Start fresh — synced backup key deleted; existing bundles are now unreadable")
-            } catch {
-                Log.warning("BackupCoordinator: Start fresh — backup key delete failed (non-fatal): \(error)")
-            }
+        if let sidecar = viewModel.availableRestore?.sidecar {
+            RestorePromptDismissalStorage.record(sidecar, environment: convos.environment)
         }
+        showRestorePrompt = false
         convos.session.setRestoreBootstrapDecision(.dismissedByUser)
         advanceSessionObservationGeneration()
+    }
+
+    /// Erases the synced backup key from this Apple ID's iCloud Keychain.
+    /// The deletion propagates via CKKS to every paired device, which is
+    /// the *intended* effect — this is the explicit "I am leaving this
+    /// account; existing iCloud bundles should become unreadable
+    /// everywhere" gesture. Surfaced from Settings → Backup & Restore
+    /// behind a destructive-confirmation alert. Never wired to the
+    /// fresh-install prompt's Skip button (that's the bug we just
+    /// recovered from).
+    @discardableResult
+    func eraseICloudBackupKey() async -> Bool {
+        do {
+            try await convos.identityStore.deleteBackupKey()
+            Log.info("BackupCoordinator: erased synced backup key from iCloud Keychain")
+            await viewModel.refresh()
+            return true
+        } catch {
+            Log.warning("BackupCoordinator: erase backup key failed: \(error)")
+            return false
+        }
     }
 
     /// Called after `SessionManager.deleteAllInboxes()` tears the cached
@@ -304,6 +352,10 @@ final class BackupCoordinator {
             case .identityNotAvailable:
                 return "Your identity hasn't synced to this device yet. "
                     + "Check iCloud Keychain, wait a minute, and try again."
+            case .backupKeyNotAvailable:
+                return "The backup key isn't on this Apple ID's iCloud Keychain. "
+                    + "If you previously chose Start fresh, the backup is no longer "
+                    + "recoverable. Otherwise, wait for iCloud Keychain to sync and try again."
             case .restoreAlreadyInProgress:
                 return "A restore is already in progress. Please wait."
             }

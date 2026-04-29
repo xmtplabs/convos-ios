@@ -62,7 +62,7 @@ struct ConversationsView: View {
                         isRestoring: coordinator.isRestoring,
                         onRestore: restore,
                         onChooseBackup: chooseBackup,
-                        onStartFresh: dismiss
+                        onSkip: dismiss
                     )
                     .padding(.top, DesignConstants.Spacing.step4x)
                 }
@@ -309,6 +309,16 @@ struct ConversationsView: View {
                     }
                 )
             }
+        }
+        .onChange(of: backupCoordinator?.lastRestoreSuccessId) { _, newValue in
+            // A restore initiated from the settings sheet leaves the
+            // sheet stranded over the (now-restored) conversations list.
+            // Drop both sheets so the user lands back on the list with
+            // their just-restored data, not on the screen they kicked
+            // the action off from.
+            guard newValue != nil else { return }
+            presentingAppSettings = false
+            presentingRestoreChooser = false
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {

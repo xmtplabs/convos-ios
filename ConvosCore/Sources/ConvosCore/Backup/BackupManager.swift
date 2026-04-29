@@ -8,7 +8,6 @@ public enum BackupError: LocalizedError {
     case noConversationsToBackUp
     case archiveKeyGenerationFailed
     case currentInstallationRevoked
-    case backupKeyMissing
     case bundleWriteFailed(String)
 
     public var errorDescription: String? {
@@ -23,8 +22,6 @@ public enum BackupError: LocalizedError {
             return "Failed to generate a per-bundle archive key."
         case .currentInstallationRevoked:
             return "This device has been replaced; skipping backup."
-        case .backupKeyMissing:
-            return "Backup key missing from synced keychain slot — migration may not have run yet."
         case .bundleWriteFailed(let reason):
             return "Failed to write backup bundle: \(reason)"
         }
@@ -167,12 +164,7 @@ public actor BackupManager {
         // the inner metadata carries the source identity so the
         // destination device can adopt it on restore. See
         // `docs/plans/single-inbox-two-key-model.md`.
-        guard let backupKey = try await identityStore.loadBackupKeySync() else {
-            // Should never happen post-migration — KeychainLayoutMigrator
-            // generates the backup key on first run.
-            Log.error("BackupManager: backup key missing from synced keychain slot — refusing to write")
-            throw BackupError.backupKeyMissing
-        }
+        let backupKey = try await loadOrSelfHealBackupKey()
         let identityPayload = try JSONEncoder().encode(identity)
 
         let innerMetadata = BackupBundleMetadata(
@@ -223,6 +215,35 @@ public actor BackupManager {
     }
 
     // MARK: - Helpers
+
+    /// Loads the synced backup key, or self-heals by generating one if the
+    /// slot is unexpectedly empty. The self-heal path is safe: if the
+    /// synced slot is empty for this Apple ID, no paired device can have
+    /// a usable backup either — they'd need the same key — so any pre-
+    /// existing bundle is already unreadable. Generating a fresh key
+    /// strictly improves the state (a new bundle becomes producible)
+    /// rather than overwriting recoverable data.
+    ///
+    /// Why it's plumbed here and not in `KeychainIdentityStore`: the
+    /// store is dumb persistence. The decision "if the synced slot is
+    /// empty during a backup write, that's a bug, recover gracefully"
+    /// is policy that belongs to the layer that knows what the slot is
+    /// for.
+    private func loadOrSelfHealBackupKey() async throws -> Data {
+        if let existing = try await identityStore.loadBackupKeySync() {
+            return existing
+        }
+        Log.warning(
+            "BackupManager: backup key missing from synced keychain slot — "
+            + "self-healing by generating a fresh one. Pre-existing bundles "
+            + "for this Apple ID (if any) are already unreadable from this "
+            + "device since the key needed to unseal them is gone."
+        )
+        QAEvent.emit(.app, "backup.backup_key_self_healed")
+        let fresh = try Self.generateArchiveKey()
+        try await identityStore.saveBackupKey(fresh)
+        return fresh
+    }
 
     private static func generateArchiveKey() throws -> Data {
         var bytes = Data(count: 32)

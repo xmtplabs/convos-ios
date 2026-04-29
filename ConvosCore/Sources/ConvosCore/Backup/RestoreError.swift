@@ -6,6 +6,7 @@ import Foundation
 /// data is corrupt.
 public enum RestoreError: Error, LocalizedError, Equatable {
     case identityNotAvailable
+    case backupKeyNotAvailable
     case bundleCorrupt(String)
     case decryptionFailed(String)
     case schemaGenerationMismatch(bundleGeneration: String, currentGeneration: String)
@@ -17,6 +18,9 @@ public enum RestoreError: Error, LocalizedError, Equatable {
         switch self {
         case .identityNotAvailable:
             return "iCloud Keychain is still syncing your identity. Please try again shortly."
+        case .backupKeyNotAvailable:
+            return "The backup key isn't available on this Apple ID. "
+                + "If you tapped Start fresh, the backup is no longer recoverable."
         case .bundleCorrupt(let reason):
             return "The backup appears corrupt: \(reason)"
         case .decryptionFailed(let reason):
@@ -36,6 +40,7 @@ public enum RestoreError: Error, LocalizedError, Equatable {
     public static func == (lhs: RestoreError, rhs: RestoreError) -> Bool {
         switch (lhs, rhs) {
         case (.identityNotAvailable, .identityNotAvailable),
+            (.backupKeyNotAvailable, .backupKeyNotAvailable),
             (.restoreAlreadyInProgress, .restoreAlreadyInProgress):
             return true
         case let (.bundleCorrupt(a), .bundleCorrupt(b)),
@@ -75,6 +80,54 @@ public struct PendingArchiveImportFailure: Codable, Equatable, Sendable {
     public init(occurredAt: Date = Date(), reason: String) {
         self.occurredAt = occurredAt
         self.reason = reason
+    }
+}
+
+/// Records that the user tapped "Not now" on the fresh-install restore
+/// prompt for a specific bundle. The signal is **per-device** (lives
+/// in app-group UserDefaults, never iCloud Keychain) — so dismissing
+/// the prompt on Device A doesn't propagate to Device B and never
+/// touches the synced backup key.
+///
+/// The fingerprint is `deviceId + createdAt`, so if a paired device
+/// produces a *newer* bundle later, the prompt re-appears (the user
+/// only opted out of the bundle they saw, not all future bundles).
+public enum RestorePromptDismissalStorage {
+    static let userDefaultsKey: String = "convos.backup.restorePromptDismissedFingerprint"
+
+    public static func fingerprint(for sidecar: BackupSidecarMetadata) -> String {
+        "\(sidecar.deviceId)|\(sidecar.createdAt.timeIntervalSince1970)"
+    }
+
+    public static func record(
+        _ sidecar: BackupSidecarMetadata,
+        environment: AppEnvironment
+    ) {
+        record(sidecar, defaults: appGroupDefaults(for: environment))
+    }
+
+    public static func isDismissed(
+        _ sidecar: BackupSidecarMetadata,
+        environment: AppEnvironment
+    ) -> Bool {
+        isDismissed(sidecar, defaults: appGroupDefaults(for: environment))
+    }
+
+    public static func clear(environment: AppEnvironment) {
+        appGroupDefaults(for: environment).removeObject(forKey: userDefaultsKey)
+    }
+
+    static func record(_ sidecar: BackupSidecarMetadata, defaults: UserDefaults) {
+        defaults.set(fingerprint(for: sidecar), forKey: userDefaultsKey)
+    }
+
+    static func isDismissed(_ sidecar: BackupSidecarMetadata, defaults: UserDefaults) -> Bool {
+        guard let stored = defaults.string(forKey: userDefaultsKey) else { return false }
+        return stored == fingerprint(for: sidecar)
+    }
+
+    private static func appGroupDefaults(for environment: AppEnvironment) -> UserDefaults {
+        UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard
     }
 }
 

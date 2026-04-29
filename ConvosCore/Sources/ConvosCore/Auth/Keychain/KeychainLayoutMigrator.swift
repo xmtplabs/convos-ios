@@ -90,6 +90,7 @@ public enum KeychainLayoutMigrator {
         do {
             legacyData = try readLegacyIdentity(accessGroup: accessGroup)
         } catch {
+            Log.warning("KeychainLayoutMigrator: read v3 identity failed — \(error)")
             return .failed(reason: "read v3 identity: \(error)")
         }
 
@@ -98,6 +99,7 @@ public enum KeychainLayoutMigrator {
             do {
                 try ensureBackupKey(accessGroup: accessGroup)
             } catch {
+                Log.warning("KeychainLayoutMigrator: ensureBackupKey on fresh install failed — \(error)")
                 return .failed(reason: "generate backup key on fresh install: \(error)")
             }
             defaults.set(layoutGenerationCurrent, forKey: layoutGenerationKey)
@@ -110,16 +112,19 @@ public enum KeychainLayoutMigrator {
         do {
             try writeLocalIdentityIfMissing(legacyData, accessGroup: accessGroup)
         } catch {
+            Log.warning("KeychainLayoutMigrator: writeLocalIdentityIfMissing failed — \(error)")
             return .failed(reason: "write v4-local identity: \(error)")
         }
         do {
             try ensureBackupKey(accessGroup: accessGroup)
         } catch {
+            Log.warning("KeychainLayoutMigrator: ensureBackupKey during migration failed — \(error)")
             return .failed(reason: "generate backup key during migration: \(error)")
         }
         do {
             try deleteLegacyIdentity(accessGroup: accessGroup)
         } catch {
+            Log.warning("KeychainLayoutMigrator: deleteLegacyIdentity failed — \(error)")
             return .failed(reason: "delete v3 identity: \(error)")
         }
 

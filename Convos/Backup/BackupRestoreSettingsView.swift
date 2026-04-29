@@ -4,9 +4,13 @@ import SwiftUI
 struct BackupRestoreSettingsView: View {
     @Bindable var viewModel: BackupRestoreViewModel
     let onRestore: (AvailableBackup) -> Void
+    let onEraseICloudBackupKey: (() async -> Bool)?
 
     @State private var showingRestoreConfirmation: Bool = false
     @State private var pendingRestore: AvailableBackup?
+    @State private var showingEraseICloudConfirmation: Bool = false
+    @State private var isErasingICloud: Bool = false
+    @State private var eraseICloudFailed: Bool = false
 
     var body: some View {
         List {
@@ -22,6 +26,9 @@ struct BackupRestoreSettingsView: View {
                 partialRestoreSection(failure: failure)
             }
             statusSection()
+            if onEraseICloudBackupKey != nil {
+                eraseICloudSection()
+            }
         }
         .navigationTitle("Backup & Restore")
         .navigationBarTitleDisplayMode(.inline)
@@ -48,6 +55,31 @@ struct BackupRestoreSettingsView: View {
                 + "Your other devices will be signed out of this account as "
                 + "part of the restore.\n\n"
                 + "This can't be undone."
+            )
+        }
+        .alert(
+            "Erase iCloud backups for this Apple ID?",
+            isPresented: $showingEraseICloudConfirmation
+        ) {
+            let confirm: () -> Void = {
+                guard let action = onEraseICloudBackupKey else { return }
+                isErasingICloud = true
+                eraseICloudFailed = false
+                Task { @MainActor in
+                    let ok = await action()
+                    isErasingICloud = false
+                    eraseICloudFailed = !ok
+                }
+            }
+            Button("Erase backups", role: .destructive, action: confirm)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This deletes the synced backup key from iCloud Keychain "
+                + "for this Apple ID. Every existing Convos backup on every "
+                + "paired device becomes permanently unreadable.\n\n"
+                + "Pick this only if you're certain you want a clean break "
+                + "with the existing account. This can't be undone."
             )
         }
     }
@@ -180,6 +212,45 @@ struct BackupRestoreSettingsView: View {
     }
 
     @ViewBuilder
+    private func eraseICloudSection() -> some View {
+        Section {
+            let tap = { showingEraseICloudConfirmation = true }
+            Button(action: tap) {
+                HStack {
+                    if isErasingICloud {
+                        Text("Erasing…")
+                            .foregroundStyle(.colorTextSecondary)
+                        Spacer()
+                        ProgressView()
+                    } else {
+                        Text("Erase iCloud backups")
+                            .foregroundStyle(.colorLava)
+                        Spacer()
+                        Image(systemName: "trash")
+                            .foregroundStyle(.colorLava)
+                    }
+                }
+            }
+            .disabled(isErasingICloud)
+            .accessibilityIdentifier("erase-icloud-backups-button")
+        } header: {
+            Text("Danger zone")
+        } footer: {
+            if eraseICloudFailed {
+                Text("Couldn't erase the backup key — check your iCloud Keychain status and try again.")
+                    .foregroundStyle(.colorLava)
+            } else {
+                Text(
+                    "Wipes the synced backup key from iCloud Keychain across "
+                    + "every device on this Apple ID. Existing backups become "
+                    + "permanently unreadable. Use only for an intentional clean "
+                    + "break with this account."
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
     private func statusSection() -> some View {
         Section {
             HStack {
@@ -219,7 +290,8 @@ struct BackupRestoreSettingsView: View {
                 appGroupIdentifier: "group.org.convos.ios-local",
                 relyingPartyIdentifier: "local.convos.org"
             ))),
-            onRestore: { _ in }
+            onRestore: { _ in },
+            onEraseICloudBackupKey: { true }
         )
     }
 }

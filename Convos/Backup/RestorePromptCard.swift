@@ -12,22 +12,24 @@ struct RestorePromptCard: View {
     let isRestoring: Bool
     let onRestore: () -> Void
     let onChooseBackup: (() -> Void)?
-    let onStartFresh: () -> Void
+    let onSkip: () -> Void
 
     @State private var showingRestoreConfirmation: Bool = false
-    @State private var showingStartFreshConfirmation: Bool = false
 
     var body: some View {
         let restoreAction: () -> Void = {
             showingRestoreConfirmation = true
         }
-        // Two-key model: "Start fresh" is now the explicit
-        // I-am-leaving-the-account signal. It rotates the synced backup
-        // key, which makes existing bundles unreadable on every paired
-        // device. Confirm before doing it.
-        let skipAction: () -> Void = {
-            showingStartFreshConfirmation = true
-        }
+        // "Not now" is purely local — it records a per-device
+        // dismissal so this prompt stops re-appearing on this device,
+        // but does not touch the synced backup key. (An earlier
+        // iteration deleted the backup key here as a "Start fresh on
+        // this Apple ID" signal, but the deletion propagates via
+        // iCloud Keychain to every paired device, which would let a
+        // single mistap on one device brick the backup on another.
+        // The genuine "wipe my iCloud backups" gesture lives in
+        // Settings, not on this prompt.)
+        let skipAction: () -> Void = onSkip
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -65,7 +67,7 @@ struct RestorePromptCard: View {
                 VStack(spacing: DesignConstants.Spacing.step2x) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Button(action: skipAction) {
-                            Text("Skip")
+                            Text("Not now")
                         }
                         .convosButtonStyle(.outline(fullWidth: true))
                         .accessibilityIdentifier("restore-prompt-skip-button")
@@ -108,21 +110,6 @@ struct RestorePromptCard: View {
                 + "Your other devices will be signed out of this account "
                 + "as part of the restore.\n\n"
                 + "This can't be undone."
-            )
-        }
-        .alert(
-            "Start fresh on this Apple ID?",
-            isPresented: $showingStartFreshConfirmation
-        ) {
-            Button("Start fresh", role: .destructive, action: onStartFresh)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(
-                "Starting fresh will replace your Convos account on every device "
-                + "on this Apple ID and make your existing backups unreadable. "
-                + "Pick this only if you want a brand-new account.\n\n"
-                + "If you're trying to come back to an existing account, "
-                + "tap Cancel and use Restore instead."
             )
         }
     }
@@ -213,7 +200,7 @@ struct RestoreBackupChooserView: View {
         isRestoring: false,
         onRestore: {},
         onChooseBackup: {},
-        onStartFresh: {}
+        onSkip: {}
     )
     .padding()
 }

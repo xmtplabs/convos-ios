@@ -99,7 +99,15 @@ struct ConvosApp: App {
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
             .overlay(alignment: .top) {
-                if staleDeviceObserver.isDeviceReplaced {
+                // The restore-prompt card and the in-progress restore
+                // surface their own actions for "this device is stale" —
+                // letting the StaleDeviceBanner sit on top of them
+                // double-stacks UI and offers a Reset button that would
+                // race with whatever the user is mid-decision on.
+                let restoreUITakesPrecedence = backupCoordinator.showRestorePrompt
+                    || backupCoordinator.isRestoring
+                    || backupCoordinator.isAwaitingICloud
+                if staleDeviceObserver.isDeviceReplaced && !restoreUITakesPrecedence {
                     let coordinator = backupCoordinator
                     let reset: () -> Void = {
                         Task { @MainActor in

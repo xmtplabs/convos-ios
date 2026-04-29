@@ -172,11 +172,15 @@ struct AppSettingsView: View {
                     let onRestore: (AvailableBackup) -> Void = { available in
                         backupCoordinator.beginRestore(available)
                     }
+                    let onEraseICloudBackupKey: @MainActor () async -> Bool = {
+                        await backupCoordinator.eraseICloudBackupKey()
+                    }
                     Section {
                         NavigationLink {
                             BackupRestoreSettingsView(
                                 viewModel: backupCoordinator.viewModel,
-                                onRestore: onRestore
+                                onRestore: onRestore,
+                                onEraseICloudBackupKey: onEraseICloudBackupKey
                             )
                         } label: {
                             HStack(spacing: DesignConstants.Spacing.step2x) {
