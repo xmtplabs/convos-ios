@@ -3,14 +3,14 @@ import Foundation
 import GRDB
 import Testing
 
-/// Tests for ConnectionGrantWriter
+/// Tests for CloudConnectionGrantWriter
 ///
 /// Covers the atomicity/rollback correctness of grant and revoke flows:
 /// - grant succeeds → DB row present, metadata was published
 /// - metadata publish fails → no DB row committed, error propagates
 /// - revoke succeeds → DB row removed, metadata was published with reduced set
 /// - revoke publish fails → DB row remains, error propagates
-@Suite("ConnectionGrantWriter Tests")
+@Suite("CloudConnectionGrantWriter Tests")
 struct ConnectionGrantWriterTests {
     // MARK: - Fixtures
 
@@ -18,7 +18,7 @@ struct ConnectionGrantWriterTests {
         let databaseManager: MockDatabaseManager
         let sessionStateManager: MockSessionStateManager
         let profileWriter: MockMyProfileWriter
-        let writer: ConnectionGrantWriter
+        let writer: CloudConnectionGrantWriter
 
         init(inboxId: String = "mock-inbox-id") {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
@@ -28,7 +28,7 @@ struct ConnectionGrantWriterTests {
             self.databaseManager = databaseManager
             self.sessionStateManager = sessionStateManager
             self.profileWriter = profileWriter
-            self.writer = ConnectionGrantWriter(
+            self.writer = CloudConnectionGrantWriter(
                 sessionStateManager: sessionStateManager,
                 databaseWriter: databaseManager.dbWriter,
                 databaseReader: databaseManager.dbReader,
@@ -39,13 +39,13 @@ struct ConnectionGrantWriterTests {
         func seedConnection(
             id: String = "conn_google_cal",
             serviceId: String = "google_calendar",
-            status: ConnectionStatus = .active
-        ) throws -> DBConnection {
-            let connection = DBConnection(
+            status: CloudConnectionStatus = .active
+        ) throws -> DBCloudConnection {
+            let connection = DBCloudConnection(
                 id: id,
                 serviceId: serviceId,
                 serviceName: "Google Calendar",
-                provider: ConnectionProvider.composio.rawValue,
+                provider: CloudConnectionProvider.composio.rawValue,
                 composioEntityId: "entity_abc",
                 composioConnectionId: "ca_abc",
                 status: status.rawValue,
@@ -92,7 +92,7 @@ struct ConnectionGrantWriterTests {
             conversationId: String,
             serviceId: String
         ) throws {
-            let grant = DBConnectionGrant(
+            let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
@@ -103,10 +103,10 @@ struct ConnectionGrantWriterTests {
             }
         }
 
-        func storedGrants(for conversationId: String) throws -> [DBConnectionGrant] {
+        func storedGrants(for conversationId: String) throws -> [DBCloudConnectionGrant] {
             try databaseManager.dbReader.read { db in
-                try DBConnectionGrant
-                    .filter(DBConnectionGrant.Columns.conversationId == conversationId)
+                try DBCloudConnectionGrant
+                    .filter(DBCloudConnectionGrant.Columns.conversationId == conversationId)
                     .fetchAll(db)
             }
         }
@@ -142,7 +142,7 @@ struct ConnectionGrantWriterTests {
             Issue.record("connections entry was not a string")
             return
         }
-        let payload = try ConnectionsMetadataPayload.fromJsonString(grantsJson)
+        let payload = try CloudConnectionsMetadataPayload.fromJsonString(grantsJson)
         #expect(payload.grants.count == 1)
         #expect(payload.grants.first?.composioConnectionId == connection.composioConnectionId)
         #expect(payload.grants.first?.service == connection.serviceId)
@@ -180,7 +180,7 @@ struct ConnectionGrantWriterTests {
         let fixture = Fixture()
         defer { fixture.cleanup() }
 
-        await #expect(throws: ConnectionGrantError.self) {
+        await #expect(throws: CloudConnectionGrantError.self) {
             try await fixture.writer.grantConnection("missing", to: "conv_x")
         }
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
@@ -195,7 +195,7 @@ struct ConnectionGrantWriterTests {
 
         let connection = try fixture.seedConnection(id: "conn_inactive", status: .revoked)
 
-        await #expect(throws: ConnectionGrantError.self) {
+        await #expect(throws: CloudConnectionGrantError.self) {
             try await fixture.writer.grantConnection(connection.id, to: "conv_x")
         }
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
@@ -300,7 +300,7 @@ struct ConnectionGrantWriterTests {
             Issue.record("connections entry was not a string")
             return
         }
-        let payload = try ConnectionsMetadataPayload.fromJsonString(grantsJson)
+        let payload = try CloudConnectionsMetadataPayload.fromJsonString(grantsJson)
         #expect(payload.grants.count == 2)
         let serviceIds = Set(payload.grants.map(\.service))
         #expect(serviceIds == ["google_calendar", "google_drive"])

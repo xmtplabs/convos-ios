@@ -7,9 +7,9 @@ struct ConnectionsListView: View {
     @State private var showingDisconnectAlert: Bool = false
     @State private var disconnectingConnectionId: String?
 
-    private var availableServices: [ConnectionServiceInfo] {
+    private var availableServices: [CloudConnectionServiceInfo] {
         let activeIds = Set(viewModel.connections.map(\.serviceId))
-        return ConnectionServiceCatalog.all.filter { !activeIds.contains($0.id) }
+        return CloudConnectionServiceCatalog.all.filter { !activeIds.contains($0.id) }
     }
 
     var body: some View {
@@ -74,7 +74,7 @@ struct ConnectionsListView: View {
                     connectionIcon(for: connection.serviceId)
 
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text(ConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName))
+                        Text(CloudConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName))
                             .font(.body)
                             .foregroundStyle(.colorTextPrimary)
                         Text("Connected")
@@ -115,7 +115,7 @@ struct ConnectionsListView: View {
     }
 
     @ViewBuilder
-    private func availableRow(for service: ConnectionServiceInfo) -> some View {
+    private func availableRow(for service: CloudConnectionServiceInfo) -> some View {
         let action = { viewModel.connect(serviceId: service.id) }
         Button(action: action) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -146,7 +146,7 @@ struct ConnectionsListView: View {
 
     @ViewBuilder
     private func connectionIcon(for serviceId: String) -> some View {
-        let info = ConnectionServiceCatalog.info(for: serviceId)
+        let info = CloudConnectionServiceCatalog.info(for: serviceId)
         Group {
             Image(systemName: info?.iconSystemName ?? "link")
                 .font(.headline)

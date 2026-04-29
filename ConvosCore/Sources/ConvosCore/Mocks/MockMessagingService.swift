@@ -120,7 +120,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationPermissionsRepository
     }
 
-    public func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
+    public func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         MockConnectionGrantWriter()
     }
 

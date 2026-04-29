@@ -249,7 +249,7 @@ struct MessagesGroupItemView: View {
             // we receive and decode it but render nothing so the unsupported
             // feature isn't surfaced to the user.
             if FeatureFlags.shared.isCloudConnectionsEnabled {
-                ConnectionGrantRequestCardView(
+                CloudConnectionGrantRequestCardView(
                     request: request,
                     conversationId: conversationId,
                     sender: message.sender

@@ -21,14 +21,14 @@ final class AppSettingsViewModel {
 
         let callbackScheme = ConfigManager.shared.appUrlScheme
 
-        let manager = session.connectionManager(
+        let manager = session.cloudConnectionManager(
             callbackURLScheme: callbackScheme
         )
-        let repository = session.connectionRepository()
+        let repository = session.cloudConnectionRepository()
 
         self.connectionsListViewModel = ConnectionsListViewModel(
-            connectionManager: manager,
-            connectionRepository: repository
+            cloudConnectionManager: manager,
+            cloudConnectionRepository: repository
         )
     }
 

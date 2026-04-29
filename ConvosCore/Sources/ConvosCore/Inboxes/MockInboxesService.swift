@@ -168,13 +168,13 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Connections
 
-    public func connectionManager(
+    public func cloudConnectionManager(
         callbackURLScheme: String
-    ) -> any ConnectionManagerProtocol {
-        MockConnectionManager()
+    ) -> any CloudConnectionManagerProtocol {
+        MockCloudConnectionManager()
     }
 
-    public func connectionRepository() -> any ConnectionRepositoryProtocol {
+    public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
         MockConnectionRepository()
     }
 }

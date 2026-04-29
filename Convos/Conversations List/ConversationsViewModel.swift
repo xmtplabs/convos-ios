@@ -250,9 +250,9 @@ final class ConversationsViewModel {
         updateSelectionTask?.cancel()
     }
 
-    func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> ConnectionGrantRequestSheetViewModel {
+    func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> CloudConnectionGrantRequestSheetViewModel {
         let conversation = conversations.first(where: { $0.id == request.conversationId })
-        return ConnectionGrantRequestSheetViewModel(
+        return CloudConnectionGrantRequestSheetViewModel(
             serviceId: request.serviceId,
             conversationId: request.conversationId,
             conversation: conversation,

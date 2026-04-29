@@ -94,11 +94,11 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Connections
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "mock-request-\(UUID().uuidString)", redirectUrl: "https://accounts.google.com/o/oauth2/auth?mock=true")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(
             connectionId: "mock-conn-\(UUID().uuidString)",
             serviceId: "googlecalendar",
@@ -109,9 +109,9 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] {
         []
     }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

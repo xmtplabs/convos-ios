@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 import Testing
 
-/// Tests for ConnectionRepository.
+/// Tests for CloudConnectionRepository.
 ///
 /// Focus area: `grants(for:)` and `grantsPublisher(for:)` must hide grants
 /// belonging to expired conversations. The FK on
@@ -11,31 +11,31 @@ import Testing
 /// only fires when the conversation row is deleted, but
 /// `ExpiredConversationsWorker` keeps the row around past `expiresAt`, so the
 /// repository owns the active-only contract.
-@Suite("ConnectionRepository Tests")
+@Suite("CloudConnectionRepository Tests")
 struct ConnectionRepositoryTests {
     private struct Fixture {
         let databaseManager: MockDatabaseManager
-        let repository: ConnectionRepository
+        let repository: CloudConnectionRepository
 
         init() {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
             self.databaseManager = databaseManager
-            self.repository = ConnectionRepository(databaseReader: databaseManager.dbReader)
+            self.repository = CloudConnectionRepository(databaseReader: databaseManager.dbReader)
         }
 
         @discardableResult
         func seedConnection(
             id: String = "conn_google_cal",
             serviceId: String = "google_calendar"
-        ) throws -> DBConnection {
-            let connection = DBConnection(
+        ) throws -> DBCloudConnection {
+            let connection = DBCloudConnection(
                 id: id,
                 serviceId: serviceId,
                 serviceName: "Google Calendar",
-                provider: ConnectionProvider.composio.rawValue,
+                provider: CloudConnectionProvider.composio.rawValue,
                 composioEntityId: "entity_abc",
                 composioConnectionId: "ca_abc",
-                status: ConnectionStatus.active.rawValue,
+                status: CloudConnectionStatus.active.rawValue,
                 connectedAt: Date()
             )
             try databaseManager.dbWriter.write { db in
@@ -79,7 +79,7 @@ struct ConnectionRepositoryTests {
             conversationId: String,
             serviceId: String = "google_calendar"
         ) throws {
-            let grant = DBConnectionGrant(
+            let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
@@ -136,8 +136,8 @@ struct ConnectionRepositoryTests {
         // Confirm the grant rows still exist in the DB — the filter is at the
         // repository read layer, not a delete.
         let raw = try await fixture.databaseManager.dbReader.read { db in
-            try DBConnectionGrant
-                .filter(DBConnectionGrant.Columns.conversationId == "conv_expired")
+            try DBCloudConnectionGrant
+                .filter(DBCloudConnectionGrant.Columns.conversationId == "conv_expired")
                 .fetchAll(db)
         }
         #expect(raw.count == 1)

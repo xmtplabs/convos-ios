@@ -18,6 +18,10 @@ let package = Package(
             name: "ConvosCoreiOS",
             targets: ["ConvosCoreiOS"]
         ),
+        .library(
+            name: "ConvosConnectionsXMTP",
+            targets: ["ConvosConnectionsXMTP"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
@@ -32,6 +36,7 @@ let package = Package(
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
+        .package(path: "../ConvosConnections"),
     ],
     targets: [
         .target(
@@ -68,6 +73,19 @@ let package = Package(
                 .unsafeFlags(["-Onone"], .when(configuration: .debug)),
             ]
         ),
+        .target(
+            name: "ConvosConnectionsXMTP",
+            dependencies: [
+                .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "ConvosConnections", package: "ConvosConnections"),
+            ],
+            path: "Sources/ConvosConnectionsXMTP",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .define("DEBUG", .when(configuration: .debug)),
+                .unsafeFlags(["-Onone"], .when(configuration: .debug)),
+            ]
+        ),
         .testTarget(
             name: "ConvosCoreTests",
             dependencies: [
@@ -75,6 +93,15 @@ let package = Package(
                 "ConvosAppData",
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
             ]
+        ),
+        .testTarget(
+            name: "ConvosConnectionsXMTPTests",
+            dependencies: [
+                "ConvosConnectionsXMTP",
+                .product(name: "ConvosConnections", package: "ConvosConnections"),
+                .product(name: "XMTPiOS", package: "libxmtp"),
+            ],
+            path: "Tests/ConvosConnectionsXMTPTests"
         ),
     ]
 )

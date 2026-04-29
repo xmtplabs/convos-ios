@@ -4,31 +4,31 @@ import SwiftUI
 
 @MainActor @Observable
 final class ConversationConnectionsViewModel {
-    private(set) var connections: [Connection] = []
+    private(set) var connections: [CloudConnection] = []
     private(set) var grantedConnectionIds: Set<String> = []
 
     private let conversationId: String
-    private let connectionRepository: any ConnectionRepositoryProtocol
-    private let grantWriter: any ConnectionGrantWriterProtocol
+    private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
+    private let grantWriter: any CloudConnectionGrantWriterProtocol
     private var connectionsCancellable: AnyCancellable?
     private var grantsCancellable: AnyCancellable?
 
     init(
         conversationId: String,
-        connectionRepository: any ConnectionRepositoryProtocol,
-        grantWriter: any ConnectionGrantWriterProtocol
+        cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
+        grantWriter: any CloudConnectionGrantWriterProtocol
     ) {
         self.conversationId = conversationId
-        self.connectionRepository = connectionRepository
+        self.cloudConnectionRepository = cloudConnectionRepository
         self.grantWriter = grantWriter
 
-        connectionsCancellable = connectionRepository.connectionsPublisher()
+        connectionsCancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connections in
                 self?.connections = connections
             }
 
-        grantsCancellable = connectionRepository.grantsPublisher(for: conversationId)
+        grantsCancellable = cloudConnectionRepository.grantsPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] grants in
                 self?.grantedConnectionIds = Set(grants.map(\.connectionId))
@@ -61,11 +61,11 @@ struct ConversationConnectionsSection: View {
     var body: some View {
         Section {
             ForEach(viewModel.connections) { connection in
-                let info = ConnectionServiceCatalog.info(for: connection.serviceId)
+                let info = CloudConnectionServiceCatalog.info(for: connection.serviceId)
                 FeatureRowItem(
                     imageName: nil,
                     symbolName: info?.iconSystemName ?? "link",
-                    title: ConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName),
+                    title: CloudConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName),
                     subtitle: "Share with this conversation",
                     iconBackgroundColor: info?.iconBackgroundColor ?? .gray,
                     iconForegroundColor: .white
