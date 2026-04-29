@@ -1,48 +1,20 @@
+import ConvosConnections
 import ConvosCore
 import SwiftUI
 
 struct ConnectionsListView: View {
     @Bindable var viewModel: ConnectionsListViewModel
 
-    @State private var showingDisconnectAlert: Bool = false
-    @State private var disconnectingConnectionId: String?
-
-    private var availableServices: [CloudConnectionServiceInfo] {
-        let activeIds = Set(viewModel.connections.map(\.serviceId))
-        return CloudConnectionServiceCatalog.all.filter { !activeIds.contains($0.id) }
-    }
-
     var body: some View {
         List {
             headerSection
 
-            if !viewModel.connections.isEmpty {
-                connectedSection
-            }
-
-            if !availableServices.isEmpty {
-                availableSection
-            }
+            connectionsSection
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .task {
             viewModel.refresh()
-        }
-        .alert("Disconnect", isPresented: $showingDisconnectAlert) {
-            let dismissAction = {
-                disconnectingConnectionId = nil
-            }
-            Button("Cancel", role: .cancel, action: dismissAction)
-            let confirmAction = {
-                if let id = disconnectingConnectionId {
-                    viewModel.disconnect(id)
-                }
-                disconnectingConnectionId = nil
-            }
-            Button("Disconnect", role: .destructive, action: confirmAction)
-        } message: {
-            Text("This will revoke access for all conversations using this connection.")
         }
     }
 
@@ -67,98 +39,34 @@ struct ConnectionsListView: View {
         .listSectionSeparator(.hidden)
     }
 
-    private var connectedSection: some View {
+    private var connectionsSection: some View {
         Section {
-            ForEach(viewModel.connections) { connection in
-                HStack(spacing: DesignConstants.Spacing.step2x) {
-                    connectionIcon(for: connection.serviceId)
-
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text(CloudConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName))
-                            .font(.body)
-                            .foregroundStyle(.colorTextPrimary)
-                        Text("Connected")
-                            .font(.footnote)
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-
-                    Spacer()
-
-                    let action = {
-                        disconnectingConnectionId = connection.id
-                        showingDisconnectAlert = true
-                    }
-                    Button(action: action) {
-                        Image(systemName: "minus.circle.fill")
-                            .foregroundStyle(.red)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        } header: {
-            Text("Active")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    private var availableSection: some View {
-        Section {
-            ForEach(availableServices) { service in
-                availableRow(for: service)
-            }
-        } header: {
-            Text("Available")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private func availableRow(for service: CloudConnectionServiceInfo) -> some View {
-        let action = { viewModel.connect(serviceId: service.id) }
-        Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                connectionIcon(for: service.id)
-
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(service.displayName)
-                        .font(.body)
-                        .foregroundStyle(.colorTextPrimary)
-                    Text(service.subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                Spacer()
-
-                if viewModel.isConnecting {
-                    ProgressView()
-                } else {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(.colorFillPrimary)
+            ForEach(viewModel.rows) { row in
+                FeatureRowItem(
+                    imageName: nil,
+                    symbolName: symbolName(for: row),
+                    title: row.title,
+                    subtitle: row.subtitle,
+                    iconBackgroundColor: .colorFillMinimal,
+                    iconForegroundColor: .colorTextPrimary
+                ) {
+                    Toggle("", isOn: Binding(
+                        get: { row.isOn },
+                        set: { _ in viewModel.toggle(row) }
+                    ))
+                    .labelsHidden()
+                    .disabled(viewModel.isConnecting || !row.isToggleEnabled)
                 }
             }
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isConnecting)
     }
 
-    @ViewBuilder
-    private func connectionIcon(for serviceId: String) -> some View {
-        let info = CloudConnectionServiceCatalog.info(for: serviceId)
-        Group {
-            Image(systemName: info?.iconSystemName ?? "link")
-                .font(.headline)
-                .padding(.horizontal, DesignConstants.Spacing.step2x)
-                .padding(.vertical, DesignConstants.Spacing.step3x)
-                .foregroundStyle(.white)
+    private func symbolName(for row: ConnectionsListViewModel.Row) -> String {
+        switch row.source {
+        case .cloud(let service, _):
+            return service.iconSystemName
+        case .device(let kind, _):
+            return kind.systemImageName
         }
-        .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
-        .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                .fill(info?.iconBackgroundColor ?? .gray)
-                .aspectRatio(1.0, contentMode: .fit)
-        )
     }
 }

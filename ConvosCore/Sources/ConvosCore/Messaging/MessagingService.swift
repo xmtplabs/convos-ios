@@ -240,6 +240,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    func connectionEventWriter() -> any ConnectionEventWriterProtocol {
+        ConnectionEventWriter(sessionStateManager: sessionStateManager)
+    }
+
     func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
         CapabilityRequestResultWriter(sessionStateManager: sessionStateManager)
     }

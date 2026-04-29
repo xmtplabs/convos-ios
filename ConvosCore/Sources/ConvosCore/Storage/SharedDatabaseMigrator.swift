@@ -83,6 +83,34 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("createConnectionEnablement") { db in
+            try db.create(table: "connectionEnablement") { t in
+                t.column("kind", .text).notNull()
+                t.column("capability", .text).notNull()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["kind", "capability", "conversationId"])
+            }
+
+            try db.create(
+                index: "connectionEnablement_conversationId",
+                on: "connectionEnablement",
+                columns: ["conversationId"]
+            )
+
+            try db.create(table: "connectionAlwaysConfirm") { t in
+                t.column("kind", .text).notNull()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("alwaysConfirm", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["kind", "conversationId"])
+            }
+        }
+
         return migrator
     }
 

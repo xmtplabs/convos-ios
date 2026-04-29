@@ -18,10 +18,10 @@
 		7AD545902E4EA8BE00500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD545932E4EA8F300500ADF /* ConvosCore */; };
 		7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
+		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E2A888849D41387DB99FBFE5 /* QAAutomationServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */; };
-		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -169,130 +169,6 @@
 			);
 			target = D8A2B6902DA4BA4B00EF8577 /* Convos */;
 		};
-		DAE6B1002E70955E0062483A /* Exceptions for "Convos" folder in "ConvosAppClip" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"App Settings/AppSettingsView.swift",
-				"AppIcon-Dev.icon",
-				"AppIcon-Local.icon",
-				"AppIcon-Prod.icon",
-				Assets.xcassets,
-				Config/config.local.json,
-				Config/ConfigManager.swift,
-				"Conversation Creation/JoinConversationView.swift",
-				"Conversation Creation/NewConversationView.swift",
-				"Conversation Creation/NewConversationViewModel.swift",
-				"Conversation Creation/QRScannerView.swift",
-				"Conversation Creation/QRScannerViewModel.swift",
-				"Conversation Detail/ConversationForkedInfoView.swift",
-				"Conversation Detail/ConversationInfoEditView.swift",
-				"Conversation Detail/ConversationInfoView.swift",
-				"Conversation Detail/ConversationMembersListView.swift",
-				"Conversation Detail/ConversationMemberView.swift",
-				"Conversation Detail/ConversationShareView.swift",
-				"Conversation Detail/ConversationView.swift",
-				"Conversation Detail/ConversationViewModel.swift",
-				"Conversation Detail/ConversationViewModel+ReadReceipts.swift",
-				"Conversation Detail/ConversationViewModel+TypingIndicators.swift",
-				"Conversation Detail/ExplodeButton.swift",
-				"Conversation Detail/Messages/ConversationIndicatorView.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Extensions/CGRect+Extension.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Extensions/RandomAccessCollection+Extension.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesCollectionLayout.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutAttributes.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutDelegate.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutInvalidationContext.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutPositionSnapshot.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutSettings.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutStateController.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ChangeItem.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemKind.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemModel.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemPath.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemSize.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/LayoutModel.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/SectionModel.swift",
-				"Conversation Detail/Messages/Messages View Controller/Constants.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/ManualAnimator.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/SetActor.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/UICollectionView+DifferenceKit.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/UIView+Extension.swift",
-				"Conversation Detail/Messages/Messages View Controller/Keyboard/KeyboardInfo.swift",
-				"Conversation Detail/Messages/Messages View Controller/Keyboard/KeyboardListener.swift",
-				"Conversation Detail/Messages/Messages View Controller/Message Models/MessagesCollectionSection.swift",
-				"Conversation Detail/Messages/Messages View Controller/Message Models/MessageTypes.swift",
-				"Conversation Detail/Messages/Messages View Controller/Message Models/TypingState.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/EmojiPickerView.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/MessageReaction.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/MessageReactionMenuViewModel.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/MessageReactionsView.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Cells/MessagesListItemTypeCell.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Cells/TypingIndicatorCollectionCell.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Cells/UICollectionViewCell+Extensions.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/CellFactory.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/DefaultMessagesLayoutDelegate.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/MessagesCollectionDataSource.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/MessagesCollectionViewDataSource.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesBottomBar.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesInputView.swift",
-				"Conversation Detail/Messages/MessagesListView/Messages List Items/MessageContainer.swift",
-				"Conversation Detail/Messages/MessagesListView/MessagesListItemType.swift",
-				"Conversation Detail/Messages/MessagesListView/MessagesListView.swift",
-				"Conversation Detail/Messages/MessagesView.swift",
-				"Conversation Detail/Messages/MessagesViewRepresentable.swift",
-				"Conversations List/ConversationsListEmptyCTA.swift",
-				"Conversations List/ConversationsListItem.swift",
-				"Conversations List/ConversationsView.swift",
-				"Conversations List/ConversationsViewModel.swift",
-				"Conversations List/View Controller/Cells/ConversationListItemCell.swift",
-				"Conversations List/View Controller/Cells/EmptyStateCell.swift",
-				"Conversations List/View Controller/Cells/PinnedConversationCell.swift",
-				"Conversations List/View Controller/ConversationsCollectionLayout.swift",
-				"Conversations List/View Controller/ConversationsViewController.swift",
-				"Conversations List/View Controller/ConversationsViewRepresentable.swift",
-				ConvosAppDelegate.swift,
-				"Debug View/DebugExportView.swift",
-				"Debug View/DebugLogExporter.swift",
-				"Debug View/DebugView.swift",
-				"Debug View/PendingInviteDebugView.swift",
-				DeepLinking/DeepLinkHandler.swift,
-				"Design System/DesignConstants.swift",
-				"Design System/Styles/ButtonStyles.swift",
-				"Design System/ViewExtensions.swift",
-				Explode/ExplodeInfoView.swift,
-				"Invite Helpers/Invite+InviteURL.swift",
-				Profile/MyInfoView.swift,
-				Profile/MyProfileViewModel.swift,
-				Profile/QuicknameRandomizerSettingsView/QuicknameRandomizerSettingsView.swift,
-				Profile/QuicknameSettings.swift,
-				"Shared Views/AutoShareSheetView.swift",
-				"Shared Views/AvatarView.swift",
-				"Shared Views/ConversationPresenter.swift",
-				"Shared Views/ConversationToolbarButton.swift",
-				"Shared Views/ErrorView.swift",
-				"Shared Views/FlashingListRowButton.swift",
-				"Shared Views/ImagePickerButton.swift",
-				"Shared Views/InfoView.swift",
-				"Shared Views/LinkDetectingTextView.swift",
-				"Shared Views/MaxedOutInfoView.swift",
-				"Shared Views/MonogramView.swift",
-				"Shared Views/PulsingCircleView.swift",
-				"Shared Views/QRCodeView.swift",
-				"Shared Views/QuickEditView.swift",
-				"Shared Views/RelativeDateLabel.swift",
-				"Shared Views/UIViewPreview.swift",
-				"Shared Views/VideoFile.swift",
-				"Shared Views/VideoPlayerView.swift",
-				"Shared Views/ViewModifiers.swift",
-				"Utilities & Extensions/CustomEnvironmentVariables.swift",
-				"Utilities & Extensions/DeviceInfo.swift",
-				"Utilities & Extensions/UIViewController+Extensions.swift",
-				"Utilities & Extensions/View+SelfSizingSheet.swift",
-				Utilities/Log.swift,
-			);
-			target = 7ADC0C6D2E2977800053978A /* ConvosAppClip */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -378,7 +254,7 @@
 				7A5579B22E7B4C1900882661 /* SwiftUIIntrospect in Frameworks */,
 				7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */,
 				7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */,
-							7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */,
+				7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,7 +472,7 @@
 				7AD545932E4EA8F300500ADF /* ConvosCore */,
 				7A5579AF2E7B4C0800882661 /* DifferenceKit */,
 				7A5579B12E7B4C1900882661 /* SwiftUIIntrospect */,
-							7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */,
+				7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */,
 			);
 			productName = ConvosAppClip;
 			productReference = 7ADC0C6E2E2977800053978A /* ConvosAppClip.app */;
@@ -2367,14 +2243,14 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = ConvosCore;
 		};
+		7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosCoreiOS;
+		};
 		D8084BA82DC9193A00E708B0 /* DifferenceKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */;
 			productName = DifferenceKit;
-		};
-		7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ConvosCoreiOS;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

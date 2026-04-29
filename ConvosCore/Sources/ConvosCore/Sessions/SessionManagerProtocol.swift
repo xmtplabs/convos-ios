@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 
 /// Progress events for inbox deletion
@@ -113,6 +114,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// Per-conversation observer of every `(subject, capability)` resolution the user
     /// has approved. Conversation Info uses this to render the "Connections" section.
     func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol
+    func connectionEnablementStore() -> any EnablementStore
 }
 
 extension SessionManagerProtocol {

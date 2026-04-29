@@ -11,6 +11,7 @@ public struct HiddenMessageDebugEntry: Sendable, Identifiable, Hashable {
         case reaction = "Reaction"
         case capabilityRequest = "Capability request"
         case capabilityRequestResult = "Capability result"
+        case connectionEvent = "Connection event"
         case connectionInvocation = "Connection invocation"
         case connectionInvocationResult = "Connection result"
         case unknown = "Unknown"
@@ -94,6 +95,10 @@ private extension HiddenMessageDebugEntry {
                   contentType.typeID == ContentTypeCapabilityRequestResult.typeID {
             reason = .capabilityRequestResult
             summary = Self.capabilityRequestResultSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeConnectionEvent.authorityID,
+                  contentType.typeID == ContentTypeConnectionEvent.typeID {
+            reason = .connectionEvent
+            summary = Self.connectionEventSummary(content: encodedContent)
         } else if contentType.authorityID == ContentTypeConnectionInvocation.authorityID,
                   contentType.typeID == ContentTypeConnectionInvocation.typeID {
             reason = .connectionInvocation
@@ -199,6 +204,16 @@ private extension HiddenMessageDebugEntry {
             parts.append("actions=\(result.availableActions.count)")
         }
         return parts.joined(separator: ", ")
+    }
+
+    static func connectionEventSummary(content: EncodedContent) -> String {
+        guard let event = try? ConnectionEventCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        return [
+            "action=\(event.action.rawValue)",
+            "provider=\(event.providerId)",
+        ].joined(separator: ", ")
     }
 
     static func connectionInvocationSummary(content: EncodedContent) -> String {

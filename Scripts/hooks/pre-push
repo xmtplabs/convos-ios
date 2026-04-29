@@ -90,16 +90,22 @@ echo "🔎 Linting before pushing"
 
 lint_paths=( $(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++') )
 
-lint_success=0
+index=0
 for path in "${lint_paths[@]}"; do
 	if [ -f "$git_root/$path" ] || [ -f "$path" ]; then
-		if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" "$path"; then
-			lint_success=1
-		fi
+		export "SCRIPT_INPUT_FILE_$index=$path"
+		index=$((index + 1))
 	fi
 done
 
-if [ $lint_success -ne 0 ]; then
+if [ $index -eq 0 ]; then
+	echo "🔎 No changed Swift files to lint before pushing"
+	exit 0
+fi
+
+export SCRIPT_INPUT_FILE_COUNT="$index"
+
+if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" --use-script-input-files --force-exclude; then
 	echo ""
 	echo "Done linting"
 	echo ""

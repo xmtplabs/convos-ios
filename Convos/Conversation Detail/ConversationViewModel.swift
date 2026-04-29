@@ -959,6 +959,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
                 availableActions: availableActions
             )
+            if status == .approved {
+                await Self.persistApprovedDeviceCapabilities(
+                    providerIds: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
+                    capability: request.capability,
+                    conversationId: conversationId,
+                    session: session
+                )
+            }
+
             do {
                 try await writer.sendResult(result, in: conversationId)
                 if status == .approved {
@@ -1022,6 +1031,27 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             return await HomeKitDataSink().actionSchemas()
         case .location, .motion, .screenTime:
             return nil
+        }
+    }
+
+    private static func persistApprovedDeviceCapabilities(
+        providerIds: [ProviderID],
+        capability: ConnectionCapability,
+        conversationId: String,
+        session: any SessionManagerProtocol
+    ) async {
+        let store = session.connectionEnablementStore()
+        let eventWriter = session.messagingService().connectionEventWriter()
+        for providerId in providerIds {
+            guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else { continue }
+            let wasEnabled = await store.isEnabled(kind: kind, capability: capability, conversationId: conversationId)
+            await store.setEnabled(true, kind: kind, capability: capability, conversationId: conversationId)
+            if capability == .read {
+                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            }
+            if capability.isWrite, !wasEnabled {
+                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            }
         }
     }
 
@@ -1923,7 +1953,9 @@ extension ConversationViewModel {
         ConversationConnectionsViewModel(
             conversationId: conversation.id,
             cloudConnectionRepository: session.cloudConnectionRepository(),
-            grantWriter: messagingService.connectionGrantWriter()
+            grantWriter: messagingService.connectionGrantWriter(),
+            connectionEventWriter: messagingService.connectionEventWriter(),
+            enablementStore: session.connectionEnablementStore()
         )
     }
 

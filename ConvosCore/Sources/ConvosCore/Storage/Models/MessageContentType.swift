@@ -9,6 +9,9 @@ public enum MessageContentType: String, Codable, Sendable {
     case connectionGrantRequest // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
     case capabilityRequest // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
     case capabilityRequestResult // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case connectionEvent // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case connectionInvocation // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case connectionInvocationResult // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
 
     var marksConversationAsUnread: Bool {
         switch self {
@@ -16,7 +19,10 @@ public enum MessageContentType: String, Codable, Sendable {
              .assistantJoinRequest,
              .connectionGrantRequest,
              .capabilityRequest,
-             .capabilityRequestResult:
+             .capabilityRequestResult,
+             .connectionEvent,
+             .connectionInvocation,
+             .connectionInvocationResult:
             false
         default:
             true

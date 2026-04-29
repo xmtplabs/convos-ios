@@ -1,31 +1,48 @@
 import Combine
+import ConvosConnections
 import ConvosCore
 import SwiftUI
 
 @MainActor @Observable
 final class ConversationConnectionsViewModel {
+    struct DeviceConnection: Identifiable, Hashable {
+        let kind: ConnectionKind
+        let isEnabled: Bool
+
+        var id: String { kind.rawValue }
+    }
+
     private(set) var connections: [CloudConnection] = []
     private(set) var grantedConnectionIds: Set<String> = []
+    private(set) var deviceConnections: [DeviceConnection] = ConnectionKind.allCases
+        .sorted { $0.displayName < $1.displayName }
+        .map { DeviceConnection(kind: $0, isEnabled: false) }
 
     private let conversationId: String
     private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
     private let grantWriter: any CloudConnectionGrantWriterProtocol
+    private let connectionEventWriter: any ConnectionEventWriterProtocol
+    private let enablementStore: any EnablementStore
     private var connectionsCancellable: AnyCancellable?
     private var grantsCancellable: AnyCancellable?
 
     init(
         conversationId: String,
         cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
-        grantWriter: any CloudConnectionGrantWriterProtocol
+        grantWriter: any CloudConnectionGrantWriterProtocol,
+        connectionEventWriter: any ConnectionEventWriterProtocol,
+        enablementStore: any EnablementStore
     ) {
         self.conversationId = conversationId
         self.cloudConnectionRepository = cloudConnectionRepository
         self.grantWriter = grantWriter
+        self.connectionEventWriter = connectionEventWriter
+        self.enablementStore = enablementStore
 
         connectionsCancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connections in
-                self?.connections = connections
+                self?.connections = connections.filter { $0.provider == .composio }
             }
 
         grantsCancellable = cloudConnectionRepository.grantsPublisher(for: conversationId)
@@ -33,6 +50,8 @@ final class ConversationConnectionsViewModel {
             .sink { [weak self] grants in
                 self?.grantedConnectionIds = Set(grants.map(\.connectionId))
             }
+
+        refreshDeviceConnections()
     }
 
     func toggleGrant(for connectionId: String) {
@@ -50,8 +69,45 @@ final class ConversationConnectionsViewModel {
         }
     }
 
+    func toggleDeviceConnection(_ kind: ConnectionKind) {
+        let isEnabled = deviceConnections.first(where: { $0.kind == kind })?.isEnabled ?? false
+        Task {
+            for capability in ConnectionCapability.allCases {
+                await enablementStore.setEnabled(!isEnabled, kind: kind, capability: capability, conversationId: conversationId)
+            }
+            if isEnabled {
+                try? await connectionEventWriter.sendRevoked(providerId: "device.\(kind.rawValue)", in: conversationId)
+            } else {
+                try? await connectionEventWriter.sendGranted(providerId: "device.\(kind.rawValue)", in: conversationId)
+            }
+            await MainActor.run {
+                refreshDeviceConnections()
+            }
+        }
+    }
+
     var hasConnections: Bool {
-        !connections.isEmpty
+        true
+    }
+
+    private func refreshDeviceConnections() {
+        Task { [self] in
+            var items: [DeviceConnection] = []
+            for kind in ConnectionKind.allCases {
+                let isReadEnabled = await self.enablementStore.isEnabled(kind: kind, capability: .read, conversationId: self.conversationId)
+                var hasWrite = false
+                for capability in ConnectionCapability.allCases where capability.isWrite {
+                    if await self.enablementStore.isEnabled(kind: kind, capability: capability, conversationId: self.conversationId) {
+                        hasWrite = true
+                        break
+                    }
+                }
+                items.append(DeviceConnection(kind: kind, isEnabled: isReadEnabled || hasWrite))
+            }
+            await MainActor.run {
+                self.deviceConnections = items.sorted { $0.kind.displayName < $1.kind.displayName }
+            }
+        }
     }
 }
 
@@ -60,6 +116,23 @@ struct ConversationConnectionsSection: View {
 
     var body: some View {
         Section {
+            ForEach(viewModel.deviceConnections) { connection in
+                FeatureRowItem(
+                    imageName: nil,
+                    symbolName: connection.kind.systemImageName,
+                    title: connection.kind.displayName,
+                    subtitle: "Shared from this device",
+                    iconBackgroundColor: .colorFillMinimal,
+                    iconForegroundColor: .colorTextPrimary
+                ) {
+                    Toggle("", isOn: Binding(
+                        get: { connection.isEnabled },
+                        set: { _ in viewModel.toggleDeviceConnection(connection.kind) }
+                    ))
+                    .labelsHidden()
+                }
+            }
+
             ForEach(viewModel.connections) { connection in
                 let info = CloudConnectionServiceCatalog.info(for: connection.serviceId)
                 FeatureRowItem(
@@ -67,8 +140,8 @@ struct ConversationConnectionsSection: View {
                     symbolName: info?.iconSystemName ?? "link",
                     title: CloudConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName),
                     subtitle: "Share with this conversation",
-                    iconBackgroundColor: info?.iconBackgroundColor ?? .gray,
-                    iconForegroundColor: .white
+                    iconBackgroundColor: .colorFillMinimal,
+                    iconForegroundColor: .colorTextPrimary
                 ) {
                     Toggle("", isOn: Binding(
                         get: { viewModel.grantedConnectionIds.contains(connection.id) },

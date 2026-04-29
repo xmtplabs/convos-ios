@@ -440,12 +440,6 @@ struct ConversationInfoView: View {
 
             assistantSection
 
-            if FeatureFlags.shared.isCloudConnectionsEnabled,
-               let connectionsViewModel,
-               connectionsViewModel.hasConnections {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
-            }
-
             if let capabilityResolutionsViewModel,
                capabilityResolutionsViewModel.hasResolutions {
                 ConversationCapabilityResolutionsSection(viewModel: capabilityResolutionsViewModel)
@@ -464,6 +458,11 @@ struct ConversationInfoView: View {
             }
 
             preferencesSection
+
+            if viewModel.conversation.hasAgent,
+               let connectionsViewModel {
+                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            }
 
             convoRulesSection
 
@@ -615,7 +614,7 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if FeatureFlags.shared.isCloudConnectionsEnabled, connectionsViewModel == nil {
+                    if viewModel.conversation.hasAgent, connectionsViewModel == nil {
                         connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
                     }
                     if capabilityResolutionsViewModel == nil {

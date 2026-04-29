@@ -136,6 +136,44 @@ public final class MessagesListProcessor: Sendable {
                 continue
             }
 
+            if case .connectionEvent(let eventSummary) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                items.append(.connectionEvent(id: msg.messageId, summary: eventSummary, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
+            if case .connectionInvocationResult(let resultSummary) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                items.append(.connectionEvent(id: msg.messageId, summary: resultSummary, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
+            if case .connectionInvocation = content {
+                lastMessageDate = msg.date
+                lastWasAttachment = false
+                continue
+            }
+
             let messageDate = msg.date
             var addedDateSeparator = false
             if let lastDate = lastMessageDate {

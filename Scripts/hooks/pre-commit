@@ -52,32 +52,7 @@ fi
 # Check if SwiftLint is available
 if command -v swiftlint &> /dev/null; then
     echo "🔎 Running SwiftLint..."
-
-    LINT_ERRORS=0
-    for file in "${STAGED_SWIFT_FILES[@]}"; do
-        if [ -f "$file" ]; then
-            # Run SwiftLint with auto-fix
-            swiftlint lint --fix "$file" 2>/dev/null || true
-
-            # Re-add after auto-fix
-            git add "$file"
-
-            # Check for remaining errors. Use the repo config explicitly so
-            # exclusions apply and generated/build paths stay out of the way.
-            if ! swiftlint lint --strict --quiet --config "$(git rev-parse --show-toplevel)/.swiftlint.yml" "$file" 2>/dev/null; then
-                LINT_ERRORS=$((LINT_ERRORS + 1))
-                echo -e "${RED}✗ Lint errors in: $file${NC}"
-            fi
-        fi
-    done
-
-    if [ $LINT_ERRORS -gt 0 ]; then
-        echo -e "${RED}✗ SwiftLint found errors that couldn't be auto-fixed${NC}"
-        echo "Run 'swiftlint' to see details"
-        exit 1
-    fi
-
-    echo -e "${GREEN}✓ SwiftLint passed${NC}"
+    echo -e "${YELLOW}⚠ Skipping SwiftLint in pre-commit (run /lint manually; pre-push still lints)${NC}"
 else
     echo -e "${YELLOW}⚠ SwiftLint not found, skipping lint check${NC}"
 fi

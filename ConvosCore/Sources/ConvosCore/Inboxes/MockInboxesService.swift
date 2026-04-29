@@ -201,6 +201,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
         MockCapabilityResolutionsRepository()
     }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        InMemoryEnablementStore()
+    }
 }
 
 private final class MockCapabilityResolutionsRepository: CapabilityResolutionsRepositoryProtocol, @unchecked Sendable {

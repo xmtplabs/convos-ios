@@ -2,6 +2,15 @@ import Foundation
 import UniformTypeIdentifiers
 
 extension DBLastMessageWithSource {
+    private var connectionEventSummaryText: String {
+        guard let text,
+              let data = text.data(using: .utf8),
+              let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) else {
+            return text ?? ""
+        }
+        return summary.text
+    }
+
     func hydrateMessagePreview(
         conversationKind: ConversationKind,
         currentInboxId: String,
@@ -61,6 +70,8 @@ extension DBLastMessageWithSource {
                  .capabilityRequest,
                  .capabilityRequestResult:
                 text = ""
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+                text = connectionEventSummaryText
             }
 
         case .reply:
@@ -97,6 +108,8 @@ extension DBLastMessageWithSource {
                  .capabilityRequest,
                  .capabilityRequestResult:
                 text = ""
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+                text = connectionEventSummaryText
             }
 
         case .reaction:

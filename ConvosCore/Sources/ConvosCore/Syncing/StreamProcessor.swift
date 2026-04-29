@@ -1,3 +1,5 @@
+import ConvosConnections
+import ConvosConnectionsXMTP
 import ConvosInvites
 import Foundation
 import GRDB
@@ -73,6 +75,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
+    private let invocationRuntime: ConnectionInvocationRuntime?
 
     // MARK: - Initialization
 
@@ -81,7 +84,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        notificationCenter: any UserNotificationCenterProtocol
+        notificationCenter: any UserNotificationCenterProtocol,
+        invocationRuntime: ConnectionInvocationRuntime? = nil
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
@@ -89,6 +93,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.deviceRegistrationManager = deviceRegistrationManager
         self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
+        self.invocationRuntime = invocationRuntime
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
         self.conversationWriter = ConversationWriter(
             identityStore: identityStore,
@@ -230,6 +235,12 @@ actor StreamProcessor: StreamProcessorProtocol {
                     if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
+
+                    await invocationRuntime?.process(
+                        message: message,
+                        conversationId: conversation.id,
+                        client: params.client
+                    )
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 

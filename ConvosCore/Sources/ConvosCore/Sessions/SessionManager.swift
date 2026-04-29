@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 import GRDB
 import os
@@ -41,8 +42,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         var isOnConversationsList: Bool = false
     }
 
-    private let databaseWriter: any DatabaseWriter
-    private let databaseReader: any DatabaseReader
+    let databaseWriter: any DatabaseWriter
+    let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private var initializationTask: Task<Void, Never>?
@@ -679,6 +680,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// concurrently (device sinks at boot, cloud OAuth at link/unlink), so we want one
     /// shared registry per session instead of per-callsite copies.
     private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
+    private let connectionEnablementStoreLock: OSAllocatedUnfairLock<(any EnablementStore)?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in
@@ -706,6 +708,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
         CapabilityResolutionsRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        connectionEnablementStoreLock.withLock { store in
+            if let store { return store }
+            let new: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+            store = new
+            return new
+        }
     }
 
     /// Registers the default device-provider catalog into the registry so the picker

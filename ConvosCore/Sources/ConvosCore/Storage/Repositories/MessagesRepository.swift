@@ -523,6 +523,30 @@ extension Array where Element == DBMessage {
                     // out-of-band (see `ConversationViewModel.pendingCapabilityPickerLayout`).
                     // They aren't surfaced in the message list as user-visible content.
                     return nil
+                case .connectionEvent:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) {
+                        messageContent = .connectionEvent(summary: summary)
+                    } else {
+                        messageContent = .text("")
+                    }
+                case .connectionInvocation:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) {
+                        messageContent = .connectionInvocation(summary: summary)
+                    } else {
+                        messageContent = .text("")
+                    }
+                case .connectionInvocationResult:
+                    if let jsonText = dbMessage.text,
+                       let data = jsonText.data(using: .utf8),
+                       let summary = try? JSONDecoder().decode(ConnectionEventSummary.self, from: data) {
+                        messageContent = .connectionInvocationResult(summary: summary)
+                    } else {
+                        messageContent = .text("")
+                    }
                 }
 
                 let message = Message(
@@ -588,7 +612,10 @@ extension Array where Element == DBMessage {
              .assistantJoinRequest,
              .connectionGrantRequest,
              .capabilityRequest,
-             .capabilityRequestResult:
+             .capabilityRequestResult,
+             .connectionEvent:
+            return nil
+        case .connectionInvocation, .connectionInvocationResult:
             return nil
         }
 
@@ -629,8 +656,11 @@ extension Array where Element == DBMessage {
              .assistantJoinRequest,
              .connectionGrantRequest,
              .capabilityRequest,
-             .capabilityRequestResult:
+             .capabilityRequestResult,
+             .connectionEvent:
             parentContent = .text("[Update]")
+        case .connectionInvocation, .connectionInvocationResult:
+            parentContent = .text("")
         }
 
         let parentMessage = Message(

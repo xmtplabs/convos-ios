@@ -28,7 +28,8 @@ final class AppSettingsViewModel {
 
         self.connectionsListViewModel = ConnectionsListViewModel(
             cloudConnectionManager: manager,
-            cloudConnectionRepository: repository
+            cloudConnectionRepository: repository,
+            deviceConnectionAuthorizer: session.deviceConnectionAuthorizer()
         )
     }
 

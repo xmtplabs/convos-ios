@@ -91,12 +91,18 @@ final class ConversationCapabilityResolutionsViewModel {
                 )
             )
         }
-        return rows.sorted { lhs, rhs in
-            if lhs.provider.displayName == rhs.provider.displayName {
-                return lhs.subject.rawValue < rhs.subject.rawValue
+        return rows
+            .filter { !isDeviceProvider($0.provider.id) }
+            .sorted { lhs, rhs in
+                if lhs.provider.displayName == rhs.provider.displayName {
+                    return lhs.subject.rawValue < rhs.subject.rawValue
+                }
+                return lhs.provider.displayName.localizedCaseInsensitiveCompare(rhs.provider.displayName) == .orderedAscending
             }
-            return lhs.provider.displayName.localizedCaseInsensitiveCompare(rhs.provider.displayName) == .orderedAscending
-        }
+    }
+
+    private static func isDeviceProvider(_ id: ProviderID) -> Bool {
+        ConnectionKind.fromDeviceProviderId(id) != nil
     }
 
     private static func resolveProviderInfo(

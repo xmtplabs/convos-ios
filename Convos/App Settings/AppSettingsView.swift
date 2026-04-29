@@ -40,7 +40,7 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var connectionsSection: some View {
-        if FeatureFlags.shared.isCloudConnectionsEnabled {
+        if FeatureFlags.shared.isAssistantEnabled {
             Section {
                 NavigationLink {
                     ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
@@ -50,7 +50,7 @@ struct AppSettingsView: View {
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
             } footer: {
-                Text("Share services with conversations")
+                Text("Enable services on this device and share them with assistants")
             }
         }
     }
