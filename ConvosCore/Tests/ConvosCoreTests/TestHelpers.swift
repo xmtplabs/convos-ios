@@ -194,8 +194,11 @@ class TestFixtures {
     /// Builds a fresh MessagingService for tests that previously used
     /// `UnusedConversationCache.consumeOrCreateMessagingService` as a
     /// bootstrap. Registers a new XMTP identity for the fixture.
+    /// Uses `XMTPClientFactory.inMemory` so libxmtp's pool-management
+    /// surface is inert across parallel tests in the same process.
     func makeFreshMessagingService(
-        platformProviders: PlatformProviders = .mock
+        platformProviders: PlatformProviders = .mock,
+        xmtpClientFactory: XMTPClientFactory = .inMemory
     ) -> MessagingService {
         let authorizationOperation = AuthorizeInboxOperation.register(
             identityStore: identityStore,
@@ -204,7 +207,8 @@ class TestFixtures {
             environment: environment,
             platformProviders: platformProviders,
             deviceRegistrationManager: nil,
-            apiClient: nil
+            apiClient: nil,
+            xmtpClientFactory: xmtpClientFactory
         )
         return MessagingService(
             authorizationOperation: authorizationOperation,
