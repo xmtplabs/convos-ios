@@ -44,6 +44,92 @@ struct LegacyDataWipeTests {
         #expect(FileManager.default.fileExists(atPath: grdb.path))
     }
 
+    @Test("Compatible legacy generation 'v1-single-inbox' is treated as current — no wipe, marker forwarded")
+    func compatibleGenerationIsNotWiped() throws {
+        let fixture = try TempFixture()
+        // Two populations land here:
+        //   1. Users who shipped the (now-reverted) v1-single-inbox build.
+        //   2. Users whose marker was forwarded to v1-single-inbox by the
+        //      broken build 800 wipe (which deleted xmtp-*.db3 but left
+        //      convos-single-inbox.sqlite intact).
+        // Neither should re-trigger a wipe — that would compound the damage.
+        fixture.defaults.set("v1-single-inbox", forKey: "convos.schemaGeneration")
+        let activeXmtp = fixture.databasesDirectory
+            .appendingPathComponent("xmtp-grpc.dev.xmtp.network-abc123.db3")
+        try Data("active-xmtp-db".utf8).write(to: activeXmtp)
+        let activeGRDB = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite")
+        try Data("active-grdb".utf8).write(to: activeGRDB)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(FileManager.default.fileExists(atPath: activeXmtp.path))
+        #expect(FileManager.default.fileExists(atPath: activeGRDB.path))
+        #expect(
+            fixture.defaults.string(forKey: "convos.schemaGeneration")
+            == LegacyDataWipe.currentGeneration
+        )
+    }
+
+    @Test("isCompatibleGeneration recognises current and known-prior canonical names")
+    func isCompatibleGenerationMatchesAcceptedNames() {
+        #expect(LegacyDataWipe.isCompatibleGeneration(LegacyDataWipe.currentGeneration))
+        #expect(LegacyDataWipe.isCompatibleGeneration("v1-single-inbox"))
+        #expect(!LegacyDataWipe.isCompatibleGeneration("single-inbox-v0"))
+        #expect(!LegacyDataWipe.isCompatibleGeneration("totally-unknown"))
+    }
+
+    @Test("Wipe targets convos-single-inbox.sqlite GRDB sidecars too")
+    func wipeRemovesSingleInboxGRDB() throws {
+        let fixture = try TempFixture()
+        // Force a wipe path: stale generation, with the new GRDB filename
+        // present alongside the obsolete one. Build 800 only wiped the
+        // obsolete name, orphaning the active GRDB; this locks the fix.
+        fixture.defaults.set("single-inbox-v0", forKey: "convos.schemaGeneration")
+        let obsoleteGRDB = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
+        try Data("obsolete".utf8).write(to: obsoleteGRDB)
+        let singleInboxGRDB = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite")
+        try Data("single-inbox".utf8).write(to: singleInboxGRDB)
+        let singleInboxWAL = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite-wal")
+        try Data("wal".utf8).write(to: singleInboxWAL)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: obsoleteGRDB.path))
+        #expect(!FileManager.default.fileExists(atPath: singleInboxGRDB.path))
+        #expect(!FileManager.default.fileExists(atPath: singleInboxWAL.path))
+        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
+    }
+
+    @Test("Cold install with only convos-single-inbox.sqlite triggers wipe")
+    func singleInboxGRDBAloneTriggersWipe() throws {
+        let fixture = try TempFixture()
+        // No marker, but the new GRDB is present. detectLegacyArtifacts must
+        // see it so a stranded install doesn't silently keep the broken state.
+        let singleInboxGRDB = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite")
+        try Data("orphan".utf8).write(to: singleInboxGRDB)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: singleInboxGRDB.path))
+        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
+    }
+
     @Test("Upgrade: legacy artifacts removed + marker set")
     func upgradeWipesAndMarksGeneration() throws {
         let fixture = try TempFixture()
