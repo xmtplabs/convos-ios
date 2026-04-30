@@ -9,31 +9,29 @@ concurrency:
   group: release-pipeline
   cancel-in-progress: false
 
-env:
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 jobs:
   promote:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - name: Extract tag and check if production release
         id: version
         run: |
-          # workflow_run.head_branch contains the tag name (e.g., "1.2.0" or "1.2.0-dev.123")
-          # because Auto Release is triggered by tag pushes
           TAG="${{ github.event.workflow_run.head_branch }}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Release tag: $TAG"
+
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not determine release tag from workflow_run event"
+            exit 1
+          fi
 
           if [[ "$TAG" == *-* ]]; then
             echo "Prerelease detected ($TAG) — skipping promotion to main"
             echo "is_production=false" >> $GITHUB_OUTPUT
           else
-            echo "Production release ($TAG) — will promote to main"
+            echo "Production release ($TAG) — will promote tagged commit to main"
             echo "is_production=true" >> $GITHUB_OUTPUT
           fi
 
@@ -41,88 +39,71 @@ jobs:
         if: steps.version.outputs.is_production == 'true'
         uses: actions/checkout@v4
         with:
-          ref: dev
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check if promotion is needed
+      - name: Resolve release commit from tag
         if: steps.version.outputs.is_production == 'true'
-        id: check
-        run: |
-          git fetch origin main dev
-
-          DEV_SHA=$(git rev-parse origin/dev)
-          MAIN_SHA=$(git rev-parse origin/main)
-
-          if [ "$DEV_SHA" = "$MAIN_SHA" ]; then
-            echo "main is already up to date with dev, skipping promotion"
-            echo "needed=false" >> $GITHUB_OUTPUT
-          elif git merge-base --is-ancestor origin/main origin/dev; then
-            echo "main is behind dev, promotion needed"
-            echo "needed=true" >> $GITHUB_OUTPUT
-          else
-            echo "::error::main has diverged from dev — cannot fast-forward. Manual intervention required."
-            exit 1
-          fi
-
-      - name: Check for existing promotion PR
-        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true'
-        id: existing
-        run: |
-          EXISTING_PR=$(gh pr list --base main --head dev --state open --json number -q '.[0].number' 2>/dev/null || echo "")
-          if [ -n "$EXISTING_PR" ]; then
-            echo "Promotion PR #$EXISTING_PR already exists"
-            echo "pr_url=https://github.com/${{ github.repository }}/pull/$EXISTING_PR" >> $GITHUB_OUTPUT
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create promotion PR
-        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true' && steps.existing.outputs.exists == 'false'
-        id: create_pr
+        id: resolve
         run: |
           TAG="${{ steps.version.outputs.tag }}"
 
-          PR_URL=$(gh pr create \
-            --base main \
-            --head dev \
-            --title "Promote $TAG to main" \
-            --body "Promotes release **$TAG** from dev to main.
+          git fetch origin --tags --force
 
-          This was automatically created by the release pipeline after the GitHub Release was published.
+          RELEASE_SHA=$(git rev-list -n 1 "$TAG" || true)
+          if [ -z "$RELEASE_SHA" ]; then
+            echo "::error::Could not resolve commit for tag $TAG"
+            exit 1
+          fi
 
-          Merge this PR to deploy to production via Bitrise.
+          echo "release_sha=$RELEASE_SHA" >> $GITHUB_OUTPUT
+          echo "Resolved tag $TAG to commit $(git rev-parse --short "$RELEASE_SHA")"
 
-          <!-- promote-release: $TAG -->")
-
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-
-          echo "## Promotion PR Created" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag:** $TAG" >> $GITHUB_STEP_SUMMARY
-          echo "- **PR:** $PR_URL" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Merge the PR to deploy to production." >> $GITHUB_STEP_SUMMARY
-
-      - name: Existing PR found
-        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true' && steps.existing.outputs.exists == 'true'
+      - name: Fast-forward main to release commit
+        if: steps.version.outputs.is_production == 'true'
+        id: promote_main
         run: |
-          echo "## Promotion PR Already Exists" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tag:** ${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **PR:** ${{ steps.existing.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
+          RELEASE_SHA="${{ steps.resolve.outputs.release_sha }}"
 
-      - name: Skipped (prerelease)
-        if: steps.version.outputs.is_production == 'false'
-        run: |
-          echo "## Promotion Skipped" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Prerelease **${{ steps.version.outputs.tag }}** — no promotion to main." >> $GITHUB_STEP_SUMMARY
+          git fetch origin main
 
-      - name: Already up to date
-        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'false'
+          MAIN_SHA=$(git rev-parse origin/main)
+
+          if [ "$RELEASE_SHA" = "$MAIN_SHA" ]; then
+            echo "main is already at release commit, skipping"
+            echo "result=up_to_date" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if ! git merge-base --is-ancestor origin/main "$RELEASE_SHA"; then
+            echo "::error::main has diverged from release commit — cannot fast-forward. Manual intervention required."
+            exit 1
+          fi
+
+          git push origin "$RELEASE_SHA":refs/heads/main
+          echo "main fast-forwarded to $(git rev-parse --short "$RELEASE_SHA")"
+          echo "result=promoted" >> $GITHUB_OUTPUT
+
+      - name: Summary
         run: |
-          echo "## No Promotion Needed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "main is already at the same commit as dev." >> $GITHUB_STEP_SUMMARY
+          TAG="${{ steps.version.outputs.tag }}"
+
+          if [[ "$TAG" == *-* ]]; then
+            echo "## Promotion Skipped" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Prerelease **$TAG** — no promotion to main." >> $GITHUB_STEP_SUMMARY
+          else
+            RESULT="${{ steps.promote_main.outputs.result }}"
+            RELEASE_SHA="${{ steps.resolve.outputs.release_sha }}"
+            RELEASE_SHA_SHORT=$(git rev-parse --short "$RELEASE_SHA")
+
+            if [ "$RESULT" = "up_to_date" ]; then
+              echo "## No Promotion Needed" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "main is already at release commit **$RELEASE_SHA_SHORT** for tag **$TAG**." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "## main Promoted" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "main fast-forwarded to release commit **$RELEASE_SHA_SHORT** for tag **$TAG**." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
