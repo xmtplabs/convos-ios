@@ -203,7 +203,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         client: AnyClientProvider
     ) async -> InviteJoinRequestOutcome {
         switch outcome {
-        case .accepted(let result, dmConversationId: let dmConversationId):
+        case let .accepted(result, dmConversationId: dmConversationId):
             logAccepted(result)
             await persistJoinerProfile(result)
             await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
@@ -217,14 +217,14 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 ),
                 dmConversationId: dmConversationId
             )
-        case .benignFailure(let dmConversationId, let senderInboxId, let error):
+        case let .benignFailure(dmConversationId, senderInboxId, error):
             Log.info("Join request failed without blocking DM \(dmConversationId): \(error)")
             return .benignFailure(
                 dmConversationId: dmConversationId,
                 senderInboxId: senderInboxId,
                 error: error
             )
-        case .malicious(let dmConversationId, let senderInboxId, let error):
+        case let .malicious(dmConversationId, senderInboxId, error):
             Log.warning("Join request marked malicious for DM \(dmConversationId), sender \(senderInboxId): \(error)")
             return .malicious(
                 dmConversationId: dmConversationId,
