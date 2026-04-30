@@ -25,6 +25,8 @@ protocol StreamProcessorProtocol: Actor {
         activeConversationId: String?
     ) async
 
+    func reconcilePushSubscriptions(params: SyncClientParams, context: String) async
+
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
 }
@@ -66,7 +68,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let messageWriter: any IncomingMessageWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
-    private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
+    private let pushTopicSubscriptionManager: any PushTopicSubscriptionManaging
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
@@ -87,7 +89,10 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
-        self.deviceRegistrationManager = deviceRegistrationManager
+        self.pushTopicSubscriptionManager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceRegistrationManager: deviceRegistrationManager
+        )
         self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
@@ -169,7 +174,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         // Subscribe to push notifications
-        await subscribeToConversationTopics(
+        await pushTopicSubscriptionManager.subscribeToGroupAndWelcome(
             conversationId: conversation.id,
             params: params,
             context: "on stream"
@@ -197,10 +202,11 @@ actor StreamProcessor: StreamProcessorProtocol {
                     return
                 }
 
-                _ = await joinRequestsManager.processJoinRequest(
+                let outcome = await joinRequestsManager.processJoinRequestOutcome(
                     message: message,
                     client: params.client
                 )
+                await handleJoinRequestOutcome(outcome, params: params, context: "message stream")
                 Log.debug("Processed potential join request: \(message.id)")
             case .group(let conversation):
                 do {
@@ -734,39 +740,29 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     // MARK: - Push Notifications
 
-    private func subscribeToConversationTopics(
-        conversationId: String,
+    func reconcilePushSubscriptions(params: SyncClientParams, context: String) async {
+        await pushTopicSubscriptionManager.reconcilePushTopics(params: params, context: context)
+    }
+
+    private func handleJoinRequestOutcome(
+        _ outcome: InviteJoinRequestOutcome,
         params: SyncClientParams,
         context: String
     ) async {
-        // Ensure device is registered before subscribing to topics
-        // This is a defensive check - the device should already be registered on app launch,
-        // but we want to ensure it's registered before we attempt topic subscription
-        guard let deviceManager = deviceRegistrationManager else {
-            Log.warning("DeviceRegistrationManager not available, skipping topic subscription")
-            return
-        }
+        guard let dmConversationId = outcome.dmConversationId else { return }
 
-        let conversationTopic = conversationId.xmtpGroupTopicFormat
-        let welcomeTopic = params.client.installationId.xmtpWelcomeTopicFormat
-
-        guard let identity = try? await identityStore.load(), identity.inboxId == params.client.inboxId else {
-            Log.warning("Identity not found, skipping push notification subscription")
-            return
-        }
-
-        await deviceManager.registerDeviceIfNeeded()
-
-        do {
-            let deviceId = DeviceInfo.deviceIdentifier
-            try await params.apiClient.subscribeToTopics(
-                deviceId: deviceId,
-                clientId: identity.clientId,
-                topics: [conversationTopic, welcomeTopic]
+        if outcome.shouldKeepDMSubscribed {
+            await pushTopicSubscriptionManager.subscribeToInviteDMTopic(
+                conversationId: dmConversationId,
+                params: params,
+                context: context
             )
-            Log.debug("Subscribed to push topics \(context): \(conversationTopic), \(welcomeTopic)")
-        } catch {
-            Log.warning("Failed subscribing to topics \(context): \(error)")
+        } else if case .malicious = outcome {
+            await pushTopicSubscriptionManager.unsubscribeFromInviteDMTopic(
+                conversationId: dmConversationId,
+                params: params,
+                context: context
+            )
         }
     }
 }

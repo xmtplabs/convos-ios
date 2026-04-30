@@ -11,15 +11,57 @@ public struct JoinRequestResult: Sendable {
     public let metadata: [String: String]?
 }
 
+enum InviteJoinRequestOutcome: Sendable {
+    case accepted(JoinRequestResult, dmConversationId: String)
+    case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
+    case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case noJoinRequest
+
+    var result: JoinRequestResult? {
+        guard case .accepted(let result, dmConversationId: _) = self else { return nil }
+        return result
+    }
+
+    var dmConversationId: String? {
+        switch self {
+        case .accepted(_, dmConversationId: let dmConversationId):
+            return dmConversationId
+        case .benignFailure(let dmConversationId, _, _):
+            return dmConversationId
+        case .malicious(let dmConversationId, _, _):
+            return dmConversationId
+        case .noJoinRequest:
+            return nil
+        }
+    }
+
+    var shouldKeepDMSubscribed: Bool {
+        switch self {
+        case .accepted, .benignFailure:
+            return true
+        case .malicious, .noJoinRequest:
+            return false
+        }
+    }
+}
+
 protocol InviteJoinRequestsManagerProtocol: Sendable {
     func processJoinRequest(
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
     ) async -> JoinRequestResult?
+    func processJoinRequestOutcome(
+        message: XMTPiOS.DecodedMessage,
+        client: AnyClientProvider
+    ) async -> InviteJoinRequestOutcome
     func processJoinRequests(
         since: Date?,
         client: AnyClientProvider
     ) async -> [JoinRequestResult]
+    func processJoinRequestOutcomes(
+        since: Date?,
+        client: AnyClientProvider
+    ) async -> [InviteJoinRequestOutcome]
     func hasOutgoingJoinRequest(
         for conversation: XMTPiOS.Group,
         client: AnyClientProvider
@@ -50,38 +92,42 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
     ) async -> JoinRequestResult? {
-        guard let result = await coordinator.processMessage(message, client: InviteClientProviderAdapter(client)) else {
-            return nil
-        }
-        logAccepted(result)
-        await persistJoinerProfile(result)
-        await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
-        return JoinRequestResult(
-            conversationId: result.conversationId,
-            conversationName: result.conversationName,
-            joinerInboxId: result.joinerInboxId,
-            profile: result.profile,
-            metadata: result.metadata
+        let outcome = await processJoinRequestOutcome(message: message, client: client)
+        return outcome.result
+    }
+
+    func processJoinRequestOutcome(
+        message: XMTPiOS.DecodedMessage,
+        client: AnyClientProvider
+    ) async -> InviteJoinRequestOutcome {
+        let outcome = await coordinator.processMessageOutcome(
+            message,
+            client: InviteClientProviderAdapter(client)
         )
+        return await mapOutcome(outcome, client: client)
     }
 
     func processJoinRequests(
         since: Date?,
         client: AnyClientProvider
     ) async -> [JoinRequestResult] {
-        var results: [JoinRequestResult] = []
-        for joinResult in await coordinator.processJoinRequests(since: since, client: InviteClientProviderAdapter(client)) {
-            logAccepted(joinResult)
-            await persistJoinerProfile(joinResult)
-            results.append(JoinRequestResult(
-                conversationId: joinResult.conversationId,
-                conversationName: joinResult.conversationName,
-                joinerInboxId: joinResult.joinerInboxId,
-                profile: joinResult.profile,
-                metadata: joinResult.metadata
-            ))
+        let outcomes = await processJoinRequestOutcomes(since: since, client: client)
+        return outcomes.compactMap(\.result)
+    }
+
+    func processJoinRequestOutcomes(
+        since: Date?,
+        client: AnyClientProvider
+    ) async -> [InviteJoinRequestOutcome] {
+        let outcomes = await coordinator.processJoinRequestOutcomes(
+            since: since,
+            client: InviteClientProviderAdapter(client)
+        )
+        var mapped: [InviteJoinRequestOutcome] = []
+        for outcome in outcomes {
+            mapped.append(await mapOutcome(outcome, client: client))
         }
-        return results
+        return mapped
     }
 
     func hasOutgoingJoinRequest(
@@ -142,6 +188,44 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             Log.debug("Persisted join request profile for \(result.joinerInboxId) in \(result.conversationId)")
         } catch {
             Log.warning("Failed to persist join request profile: \(error.localizedDescription)")
+        }
+    }
+
+    private func mapOutcome(
+        _ outcome: JoinRequestDMOutcome,
+        client: AnyClientProvider
+    ) async -> InviteJoinRequestOutcome {
+        switch outcome {
+        case .accepted(let result, dmConversationId: let dmConversationId):
+            logAccepted(result)
+            await persistJoinerProfile(result)
+            await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
+            return .accepted(
+                JoinRequestResult(
+                    conversationId: result.conversationId,
+                    conversationName: result.conversationName,
+                    joinerInboxId: result.joinerInboxId,
+                    profile: result.profile,
+                    metadata: result.metadata
+                ),
+                dmConversationId: dmConversationId
+            )
+        case .benignFailure(let dmConversationId, let senderInboxId, let error):
+            Log.info("Join request failed without blocking DM \(dmConversationId): \(error)")
+            return .benignFailure(
+                dmConversationId: dmConversationId,
+                senderInboxId: senderInboxId,
+                error: error
+            )
+        case .malicious(let dmConversationId, let senderInboxId, let error):
+            Log.warning("Join request marked malicious for DM \(dmConversationId), sender \(senderInboxId): \(error)")
+            return .malicious(
+                dmConversationId: dmConversationId,
+                senderInboxId: senderInboxId,
+                error: error
+            )
+        case .noJoinRequest:
+            return .noJoinRequest
         }
     }
 
