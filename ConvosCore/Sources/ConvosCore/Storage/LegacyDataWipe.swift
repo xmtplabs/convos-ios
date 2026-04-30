@@ -12,34 +12,6 @@ public enum LegacyDataWipe {
     /// Current schema generation. Bump when a schema change requires a wipe.
     public static let currentGeneration: String = "single-inbox-v2"
 
-    /// Generation strings that are functionally equivalent to
-    /// `currentGeneration` and must not trigger a wipe. Bumping the
-    /// canonical name (e.g. for cosmetic alignment with the GRDB
-    /// migration identifier) would otherwise wipe every install whose
-    /// stored marker is one of these — and on the single-inbox file
-    /// layout the wipe deletes the active `xmtp-*.db3` files, which is
-    /// catastrophic. Add the previous canonical name here when renaming.
-    ///
-    /// `v1-single-inbox` covers two populations:
-    /// - users who shipped the (now reverted) v1-single-inbox build
-    /// - users whose marker got forwarded to v1-single-inbox by the
-    ///   broken wipe in build 800 (the wipe deleted xmtp-*.db3 but
-    ///   left convos-single-inbox.sqlite; their GRDB rows now refer
-    ///   to conversations that no longer exist in libxmtp's local
-    ///   store, and rerunning the wipe would not help)
-    private static let compatibleGenerations: Set<String> = [
-        currentGeneration,
-        "v1-single-inbox"
-    ]
-
-    /// Returns `true` when `value` may be treated as the current
-    /// generation. Used by `RestoreManager` so backups produced under
-    /// a compatible-but-stale generation remain restorable on the
-    /// fixed build.
-    public static func isCompatibleGeneration(_ value: String) -> Bool {
-        compatibleGenerations.contains(value)
-    }
-
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 
     /// Checks whether a wipe is needed for the current install and runs it before
@@ -65,12 +37,7 @@ public enum LegacyDataWipe {
     ) {
         let stored = defaults.string(forKey: schemaGenerationKey)
 
-        if let stored, compatibleGenerations.contains(stored) {
-            // Bring the marker forward to the current canonical name so
-            // future launches short-circuit on the cheap equality check.
-            if stored != currentGeneration {
-                defaults.set(currentGeneration, forKey: schemaGenerationKey)
-            }
+        if stored == currentGeneration {
             return
         }
 

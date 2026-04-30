@@ -44,45 +44,6 @@ struct LegacyDataWipeTests {
         #expect(FileManager.default.fileExists(atPath: grdb.path))
     }
 
-    @Test("Compatible legacy generation 'v1-single-inbox' is treated as current — no wipe, marker forwarded")
-    func compatibleGenerationIsNotWiped() throws {
-        let fixture = try TempFixture()
-        // Two populations land here:
-        //   1. Users who shipped the (now-reverted) v1-single-inbox build.
-        //   2. Users whose marker was forwarded to v1-single-inbox by the
-        //      broken build 800 wipe (which deleted xmtp-*.db3 but left
-        //      convos-single-inbox.sqlite intact).
-        // Neither should re-trigger a wipe — that would compound the damage.
-        fixture.defaults.set("v1-single-inbox", forKey: "convos.schemaGeneration")
-        let activeXmtp = fixture.databasesDirectory
-            .appendingPathComponent("xmtp-grpc.dev.xmtp.network-abc123.db3")
-        try Data("active-xmtp-db".utf8).write(to: activeXmtp)
-        let activeGRDB = fixture.databasesDirectory
-            .appendingPathComponent("convos-single-inbox.sqlite")
-        try Data("active-grdb".utf8).write(to: activeGRDB)
-
-        LegacyDataWipe.runIfNeeded(
-            defaults: fixture.defaults,
-            databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup
-        )
-
-        #expect(FileManager.default.fileExists(atPath: activeXmtp.path))
-        #expect(FileManager.default.fileExists(atPath: activeGRDB.path))
-        #expect(
-            fixture.defaults.string(forKey: "convos.schemaGeneration")
-            == LegacyDataWipe.currentGeneration
-        )
-    }
-
-    @Test("isCompatibleGeneration recognises current and known-prior canonical names")
-    func isCompatibleGenerationMatchesAcceptedNames() {
-        #expect(LegacyDataWipe.isCompatibleGeneration(LegacyDataWipe.currentGeneration))
-        #expect(LegacyDataWipe.isCompatibleGeneration("v1-single-inbox"))
-        #expect(!LegacyDataWipe.isCompatibleGeneration("single-inbox-v0"))
-        #expect(!LegacyDataWipe.isCompatibleGeneration("totally-unknown"))
-    }
-
     @Test("Wipe targets convos-single-inbox.sqlite GRDB sidecars too")
     func wipeRemovesSingleInboxGRDB() throws {
         let fixture = try TempFixture()
