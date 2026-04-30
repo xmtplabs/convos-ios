@@ -42,8 +42,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil,
-        xmtpClientFactory: XMTPClientFactory = .onDisk
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) -> MessagingService {
         let authorizationOperation = AuthorizeInboxOperation.authorize(
             inboxId: inboxId,
@@ -56,8 +55,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            xmtpClientFactory: xmtpClientFactory
+            apiClient: apiClient
         )
         return MessagingService(
             authorizationOperation: authorizationOperation,

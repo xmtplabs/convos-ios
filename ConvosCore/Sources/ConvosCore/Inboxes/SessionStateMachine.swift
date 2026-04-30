@@ -26,10 +26,8 @@ public struct InboxReadyResult: @unchecked Sendable {
 typealias AnySyncingManager = (any SyncingManagerProtocol)
 typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 
-/// `.onDisk` routes through libxmtp's persistent SQLCipher path (production
-/// behavior). `.inMemory` routes through `Client.createInMemory`, where
-/// `dropLocalDatabaseConnection` and friends are no-ops — so the lifecycle-
-/// notification broadcast can't wedge a parallel test's pool.
+/// Tests inject `.inMemory` so libxmtp's pool-management surface is inert; the
+/// `dropLocalDatabaseConnection` broadcast can't wedge an in-memory pool.
 struct XMTPClientFactory: Sendable {
     typealias Create = @Sendable (SigningKey, ClientOptions) async throws -> any XMTPClientProvider
     typealias Build = @Sendable (String, PublicIdentity, SigningKey, ClientOptions) async throws -> any XMTPClientProvider
@@ -37,7 +35,7 @@ struct XMTPClientFactory: Sendable {
     let create: Create
     let build: Build
 
-    static let onDisk: XMTPClientFactory = XMTPClientFactory(
+    static let production: XMTPClientFactory = XMTPClientFactory(
         create: { signingKey, options in
             try await Client.create(account: signingKey, options: options)
         },
@@ -261,7 +259,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         environment: AppEnvironment,
         appLifecycle: any AppLifecycleProviding,
         apiClient: (any ConvosAPIClientProtocol)? = nil,
-        xmtpClientFactory: XMTPClientFactory = .onDisk
+        xmtpClientFactory: XMTPClientFactory = .production
     ) {
         let initialState: State = .idle
         self.initialClientId = clientId

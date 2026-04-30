@@ -372,12 +372,9 @@ struct SessionStateMachineTests {
         let syncIsStarted = await mockSync.isStarted
         #expect(!syncIsStarted, "Syncing should be stopped")
 
-        // Identity slot is deliberately preserved on local Reset — see
-        // SessionStateMachine.handleDelete: the synced keychain entry is the
-        // AES-GCM seal on every backup bundle, so deleting it would
-        // propagate via iCloud Keychain and orphan every existing backup.
+        // Verify identity was deleted
         let identityAfterDelete = try await fixtures.identityStore.load()
-        #expect(identityAfterDelete != nil, "Identity should be preserved on local delete")
+        #expect(identityAfterDelete == nil, "Identity should have been deleted")
 
         // Verify database record was deleted
         let dbInboxes = try await fixtures.databaseManager.dbReader.read { db in
@@ -674,14 +671,6 @@ struct SessionStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        // Uses `.onDisk` because `dropLocalDatabaseConnection` and
-        // `reconnectLocalDatabase` early-return as no-ops on in-memory
-        // clients (libxmtp Client.swift:959, 964). Backgrounding is the
-        // exact production path this test is meant to exercise, so the
-        // on-disk SQLCipher pool is the right backing. A dedicated
-        // lifecycle provider isolates this test's notifications from
-        // the suite-shared `testAppLifecycle`.
-        let appLifecycle = MockAppLifecycleProvider()
         let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
@@ -691,8 +680,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: appLifecycle,
-            xmtpClientFactory: .onDisk
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -722,7 +711,7 @@ struct SessionStateMachineTests {
         try await Task.sleep(for: .milliseconds(100))
 
         // Simulate app entering background
-        NotificationCenter.default.post(name: appLifecycle.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.didEnterBackgroundNotification, object: nil)
 
         // Wait for backgrounded state
         let backgroundedState = try await waitForState(stateMachine, timeout: 5) { state in
@@ -744,7 +733,7 @@ struct SessionStateMachineTests {
         Log.info("App backgrounded, sync paused. Simulating app returning to foreground...")
 
         // Simulate app entering foreground
-        NotificationCenter.default.post(name: appLifecycle.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.willEnterForegroundNotification, object: nil)
 
         // Wait for ready state again
         let foregroundState = try await waitForState(stateMachine, timeout: 5) { state in
@@ -779,13 +768,6 @@ struct SessionStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
-        // Uses `.onDisk` so the backgrounded → ready transition
-        // actually drops and reconnects libxmtp's SQLCipher pool, the
-        // production path. In-memory clients no-op those calls (libxmtp
-        // Client.swift:959, 964) and would let regressions in the real
-        // pool teardown slip through. Dedicated lifecycle provider so
-        // this test's notifications stay isolated.
-        let appLifecycle = MockAppLifecycleProvider()
         let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
@@ -795,8 +777,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: appLifecycle,
-            xmtpClientFactory: .onDisk
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         actor StateCollector {
@@ -860,7 +842,7 @@ struct SessionStateMachineTests {
         try await Task.sleep(for: .milliseconds(100))
 
         // Simulate background
-        NotificationCenter.default.post(name: appLifecycle.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.didEnterBackgroundNotification, object: nil)
 
         // Wait for backgrounded
         _ = try await waitForState(stateMachine, timeout: 5) { state in
@@ -869,7 +851,7 @@ struct SessionStateMachineTests {
         }
 
         // Simulate foreground
-        NotificationCenter.default.post(name: appLifecycle.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.willEnterForegroundNotification, object: nil)
 
         // Wait for ready again
         _ = try await waitForState(stateMachine, timeout: 5) { state in

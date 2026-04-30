@@ -45,8 +45,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil,
-        xmtpClientFactory: XMTPClientFactory = .onDisk
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) -> AuthorizeInboxOperation {
         let operation = AuthorizeInboxOperation(
             clientId: clientId,
@@ -59,8 +58,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            xmtpClientFactory: xmtpClientFactory
+            apiClient: apiClient
         )
         operation.authorize(inboxId: inboxId)
         return operation
@@ -74,8 +72,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         environment: AppEnvironment,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil,
-        xmtpClientFactory: XMTPClientFactory = .onDisk
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) -> AuthorizeInboxOperation {
         // Generate clientId before creating state machine
         let clientId = ClientId.generate().value
@@ -89,8 +86,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             startsStreamingServices: true,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient,
-            xmtpClientFactory: xmtpClientFactory
+            apiClient: apiClient
         )
         operation.register()
         return operation
@@ -107,8 +103,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?,
-        apiClient: (any ConvosAPIClientProtocol)?,
-        xmtpClientFactory: XMTPClientFactory
+        apiClient: (any ConvosAPIClientProtocol)?
     ) {
         let syncingManager = startsStreamingServices ? SyncingManager(
             identityStore: identityStore,
@@ -128,8 +123,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             overrideJWTToken: overrideJWTToken,
             environment: environment,
             appLifecycle: platformProviders.appLifecycle,
-            apiClient: apiClient,
-            xmtpClientFactory: xmtpClientFactory
+            apiClient: apiClient
         )
     }
 
