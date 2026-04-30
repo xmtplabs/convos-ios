@@ -164,6 +164,7 @@ enum Secrets {
 EOF
 
     echo "🏁 Generated Secrets.swift for Dev"
+
 fi
 
 # Part 2: Copy config file (existing functionality)

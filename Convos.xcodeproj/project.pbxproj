@@ -169,130 +169,6 @@
 			);
 			target = D8A2B6902DA4BA4B00EF8577 /* Convos */;
 		};
-		DAE6B1002E70955E0062483A /* Exceptions for "Convos" folder in "ConvosAppClip" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"App Settings/AppSettingsView.swift",
-				"AppIcon-Dev.icon",
-				"AppIcon-Local.icon",
-				"AppIcon-Prod.icon",
-				Assets.xcassets,
-				Config/config.local.json,
-				Config/ConfigManager.swift,
-				"Conversation Creation/JoinConversationView.swift",
-				"Conversation Creation/NewConversationView.swift",
-				"Conversation Creation/NewConversationViewModel.swift",
-				"Conversation Creation/QRScannerView.swift",
-				"Conversation Creation/QRScannerViewModel.swift",
-				"Conversation Detail/ConversationForkedInfoView.swift",
-				"Conversation Detail/ConversationInfoEditView.swift",
-				"Conversation Detail/ConversationInfoView.swift",
-				"Conversation Detail/ConversationMembersListView.swift",
-				"Conversation Detail/ConversationMemberView.swift",
-				"Conversation Detail/ConversationShareView.swift",
-				"Conversation Detail/ConversationView.swift",
-				"Conversation Detail/ConversationViewModel.swift",
-				"Conversation Detail/ConversationViewModel+ReadReceipts.swift",
-				"Conversation Detail/ConversationViewModel+TypingIndicators.swift",
-				"Conversation Detail/ExplodeButton.swift",
-				"Conversation Detail/Messages/ConversationIndicatorView.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Extensions/CGRect+Extension.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Extensions/RandomAccessCollection+Extension.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesCollectionLayout.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutAttributes.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutDelegate.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutInvalidationContext.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutPositionSnapshot.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutSettings.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/MessagesLayoutStateController.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ChangeItem.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemKind.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemModel.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemPath.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/ItemSize.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/LayoutModel.swift",
-				"Conversation Detail/Messages/Messages Collection Layout/Models/SectionModel.swift",
-				"Conversation Detail/Messages/Messages View Controller/Constants.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/ManualAnimator.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/SetActor.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/UICollectionView+DifferenceKit.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/UIView+Extension.swift",
-				"Conversation Detail/Messages/Messages View Controller/Keyboard/KeyboardInfo.swift",
-				"Conversation Detail/Messages/Messages View Controller/Keyboard/KeyboardListener.swift",
-				"Conversation Detail/Messages/Messages View Controller/Message Models/MessagesCollectionSection.swift",
-				"Conversation Detail/Messages/Messages View Controller/Message Models/MessageTypes.swift",
-				"Conversation Detail/Messages/Messages View Controller/Message Models/TypingState.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/EmojiPickerView.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/MessageReaction.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/MessageReactionMenuViewModel.swift",
-				"Conversation Detail/Messages/Messages View Controller/Reactions/MessageReactionsView.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Cells/MessagesListItemTypeCell.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Cells/TypingIndicatorCollectionCell.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Cells/UICollectionViewCell+Extensions.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/CellFactory.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/DefaultMessagesLayoutDelegate.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/MessagesCollectionDataSource.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/MessagesCollectionViewDataSource.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesBottomBar.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesInputView.swift",
-				"Conversation Detail/Messages/MessagesListView/Messages List Items/MessageContainer.swift",
-				"Conversation Detail/Messages/MessagesListView/MessagesListItemType.swift",
-				"Conversation Detail/Messages/MessagesListView/MessagesListView.swift",
-				"Conversation Detail/Messages/MessagesView.swift",
-				"Conversation Detail/Messages/MessagesViewRepresentable.swift",
-				"Conversations List/ConversationsListEmptyCTA.swift",
-				"Conversations List/ConversationsListItem.swift",
-				"Conversations List/ConversationsView.swift",
-				"Conversations List/ConversationsViewModel.swift",
-				"Conversations List/View Controller/Cells/ConversationListItemCell.swift",
-				"Conversations List/View Controller/Cells/EmptyStateCell.swift",
-				"Conversations List/View Controller/Cells/PinnedConversationCell.swift",
-				"Conversations List/View Controller/ConversationsCollectionLayout.swift",
-				"Conversations List/View Controller/ConversationsViewController.swift",
-				"Conversations List/View Controller/ConversationsViewRepresentable.swift",
-				ConvosAppDelegate.swift,
-				"Debug View/DebugExportView.swift",
-				"Debug View/DebugLogExporter.swift",
-				"Debug View/DebugView.swift",
-				"Debug View/PendingInviteDebugView.swift",
-				DeepLinking/DeepLinkHandler.swift,
-				"Design System/DesignConstants.swift",
-				"Design System/Styles/ButtonStyles.swift",
-				"Design System/ViewExtensions.swift",
-				Explode/ExplodeInfoView.swift,
-				"Invite Helpers/Invite+InviteURL.swift",
-				Profile/MyInfoView.swift,
-				Profile/MyProfileViewModel.swift,
-				Profile/QuicknameRandomizerSettingsView/QuicknameRandomizerSettingsView.swift,
-				Profile/QuicknameSettings.swift,
-				"Shared Views/AutoShareSheetView.swift",
-				"Shared Views/AvatarView.swift",
-				"Shared Views/ConversationPresenter.swift",
-				"Shared Views/ConversationToolbarButton.swift",
-				"Shared Views/ErrorView.swift",
-				"Shared Views/FlashingListRowButton.swift",
-				"Shared Views/ImagePickerButton.swift",
-				"Shared Views/InfoView.swift",
-				"Shared Views/LinkDetectingTextView.swift",
-				"Shared Views/MaxedOutInfoView.swift",
-				"Shared Views/MonogramView.swift",
-				"Shared Views/PulsingCircleView.swift",
-				"Shared Views/QRCodeView.swift",
-				"Shared Views/QuickEditView.swift",
-				"Shared Views/RelativeDateLabel.swift",
-				"Shared Views/UIViewPreview.swift",
-				"Shared Views/VideoFile.swift",
-				"Shared Views/VideoPlayerView.swift",
-				"Shared Views/ViewModifiers.swift",
-				"Utilities & Extensions/CustomEnvironmentVariables.swift",
-				"Utilities & Extensions/DeviceInfo.swift",
-				"Utilities & Extensions/UIViewController+Extensions.swift",
-				"Utilities & Extensions/View+SelfSizingSheet.swift",
-				Utilities/Log.swift,
-			);
-			target = 7ADC0C6D2E2977800053978A /* ConvosAppClip */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -1062,6 +938,483 @@
 			};
 			name = Dev;
 		};
+		3B67F1E52FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				FUSE_BUILD_SCRIPT_PHASES = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 100 -Xfrontend -warn-long-expression-type-checking -Xfrontend 100";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = "PR Preview";
+		};
+		3B67F1E62FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "$(ASSETCATALOG_COMPILER_APPICON_NAME)";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Convos/Convos.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = FY4NZR34Z3;
+				ENABLE_CODE_COVERAGE = YES;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Convos/Config/Info.Dev.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Convos;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_PREPROCESS = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AdHoc org.convos.ios-preview.pr";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = NO;
+				SWIFT_COMPILATION_MODE = singlefile;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "PR Preview";
+		};
+		3B67F1E72FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = NotificationService;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "match AdHoc org.convos.ios-preview.pr.ConvosNSE";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "PR Preview";
+		};
+		3B67F1E82FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_TESTS_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Convos.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Convos";
+			};
+			name = "PR Preview";
+		};
+		3B67F1E92FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "$(ASSETCATALOG_COMPILER_APPICON_NAME)";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ConvosAppClip/ConvosAppClip.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ConvosAppClip/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
+				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "PR Preview";
+		};
+		3B67F1EA2FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_TESTS_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ConvosAppClip.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ConvosAppClip";
+			};
+			name = "PR Preview";
+		};
+		3B67F1EB2FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = D8A2B6932DA4BA4B00EF8577 /* Convos */;
+			baseConfigurationReferenceRelativePath = Config/PR.xcconfig;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ConvosAppClip;
+			};
+			name = "PR Preview";
+		};
+		3B67F1EC2FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_ENTITLEMENTS = KeychainIdentityStoreExample/KeychainIdentityStoreExample.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.2.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.convos.KeychainIdentityStoreExample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "PR Preview";
+		};
+		3B67F1ED2FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.2.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = org.convos.KeychainIdentityStoreExampleTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KeychainIdentityStoreExample.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KeychainIdentityStoreExample";
+			};
+			name = "PR Preview";
+		};
+		3B67F1EE2FA53027003B49AA /* PR Preview */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
+			};
+			name = "PR Preview";
+		};
 		7AC5994F2E5592FA00D65D07 /* Dev */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1655,8 +2008,10 @@
 			baseConfigurationReferenceRelativePath = Config/Dev.xcconfig;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotificationService/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = NotificationService;
@@ -1670,6 +2025,7 @@
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1686,8 +2042,10 @@
 			baseConfigurationReferenceRelativePath = Config/Prod.xcconfig;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotificationService/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = NotificationService;
@@ -1701,6 +2059,7 @@
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -1718,10 +2077,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "$(ASSETCATALOG_COMPILER_APPICON_NAME)";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Convos/Convos.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_CODE_COVERAGE = YES;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1744,6 +2104,7 @@
 				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -2210,6 +2571,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7AC5994F2E5592FA00D65D07 /* Dev */,
+				3B67F1EC2FA53027003B49AA /* PR Preview */,
 				7AC599502E5592FA00D65D07 /* Local */,
 				7AC599512E5592FA00D65D07 /* Release */,
 			);
@@ -2220,6 +2582,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7AC599522E5592FA00D65D07 /* Dev */,
+				3B67F1ED2FA53027003B49AA /* PR Preview */,
 				7AC599532E5592FA00D65D07 /* Local */,
 				7AC599542E5592FA00D65D07 /* Release */,
 			);
@@ -2230,6 +2593,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7ACA8BAA2DE16DE200848799 /* Dev */,
+				3B67F1E82FA53027003B49AA /* PR Preview */,
 				DAF2D72A2E37B3D100A17FF9 /* Local */,
 				7ACA8BAB2DE16DE200848799 /* Release */,
 			);
@@ -2240,6 +2604,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7ADC0C922E2977820053978A /* Dev */,
+				3B67F1E92FA53027003B49AA /* PR Preview */,
 				DAF2D72B2E37B3D100A17FF9 /* Local */,
 				7ADC0C932E2977820053978A /* Release */,
 			);
@@ -2250,6 +2615,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7ADC0C962E2977820053978A /* Dev */,
+				3B67F1EA2FA53027003B49AA /* PR Preview */,
 				DAF2D72C2E37B3D100A17FF9 /* Local */,
 				7ADC0C972E2977820053978A /* Release */,
 			);
@@ -2260,6 +2626,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7ADC0C992E2977820053978A /* Dev */,
+				3B67F1EB2FA53027003B49AA /* PR Preview */,
 				DAF2D72D2E37B3D100A17FF9 /* Local */,
 				7ADC0C9A2E2977820053978A /* Release */,
 			);
@@ -2270,6 +2637,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0969CD329C9ABD072FE226A0 /* Dev */,
+				3B67F1EE2FA53027003B49AA /* PR Preview */,
 				815036F765B03999E8C6DC27 /* Local */,
 				C52C8F3A627FD960214FBA80 /* Release */,
 			);
@@ -2280,6 +2648,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D808503E2DC94F4C00E708B0 /* Dev */,
+				3B67F1E72FA53027003B49AA /* PR Preview */,
 				DAF2D7292E37B3D100A17FF9 /* Local */,
 				D808503F2DC94F4C00E708B0 /* Release */,
 			);
@@ -2290,6 +2659,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D8A2B6A72DA4BA4C00EF8577 /* Dev */,
+				3B67F1E52FA53027003B49AA /* PR Preview */,
 				DAF2D7272E37B3D100A17FF9 /* Local */,
 				D8A2B6A82DA4BA4C00EF8577 /* Release */,
 			);
@@ -2300,6 +2670,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D8A2B6A52DA4BA4C00EF8577 /* Dev */,
+				3B67F1E62FA53027003B49AA /* PR Preview */,
 				DAF2D7282E37B3D100A17FF9 /* Local */,
 				D8A2B6A62DA4BA4C00EF8577 /* Release */,
 			);

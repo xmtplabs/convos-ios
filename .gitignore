@@ -90,6 +90,15 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# Bundler / fastlane gem cache (managed by flake.nix shellHook)
+.gems/
+.bundle/
+vendor/bundle/
+bin/
+
+# Apple-issued certificates that should not be checked in
+*.cer
+
 # Test results
 *.xcresult
 test-output.log
@@ -134,4 +143,8 @@ qa/cxdb/qa.sqlite-shm
 
 # Runtime artifacts
 .claude/scheduled_tasks.lock
-.gems/**
+
+# nix local cache
+.direnv
+.direnv/**
+**/.direnv/**

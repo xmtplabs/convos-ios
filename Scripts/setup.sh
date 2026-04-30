@@ -149,6 +149,22 @@ else
     echo "ℹ️ CI environment detected - GitHub CLI should be pre-installed in CI image"
 fi
 
+################################################################################
+# Fastlane (for the local 'bootstrap' lane that installs signing assets)       #
+################################################################################
+
+if [ ! "${CI}" = true ]; then
+    if ! command -v fastlane &> /dev/null; then
+        echo "Installing fastlane..."
+        if ! brew install fastlane; then
+            echo "❌ Failed to install fastlane. Please try installing manually:"
+            echo "  brew install fastlane"
+            exit 1
+        fi
+    fi
+    echo "✅ fastlane is installed"
+fi
+
 echo "✅ All dependencies are properly installed"
 
 ################################################################################
@@ -278,6 +294,36 @@ if [ ! "${CI}" = true ] || [ "${CLAUDE_SETUP}" = "1" ]; then
         fi
 
         print_firebase_report "${NEW_TOKEN}" "${PARENT_ENV}" "${SYMLINK_NOTE}"
+    fi
+fi
+
+################################################################################
+# Run fastlane bootstrap to install team signing assets                         #
+################################################################################
+
+if [ ! "${CI}" = true ] && command -v fastlane &> /dev/null; then
+    REPO_ROOT="$(cd "${DIRNAME}/.." && pwd)"
+
+    if [ -z "${MATCH_PASSWORD}" ]; then
+        echo ""
+        echo "🔐 fastlane bootstrap needs MATCH_PASSWORD."
+        echo "   Grab it from the team 1Password vault, then paste below."
+        echo "   (input is hidden; tip: 'export MATCH_PASSWORD=...' in your shell rc to skip next time)"
+        # -s hides input; -r prevents backslash escapes; -p shows prompt on the same line.
+        # `|| true` keeps `set -e` from aborting the whole script if the user hits Ctrl+D.
+        read -r -s -p "MATCH_PASSWORD: " MATCH_PASSWORD || true
+        echo ""
+        if [ -z "${MATCH_PASSWORD}" ]; then
+            echo "ℹ️ No MATCH_PASSWORD entered — skipping bootstrap. Run 'fastlane bootstrap' later."
+        fi
+    fi
+
+    if [ -n "${MATCH_PASSWORD}" ]; then
+        echo ""
+        echo "Running fastlane bootstrap..."
+        export MATCH_PASSWORD
+        (cd "${REPO_ROOT}" && fastlane bootstrap) || \
+            echo "⚠️ fastlane bootstrap failed — re-run manually with 'fastlane bootstrap' once Xcode is signed in."
     fi
 fi
 

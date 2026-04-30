@@ -1,0 +1,5 @@
+app_identifier("org.convos.ios-preview") # Convos (Dev) bundle id
+team_id("FY4NZR34Z3")
+
+# apple_id is intentionally unset; lanes that need App Store Connect should
+# use api-key auth instead of an Apple ID password prompt.
