@@ -2,9 +2,40 @@
 import Foundation
 import os.lock
 import Testing
+@preconcurrency import XMTPiOS
 
 @Suite("Push Topic Subscription Manager Tests")
 struct PushTopicSubscriptionManagerTests {
+    @Test("Subscribes group and welcome topics")
+    func subscribesGroupAndWelcomeTopics() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1")
+        )
+
+        await manager.subscribeToGroupAndWelcome(
+            conversationId: "group-1",
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "test"
+        )
+
+        let calls = apiClient.subscribeCalls
+        #expect(calls.count == 1)
+        #expect(calls.first?.deviceId == "device-1")
+        #expect(calls.first?.clientId == "client-1")
+        #expect(calls.first?.topics == [
+            "group-1".xmtpGroupTopicFormat,
+            "test-installation-id".xmtpWelcomeTopicFormat,
+        ])
+    }
+
     @Test("Subscribes invite DM topic with extension device identifier")
     func subscribesInviteDMTopic() async throws {
         let identityStore = MockKeychainIdentityStore()
@@ -79,6 +110,86 @@ struct PushTopicSubscriptionManagerTests {
         )
 
         #expect(apiClient.subscribeCalls.isEmpty)
+    }
+
+    @Test("Reconciles welcome, group, and invite DM topics with deduplication")
+    func reconcilesPushTopics() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1", "shared-conversation"],
+            dmIds: ["dm-1", "shared-conversation"]
+        )
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(
+                client: client,
+                apiClient: apiClient,
+                consentStates: [.allowed]
+            ),
+            context: "test"
+        )
+
+        let groupCalls = conversationLister.groupCalls
+        let dmCalls = conversationLister.dmCalls
+        #expect(groupCalls.count == 1)
+        #expect(groupCalls.first?.consentStateRawValues == ["allowed"])
+        #expect(groupCalls.first?.usesLastActivityOrder == true)
+        #expect(dmCalls.count == 1)
+        #expect(dmCalls.first?.consentStateRawValues == ["unknown", "allowed"])
+        #expect(dmCalls.first?.usesLastActivityOrder == true)
+
+        let calls = apiClient.subscribeCalls
+        #expect(calls.count == 1)
+        #expect(calls.first?.topics == [
+            "test-installation-id".xmtpWelcomeTopicFormat,
+            "group-1".xmtpGroupTopicFormat,
+            "shared-conversation".xmtpGroupTopicFormat,
+            "dm-1".xmtpGroupTopicFormat,
+        ])
+    }
+
+    @Test("Reconcile still subscribes available topics when one listing fails")
+    func reconcileSubscribesAvailableTopicsWhenListingFails() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: [],
+            dmIds: ["dm-1"],
+            groupShouldFail: true
+        )
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "test"
+        )
+
+        let calls = apiClient.subscribeCalls
+        #expect(calls.count == 1)
+        #expect(calls.first?.topics == [
+            "test-installation-id".xmtpWelcomeTopicFormat,
+            "dm-1".xmtpGroupTopicFormat,
+        ])
     }
 }
 
@@ -180,5 +291,92 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
     }
 
     func revokeConnection(connectionId: String) async throws {
+    }
+}
+
+private enum PushTopicListError: Error {
+    case failed
+}
+
+private final class RecordingPushConversationLister: PushTopicConversationListing, @unchecked Sendable {
+    struct ListCall: Sendable {
+        let consentStateRawValues: [String]?
+        let usesLastActivityOrder: Bool
+    }
+
+    private struct State: Sendable {
+        var groupIds: [String]
+        var dmIds: [String]
+        var groupShouldFail: Bool
+        var dmShouldFail: Bool
+        var groupCalls: [ListCall] = []
+        var dmCalls: [ListCall] = []
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(
+        groupIds: [String],
+        dmIds: [String],
+        groupShouldFail: Bool = false,
+        dmShouldFail: Bool = false
+    ) {
+        state = OSAllocatedUnfairLock(
+            initialState: State(
+                groupIds: groupIds,
+                dmIds: dmIds,
+                groupShouldFail: groupShouldFail,
+                dmShouldFail: dmShouldFail
+            )
+        )
+    }
+
+    var groupCalls: [ListCall] {
+        state.withLock { $0.groupCalls }
+    }
+
+    var dmCalls: [ListCall] {
+        state.withLock { $0.dmCalls }
+    }
+
+    func listGroupConversationIds(
+        params _: SyncClientParams,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [String] {
+        let call = ListCall(
+            consentStateRawValues: consentStates?.map(\.rawValue),
+            usesLastActivityOrder: usesLastActivityOrder(orderBy)
+        )
+        return try state.withLock {
+            $0.groupCalls.append(call)
+            if $0.groupShouldFail {
+                throw PushTopicListError.failed
+            }
+            return $0.groupIds
+        }
+    }
+
+    func listInviteDMConversationIds(
+        params _: SyncClientParams,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [String] {
+        let call = ListCall(
+            consentStateRawValues: consentStates?.map(\.rawValue),
+            usesLastActivityOrder: usesLastActivityOrder(orderBy)
+        )
+        return try state.withLock {
+            $0.dmCalls.append(call)
+            if $0.dmShouldFail {
+                throw PushTopicListError.failed
+            }
+            return $0.dmIds
+        }
+    }
+
+    private func usesLastActivityOrder(_ orderBy: ConversationsOrderBy) -> Bool {
+        guard case .lastActivity = orderBy else { return false }
+        return true
     }
 }

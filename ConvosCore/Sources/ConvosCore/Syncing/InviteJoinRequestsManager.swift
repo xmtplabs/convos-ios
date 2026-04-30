@@ -11,6 +11,8 @@ public struct JoinRequestResult: Sendable {
     public let metadata: [String: String]?
 }
 
+/// Core-local projection of `JoinRequestDMOutcome` after applying ConvosCore
+/// side effects, including profile persistence and post-join profile snapshots.
 enum InviteJoinRequestOutcome: Sendable {
     case accepted(JoinRequestResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)

@@ -26,6 +26,56 @@ protocol PushTopicSubscriptionManaging: Actor {
     ) async
 }
 
+protocol PushTopicConversationListing: Sendable {
+    func listGroupConversationIds(
+        params: SyncClientParams,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [String]
+
+    func listInviteDMConversationIds(
+        params: SyncClientParams,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [String]
+}
+
+struct XMTPPushTopicConversationLister: PushTopicConversationListing {
+    func listGroupConversationIds(
+        params: SyncClientParams,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [String] {
+        try params.client.conversationsProvider.listGroups(
+            createdAfterNs: nil,
+            createdBeforeNs: nil,
+            lastActivityAfterNs: nil,
+            lastActivityBeforeNs: nil,
+            limit: nil,
+            consentStates: consentStates,
+            orderBy: orderBy
+        )
+        .map(\.id)
+    }
+
+    func listInviteDMConversationIds(
+        params: SyncClientParams,
+        consentStates: [ConsentState]?,
+        orderBy: ConversationsOrderBy
+    ) throws -> [String] {
+        try params.client.conversationsProvider.listDms(
+            createdAfterNs: nil,
+            createdBeforeNs: nil,
+            lastActivityBeforeNs: nil,
+            lastActivityAfterNs: nil,
+            limit: nil,
+            consentStates: consentStates,
+            orderBy: orderBy
+        )
+        .map(\.id)
+    }
+}
+
 actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     private enum TopicKind: String, Sendable {
         case welcome
@@ -42,15 +92,18 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     private let identityStore: any KeychainIdentityStoreProtocol
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let deviceInfoProvider: (any DeviceInfoProviding)?
+    private let conversationLister: any PushTopicConversationListing
 
     init(
         identityStore: any KeychainIdentityStoreProtocol,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        deviceInfoProvider: (any DeviceInfoProviding)? = nil
+        deviceInfoProvider: (any DeviceInfoProviding)? = nil,
+        conversationLister: any PushTopicConversationListing = XMTPPushTopicConversationLister()
     ) {
         self.identityStore = identityStore
         self.deviceRegistrationManager = deviceRegistrationManager
         self.deviceInfoProvider = deviceInfoProvider
+        self.conversationLister = conversationLister
     }
 
     func subscribeToGroupAndWelcome(
@@ -99,31 +152,23 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         var subscriptions: [TopicSubscription] = [welcomeSubscription(params: params)]
 
         do {
-            let groups = try params.client.conversationsProvider.listGroups(
-                createdAfterNs: nil,
-                createdBeforeNs: nil,
-                lastActivityAfterNs: nil,
-                lastActivityBeforeNs: nil,
-                limit: nil,
+            let groupIds = try conversationLister.listGroupConversationIds(
+                params: params,
                 consentStates: params.consentStates,
                 orderBy: .lastActivity
             )
-            subscriptions.append(contentsOf: groups.map { groupSubscription(conversationId: $0.id) })
+            subscriptions.append(contentsOf: groupIds.map(groupSubscription(conversationId:)))
         } catch {
             Log.warning("Failed listing groups for push topic reconciliation \(context): \(error)")
         }
 
         do {
-            let dms = try params.client.conversationsProvider.listDms(
-                createdAfterNs: nil,
-                createdBeforeNs: nil,
-                lastActivityBeforeNs: nil,
-                lastActivityAfterNs: nil,
-                limit: nil,
+            let dmIds = try conversationLister.listInviteDMConversationIds(
+                params: params,
                 consentStates: [.unknown, .allowed],
                 orderBy: .lastActivity
             )
-            subscriptions.append(contentsOf: dms.map { inviteDMSubscription(conversationId: $0.id) })
+            subscriptions.append(contentsOf: dmIds.map(inviteDMSubscription(conversationId:)))
         } catch {
             Log.warning("Failed listing DMs for push topic reconciliation \(context): \(error)")
         }
@@ -206,6 +251,7 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     }
 
     private func dedupe(_ subscriptions: [TopicSubscription]) -> [TopicSubscription] {
+        // APNS subscription state is keyed by topic; source kind is only used for logging.
         var seen: Set<String> = []
         var result: [TopicSubscription] = []
         for subscription in subscriptions where seen.insert(subscription.topic).inserted {
