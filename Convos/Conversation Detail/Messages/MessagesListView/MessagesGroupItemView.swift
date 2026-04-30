@@ -103,167 +103,167 @@ struct MessagesGroupItemView: View {
     private var messageContent: some View {
         switch message.content {
         case .text(let text):
-            MessageBubble(
-                style: message.content.isEmoji ? .none : bubbleType,
-                message: text,
-                isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: message.content.isEmoji ? .none : bubbleType,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("bubble-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            textBubble(text: text)
         case .emoji(let text):
-            EmojiBubble(
-                emoji: text,
-                isOutgoing: message.sender.isCurrentUser,
-                profile: message.sender.profile
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: .none,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("emoji-bubble-\(message.messageId)")
-            .opacity(isAppearing ? 0.0 : 1.0)
-            .blur(radius: isAppearing ? 10.0 : 0.0)
-            .scaleEffect(isAppearing ? 0.0 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.10 : 0.10)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -200 : 200)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            emojiBubble(text: text)
         case .invite(let invite):
-            MessageInviteContainerView(
-                invite: invite,
-                style: bubbleType,
-                isOutgoing: message.source == .outgoing,
-                profile: message.sender.profile,
-                onTapInvite: onTapInvite,
-                onTapAvatar: { onTapAvatar(message) }
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: bubbleType,
-                onSingleTap: { onTapInvite(invite) },
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("message-invite-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            inviteBubble(invite: invite)
         case .linkPreview(let preview):
-            LinkPreviewBubbleView(
-                preview: preview,
-                style: bubbleType,
-                isOutgoing: message.source == .outgoing,
-                profile: message.sender.profile,
-                messageId: message.messageId
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: bubbleType,
-                onSingleTap: {
-                    if let url = preview.resolvedURL {
-                        UIApplication.shared.open(url)
-                    }
-                },
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .id("link-preview-\(message.messageId)")
-            .scaleEffect(isAppearing ? 0.9 : 1.0)
-            .rotationEffect(
-                .radians(
-                    isAppearing
-                    ? (message.source == .incoming ? -0.05 : 0.05)
-                    : 0
-                )
-            )
-            .offset(
-                x: isAppearing
-                ? (message.source == .incoming ? -20 : 20)
-                : 0,
-                y: isAppearing ? 40 : 0
-            )
-            .padding(.trailing, trailingPadding)
-
+            linkPreviewBubble(preview: preview)
         case .attachment(let attachment):
             attachmentView(for: attachment)
-
         case .attachments(let attachments):
             if let attachment = attachments.first {
                 attachmentView(for: attachment)
             }
-
         case .update, .assistantJoinRequest:
             EmptyView()
-
         case .connectionGrantRequest(let request):
-            // Cloud Connections is feature-flagged. With the flag off, an
-            // authorized assistant can still send a grant-request payload —
-            // we receive and decode it but render nothing so the unsupported
-            // feature isn't surfaced to the user.
-            if FeatureFlags.shared.isCloudConnectionsEnabled {
-                ConnectionGrantRequestCardView(
-                    request: request,
-                    conversationId: conversationId,
-                    sender: message.sender
-                )
-                .messageGesture(
-                    message: message,
-                    bubbleStyle: bubbleType,
-                    onReply: onReply,
-                    onToggleReaction: onToggleReaction
-                )
-                .padding(.trailing, trailingPadding)
-            } else {
-                EmptyView()
+            connectionGrantBubble(request: request)
+        }
+    }
+
+    private var standardRotation: Angle {
+        guard isAppearing else { return .radians(0) }
+        return .radians(message.source == .incoming ? -0.05 : 0.05)
+    }
+
+    private var emojiRotation: Angle {
+        guard isAppearing else { return .radians(0) }
+        return .radians(message.source == .incoming ? -0.10 : 0.10)
+    }
+
+    private var standardOffset: CGSize {
+        guard isAppearing else { return .zero }
+        let x: CGFloat = message.source == .incoming ? -20 : 20
+        return CGSize(width: x, height: 40)
+    }
+
+    private var emojiOffset: CGSize {
+        guard isAppearing else { return .zero }
+        let x: CGFloat = message.source == .incoming ? -200 : 200
+        return CGSize(width: x, height: 40)
+    }
+
+    @ViewBuilder
+    private func textBubble(text: String) -> some View {
+        let style: MessageBubbleType = message.content.isEmoji ? .none : bubbleType
+        MessageBubble(
+            style: style,
+            message: text,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: style,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("bubble-\(message.messageId)")
+        .scaleEffect(isAppearing ? 0.9 : 1.0)
+        .rotationEffect(standardRotation)
+        .offset(standardOffset)
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func emojiBubble(text: String) -> some View {
+        EmojiBubble(
+            emoji: text,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: .none,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("emoji-bubble-\(message.messageId)")
+        .opacity(isAppearing ? 0.0 : 1.0)
+        .blur(radius: isAppearing ? 10.0 : 0.0)
+        .scaleEffect(isAppearing ? 0.0 : 1.0)
+        .rotationEffect(emojiRotation)
+        .offset(emojiOffset)
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func inviteBubble(invite: MessageInvite) -> some View {
+        let inviteTap = { onTapInvite(invite) }
+        let avatarTap = { onTapAvatar(message) }
+        MessageInviteContainerView(
+            invite: invite,
+            style: bubbleType,
+            isOutgoing: message.source == .outgoing,
+            profile: message.sender.profile,
+            onTapInvite: onTapInvite,
+            onTapAvatar: avatarTap
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: bubbleType,
+            onSingleTap: inviteTap,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("message-invite-\(message.messageId)")
+        .scaleEffect(isAppearing ? 0.9 : 1.0)
+        .rotationEffect(standardRotation)
+        .offset(standardOffset)
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func linkPreviewBubble(preview: LinkPreview) -> some View {
+        let openLink: () -> Void = {
+            if let url = preview.resolvedURL {
+                UIApplication.shared.open(url)
             }
+        }
+        LinkPreviewBubbleView(
+            preview: preview,
+            style: bubbleType,
+            isOutgoing: message.source == .outgoing,
+            profile: message.sender.profile,
+            messageId: message.messageId
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: bubbleType,
+            onSingleTap: openLink,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .id("link-preview-\(message.messageId)")
+        .scaleEffect(isAppearing ? 0.9 : 1.0)
+        .rotationEffect(standardRotation)
+        .offset(standardOffset)
+        .padding(.trailing, trailingPadding)
+    }
+
+    @ViewBuilder
+    private func connectionGrantBubble(request: ConnectionGrantRequest) -> some View {
+        // Cloud Connections is feature-flagged. With the flag off, an
+        // authorized assistant can still send a grant-request payload —
+        // we receive and decode it but render nothing so the unsupported
+        // feature isn't surfaced to the user.
+        if FeatureFlags.shared.isCloudConnectionsEnabled {
+            ConnectionGrantRequestCardView(
+                request: request,
+                conversationId: conversationId,
+                sender: message.sender
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .padding(.trailing, trailingPadding)
+        } else {
+            EmptyView()
         }
     }
 

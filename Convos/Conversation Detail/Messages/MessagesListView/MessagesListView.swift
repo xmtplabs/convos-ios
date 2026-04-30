@@ -33,116 +33,135 @@ struct MessagesListView: View {
 
     var body: some View {
         ScrollViewReader { _ in
-            ScrollView {
-                LazyVStack(spacing: 0.0) {
-                    if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
-                        VStack(spacing: DesignConstants.Spacing.step4x) {
-                            InviteView(invite: invite)
-                            NewConvoIdentityView(
-                                onCopyLink: onCopyInviteLink,
-                                onConvoCode: onConvoCode,
-                                onInviteAssistant: onInviteAssistant,
-                                hasAssistant: hasAssistant,
-                                isAssistantJoinPending: isAssistantJoinPending,
-                                isAssistantEnabled: isAssistantEnabled
-                            )
-                        }
-                        .id("invite")
-                    } else {
-                        VStack(spacing: DesignConstants.Spacing.step4x) {
-                            ConversationInfoPreview(conversation: conversation)
-                        }
-                        .id("conversation-info")
-                    }
+            scrollContent
+        }
+    }
 
-                    ForEach(messages.enumerated(), id: \.element.id) { index, item in
-                        Group {
-                            switch item {
-                            case .date(let dateGroup):
-                                TextTitleContentView(title: dateGroup.value, profile: nil)
-                                    .padding(.vertical, DesignConstants.Spacing.step2x)
+    private var scrollContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 0.0) {
+                listHeader
+                messagesList
+            }
+        }
+        .scrollEdgeEffectHidden(for: [.bottom])
+        .animation(.spring(duration: 0.5, bounce: 0.2), value: messages)
+        .contentMargins(.horizontal, DesignConstants.Spacing.step4x, for: .scrollContent)
+        .defaultScrollAnchor(.bottom)
+        .scrollDismissesKeyboard(.interactively)
+        .scrollPosition($scrollPosition, anchor: .bottom)
+    }
 
-                            case .update(_, let update, _):
-                                VStack(spacing: 0) {
-                                    TextTitleContentView(
-                                        title: update.summary,
-                                        profile: update.profile,
-                                        agentVerification: update.profileMember?.agentVerification ?? .unverified,
-                                        onTap: update.profileMember.map { member in
-                                            { onTapUpdateMember(member) }
-                                        }
-                                    )
-                                        .padding(.vertical, DesignConstants.Spacing.stepX)
-                                    if update.addedVerifiedAssistant {
-                                        AssistantJoinedInfoView()
-                                    }
-                                }
+    @ViewBuilder
+    private var listHeader: some View {
+        if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
+            VStack(spacing: DesignConstants.Spacing.step4x) {
+                InviteView(invite: invite)
+                NewConvoIdentityView(
+                    onCopyLink: onCopyInviteLink,
+                    onConvoCode: onConvoCode,
+                    onInviteAssistant: onInviteAssistant,
+                    hasAssistant: hasAssistant,
+                    isAssistantJoinPending: isAssistantJoinPending,
+                    isAssistantEnabled: isAssistantEnabled
+                )
+            }
+            .id("invite")
+        } else {
+            VStack(spacing: DesignConstants.Spacing.step4x) {
+                ConversationInfoPreview(conversation: conversation)
+            }
+            .id("conversation-info")
+        }
+    }
 
-                            case .messages(let group):
-                                messagesGroupView(for: group)
-
-                            case .invite(let invite):
-                                InviteView(invite: invite)
-                                    .padding(.vertical, DesignConstants.Spacing.step2x)
-
-                            case .conversationInfo(let conversation):
-                                ConversationInfoPreview(conversation: conversation)
-                                    .padding(.vertical, DesignConstants.Spacing.step2x)
-
-                            case .agentOutOfCredits(let profile):
-                                TextTitleContentView(
-                                    title: "\(profile.displayName) is out of processing power",
-                                    profile: profile,
-                                    onTap: onAgentOutOfCredits
-                                )
-                                .padding(.vertical, DesignConstants.Spacing.step2x)
-
-                            case let .assistantJoinStatus(status, requesterName, _):
-                                AssistantJoinStatusView(
-                                    status: status,
-                                    requesterName: requesterName,
-                                    onRetry: onRetryAssistantJoin
-                                )
-                                .padding(.vertical, DesignConstants.Spacing.step2x)
-
-                            case let .assistantPresentInfo(agent, inviterName):
-                                let isVerified = agent.agentVerification.isVerified
-                                let label = isVerified ? "Assistant" : "Agent"
-                                let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
-                                VStack(spacing: 0) {
-                                    TextTitleContentView(
-                                        title: title,
-                                        profile: agent.profile,
-                                        agentVerification: agent.agentVerification
-                                    )
-                                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                                    if isVerified {
-                                        AssistantJoinedInfoView()
-                                            .padding(.horizontal, DesignConstants.Spacing.step4x)
-                                    }
-                                }
-
-                            case .typingIndicator:
-                                EmptyView()
-                            }
-                        }
-                        .onScrollVisibilityChange(threshold: 0.1) { isVisible in
-                            guard lastItemIndex == nil else { return }
-
-                            if isVisible && index == messages.count - 1 {
-                                lastItemIndex = index
-                            }
-                        }
-                    }
+    private var messagesList: some View {
+        ForEach(messages.enumerated(), id: \.element.id) { index, item in
+            Group {
+                listItemView(for: item)
+            }
+            .onScrollVisibilityChange(threshold: 0.1) { isVisible in
+                guard lastItemIndex == nil else { return }
+                if isVisible && index == messages.count - 1 {
+                    lastItemIndex = index
                 }
             }
-            .scrollEdgeEffectHidden(for: [.bottom])
-            .animation(.spring(duration: 0.5, bounce: 0.2), value: messages)
-            .contentMargins(.horizontal, DesignConstants.Spacing.step4x, for: .scrollContent)
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .scrollPosition($scrollPosition, anchor: .bottom)
+        }
+    }
+
+    @ViewBuilder
+    private func listItemView(for item: MessagesListItemType) -> some View {
+        switch item {
+        case .date(let dateGroup):
+            TextTitleContentView(title: dateGroup.value, profile: nil)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+        case .update(_, let update, _):
+            updateRow(update: update)
+        case .messages(let group):
+            messagesGroupView(for: group)
+        case .invite(let invite):
+            InviteView(invite: invite)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+        case .conversationInfo(let conversation):
+            ConversationInfoPreview(conversation: conversation)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+        case .agentOutOfCredits(let profile):
+            TextTitleContentView(
+                title: "\(profile.displayName) is out of processing power",
+                profile: profile,
+                onTap: onAgentOutOfCredits
+            )
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+        case let .assistantJoinStatus(status, requesterName, _):
+            AssistantJoinStatusView(
+                status: status,
+                requesterName: requesterName,
+                onRetry: onRetryAssistantJoin
+            )
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+        case let .assistantPresentInfo(agent, inviterName):
+            assistantPresentRow(agent: agent, inviterName: inviterName)
+        case .typingIndicator:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func updateRow(update: ConversationUpdate) -> some View {
+        let memberTap: (() -> Void)? = update.profileMember.map { member in
+            { onTapUpdateMember(member) }
+        }
+        VStack(spacing: 0) {
+            TextTitleContentView(
+                title: update.summary,
+                profile: update.profile,
+                agentVerification: update.profileMember?.agentVerification ?? .unverified,
+                onTap: memberTap
+            )
+                .padding(.vertical, DesignConstants.Spacing.stepX)
+            if update.addedVerifiedAssistant {
+                AssistantJoinedInfoView()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func assistantPresentRow(agent: ConversationMember, inviterName: String?) -> some View {
+        let isVerified = agent.agentVerification.isVerified
+        let label = isVerified ? "Assistant" : "Agent"
+        let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
+        VStack(spacing: 0) {
+            TextTitleContentView(
+                title: title,
+                profile: agent.profile,
+                agentVerification: agent.agentVerification
+            )
+                .padding(.vertical, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+            if isVerified {
+                AssistantJoinedInfoView()
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+            }
         }
     }
 

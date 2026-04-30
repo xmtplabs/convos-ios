@@ -71,187 +71,211 @@ struct DebugViewSection: View {
         }
     }
 
+    @ViewBuilder
+    private var pushNotificationsSection: some View {
+        Section(header: Text("Push Notifications")) {
+            HStack {
+                Text("Auth Status")
+                Spacer()
+                Text(statusText(notificationAuthStatus))
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Authorized")
+                Spacer()
+                Text(notificationAuthGranted ? "Yes" : "No")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Device Token")
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        Text(lastDeviceToken)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(.colorTextSecondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Button {
+                        UIPasteboard.general.string = lastDeviceToken
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(lastDeviceToken.isEmpty)
+                }
+            }
+            HStack {
+                Text("APNS Environment")
+                Spacer()
+                Text(ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Button("Request Now") {
+                    Task { await requestNotificationsNow() }
+                }
+                .disabled(notificationAuthGranted)
+                .opacity(notificationAuthGranted ? 0.5 : 1.0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var debugInfoSection: some View {
+        Section("Debug") {
+            HStack {
+                Text("Bundle ID")
+                Spacer()
+                Text(Bundle.main.bundleIdentifier ?? "Unknown")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Version")
+                Spacer()
+                Text(Bundle.appVersion)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Environment")
+                Spacer()
+                Text(ConfigManager.shared.currentEnvironment.name.capitalized)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Log storage")
+                Spacer()
+                if let info = logStorageInfo {
+                    Text(info.formattedTotalSize)
+                        .foregroundStyle(.colorTextSecondary)
+                } else {
+                    ProgressView()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sentryTestingSection: some View {
+        Section("Sentry Testing") {
+            Button {
+                testSentryMessage()
+            } label: {
+                Text("Send Test Message")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryError()
+            } label: {
+                Text("Send Test Error")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryException()
+            } label: {
+                Text("Send Test Exception")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryWithBreadcrumbs()
+            } label: {
+                Text("Send Event with Breadcrumbs")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pendingInvitesSection: some View {
+        Section("Pending Invites") {
+            NavigationLink {
+                PendingInviteDebugView(session: session)
+            } label: {
+                Text("View Pending Invites")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            NavigationLink {
+                OrphanedInboxDebugView(session: session)
+            } label: {
+                Text("View Orphaned Inboxes")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var assetRenewalSection: some View {
+        Section("Asset Renewal") {
+            NavigationLink {
+                DebugAssetRenewalView(session: session)
+            } label: {
+                Text("View Renewable Assets")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                Task { await renewAssetsNow() }
+            } label: {
+                HStack {
+                    Text("Renew Assets Now")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    if isRenewingAssets { ProgressView() }
+                }
+            }
+            .disabled(isRenewingAssets)
+        }
+    }
+
+    @ViewBuilder
+    private var sheetsSection: some View {
+        Section("Sheets") {
+            Button {
+                presentingPhotosInfoSheet = true
+            } label: {
+                Text("Show Photos Info Sheet")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+        .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+            PhotosInfoSheet()
+        }
+    }
+
+    @ViewBuilder
+    private var resetActionsSection: some View {
+        Section {
+            Button {
+                Task { await registerDeviceAgain() }
+            } label: {
+                Text("Register Device Again")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                resetOnboarding()
+            } label: {
+                Text("Reset Onboarding")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                resetAllSettings()
+            } label: {
+                Text("Reset All Settings")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
     var body: some View {
         Group {
             featuresSection
-
-            Section(header: Text("Push Notifications")) {
-                HStack {
-                    Text("Auth Status")
-                    Spacer()
-                    Text(statusText(notificationAuthStatus))
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                HStack {
-                    Text("Authorized")
-                    Spacer()
-                    Text(notificationAuthGranted ? "Yes" : "No")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Device Token")
-                    HStack(spacing: 8) {
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            Text(lastDeviceToken)
-                                .font(.system(.footnote, design: .monospaced))
-                                .foregroundStyle(.colorTextSecondary)
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Button {
-                            UIPasteboard.general.string = lastDeviceToken
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(lastDeviceToken.isEmpty)
-                    }
-                }
-                HStack {
-                    Text("APNS Environment")
-                    Spacer()
-                    Text(ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                HStack {
-                    Button("Request Now") {
-                        Task { await requestNotificationsNow() }
-                    }
-                    .disabled(notificationAuthGranted)
-                    .opacity(notificationAuthGranted ? 0.5 : 1.0)
-                }
-            }
-
-            Section("Debug") {
-                HStack {
-                    Text("Bundle ID")
-                    Spacer()
-                    Text(Bundle.main.bundleIdentifier ?? "Unknown")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Version")
-                    Spacer()
-                    Text(Bundle.appVersion)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Environment")
-                    Spacer()
-                    Text(ConfigManager.shared.currentEnvironment.name.capitalized)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Log storage")
-                    Spacer()
-                    if let info = logStorageInfo {
-                        Text(info.formattedTotalSize)
-                            .foregroundStyle(.colorTextSecondary)
-                    } else {
-                        ProgressView()
-                    }
-                }
-            }
-
-            Section("Sentry Testing") {
-                Button {
-                    testSentryMessage()
-                } label: {
-                    Text("Send Test Message")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryError()
-                } label: {
-                    Text("Send Test Error")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryException()
-                } label: {
-                    Text("Send Test Exception")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryWithBreadcrumbs()
-                } label: {
-                    Text("Send Event with Breadcrumbs")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-
-            Section("Pending Invites") {
-                NavigationLink {
-                    PendingInviteDebugView(session: session)
-                } label: {
-                    Text("View Pending Invites")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                NavigationLink {
-                    OrphanedInboxDebugView(session: session)
-                } label: {
-                    Text("View Orphaned Inboxes")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-
-            Section("Asset Renewal") {
-                NavigationLink {
-                    DebugAssetRenewalView(session: session)
-                } label: {
-                    Text("View Renewable Assets")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-
-                Button {
-                    Task { await renewAssetsNow() }
-                } label: {
-                    HStack {
-                        Text("Renew Assets Now")
-                            .foregroundStyle(.colorTextPrimary)
-                        Spacer()
-                        if isRenewingAssets { ProgressView() }
-                    }
-                }
-                .disabled(isRenewingAssets)
-            }
-
-            Section("Sheets") {
-                Button {
-                    presentingPhotosInfoSheet = true
-                } label: {
-                    Text("Show Photos Info Sheet")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-            .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
-                PhotosInfoSheet()
-            }
-
-            Section {
-                Button {
-                    Task { await registerDeviceAgain() }
-                } label: {
-                    Text("Register Device Again")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    resetOnboarding()
-                } label: {
-                    Text("Reset Onboarding")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    resetAllSettings()
-                } label: {
-                    Text("Reset All Settings")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
+            pushNotificationsSection
+            debugInfoSection
+            sentryTestingSection
+            pendingInvitesSection
+            assetRenewalSection
+            sheetsSection
+            resetActionsSection
         }
         .task {
             await refreshNotificationStatus()

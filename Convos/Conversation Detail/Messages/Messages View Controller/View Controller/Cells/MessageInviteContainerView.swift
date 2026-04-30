@@ -117,33 +117,36 @@ struct MessageInviteView: View {
         return "invite-preview-subtitle"
     }
 
+    @ViewBuilder
+    private var avatarOverlay: some View {
+        if isExpired {
+            Image(systemName: "burst")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 76.0)
+                .foregroundStyle(.colorTextSecondary)
+        } else if let image = cachedImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let emoji = invite.emoji, !emoji.isEmpty {
+            Text(emoji)
+                .font(.system(size: 160))
+        } else {
+            Image("convosOrangeIcon")
+                .resizable()
+                .tint(.colorTextPrimaryInverted)
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 76.0)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
             Color.colorFillMinimal
                 .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    if isExpired {
-                        Image(systemName: "burst")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 76.0)
-                            .foregroundStyle(.colorTextSecondary)
-                    } else if let image = cachedImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else if let emoji = invite.emoji, !emoji.isEmpty {
-                        Text(emoji)
-                            .font(.system(size: 160))
-                    } else {
-                        Image("convosOrangeIcon")
-                            .resizable()
-                            .tint(.colorTextPrimaryInverted)
-                            .foregroundStyle(.colorTextPrimaryInverted)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 76.0)
-                    }
-                }
+                .overlay { avatarOverlay }
                 .clipped()
                 .opacity(isExpired ? 0.6 : 1.0)
                 .accessibilityLabel(invite.imageURL != nil ? "Invite image preview" : (invite.emoji.map { "Invite emoji \($0)" } ?? "Invite placeholder"))

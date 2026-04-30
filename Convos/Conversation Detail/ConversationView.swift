@@ -280,132 +280,140 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
-    var body: some View {
+    private var messagesViewWithLifecycle: some View {
         messagesView
-        .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
-            if let image = newValue {
-                viewModel.onPhotoSelected(image)
-            } else if oldValue != nil {
-                viewModel.onPhotoRemoved()
+            .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
+                if let image = newValue {
+                    viewModel.onPhotoSelected(image)
+                } else if oldValue != nil {
+                    viewModel.onPhotoRemoved()
+                }
             }
-        }
-        .onChange(of: viewModel.messageText) { _, _ in
-            viewModel.checkForInviteURL()
-            viewModel.checkForPastedLink()
-        }
-        .animation(.easeOut, value: viewModel.explodeState)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .onAppear { viewModel.onConversationAppeared() }
-        .onDisappear { viewModel.onConversationDisappeared() }
-        .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
-            ConversationForkedInfoView {
-                viewModel.leaveConvo()
+            .onChange(of: viewModel.messageText) { _, _ in
+                viewModel.checkForInviteURL()
+                viewModel.checkForPastedLink()
             }
-        }
-        .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            MyInfoView(
-                profile: .constant(viewModel.myProfileViewModel.profile),
-                profileImage: $viewModel.myProfileViewModel.profileImage,
-                editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
-                quicknameViewModel: quicknameViewModel,
-                showsCancelButton: true,
-                showsProfile: true,
-                showsUseQuicknameButton: true,
-                canEditQuickname: false
-            ) { quicknameSettings in
-                viewModel.onUseQuickname(quicknameSettings.profile, quicknameSettings.profileImage)
+            .animation(.easeOut, value: viewModel.explodeState)
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            .onAppear { viewModel.onConversationAppeared() }
+            .onDisappear { viewModel.onConversationDisappeared() }
+            .alert(
+                "Awaiting reconnection",
+                isPresented: $showingReconnectionAlert
+            ) {
+                Button("Got it", role: .cancel) {}
+            } message: {
+                Text("You can see and send new messages, reactions and more after another member sends a message.")
             }
+            .toolbar { topBarTrailingItem }
             .onDisappear {
-                viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
+                VoiceMemoPlayer.shared.stop()
+                viewModel.voiceMemoRecorder.cancelRecording()
             }
-        }
-        .alert(
-            "Awaiting reconnection",
-            isPresented: $showingReconnectionAlert
-        ) {
-            Button("Got it", role: .cancel) {}
-        } message: {
-            Text("You can see and send new messages, reactions and more after another member sends a message.")
-        }
-        .toolbar { topBarTrailingItem }
-        .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                quicknameViewModel: quicknameViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
-        }
-        .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
-            ExplodeInfoView()
-        }
-        .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
-            AssistantsInfoView(
-                isConfirmation: true,
-                onConfirm: { viewModel.requestAssistantJoin() }
-            )
-            .padding(.top, 20)
-        }
-        .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
-            AssistantProcessingPowerInfoView()
+    }
+
+    private var conversationSheets: some View {
+        messagesViewWithLifecycle
+            .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
+                ConversationForkedInfoView {
+                    viewModel.leaveConvo()
+                }
+            }
+            .sheet(isPresented: $viewModel.presentingProfileSettings) {
+                MyInfoView(
+                    profile: .constant(viewModel.myProfileViewModel.profile),
+                    profileImage: $viewModel.myProfileViewModel.profileImage,
+                    editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
+                    quicknameViewModel: quicknameViewModel,
+                    showsCancelButton: true,
+                    showsProfile: true,
+                    showsUseQuicknameButton: true,
+                    canEditQuickname: false
+                ) { quicknameSettings in
+                    viewModel.onUseQuickname(quicknameSettings.profile, quicknameSettings.profileImage)
+                }
+                .onDisappear {
+                    viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
+                }
+            }
+            .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
+                NewConversationView(
+                    viewModel: viewModel,
+                    quicknameViewModel: quicknameViewModel
+                )
+                .background(.colorBackgroundSurfaceless)
+            }
+            .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
+                ExplodeInfoView()
+            }
+            .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
+                AssistantsInfoView(
+                    isConfirmation: true,
+                    onConfirm: { viewModel.requestAssistantJoin() }
+                )
                 .padding(.top, 20)
-        }
-        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
-            AssistantsInfoView()
-                .padding(.top, 20)
-        }
-        .sheet(item: $viewModel.presentingProfileForMember) { member in
-            NavigationStack {
-                ConversationMemberView(viewModel: viewModel, member: member)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(role: .cancel) {
-                                viewModel.presentingProfileForMember = nil
+            }
+            .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
+                AssistantProcessingPowerInfoView()
+                    .padding(.top, 20)
+            }
+            .selfSizingSheet(isPresented: $showingAssistantsInfo) {
+                AssistantsInfoView()
+                    .padding(.top, 20)
+            }
+    }
+
+    var body: some View {
+        conversationSheets
+            .sheet(item: $viewModel.presentingProfileForMember) { member in
+                NavigationStack {
+                    ConversationMemberView(viewModel: viewModel, member: member)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(role: .cancel) {
+                                    viewModel.presentingProfileForMember = nil
+                                }
                             }
                         }
+                }
+            }
+            .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
+                ReactionsDrawerView(message: message) { reaction in
+                    viewModel.removeReaction(reaction, from: message)
+                }
+            }
+            .selfSizingSheet(isPresented: $showingLockedInfo) {
+                LockedConvoInfoView(
+                    isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
+                    isLocked: viewModel.isLocked,
+                    onLock: {
+                        viewModel.toggleLock()
+                        showingLockedInfo = false
+                    },
+                    onDismiss: {
+                        showingLockedInfo = false
                     }
+                )
             }
-        }
-        .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
-            ReactionsDrawerView(message: message) { reaction in
-                viewModel.removeReaction(reaction, from: message)
+            .selfSizingSheet(isPresented: $showingFullInfo) {
+                FullConvoInfoView(onDismiss: {
+                    showingFullInfo = false
+                })
             }
-        }
-        .selfSizingSheet(isPresented: $showingLockedInfo) {
-            LockedConvoInfoView(
-                isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                isLocked: viewModel.isLocked,
-                onLock: {
-                    viewModel.toggleLock()
-                    showingLockedInfo = false
-                },
-                onDismiss: {
-                    showingLockedInfo = false
+            .selfSizingSheet(
+                isPresented: $viewModel.presentingRevealMediaInfoSheet,
+                onDismiss: { viewModel.showRevealSettingsToast() },
+                content: {
+                    RevealMediaInfoSheet()
                 }
             )
-        }
-        .selfSizingSheet(isPresented: $showingFullInfo) {
-            FullConvoInfoView(onDismiss: {
-                showingFullInfo = false
-            })
-        }
-        .selfSizingSheet(
-            isPresented: $viewModel.presentingRevealMediaInfoSheet,
-            onDismiss: { viewModel.showRevealSettingsToast() },
-            content: {
-                RevealMediaInfoSheet()
-            }
-        )
-        .selfSizingSheet(
-            isPresented: $viewModel.presentingPhotosInfoSheet,
-            onDismiss: { focusCoordinator.moveFocus(to: .message) },
-            content: {
-                PhotosInfoSheet()
-            }
-        )
-        .onDisappear {
-            VoiceMemoPlayer.shared.stop()
-            viewModel.voiceMemoRecorder.cancelRecording()
-        }
+            .selfSizingSheet(
+                isPresented: $viewModel.presentingPhotosInfoSheet,
+                onDismiss: { focusCoordinator.moveFocus(to: .message) },
+                content: {
+                    PhotosInfoSheet()
+                }
+            )
     }
 }
 
