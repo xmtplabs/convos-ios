@@ -1,5 +1,5 @@
-@testable import ConvosCore
 import ConvosConnections
+@testable import ConvosCore
 import Foundation
 import Testing
 
@@ -105,8 +105,8 @@ struct CapabilityManifestJSONShapeTests {
             "resolved": {"read": true, "future_verb": true}
           }]
         }
-        """.data(using: .utf8)!
-        let manifest = try JSONDecoder().decode(CapabilityManifest.self, from: json)
+        """
+        let manifest = try JSONDecoder().decode(CapabilityManifest.self, from: Data(json.utf8))
         let entry = try #require(manifest.providers.first)
         #expect(entry.resolvedCapabilities == [.read: true])
     }

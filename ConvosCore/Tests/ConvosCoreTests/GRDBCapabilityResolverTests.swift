@@ -1,5 +1,5 @@
-@testable import ConvosCore
 import ConvosConnections
+@testable import ConvosCore
 import Foundation
 import GRDB
 import Testing

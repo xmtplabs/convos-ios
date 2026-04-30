@@ -57,7 +57,7 @@ final class ConnectionsListViewModel {
             } else if case .cloud(let service, _) = row.source {
                 connect(serviceId: service.id)
             }
-        case .device(let kind, let status):
+        case let .device(kind, status):
             guard row.isToggleEnabled else { return }
             Task {
                 do {

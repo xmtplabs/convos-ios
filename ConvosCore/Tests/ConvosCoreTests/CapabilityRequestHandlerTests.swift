@@ -1,5 +1,5 @@
-@testable import ConvosCore
 import ConvosConnections
+@testable import ConvosCore
 import Foundation
 import Testing
 
@@ -17,7 +17,7 @@ private struct StubProvider: CapabilityProvider {
 
 @Suite("CapabilityRequestHandler.computeLayout — variant selection")
 struct ComputeLayoutVariantTests {
-    private let handler = CapabilityRequestHandler()
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
     private let conversationId: String = "conv-1"
 
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
@@ -141,7 +141,7 @@ struct ComputeLayoutVariantTests {
 
 @Suite("CapabilityRequestHandler.computeLayout — preferredProviders hint")
 struct ComputeLayoutPreferredProvidersTests {
-    private let handler = CapabilityRequestHandler()
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
     private let conversationId: String = "conv-1"
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
     private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.google_calendar")
@@ -231,7 +231,7 @@ struct ComputeLayoutPreferredProvidersTests {
 
 @Suite("CapabilityRequestHandler.computeLayout — verb-consent shortcut")
 struct ComputeLayoutVerbConsentTests {
-    private let handler = CapabilityRequestHandler()
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
     private let conversationId: String = "conv-1"
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
     private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
@@ -353,7 +353,7 @@ struct ComputeLayoutVerbConsentTests {
 
 @Suite("CapabilityRequestHandler.commit / deny / cancel")
 struct CommitDenyCancelTests {
-    private let handler = CapabilityRequestHandler()
+    private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
 
     @Test("commit persists resolution and returns approved result")
