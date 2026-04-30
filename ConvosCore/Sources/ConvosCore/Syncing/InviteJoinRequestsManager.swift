@@ -122,6 +122,15 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         return outcomes.compactMap(\.result)
     }
 
+    /// Eventual-consistency note: between the moment the coordinator
+    /// snapshots the DM list and the moment the caller subscribes /
+    /// unsubscribes from push topics for those outcomes, a new join
+    /// request can land in another DM. That request is missed by the
+    /// current pass, so the device may briefly hold a stale push
+    /// subscription set. The next reconcile (after sync, resume, or
+    /// `requestDiscovery` — see `SyncingManager`) heals it. We accept
+    /// the lag because serializing the whole pipeline would require an
+    /// app-wide lock around DM message delivery for marginal benefit.
     func processJoinRequestOutcomes(
         since: Date?,
         client: AnyClientProvider

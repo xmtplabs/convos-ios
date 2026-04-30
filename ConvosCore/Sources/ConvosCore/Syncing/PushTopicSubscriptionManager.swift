@@ -200,6 +200,7 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         context: String
     ) async {
         var subscriptions: [TopicSubscription] = [welcomeSubscription(params: params)]
+        var degradedSources: [String] = []
 
         do {
             let groupIds = try conversationLister.listGroupConversationIds(
@@ -210,6 +211,7 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             subscriptions.append(contentsOf: groupIds.map(groupSubscription(conversationId:)))
         } catch {
             Log.warning("Failed listing groups for push topic reconciliation \(context): \(error)")
+            degradedSources.append("groups")
         }
 
         do {
@@ -221,6 +223,17 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             subscriptions.append(contentsOf: dmIds.map(inviteDMSubscription(conversationId:)))
         } catch {
             Log.warning("Failed listing DMs for push topic reconciliation \(context): \(error)")
+            degradedSources.append("dms")
+        }
+
+        // Surface partial reconciles as a structured event so dashboards
+        // can spot the case where the device is on a stale topic set
+        // (only welcome was re-subscribed). The happy path stays silent.
+        if !degradedSources.isEmpty {
+            QAEvent.emit(.sync, "push_topic_reconcile_degraded", [
+                "context": context,
+                "missing": degradedSources.joined(separator: ","),
+            ])
         }
 
         await subscribe(to: subscriptions, params: params, context: context)
