@@ -63,23 +63,22 @@ final class DeepLinkHandler {
     }
 
     /// Split out so `parseConnectionGrant`'s body stays under the
-    /// project's 100ms warn-long-function-bodies budget — the chained
-    /// boolean expressions otherwise tip the type-checker over.
+    /// project's 100ms warn-long-function-bodies budget — chaining the
+    /// optional `String?` comparisons with `&&` otherwise tips the
+    /// type-checker over.
     private static func isConnectionGrantURL(_ url: URL) -> Bool {
         let pathComponents = url.pathComponents.filter { $0 != "/" }
 
-        let isCustomScheme = url.scheme == ConfigManager.shared.appUrlScheme
-            && url.host == "connections"
-            && pathComponents.first == "grant"
-        if isCustomScheme {
+        if url.scheme == ConfigManager.shared.appUrlScheme,
+           url.host == "connections",
+           pathComponents.first == "grant" {
             return true
         }
 
-        let isUniversalLink = url.scheme == "https"
-            && pathComponents.count >= 2
-            && pathComponents[0] == "connections"
-            && pathComponents[1] == "grant"
-        return isUniversalLink
+        guard url.scheme == "https", pathComponents.count >= 2 else {
+            return false
+        }
+        return pathComponents[0] == "connections" && pathComponents[1] == "grant"
     }
 
     private static func connectionGrantParams(from url: URL) -> (service: String, conversationId: String)? {

@@ -216,6 +216,7 @@ class TestFixtures {
             databaseReader: databaseManager.dbReader,
             identityStore: identityStore,
             environment: environment,
+            deviceInfoProvider: platformProviders.deviceInfo,
             backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
     }

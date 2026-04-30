@@ -307,21 +307,32 @@ struct JoinRequestProcessingTests {
 
     // MARK: - JoinRequestError
 
-    @Test("JoinRequestError cases")
-    func joinRequestErrorCases() {
-        let errors: [JoinRequestError] = [
-            .invalidSignature,
-            .expired,
-            .conversationExpired,
-            .conversationNotFound("conv-123"),
-            .consentNotAllowed("conv-123", .denied),
-            .invalidFormat,
-            .creatorMismatch,
-            .revoked,
-            .addMemberFailed,
-        ]
+    @Test("Join request DM outcome subscription policy")
+    func joinRequestDMOutcomeSubscriptionPolicy() {
+        let result = JoinResult(
+            conversationId: "group-123",
+            joinerInboxId: "joiner-123",
+            conversationName: "Group"
+        )
 
-        #expect(errors.count == 9)
+        let accepted = JoinRequestDMOutcome.accepted(result, dmConversationId: "dm-123")
+        let benignFailure = JoinRequestDMOutcome.benignFailure(
+            dmConversationId: "dm-123",
+            senderInboxId: "joiner-123",
+            error: .addMemberFailed
+        )
+        let malicious = JoinRequestDMOutcome.malicious(
+            dmConversationId: "dm-123",
+            senderInboxId: "joiner-123",
+            error: .invalidSignature
+        )
+
+        #expect(accepted.shouldKeepDMSubscribed)
+        #expect(accepted.dmConversationId == "dm-123")
+        #expect(accepted.joinResult?.conversationId == "group-123")
+        #expect(benignFailure.shouldKeepDMSubscribed)
+        #expect(!malicious.shouldKeepDMSubscribed)
+        #expect(malicious.isMalicious)
     }
 
     // MARK: - InviteJoinError Feedback

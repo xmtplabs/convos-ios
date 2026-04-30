@@ -17,7 +17,11 @@ import Testing
 struct KeychainSyncConfigTests {
     @Test("Service name is stable across launches")
     func serviceNameIsStable() {
-        #expect(KeychainIdentityStore.defaultService == "org.convos.ios.KeychainIdentityStore.v3")
+        // The default identity slot moved from v3 → v4-local during the
+        // single-inbox refactor; v3 is preserved as `legacySyncedIdentityService`
+        // for `KeychainLayoutMigrator` to read during the one-shot migration.
+        #expect(KeychainIdentityStore.defaultService == "org.convos.ios.KeychainIdentityStore.v4-local")
+        #expect(KeychainIdentityStore.legacySyncedIdentityService == "org.convos.ios.KeychainIdentityStore.v3")
     }
 
     @Test("Identity account key is a fixed, non-empty string")

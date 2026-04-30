@@ -272,6 +272,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     databaseReader: databaseReader,
                     identityStore: identityStore,
                     environment: environment,
+                    deviceInfoProvider: platformProviders.deviceInfo,
                     backgroundUploadManager: platformProviders.backgroundUploadManager
                 )
                 cached = placeholder
@@ -326,6 +327,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     databaseReader: databaseReader,
                     identityStore: identityStore,
                     environment: environment,
+                    deviceInfoProvider: platformProviders.deviceInfo,
                     backgroundUploadManager: platformProviders.backgroundUploadManager
                 )
                 cached = errored
@@ -357,6 +359,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     databaseReader: databaseReader,
                     identityStore: identityStore,
                     environment: environment,
+                    deviceInfoProvider: platformProviders.deviceInfo,
                     backgroundUploadManager: platformProviders.backgroundUploadManager
                 )
                 cached = placeholder
@@ -405,6 +408,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             databaseReader: databaseReader,
             identityStore: identityStore,
             environment: environment,
+            deviceInfoProvider: platformProviders.deviceInfo,
             backgroundUploadManager: platformProviders.backgroundUploadManager
         )
     }

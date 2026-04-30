@@ -4,7 +4,12 @@ import GRDB
 import Security
 import Testing
 
-@Suite("RestoreManager Tests")
+// `.serialized` is required: `findAvailableBackup` scans
+// `AppEnvironment.tests.defaultDatabasesDirectoryURL`, which resolves to the
+// process-wide `FileManager.temporaryDirectory`. Tests that write sidecars
+// into `<temp>/backups/<deviceId>/` share that directory across the suite,
+// so parallel execution lets one test surface another's fixture.
+@Suite("RestoreManager Tests", .serialized)
 struct RestoreManagerTests {
     // MARK: - Fixtures
 

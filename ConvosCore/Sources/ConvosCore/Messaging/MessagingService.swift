@@ -25,6 +25,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     internal let identityStore: any KeychainIdentityStoreProtocol
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
+    internal let deviceInfoProvider: any DeviceInfoProviding
     private let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
@@ -64,6 +65,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             databaseReader: databaseReader,
             identityStore: identityStore,
             environment: environment,
+            deviceInfoProvider: platformProviders.deviceInfo,
             backgroundUploadManager: platformProviders.backgroundUploadManager
         )
     }
@@ -73,6 +75,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                   databaseReader: any DatabaseReader,
                   identityStore: any KeychainIdentityStoreProtocol,
                   environment: AppEnvironment,
+                  deviceInfoProvider: any DeviceInfoProviding,
                   backgroundUploadManager: any BackgroundUploadManagerProtocol) {
         self.identityStore = identityStore
         self.authorizationOperation = authorizationOperation
@@ -80,6 +83,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = authorizationOperation.stateMachine.initialClientId
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
     }
@@ -95,6 +99,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                   databaseReader: any DatabaseReader,
                   identityStore: any KeychainIdentityStoreProtocol,
                   environment: AppEnvironment,
+                  deviceInfoProvider: any DeviceInfoProviding,
                   backgroundUploadManager: any BackgroundUploadManagerProtocol) {
         let operation = FailedIdentityLoadOperation(error: error)
         self.identityStore = identityStore
@@ -103,6 +108,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.clientId = ""
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
+        self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
     }

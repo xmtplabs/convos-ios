@@ -73,6 +73,7 @@ extension MessagingService {
             return try await handleWelcomeMessage(
                 contentTopic: contentTopic,
                 client: client,
+                apiClient: apiClient,
                 userInfo: payload.userInfo
             )
         }
@@ -91,7 +92,8 @@ extension MessagingService {
             contentTopic: contentTopic,
             currentInboxId: currentInboxId,
             userInfo: payload.userInfo,
-            client: client
+            client: client,
+            apiClient: apiClient
         )
     }
 
@@ -106,6 +108,7 @@ extension MessagingService {
     private func handleWelcomeMessage(
         contentTopic: String,
         client: any XMTPClientProvider,
+        apiClient: any ConvosAPIClientProtocol,
         userInfo: [AnyHashable: Any]
     ) async throws -> DecodedNotificationContent? {
         Log.debug("Syncing conversations after receiving welcome message")
@@ -131,8 +134,15 @@ extension MessagingService {
         _ = try await client.conversationsProvider.syncAllConversations(consentStates: [.unknown])
 
         // Case 1: Process join requests (others accepting our invites)
-        let joinRequestResults = await joinRequestsManager.processJoinRequests(since: lastProcessed, client: client)
-        if let result = joinRequestResults.first {
+        let joinRequestOutcomes = await joinRequestsManager.processJoinRequestOutcomes(since: lastProcessed, client: client)
+        await handleJoinRequestOutcomesForPush(
+            joinRequestOutcomes,
+            client: client,
+            apiClient: apiClient,
+            context: "welcome"
+        )
+
+        if let result = joinRequestOutcomes.compactMap(\.result).first {
             setLastWelcomeProcessed(processTime, for: client.inboxId)
 
             let displayName = (try? await getComputedDisplayName(
@@ -190,6 +200,45 @@ extension MessagingService {
         return .droppedMessage
     }
 
+    private func handleJoinRequestOutcomeForPush(
+        _ outcome: InviteJoinRequestOutcome,
+        client: any XMTPClientProvider,
+        apiClient: any ConvosAPIClientProtocol,
+        context: String
+    ) async {
+        await handleJoinRequestOutcomesForPush([outcome], client: client, apiClient: apiClient, context: context)
+    }
+
+    private func handleJoinRequestOutcomesForPush(
+        _ outcomes: [InviteJoinRequestOutcome],
+        client: any XMTPClientProvider,
+        apiClient: any ConvosAPIClientProtocol,
+        context: String
+    ) async {
+        guard !outcomes.isEmpty else { return }
+        var dmsToSub: [String] = []
+        var dmsToUnsub: [String] = []
+        var acceptedGroups: [String] = []
+        for outcome in outcomes {
+            if let dmId = outcome.dmConversationId {
+                if outcome.shouldKeepDMSubscribed {
+                    dmsToSub.append(dmId)
+                } else if case .malicious = outcome {
+                    dmsToUnsub.append(dmId)
+                }
+            }
+            if let result = outcome.result {
+                acceptedGroups.append(result.conversationId)
+            }
+        }
+        guard !dmsToSub.isEmpty || !dmsToUnsub.isEmpty || !acceptedGroups.isEmpty else { return }
+        let params = SyncClientParams(client: client, apiClient: apiClient)
+        let mgr = PushTopicSubscriptionManager(identityStore: identityStore, deviceInfoProvider: deviceInfoProvider)
+        await mgr.subscribeToInviteDMTopics(conversationIds: dmsToSub, params: params, context: "NSE \(context)")
+        await mgr.unsubscribeFromInviteDMTopics(conversationIds: dmsToUnsub, params: params, context: "NSE \(context)")
+        await mgr.subscribeToGroupsAndWelcome(conversationIds: acceptedGroups, params: params, context: "NSE \(context) accepted join")
+    }
+
     private func getExistingGroupIds(client: any XMTPClientProvider) async throws -> Set<String> {
         let groups = try client.conversationsProvider.listGroups(
             createdAfterNs: nil,
@@ -240,7 +289,8 @@ extension MessagingService {
         contentTopic: String,
         currentInboxId: String,
         userInfo: [AnyHashable: Any],
-        client: any XMTPClientProvider
+        client: any XMTPClientProvider,
+        apiClient: any ConvosAPIClientProtocol
     ) async throws -> DecodedNotificationContent? {
         // Extract conversation ID from topic path
         guard let conversationId = contentTopic.conversationIdFromXMTPGroupTopic else {
@@ -282,7 +332,10 @@ extension MessagingService {
                 databaseWriter: databaseWriter
             )
 
-            if let result = await joinRequestsManager.processJoinRequest(message: decodedMessage, client: client) {
+            let outcome = await joinRequestsManager.processJoinRequestOutcome(message: decodedMessage, client: client)
+            await handleJoinRequestOutcomeForPush(outcome, client: client, apiClient: apiClient, context: "encrypted DM")
+
+            if let result = outcome.result {
                 let displayName = (try? await getComputedDisplayName(
                     conversationId: result.conversationId,
                     currentInboxId: currentInboxId
