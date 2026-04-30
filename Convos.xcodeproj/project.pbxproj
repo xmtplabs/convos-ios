@@ -2233,7 +2233,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 100 -Xfrontend -warn-long-expression-type-checking -Xfrontend 100";
+				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 250 -Xfrontend -warn-long-expression-type-checking -Xfrontend 250";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -2362,7 +2362,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 100 -Xfrontend -warn-long-expression-type-checking -Xfrontend 100";
+				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 250 -Xfrontend -warn-long-expression-type-checking -Xfrontend 250";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";

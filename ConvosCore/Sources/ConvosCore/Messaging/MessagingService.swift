@@ -29,6 +29,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
+    private var contactsBackfillObserver: StateObserverHandle?
 
     // swiftlint:disable:next function_parameter_count
     static func authorizedMessagingService(
@@ -84,6 +85,36 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
+        self.scheduleContactsBackfill()
+    }
+
+    /// Triggers the one-time contacts backfill the first time the session
+    /// reaches `.ready`. Idempotent across launches via the
+    /// `conversation_contacts_sync` marker; no-ops when the inbox singleton
+    /// has not yet been written.
+    private func scheduleContactsBackfill() {
+        let backfill: any ContactsBackfillServiceProtocol = ContactsBackfillService(
+            databaseReader: databaseReader,
+            coordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            )
+        )
+        let stateMachine = sessionStateManager
+        let handle = stateMachine.observeState { [weak self] state in
+            guard case .ready = state else { return }
+            // Snap the observer off after the first ready event.
+            self?.contactsBackfillObserver?.cancel()
+            self?.contactsBackfillObserver = nil
+            Task.detached(priority: .background) {
+                do {
+                    try await backfill.backfillIfNeeded()
+                } catch {
+                    Log.error("ContactsBackfillService failed: \(error)")
+                }
+            }
+        }
+        self.contactsBackfillObserver = handle
     }
 
     /// Constructs a MessagingService that represents the failed-keychain-read
@@ -113,6 +144,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     deinit {
         cancellables.removeAll()
+        contactsBackfillObserver?.cancel()
     }
 
     // MARK: State
@@ -204,7 +236,32 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             photoService: PhotoAttachmentService(),
             pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
             backgroundUploadManager: backgroundUploadManager,
-            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
+            contactSyncCoordinator: contactSyncCoordinator()
+        )
+    }
+
+    // MARK: Contacts
+
+    func contactsRepository() -> any ContactsRepositoryProtocol {
+        ContactsRepository(databaseReader: databaseReader)
+    }
+
+    func contactsWriter() -> any ContactsWriterProtocol {
+        ContactsWriter(databaseWriter: databaseWriter)
+    }
+
+    func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
+        ContactSyncCoordinator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader
+        )
+    }
+
+    func contactsBackfillService() -> any ContactsBackfillServiceProtocol {
+        ContactsBackfillService(
+            databaseReader: databaseReader,
+            coordinator: contactSyncCoordinator()
         )
     }
 
@@ -229,7 +286,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         ConversationMetadataWriter(
             sessionStateManager: sessionStateManager,
             inviteWriter: InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter),
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            contactSyncCoordinator: contactSyncCoordinator()
         )
     }
 

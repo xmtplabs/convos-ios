@@ -95,6 +95,13 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("v2-inactive-conversations") { db in
+            try SharedDatabaseMigrator.addInactiveConversationsColumn(db)
+        }
+
+        migrator.registerMigration("createContactTable") { db in
+            try SharedDatabaseMigrator.createContactSchema(db)
+        }
         return migrator
     }
 
@@ -395,5 +402,52 @@ extension SharedDatabaseMigrator {
             on: "conversation_read_receipts",
             columns: ["conversationId"]
         )
+    }
+
+    /// Contacts table. Stores a denormalized "global default profile" snapshot
+    /// keyed by `inboxId`. Profile fields are updated most-recent-wins as new
+    /// member-profile data arrives. The `addedViaConversationId` foreign key
+    /// uses `setNull` so deleting the source conversation does not delete the
+    /// contact — contacts survive the local user leaving every shared group.
+    /// `blockedAt` is intentionally omitted in Step 1 and added in Step 2.
+    private static func createContactSchema(_ db: Database) throws {
+        try db.create(table: "contact") { t in
+            t.column("inboxId", .text)
+                .notNull()
+                .primaryKey()
+            t.column("addedAt", .datetime).notNull()
+            t.column("addedViaConversationId", .text)
+                .references("conversation", onDelete: .setNull)
+            t.column("displayName", .text)
+            t.column("avatarURL", .text)
+            t.column("bio", .text)
+            t.column("profileUpdatedAt", .datetime)
+        }
+
+        try db.create(
+            index: "idx_contact_displayName",
+            on: "contact",
+            columns: ["displayName"]
+        )
+
+        try db.create(table: "conversation_contacts_sync") { t in
+            t.column("conversationId", .text)
+                .notNull()
+                .primaryKey()
+                .references("conversation", onDelete: .cascade)
+            t.column("contactsSyncedAt", .datetime).notNull()
+        }
+    }
+
+    /// Conversations restored from an iCloud backup come back inactive because
+    /// the restored installation has to be re-admitted to each MLS group by a
+    /// peer before it can participate. The `isActive` flag drives the post-
+    /// restore UI (muted composer, "History restored" banner) and is flipped
+    /// back to true by `StreamProcessor` when a real reactivation signal
+    /// arrives. Default is true so existing rows are unaffected.
+    private static func addInactiveConversationsColumn(_ db: Database) throws {
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "isActive", .boolean).notNull().defaults(to: true)
+        }
     }
 }

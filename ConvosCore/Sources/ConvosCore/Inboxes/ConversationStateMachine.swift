@@ -218,7 +218,11 @@ public actor ConversationStateMachine {
             photoService: PhotoAttachmentService(),
             pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
             backgroundUploadManager: backgroundUploadManager,
-            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
+            contactSyncCoordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            )
         )
         cachedMessageWriter = writer
         return writer

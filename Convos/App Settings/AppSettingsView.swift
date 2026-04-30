@@ -60,6 +60,7 @@ struct AppSettingsView: View {
             List {
                 headerSection
                 myInfoSection
+                contactsSection
                 assistantsSection
                 connectionsSection
                 customizeSection
@@ -108,14 +109,27 @@ struct AppSettingsView: View {
                     profileSettingsViewModel: profileSettingsViewModel,
                     showsCancelButton: false,
                     showsProfile: false,
-                    showsUseProfileButton: false,
-                    canEditProfile: true
-                ) { _ in
-                }
+                    showsUseQuicknameButton: false,
+                    canEditQuickname: true
+                ) { _ in }
             } label: {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
+        }
+    }
+
+    @ViewBuilder
+    private var contactsSection: some View {
+        Section {
+            NavigationLink {
+                ContactsView(contactsRepository: session.messagingService().contactsRepository())
+            } label: {
+                contactsRowLabel
+            }
+            .accessibilityIdentifier("contacts-row")
+        } footer: {
+            Text("People you've shared a conversation with. Stored only on this device.")
         }
     }
 
@@ -141,6 +155,19 @@ struct AppSettingsView: View {
                 )
                 .frame(width: 16.0, height: 16.0)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var contactsRowLabel: some View {
+        HStack {
+            Image(systemName: "person.2.fill")
+                .foregroundStyle(.colorTextPrimary)
+
+            Text("Contacts")
+                .foregroundStyle(.colorTextPrimary)
+
+            Spacer()
         }
     }
 

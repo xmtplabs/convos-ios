@@ -178,6 +178,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private let pendingUploadWriter: any PendingPhotoUploadWriterProtocol
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
+    private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
 
     private var messageQueue: [QueuedMessage] = []
     private var isProcessingQueue: Bool = false
@@ -199,7 +200,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         photoService: any PhotoAttachmentServiceProtocol,
         pendingUploadWriter: any PendingPhotoUploadWriterProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol,
-        attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
+        attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol,
+        contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil
     ) {
         self.sessionStateManager = sessionStateManager
         self.databaseWriter = databaseWriter
@@ -208,6 +210,23 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         self.pendingUploadWriter = pendingUploadWriter
         self.backgroundUploadManager = backgroundUploadManager
         self.attachmentLocalStateWriter = attachmentLocalStateWriter
+        self.contactSyncCoordinator = contactSyncCoordinator
+    }
+
+    /// Fires the contact-sync coordinator on first outbound persist for the
+    /// conversation. Fire-and-forget; errors are logged. Safe to call from
+    /// every text/photo save site — the coordinator short-circuits when a
+    /// sync marker already exists.
+    private func enqueueContactSyncIfNeeded() {
+        guard let coordinator = contactSyncCoordinator else { return }
+        let conversationId = self.conversationId
+        Task.detached {
+            do {
+                try await coordinator.syncContacts(for: conversationId, force: false)
+            } catch {
+                Log.error("Contact sync failed for \(conversationId): \(error)")
+            }
+        }
     }
 
     func send(text: String) async throws {
@@ -1275,6 +1294,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try localMessage.save(db)
             Log.debug("Saved text message optimistically with id: \(clientMessageId) sortId=\(sortId)")
         }
+        enqueueContactSyncIfNeeded()
     }
 
     private func savePhotoToDatabase(clientMessageId: String, localCacheURL: URL, replyContext: ReplyContext? = nil) async throws {
@@ -1320,6 +1340,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try localMessage.save(db)
             Log.debug("Saved photo message optimistically with clientMessageId: \(clientMessageId) sortId=\(sortId)")
         }
+        enqueueContactSyncIfNeeded()
     }
 
     // MARK: - Network Publishing (Sequential)
