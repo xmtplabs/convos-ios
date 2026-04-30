@@ -286,6 +286,15 @@ public final class InviteCoordinator: @unchecked Sendable {
                 return await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature)
             }
         } catch let error as InviteSignatureError {
+            // Threat-model split:
+            // - `.invalidSignature` / `.verificationFailure` only occur once the
+            //   signature has been parsed and run against the expected key — a
+            //   mismatch here means the slug was tampered with, so we deny the
+            //   DM and unsubscribe from its push topic.
+            // - The remaining cases are parse / encoding / key-derivation
+            //   failures that can happen on benign inputs (corrupt slug, format
+            //   skew, transient keychain error). We treat these as recoverable
+            //   so the same joiner can retry without being blocked.
             switch error {
             case .invalidSignature, .verificationFailure:
                 return await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature)

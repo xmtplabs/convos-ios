@@ -1,25 +1,41 @@
 import Foundation
 @preconcurrency import XMTPiOS
 
+/// Owns the per-installation push-topic subscription state with the Convos backend.
+///
+/// Subscriptions are keyed by APNS topic string; each call resolves the
+/// caller's keychain identity and device id, then issues a single
+/// subscribe/unsubscribe to `apiClient`. Failures are logged but never
+/// propagated — callers treat push subscriptions as best-effort so a
+/// transient API failure does not block message processing or join flows.
 protocol PushTopicSubscriptionManaging: Actor {
+    /// Subscribes to the group's message topic and the inbox-wide welcome
+    /// topic. Use after a group is created or joined.
     func subscribeToGroupAndWelcome(
         conversationId: String,
         params: SyncClientParams,
         context: String
     ) async
 
+    /// Subscribes to a DM that is hosting an invite join-request flow so
+    /// the creator receives the joiner's signed slug as a push.
     func subscribeToInviteDMTopic(
         conversationId: String,
         params: SyncClientParams,
         context: String
     ) async
 
+    /// Unsubscribes from an invite DM. Used when a join request is rejected
+    /// for malicious reasons so the spammer can no longer wake the device.
     func unsubscribeFromInviteDMTopic(
         conversationId: String,
         params: SyncClientParams,
         context: String
     ) async
 
+    /// Re-derives and resends the full topic set (welcome + groups +
+    /// invite DMs) so server state matches the local conversation list.
+    /// Called on resume / cold start to recover from missed deltas.
     func reconcilePushTopics(
         params: SyncClientParams,
         context: String
@@ -111,14 +127,22 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         params: SyncClientParams,
         context: String
     ) async {
-        await subscribe(
-            to: [
-                groupSubscription(conversationId: conversationId),
-                welcomeSubscription(params: params)
-            ],
+        await subscribeToGroupsAndWelcome(
+            conversationIds: [conversationId],
             params: params,
             context: context
         )
+    }
+
+    func subscribeToGroupsAndWelcome(
+        conversationIds: [String],
+        params: SyncClientParams,
+        context: String
+    ) async {
+        guard !conversationIds.isEmpty else { return }
+        var subscriptions: [TopicSubscription] = conversationIds.map(groupSubscription(conversationId:))
+        subscriptions.append(welcomeSubscription(params: params))
+        await subscribe(to: subscriptions, params: params, context: context)
     }
 
     func subscribeToInviteDMTopic(
@@ -126,8 +150,21 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         params: SyncClientParams,
         context: String
     ) async {
+        await subscribeToInviteDMTopics(
+            conversationIds: [conversationId],
+            params: params,
+            context: context
+        )
+    }
+
+    func subscribeToInviteDMTopics(
+        conversationIds: [String],
+        params: SyncClientParams,
+        context: String
+    ) async {
+        guard !conversationIds.isEmpty else { return }
         await subscribe(
-            to: [inviteDMSubscription(conversationId: conversationId)],
+            to: conversationIds.map(inviteDMSubscription(conversationId:)),
             params: params,
             context: context
         )
@@ -138,8 +175,21 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         params: SyncClientParams,
         context: String
     ) async {
+        await unsubscribeFromInviteDMTopics(
+            conversationIds: [conversationId],
+            params: params,
+            context: context
+        )
+    }
+
+    func unsubscribeFromInviteDMTopics(
+        conversationIds: [String],
+        params: SyncClientParams,
+        context: String
+    ) async {
+        guard !conversationIds.isEmpty else { return }
         await unsubscribe(
-            topics: [conversationId.xmtpGroupTopicFormat],
+            topics: conversationIds.map(\.xmtpGroupTopicFormat),
             params: params,
             context: context
         )
@@ -226,17 +276,25 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     }
 
     private func identity(matching params: SyncClientParams) async -> KeychainIdentity? {
+        let loaded: KeychainIdentity?
         do {
-            guard let identity = try await identityStore.load(),
-                  identity.inboxId == params.client.inboxId else {
-                Log.warning("Identity not found, skipping push topic subscription for inbox \(params.client.inboxId)")
-                return nil
-            }
-            return identity
+            loaded = try await identityStore.load()
         } catch {
             Log.warning("Failed loading identity, skipping push topic subscription: \(error)")
             return nil
         }
+        guard let identity = loaded else {
+            Log.warning("Identity not found in keychain, skipping push topic subscription")
+            return nil
+        }
+        guard identity.inboxId == params.client.inboxId else {
+            Log.warning(
+                "Identity inbox mismatch, skipping push topic subscription "
+                + "(stored=\(identity.inboxId), requested=\(params.client.inboxId))"
+            )
+            return nil
+        }
+        return identity
     }
 
     private func deviceIdentifier(context: String) async -> String? {

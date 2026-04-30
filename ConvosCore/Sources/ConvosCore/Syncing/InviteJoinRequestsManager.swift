@@ -13,6 +13,11 @@ public struct JoinRequestResult: Sendable {
 
 /// Core-local projection of `JoinRequestDMOutcome` after applying ConvosCore
 /// side effects, including profile persistence and post-join profile snapshots.
+///
+/// Mirrors the upstream cases. See `JoinRequestDMOutcome` for the full
+/// per-case rationale, including why `benignFailure` keeps the DM
+/// subscribed (transient/local errors should not block legitimate retries
+/// from the same joiner).
 enum InviteJoinRequestOutcome: Sendable {
     case accepted(JoinRequestResult, dmConversationId: String)
     case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)

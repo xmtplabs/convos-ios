@@ -135,9 +135,12 @@ extension MessagingService {
 
         // Case 1: Process join requests (others accepting our invites)
         let joinRequestOutcomes = await joinRequestsManager.processJoinRequestOutcomes(since: lastProcessed, client: client)
-        for outcome in joinRequestOutcomes {
-            await handleJoinRequestOutcomeForPush(outcome, client: client, apiClient: apiClient, context: "welcome")
-        }
+        await handleJoinRequestOutcomesForPush(
+            joinRequestOutcomes,
+            client: client,
+            apiClient: apiClient,
+            context: "welcome"
+        )
 
         if let result = joinRequestOutcomes.compactMap(\.result).first {
             setLastWelcomeProcessed(processTime, for: client.inboxId)
@@ -203,35 +206,37 @@ extension MessagingService {
         apiClient: any ConvosAPIClientProtocol,
         context: String
     ) async {
-        guard let dmConversationId = outcome.dmConversationId else { return }
+        await handleJoinRequestOutcomesForPush([outcome], client: client, apiClient: apiClient, context: context)
+    }
 
+    private func handleJoinRequestOutcomesForPush(
+        _ outcomes: [InviteJoinRequestOutcome],
+        client: any XMTPClientProvider,
+        apiClient: any ConvosAPIClientProtocol,
+        context: String
+    ) async {
+        guard !outcomes.isEmpty else { return }
+        var dmsToSub: [String] = []
+        var dmsToUnsub: [String] = []
+        var acceptedGroups: [String] = []
+        for outcome in outcomes {
+            if let dmId = outcome.dmConversationId {
+                if outcome.shouldKeepDMSubscribed {
+                    dmsToSub.append(dmId)
+                } else if case .malicious = outcome {
+                    dmsToUnsub.append(dmId)
+                }
+            }
+            if let result = outcome.result {
+                acceptedGroups.append(result.conversationId)
+            }
+        }
+        guard !dmsToSub.isEmpty || !dmsToUnsub.isEmpty || !acceptedGroups.isEmpty else { return }
         let params = SyncClientParams(client: client, apiClient: apiClient)
-        let topicManager = PushTopicSubscriptionManager(
-            identityStore: identityStore,
-            deviceInfoProvider: deviceInfoProvider
-        )
-
-        if outcome.shouldKeepDMSubscribed {
-            await topicManager.subscribeToInviteDMTopic(
-                conversationId: dmConversationId,
-                params: params,
-                context: "NSE \(context)"
-            )
-        } else if case .malicious = outcome {
-            await topicManager.unsubscribeFromInviteDMTopic(
-                conversationId: dmConversationId,
-                params: params,
-                context: "NSE \(context)"
-            )
-        }
-
-        if let result = outcome.result {
-            await topicManager.subscribeToGroupAndWelcome(
-                conversationId: result.conversationId,
-                params: params,
-                context: "NSE \(context) accepted join"
-            )
-        }
+        let mgr = PushTopicSubscriptionManager(identityStore: identityStore, deviceInfoProvider: deviceInfoProvider)
+        await mgr.subscribeToInviteDMTopics(conversationIds: dmsToSub, params: params, context: "NSE \(context)")
+        await mgr.unsubscribeFromInviteDMTopics(conversationIds: dmsToUnsub, params: params, context: "NSE \(context)")
+        await mgr.subscribeToGroupsAndWelcome(conversationIds: acceptedGroups, params: params, context: "NSE \(context) accepted join")
     }
 
     private func getExistingGroupIds(client: any XMTPClientProvider) async throws -> Set<String> {
