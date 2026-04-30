@@ -307,6 +307,29 @@ struct JoinRequestProcessingTests {
 
     // MARK: - JoinRequestError
 
+    @Test("processJoinRequestOutcomes lists DMs with allowed consent and lastActivity window")
+    func processJoinRequestOutcomesListsAllowedDmsByLastActivity() async {
+        let client = RecordingListDmsClient(inviteInboxId: "creator-inbox")
+        let coordinator = InviteCoordinator(privateKeyProvider: { _ in Data() })
+        let since = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let outcomes = await coordinator.processJoinRequestOutcomes(since: since, client: client)
+
+        #expect(outcomes.isEmpty)
+        let calls = client.listDmsCalls
+        #expect(calls.count == 1)
+        guard let call = calls.first else { return }
+        // The original bug: DMs were filtered to consentStates=[.unknown] only,
+        // so a DM whose consent was already flipped to .allowed (after the
+        // first accepted join) was silently dropped from a second pass.
+        #expect(call.consentStates == [.unknown, .allowed])
+        // The original bug: the time window was applied via createdAfterNs,
+        // which compares against DM creation, not new activity. A second
+        // join request landing in a year-old DM never re-surfaced.
+        #expect(call.createdAfterNs == nil)
+        #expect(call.lastActivityAfterNs == since.nanosecondsSince1970)
+    }
+
     @Test("Join request DM outcome subscription policy")
     func joinRequestDMOutcomeSubscriptionPolicy() {
         let result = JoinResult(
@@ -419,4 +442,59 @@ struct JoinRequestProcessingTests {
 
         #expect(date.nanosecondsSince1970 == 1_500_000_000)
     }
+}
+
+private final class RecordingListDmsClient: InviteClientProvider, @unchecked Sendable {
+    struct ListDmsCall {
+        let createdAfterNs: Int64?
+        let createdBeforeNs: Int64?
+        let lastActivityBeforeNs: Int64?
+        let lastActivityAfterNs: Int64?
+        let limit: Int?
+        let consentStates: [XMTPiOS.ConsentState]?
+        let orderBy: XMTPiOS.ConversationsOrderBy
+    }
+
+    let inviteInboxId: String
+    private(set) var listDmsCalls: [ListDmsCall] = []
+
+    init(inviteInboxId: String) {
+        self.inviteInboxId = inviteInboxId
+    }
+
+    func findConversation(conversationId: String) async throws -> XMTPiOS.Conversation? {
+        nil
+    }
+
+    func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
+        throw RecordingListDmsClientError.notImplemented
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    func listDms(
+        createdAfterNs: Int64?,
+        createdBeforeNs: Int64?,
+        lastActivityBeforeNs: Int64?,
+        lastActivityAfterNs: Int64?,
+        limit: Int?,
+        consentStates: [XMTPiOS.ConsentState]?,
+        orderBy: XMTPiOS.ConversationsOrderBy
+    ) throws -> [XMTPiOS.Dm] {
+        listDmsCalls.append(
+            ListDmsCall(
+                createdAfterNs: createdAfterNs,
+                createdBeforeNs: createdBeforeNs,
+                lastActivityBeforeNs: lastActivityBeforeNs,
+                lastActivityAfterNs: lastActivityAfterNs,
+                limit: limit,
+                consentStates: consentStates,
+                orderBy: orderBy
+            )
+        )
+        return []
+    }
+}
+
+private enum RecordingListDmsClientError: Error {
+    case notImplemented
 }
