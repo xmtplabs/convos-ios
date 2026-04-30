@@ -159,6 +159,32 @@ struct PushTopicSubscriptionManagerTests {
         ])
     }
 
+    @Test("Subscribe failure is swallowed so callers don't surface it")
+    func subscribeFailureIsSwallowed() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = ThrowingPushAPIClient()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1")
+        )
+
+        // Caller must not propagate; this would fail compilation if the manager
+        // started rethrowing. The QAEvent emission for the failure is exercised
+        // by integration tests where ConvosLog is wired up.
+        await manager.subscribeToGroupAndWelcome(
+            conversationId: "group-1",
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "test"
+        )
+
+        #expect(apiClient.subscribeCallCount == 1)
+    }
+
     @Test("Reconcile still subscribes available topics when one listing fails")
     func reconcileSubscribesAvailableTopicsWhenListingFails() async throws {
         let identityStore = MockKeychainIdentityStore()
@@ -296,6 +322,76 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
 
 private enum PushTopicListError: Error {
     case failed
+}
+
+private enum ThrowingPushAPIClientError: Error {
+    case subscribeFailure
+    case unsubscribeFailure
+}
+
+private final class ThrowingPushAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
+    private let counter = OSAllocatedUnfairLock(initialState: 0)
+
+    var subscribeCallCount: Int { counter.withLock { $0 } }
+
+    func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
+        URLRequest(url: URL(string: "https://example.com")!)
+    }
+
+    func registerDevice(deviceId: String, pushToken: String?) async throws {}
+
+    func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
+
+    func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
+
+    func uploadAttachmentAndExecute(
+        data: Data,
+        filename: String,
+        afterUpload: @escaping (String) async throws -> Void
+    ) async throws -> String { "" }
+
+    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
+        counter.withLock { $0 += 1 }
+        throw ThrowingPushAPIClientError.subscribeFailure
+    }
+
+    func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {
+        throw ThrowingPushAPIClientError.unsubscribeFailure
+    }
+
+    func unregisterInstallation(clientId: String) async throws {}
+
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
+
+    func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
+        ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
+    }
+
+    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
+    }
+
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: code, name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+    }
+
+    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+        .init(connectionRequestId: "", redirectUrl: "")
+    }
+
+    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+        .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
+    }
+
+    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+
+    func revokeConnection(connectionId: String) async throws {}
 }
 
 private final class RecordingPushConversationLister: PushTopicConversationListing, @unchecked Sendable {

@@ -163,8 +163,14 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         context: String
     ) async {
         guard !conversationIds.isEmpty else { return }
+        let allowed = await filterAllowedInviteDMs(
+            conversationIds: conversationIds,
+            params: params,
+            context: context
+        )
+        guard !allowed.isEmpty else { return }
         await subscribe(
-            to: conversationIds.map(inviteDMSubscription(conversationId:)),
+            to: allowed.map(inviteDMSubscription(conversationId:)),
             params: params,
             context: context
         )
@@ -265,6 +271,12 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             Log.debug("Subscribed push topic values \(context): \(subscriptions.map(\.topic).joined(separator: ", "))")
         } catch {
             Log.warning("Failed subscribing to push topics \(context): \(error)")
+            QAEvent.emit(.sync, "push_topic_subscribe_failed", [
+                "context": context,
+                "topic_count": String(subscriptions.count),
+                "kinds": kindSummary(subscriptions),
+                "error": String(describing: error),
+            ])
         }
     }
 
@@ -285,7 +297,63 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             Log.info("Unsubscribed from push topics \(context): \(topics.joined(separator: ", "))")
         } catch {
             Log.warning("Failed unsubscribing from push topics \(context): \(error)")
+            QAEvent.emit(.sync, "push_topic_unsubscribe_failed", [
+                "context": context,
+                "topic_count": String(topics.count),
+                "error": String(describing: error),
+            ])
         }
+    }
+
+    /// Drops invite DMs whose current consent is `.denied`. The user has
+    /// explicitly opted out of that DM, so re-subscribing on a benign
+    /// processing failure (or any retry path) would re-arm pushes the
+    /// user actively rejected. Conversations we can't resolve (mock
+    /// clients, transient lookup failures) fall through unchanged so we
+    /// preserve the previous best-effort behaviour for tests and
+    /// degraded states.
+    private func filterAllowedInviteDMs(
+        conversationIds: [String],
+        params: SyncClientParams,
+        context: String
+    ) async -> [String] {
+        var allowed: [String] = []
+        var dropped: [String] = []
+        for id in conversationIds {
+            let conversation: XMTPiOS.Conversation?
+            do {
+                conversation = try await params.client.conversationsProvider.findConversation(conversationId: id)
+            } catch {
+                Log.warning("Failed loading DM \(id) consent for push subscribe \(context): \(error)")
+                allowed.append(id)
+                continue
+            }
+            guard let conversation else {
+                allowed.append(id)
+                continue
+            }
+            let consent: ConsentState
+            do {
+                consent = try conversation.consentState()
+            } catch {
+                Log.warning("Failed reading DM \(id) consent for push subscribe \(context): \(error)")
+                allowed.append(id)
+                continue
+            }
+            if consent == .denied {
+                dropped.append(id)
+            } else {
+                allowed.append(id)
+            }
+        }
+        if !dropped.isEmpty {
+            QAEvent.emit(.sync, "push_topic_subscribe_skipped_denied", [
+                "context": context,
+                "count": String(dropped.count),
+            ])
+            Log.info("Skipping push subscribe for denied DMs \(context): \(dropped.joined(separator: ", "))")
+        }
+        return allowed
     }
 
     private func identity(matching params: SyncClientParams) async -> KeychainIdentity? {
@@ -335,6 +403,17 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         subscriptions
             .map { "\($0.kind.rawValue):\($0.sourceId)" }
             .joined(separator: ", ")
+    }
+
+    private func kindSummary(_ subscriptions: [TopicSubscription]) -> String {
+        var counts: [String: Int] = [:]
+        for subscription in subscriptions {
+            counts[subscription.kind.rawValue, default: 0] += 1
+        }
+        return counts
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: ",")
     }
 
     private func welcomeSubscription(params: SyncClientParams) -> TopicSubscription {
