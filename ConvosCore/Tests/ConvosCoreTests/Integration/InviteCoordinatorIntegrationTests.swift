@@ -1,5 +1,5 @@
-@testable import ConvosInvites
-@testable import ConvosInvitesCore
+@testable import ConvosCore
+import ConvosInvites
 import Foundation
 import Testing
 @preconcurrency import XMTPiOS
