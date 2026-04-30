@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Match the libxmtp tag in Package.swift `revision:` pins. Both -dev and -nightly tags are recognized as currentValue so manual dev pins aren't dropped; the versioningTemplate constrains *update candidates* to nightly only.",
+      "managerFilePatterns": ["/Package\\.swift$/"],
+      "matchStrings": [
+        "url:\\s*\"https://github\\.com/xmtp/libxmtp\\.git\"[\\s\\S]*?revision:\\s*\"(?<currentValue>ios-[^\"]+)\""
+      ],
+      "datasourceTemplate": "git-tags",
+      "depNameTemplate": "https://github.com/xmtp/libxmtp",
+      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-nightly\\.(?<build>\\d{8}\\.[a-f0-9]+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Match Package.resolved's libxmtp entry. SPM stores the tag under `branch` and the resolved commit SHA under `revision`; both must be updated together, captured here as currentValue + currentDigest.",
+      "managerFilePatterns": ["/Package\\.resolved$/"],
+      "matchStrings": [
+        "\"identity\"\\s*:\\s*\"libxmtp\"[\\s\\S]*?\"branch\"\\s*:\\s*\"(?<currentValue>ios-[^\"]+)\"[\\s\\S]*?\"revision\"\\s*:\\s*\"(?<currentDigest>[a-f0-9]{40})\""
+      ],
+      "datasourceTemplate": "git-tags",
+      "depNameTemplate": "https://github.com/xmtp/libxmtp",
+      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-nightly\\.(?<build>\\d{8}\\.[a-f0-9]+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["https://github.com/xmtp/libxmtp"],
+      "groupName": "libxmtp",
+      "branchName": "renovate/libxmtp",
+      "prConcurrentLimit": 1,
+      "rebaseWhen": "behind-base-branch",
+      "schedule": ["after 7am and before 9am every weekday"],
+      "timezone": "UTC",
+      "commitMessageTopic": "libxmtp",
+      "commitMessageExtra": "to {{newValue}}",
+      "prTitle": "chore(deps): update libxmtp to {{newValue}}"
+    }
+  ]
+}
