@@ -307,24 +307,6 @@ struct JoinRequestProcessingTests {
 
     // MARK: - JoinRequestError
 
-    @Test("JoinRequestError cases")
-    func joinRequestErrorCases() {
-        let errors: [JoinRequestError] = [
-            .invalidSignature,
-            .expired,
-            .conversationExpired,
-            .conversationNotFound("conv-123"),
-            .consentNotAllowed("conv-123", .denied),
-            .invalidFormat,
-            .creatorMismatch,
-            .revoked,
-            .addMemberFailed,
-            .processingFailed,
-        ]
-
-        #expect(errors.count == 10)
-    }
-
     @Test("Join request DM outcome subscription policy")
     func joinRequestDMOutcomeSubscriptionPolicy() {
         let result = JoinResult(
