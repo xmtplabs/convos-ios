@@ -1,5 +1,5 @@
 {
-  "originHash" : "0b6c3910a59294d9f345ce5999ea43089b223783fba5d450e8d2f1e9b15fea62",
+  "originHash" : "c40fcb5279ffcf05994801de5933e258d72c7e21e5c777ef54ffb951d4469a38",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -44,15 +44,6 @@
       "state" : {
         "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
         "version" : "0.2.0"
-      }
-    },
-    {
-      "identity" : "devicekit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/devicekit/DeviceKit.git",
-      "state" : {
-        "revision" : "56b997e8a61707218f9af09f32b2a1d1806fd792",
-        "version" : "5.8.0"
       }
     },
     {
@@ -160,7 +151,7 @@
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
         "branch" : "ios-4.9.0-dev.88ddfad",
-        "revision" : "0b4dc376f139cd439319c2468cd51e5ce628bf2d"
+        "revision" : "899650a4189207ca2df515bf46beb549da07ff46"
       }
     },
     {
