@@ -427,8 +427,7 @@ struct ChronologicalSortIdTests {
             isUnread: false,
             isUnreadUpdatedAt: Date(),
             isMuted: false,
-            pinnedOrder: nil,
-            isActive: true
+            pinnedOrder: nil
         ).insert(db)
 
         try DBConversationMember(

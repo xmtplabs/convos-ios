@@ -318,8 +318,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 isUnread: false,
                 isUnreadUpdatedAt: Date.distantPast,
                 isMuted: false,
-                pinnedOrder: nil,
-                isActive: true
+                pinnedOrder: nil
             ).save(db, onConflict: .ignore)
 
             return dbConversation

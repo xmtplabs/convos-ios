@@ -18,7 +18,6 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let isUnread: Bool
     public let isMuted: Bool
     public let pinnedOrder: Int?
-    public let isActive: Bool
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
     public let imageSalt: Data?
