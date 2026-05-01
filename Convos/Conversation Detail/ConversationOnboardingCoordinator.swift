@@ -67,7 +67,7 @@ enum ConversationOnboardingState: Equatable {
     case savedAsQuicknameSuccess
 
     /// Show "Tap to chat as [Name]" with the user's quickname
-    case addQuickname(settings: QuicknameSettings, profileImage: UIImage?)
+    case addQuickname(settings: ProfileSettings, profileImage: UIImage?)
 
     /// Ask user to allow notifications (undetermined state)
     case requestNotifications
@@ -107,7 +107,7 @@ final class ConversationOnboardingCoordinator {
 
     var state: ConversationOnboardingState = .idle
 
-    private var quicknameViewModel: QuicknameSettingsViewModel = .shared
+    private var quicknameViewModel: ProfileSettingsViewModel = .shared
 
     var isSettingUpQuickname: Bool {
         switch state {
@@ -359,22 +359,22 @@ final class ConversationOnboardingCoordinator {
     private func startQuicknameFlow(for conversationId: String) async {
         let hasSetQuicknameForConversation = hasSetQuickname(for: conversationId)
 
-        let quicknameSettings = quicknameViewModel.quicknameSettings
+        let profileSettings = quicknameViewModel.profileSettings
 
         if !hasShownQuicknameEditor {
             shouldAnimateAvatarForQuicknameSetup = true
             state = .setupQuickname
             QAEvent.emit(.onboarding, "setup_quickname", ["reason": "first_time"])
             handleStateChange()
-        } else if quicknameSettings.isDefault && !hasSetQuicknameForConversation {
+        } else if profileSettings.isDefault && !hasSetQuicknameForConversation {
             shouldAnimateAvatarForQuicknameSetup = true
             state = .setupQuickname
             QAEvent.emit(.onboarding, "setup_quickname", ["reason": "no_quickname"])
             handleStateChange()
         } else if !hasSetQuicknameForConversation {
-            let profileImage = quicknameSettings.profileImage
-            state = .addQuickname(settings: quicknameSettings, profileImage: profileImage)
-            QAEvent.emit(.onboarding, "add_quickname", ["name": quicknameSettings.profile.displayName])
+            let profileImage = profileSettings.profileImage
+            state = .addQuickname(settings: profileSettings, profileImage: profileImage)
+            QAEvent.emit(.onboarding, "add_quickname", ["name": profileSettings.profile.displayName])
             handleStateChange()
         } else {
             QAEvent.emit(.onboarding, "quickname_skipped", ["reason": "already_set"])
@@ -447,8 +447,8 @@ final class ConversationOnboardingCoordinator {
     ///   - didChangeProfile: Whether the profile was actually changed
     ///   - isSavingAsQuickname: Whether the user is saving this as their quickname
     func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
-        let quicknameSettings = quicknameViewModel.quicknameSettings
-        guard state == .settingUpQuickname, quicknameSettings.isDefault else { return }
+        let profileSettings = quicknameViewModel.profileSettings
+        guard state == .settingUpQuickname, profileSettings.isDefault else { return }
 
         quicknameViewModel.editingDisplayName = displayName
         quicknameViewModel.profileImage = profileImage

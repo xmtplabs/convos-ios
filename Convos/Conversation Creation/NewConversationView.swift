@@ -3,7 +3,7 @@ import SwiftUI
 
 struct NewConversationView: View {
     let viewModel: NewConversationViewModel
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var quicknameViewModel: ProfileSettingsViewModel
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -136,7 +136,7 @@ private struct ErrorSheetWithRetry: View {
         messagingService: MockMessagingService(),
         showingFullScreenScanner: false
     )
-    @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
+    @Previewable @State var quicknameViewModel: ProfileSettingsViewModel = .shared
     @Previewable @State var presented: Bool = true
     VStack {
     }

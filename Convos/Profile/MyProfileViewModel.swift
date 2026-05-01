@@ -182,14 +182,10 @@ class MyProfileViewModel {
         }
 
         if saveDisplayNameAsQuickname {
-            let current = QuicknameSettings.current()
-                .with(displayName: trimmedDisplayName)
-                .with(profileImage: profileImage)
-            do {
-                try current.save()
-            } catch {
-                Log.error("Error saving profile as Quickname: \(error.localizedDescription)")
-            }
+            let settingsViewModel = ProfileSettingsViewModel.shared
+            settingsViewModel.editingDisplayName = trimmedDisplayName
+            settingsViewModel.profileImage = profileImage
+            settingsViewModel.save()
             saveDisplayNameAsQuickname = false
         }
 

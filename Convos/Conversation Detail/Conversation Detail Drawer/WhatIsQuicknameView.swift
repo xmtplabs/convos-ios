@@ -3,7 +3,7 @@ import SwiftUI
 struct WhatIsQuicknameView: View {
     let onContinue: () -> Void
 
-    @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
+    @State private var profileSettings: ProfileSettingsViewModel = .shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
     var body: some View {
@@ -24,8 +24,8 @@ struct WhatIsQuicknameView: View {
 
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 ProfileAvatarView(
-                    profile: quicknameSettings.profile,
-                    profileImage: quicknameSettings.profileImage,
+                    profile: profileSettings.profile,
+                    profileImage: profileSettings.profileImage,
                     useSystemPlaceholder: false
                 )
                 .frame(width: 32.0, height: 32.0)
@@ -34,7 +34,7 @@ struct WhatIsQuicknameView: View {
                 .accessibilityHidden(true)
 
                 Text(
-                    quicknameSettings.editingDisplayName.isEmpty ? "Somebody" : quicknameSettings.editingDisplayName
+                    profileSettings.editingDisplayName.isEmpty ? "Somebody" : profileSettings.editingDisplayName
                 )
                 .foregroundStyle(.colorTextPrimary)
 
@@ -46,7 +46,7 @@ struct WhatIsQuicknameView: View {
                     .stroke(.colorBorderSubtle, lineWidth: 1.0)
             )
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Your quickname: \(quicknameSettings.editingDisplayName.isEmpty ? "Somebody" : quicknameSettings.editingDisplayName)")
+            .accessibilityLabel("Your quickname: \(profileSettings.editingDisplayName.isEmpty ? "Somebody" : profileSettings.editingDisplayName)")
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {

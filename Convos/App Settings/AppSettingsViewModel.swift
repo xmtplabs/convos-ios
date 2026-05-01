@@ -40,7 +40,7 @@ final class AppSettingsViewModel {
         deletionError = nil
         deletionProgress = nil
 
-        QuicknameSettingsViewModel.shared.delete()
+        ProfileSettingsViewModel.shared.delete()
         ConversationViewModel.resetUserDefaults()
         ConversationsViewModel.resetUserDefaults()
         ConversationOnboardingCoordinator.resetUserDefaults()

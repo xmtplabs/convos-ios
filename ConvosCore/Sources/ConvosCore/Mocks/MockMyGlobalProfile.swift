@@ -1,0 +1,81 @@
+import Combine
+import Foundation
+
+public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @unchecked Sendable {
+    public private(set) var stored: MyProfile?
+
+    public init(stored: MyProfile? = nil) {
+        self.stored = stored
+    }
+
+    public func save(name: String?, imageData: Data?, metadata: ProfileMetadata?) async throws {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        let inboxId = stored?.inboxId ?? "mock-inbox-id"
+        stored = MyProfile(
+            inboxId: inboxId,
+            name: resolvedName,
+            imageData: imageData,
+            metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
+            updatedAt: Date()
+        )
+    }
+
+    public func update(name: String?) async throws {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        let base = stored ?? MyProfile(inboxId: "mock-inbox-id")
+        stored = MyProfile(
+            inboxId: base.inboxId,
+            name: resolved,
+            imageData: base.imageData,
+            metadata: base.metadata,
+            updatedAt: Date()
+        )
+    }
+
+    public func update(imageData: Data?) async throws {
+        let base = stored ?? MyProfile(inboxId: "mock-inbox-id")
+        stored = MyProfile(
+            inboxId: base.inboxId,
+            name: base.name,
+            imageData: imageData,
+            metadata: base.metadata,
+            updatedAt: Date()
+        )
+    }
+
+    public func update(metadata: ProfileMetadata?) async throws {
+        let base = stored ?? MyProfile(inboxId: "mock-inbox-id")
+        stored = MyProfile(
+            inboxId: base.inboxId,
+            name: base.name,
+            imageData: base.imageData,
+            metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
+            updatedAt: Date()
+        )
+    }
+
+    public func delete() async throws {
+        stored = nil
+    }
+}
+
+public final class MockMyGlobalProfileRepository: MyGlobalProfileRepositoryProtocol, @unchecked Sendable {
+    public let myGlobalProfilePublisher: AnyPublisher<MyProfile?, Never>
+    private let subject: CurrentValueSubject<MyProfile?, Never>
+
+    public init(initial: MyProfile? = nil) {
+        let subject = CurrentValueSubject<MyProfile?, Never>(initial)
+        self.subject = subject
+        self.myGlobalProfilePublisher = subject.eraseToAnyPublisher()
+    }
+
+    public func fetch() throws -> MyProfile? {
+        subject.value
+    }
+
+    public func setForTesting(_ profile: MyProfile?) {
+        subject.send(profile)
+    }
+}

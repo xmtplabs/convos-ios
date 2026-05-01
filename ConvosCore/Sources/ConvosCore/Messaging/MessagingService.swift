@@ -143,6 +143,14 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         MyProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
     }
 
+    func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
+        MyGlobalProfileWriter(sessionStateManager: sessionStateManager, databaseWriter: databaseWriter)
+    }
+
+    func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol {
+        MyGlobalProfileRepository(sessionStateManager: sessionStateManager, databaseReader: databaseReader)
+    }
+
     // MARK: New Conversation
 
     func conversationStateManager() -> any ConversationStateManagerProtocol {

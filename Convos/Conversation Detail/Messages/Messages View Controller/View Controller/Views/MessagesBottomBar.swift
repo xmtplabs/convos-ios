@@ -43,7 +43,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
-    @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
+    @State private var profileSettings: ProfileSettingsViewModel = .shared
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -326,7 +326,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             focusState: $focusState,
             focused: .displayName,
             settingsSymbolName: "lanyardcard.fill",
-            showsSettingsButton: !quicknameSettings.quicknameSettings.isDefault && !onboardingCoordinator.isSettingUpQuickname,
+            showsSettingsButton: !profileSettings.profileSettings.isDefault && !onboardingCoordinator.isSettingUpQuickname,
             onSubmit: onDisplayNameEndedEditing,
             onSettings: onProfileSettings
         )

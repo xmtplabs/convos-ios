@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var quicknameViewModel: ProfileSettingsViewModel
 
     @Namespace private var namespace: Namespace.ID
     @State private var presentingAppSettings: Bool = false
@@ -258,7 +258,7 @@ struct ConversationsView: View {
 private struct ConversationsSheetModifier: ViewModifier {
     @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
-    let quicknameViewModel: QuicknameSettingsViewModel
+    let quicknameViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
     var namespace: Namespace.ID
 
@@ -346,7 +346,7 @@ private struct ConversationsSheetModifier: ViewModifier {
             Conversation.mockPendingInvite(id: "draft-pending-1", name: "Secret Club")
         ]
     )
-    let quicknameViewModel = QuicknameSettingsViewModel.shared
+    let quicknameViewModel = ProfileSettingsViewModel.shared
 
     ConversationsView(
         viewModel: viewModel,
@@ -357,7 +357,7 @@ private struct ConversationsSheetModifier: ViewModifier {
 #Preview("Original") {
     let convos = ConvosClient.mock()
     let viewModel = ConversationsViewModel(session: convos.session)
-    let quicknameViewModel = QuicknameSettingsViewModel.shared
+    let quicknameViewModel = ProfileSettingsViewModel.shared
     ConversationsView(
         viewModel: viewModel,
         quicknameViewModel: quicknameViewModel

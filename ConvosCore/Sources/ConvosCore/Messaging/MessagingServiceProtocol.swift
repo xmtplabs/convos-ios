@@ -27,6 +27,8 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func waitForDeletionComplete() async
 
     func myProfileWriter() -> any MyProfileWriterProtocol
+    func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol
+    func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol
 
     func conversationStateManager() -> any ConversationStateManagerProtocol
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol

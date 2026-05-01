@@ -31,7 +31,7 @@ struct ConvosToolbarButton: View {
 
 struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var quicknameViewModel: ProfileSettingsViewModel
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
@@ -132,7 +132,7 @@ struct AppSettingsView: View {
 
             Spacer()
 
-            if !quicknameViewModel.quicknameSettings.isDefault {
+            if !quicknameViewModel.profileSettings.isDefault {
                 Text(quicknameViewModel.editingDisplayName)
                     .foregroundStyle(.colorTextSecondary)
 
@@ -315,7 +315,7 @@ struct AppSettingsView: View {
 }
 
 #Preview {
-    let quicknameViewModel = QuicknameSettingsViewModel.shared
+    let quicknameViewModel = ProfileSettingsViewModel.shared
     NavigationStack {
         AppSettingsView(
             viewModel: .mock,

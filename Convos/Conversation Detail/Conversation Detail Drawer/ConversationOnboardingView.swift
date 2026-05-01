@@ -203,7 +203,7 @@ struct ConversationOnboardingView: View {
     )
     .onAppear {
         coordinator.state = .addQuickname(
-            settings: QuicknameSettings.current(),
+            settings: ProfileSettings.defaultSettings,
             profileImage: nil
         )
     }

@@ -32,6 +32,16 @@ extension SharedDatabaseMigrator {
             try SharedDatabaseMigrator.createSingleInboxSchema(db)
         }
 
+        migrator.registerMigration("createMyProfile") { db in
+            try db.create(table: "myProfile") { t in
+                t.column("inboxId", .text).notNull().primaryKey()
+                t.column("name", .text)
+                t.column("imageData", .blob)
+                t.column("metadata", .jsonText)
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
+
         migrator.registerMigration("createConnections") { db in
             try db.create(table: "connection") { t in
                 t.column("id", .text).notNull().primaryKey()

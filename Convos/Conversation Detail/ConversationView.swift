@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var quicknameViewModel: ProfileSettingsViewModel
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let onScanInviteCode: () -> Void
@@ -260,8 +260,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 showsProfile: true,
                 showsUseQuicknameButton: true,
                 canEditQuickname: false
-            ) { quicknameSettings in
-                viewModel.onUseQuickname(quicknameSettings.profile, quicknameSettings.profileImage)
+            ) { profileSettings in
+                viewModel.onUseQuickname(profileSettings.profile, profileSettings.profileImage)
             }
             .onDisappear {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
@@ -351,7 +351,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = .mock
-    @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
+    @Previewable @State var quicknameViewModel: ProfileSettingsViewModel = .shared
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     NavigationStack {

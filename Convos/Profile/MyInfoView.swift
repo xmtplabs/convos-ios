@@ -7,14 +7,14 @@ struct MyInfoView: View {
     @Binding var profileImage: UIImage?
     @Binding var editingDisplayName: String
 
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var quicknameViewModel: ProfileSettingsViewModel
 
     let showsCancelButton: Bool
     let showsProfile: Bool
     let showsUseQuicknameButton: Bool
     let canEditQuickname: Bool
 
-    let onUseQuickname: (QuicknameSettings) -> Void
+    let onUseQuickname: (ProfileSettings) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isImagePickerPresented: Bool = false
@@ -122,7 +122,7 @@ struct MyInfoView: View {
                                 withAnimation {
                                     didUseQuickname = true
                                 }
-                                onUseQuickname(quicknameViewModel.quicknameSettings)
+                                onUseQuickname(quicknameViewModel.profileSettings)
                             } label: {
                                 ZStack {
                                     Text("Use")
@@ -217,7 +217,7 @@ struct MyInfoView: View {
 
 #Preview {
     @Previewable @State var viewModel: MyProfileViewModel = .mock
-    @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
+    @Previewable @State var quicknameViewModel: ProfileSettingsViewModel = .shared
 
     MyInfoView(
         profile: .constant(viewModel.profile),

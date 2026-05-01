@@ -10,7 +10,7 @@ struct ConvosApp: App {
 
     private let convos: ConvosClient
     let conversationsViewModel: ConversationsViewModel
-    let quicknameViewModel: QuicknameSettingsViewModel = .shared
+    let quicknameViewModel: ProfileSettingsViewModel = .shared
 
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
@@ -65,6 +65,7 @@ struct ConvosApp: App {
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
+        quicknameViewModel.bind(session: convos.session)
     }
 
     var body: some Scene {
