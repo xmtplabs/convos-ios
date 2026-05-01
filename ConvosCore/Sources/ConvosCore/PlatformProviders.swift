@@ -65,7 +65,13 @@ public struct PlatformProviders: Sendable {
 
 // MARK: - Test/Mock Support
 
-/// Mock app lifecycle provider for testing
+/// Mock app lifecycle provider for testing.
+///
+/// Each instance defaults to a UUID-suffixed notification name so that
+/// `SessionStateMachine` instances observing on `NotificationCenter.default`
+/// only receive lifecycle events from their own provider. Sharing a fixed
+/// name across instances would let one test's background event wedge another
+/// test's libxmtp DB pool via `dropLocalDatabaseConnection`.
 public final class MockAppLifecycleProvider: AppLifecycleProviding, @unchecked Sendable {
     public let didEnterBackgroundNotification: Notification.Name
     public let willEnterForegroundNotification: Notification.Name
@@ -78,14 +84,18 @@ public final class MockAppLifecycleProvider: AppLifecycleProviding, @unchecked S
 
     public init(
         currentState: AppState = .active,
-        didEnterBackgroundNotification: Notification.Name = Notification.Name("MockDidEnterBackground"),
-        willEnterForegroundNotification: Notification.Name = Notification.Name("MockWillEnterForeground"),
-        didBecomeActiveNotification: Notification.Name = Notification.Name("MockDidBecomeActive")
+        didEnterBackgroundNotification: Notification.Name? = nil,
+        willEnterForegroundNotification: Notification.Name? = nil,
+        didBecomeActiveNotification: Notification.Name? = nil
     ) {
+        let suffix = UUID().uuidString
         self._currentState = currentState
         self.didEnterBackgroundNotification = didEnterBackgroundNotification
+            ?? Notification.Name("MockDidEnterBackground.\(suffix)")
         self.willEnterForegroundNotification = willEnterForegroundNotification
+            ?? Notification.Name("MockWillEnterForeground.\(suffix)")
         self.didBecomeActiveNotification = didBecomeActiveNotification
+            ?? Notification.Name("MockDidBecomeActive.\(suffix)")
     }
 
     public func setCurrentState(_ state: AppState) {
