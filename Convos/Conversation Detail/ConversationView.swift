@@ -168,6 +168,66 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
+    @ToolbarContentBuilder
+    private var topBarTrailing: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            if viewModel.isLocked {
+                lockedInfoButton
+            } else {
+                switch messagesTopBarTrailingItem {
+                case .share: addToConversationMenu
+                case .scan: scanInviteButton
+                }
+            }
+        }
+    }
+
+    private var lockedInfoButton: some View {
+        Button {
+            showingLockedInfo = true
+        } label: {
+            Image(systemName: "lock.fill")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .accessibilityLabel("Conversation locked")
+        .accessibilityHint("Tap for lock details")
+        .accessibilityIdentifier("lock-info-button")
+    }
+
+    private var addToConversationMenu: some View {
+        AddToConversationMenu(
+            isFull: viewModel.isFull,
+            hasAssistant: viewModel.conversation.hasAgent,
+            isAssistantJoinPending: viewModel.isAssistantJoinPending,
+            isEnabled: messagesTopBarTrailingItemEnabled,
+            onConvoCode: {
+                if viewModel.isFull {
+                    showingFullInfo = true
+                } else {
+                    viewModel.presentingShareView = true
+                }
+            },
+            onCopyLink: {
+                viewModel.copyInviteLink()
+            },
+            onInviteAssistant: {
+                viewModel.onRequestAssistantJoin()
+            }
+        )
+    }
+
+    private var scanInviteButton: some View {
+        Button {
+            onScanInviteCode()
+        } label: {
+            Image(systemName: "viewfinder")
+        }
+        .buttonBorderShape(.circle)
+        .disabled(!messagesTopBarTrailingItemEnabled)
+        .accessibilityLabel("Scan invite code")
+        .accessibilityIdentifier("scan-invite-button")
+    }
+
     var body: some View {
         messagesView
         .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
@@ -207,54 +267,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if viewModel.isLocked {
-                    Button {
-                        showingLockedInfo = true
-                    } label: {
-                        Image(systemName: "lock.fill")
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                    .accessibilityLabel("Conversation locked")
-                    .accessibilityHint("Tap for lock details")
-                    .accessibilityIdentifier("lock-info-button")
-                } else {
-                    switch messagesTopBarTrailingItem {
-                    case .share:
-                        AddToConversationMenu(
-                            isFull: viewModel.isFull,
-                            hasAssistant: viewModel.conversation.hasAgent,
-                            isAssistantJoinPending: viewModel.isAssistantJoinPending,
-                            isEnabled: messagesTopBarTrailingItemEnabled,
-                            onConvoCode: {
-                                if viewModel.isFull {
-                                    showingFullInfo = true
-                                } else {
-                                    viewModel.presentingShareView = true
-                                }
-                            },
-                            onCopyLink: {
-                                viewModel.copyInviteLink()
-                            },
-                            onInviteAssistant: {
-                                viewModel.onRequestAssistantJoin()
-                            }
-                        )
-                    case .scan:
-                        Button {
-                            onScanInviteCode()
-                        } label: {
-                            Image(systemName: "viewfinder")
-                        }
-                        .buttonBorderShape(.circle)
-                        .disabled(!messagesTopBarTrailingItemEnabled)
-                        .accessibilityLabel("Scan invite code")
-                        .accessibilityIdentifier("scan-invite-button")
-                    }
-                }
-            }
-        }
+        .toolbar { topBarTrailing }
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,
