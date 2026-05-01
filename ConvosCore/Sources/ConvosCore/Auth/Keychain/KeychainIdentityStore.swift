@@ -179,10 +179,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private let keychainService: String
     private let keychainAccessGroup: String
 
-    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
+    public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
     /// Fixed account key for the stored identity.
-    static let identityAccount: String = "convos-identity"
+    public static let identityAccount: String = "convos-identity"
 
     // MARK: - Initialization
 
