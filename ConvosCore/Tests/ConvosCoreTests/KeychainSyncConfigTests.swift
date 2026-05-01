@@ -2,17 +2,17 @@
 import Foundation
 import Testing
 
-/// Smoke tests for keychain identity storage + iCloud sync configuration.
+/// Smoke tests for keychain identity storage configuration.
 ///
-/// Real iCloud Keychain sync can't be exercised from a unit test — it requires
-/// two devices signed in to the same Apple ID. These tests verify the knobs
-/// we control: the service name, the fixed account key, and the API contract
-/// on the mock store.
+/// The identity slot is device-local (`kSecAttrSynchronizable: false`). These
+/// tests verify the knobs we control without hitting the real keychain:
+/// the service name, the fixed account key, and the API contract on the
+/// mock store.
 ///
-/// Attribute-level verification (`kSecAttrSynchronizable == true`,
-/// `kSecAttrAccessible == kSecAttrAccessibleAfterFirstUnlock`) lives in the
-/// separate `KeychainIdentityStoreTests` target, which runs against a real
-/// keychain with the necessary entitlements.
+/// Attribute-level verification (`kSecAttrSynchronizable == false` on the
+/// real saved item, `kSecAttrAccessible == kSecAttrAccessibleAfterFirstUnlock`)
+/// lives in the separate `KeychainIdentityStoreTests` target, which runs
+/// against a real keychain with the necessary entitlements.
 @Suite("Keychain Sync Config")
 struct KeychainSyncConfigTests {
     @Test("Service name is stable across launches")
