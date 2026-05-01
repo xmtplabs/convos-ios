@@ -14,12 +14,16 @@ struct PushTopicSubscriptionDeniedDMTests {
         var keyBytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, 32, &keyBytes)
         let dbKey = Data(keyBytes)
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         let options = ClientOptions(
             api: .init(env: .local, appVersion: "convos-tests/1.0.0"),
             codecs: [TextCodec()],
-            dbEncryptionKey: dbKey
+            dbEncryptionKey: dbKey,
+            dbDirectory: tmpDir.path
         )
-        return try await Client.createInMemory(
+        return try await Client.create(
             account: try PrivateKey.generate(),
             options: options
         )
