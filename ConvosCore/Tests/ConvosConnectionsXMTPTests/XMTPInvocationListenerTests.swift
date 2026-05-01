@@ -18,7 +18,7 @@ struct XMTPInvocationListenerTests {
         let listener = XMTPInvocationListener(manager: manager, delivery: recorder)
 
         // Decode a future-version invocation from raw JSON so we bypass the default schemaVersion.
-        let futureJSON = """
+        let futureJSON = Data("""
         {
             "id": "00000000-0000-0000-0000-000000000001",
             "schemaVersion": 999,
@@ -27,7 +27,7 @@ struct XMTPInvocationListenerTests {
             "action": { "name": "create_contact", "arguments": {} },
             "issuedAt": 0
         }
-        """.data(using: .utf8)!
+        """.utf8)
         let invocation = try JSONDecoder().decode(ConnectionInvocation.self, from: futureJSON)
 
         await listener.handle(invocation: invocation, conversationId: "conv-1")
