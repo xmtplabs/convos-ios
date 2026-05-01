@@ -464,7 +464,10 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        URLRequest(url: URL(string: "https://example.com")!)
+        guard let url = URL(string: "https://example.com") else {
+            throw URLError(.badURL)
+        }
+        return URLRequest(url: url)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {}

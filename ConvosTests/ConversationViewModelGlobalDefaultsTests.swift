@@ -1,7 +1,7 @@
 import Combine
-import XCTest
-import ConvosCore
 @testable import Convos
+import ConvosCore
+import XCTest
 
 @MainActor
 final class ConversationViewModelGlobalDefaultsTests: XCTestCase {

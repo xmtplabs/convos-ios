@@ -1,6 +1,6 @@
+@testable import Convos
 import ConvosCore
 import XCTest
-@testable import Convos
 
 @MainActor
 final class ConversationsViewModelDeleteTests: XCTestCase {
