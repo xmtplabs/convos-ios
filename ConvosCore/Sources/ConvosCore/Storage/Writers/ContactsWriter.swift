@@ -137,8 +137,8 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     }
 }
 
-/// Internal helpers for in-transaction upserts used by the sync coordinator
-/// (which composes its own multi-row write).
+/// Internal helpers for in-transaction writes used by the sync coordinator
+/// and by the profile-sync hooks at the `DBMemberProfile` save sites.
 extension ContactsWriter {
     static func upsertContactInTransaction(
         db: Database,
@@ -152,5 +152,30 @@ extension ContactsWriter {
             addedViaConversationId: addedViaConversationId,
             profile: profile
         )
+    }
+
+    /// Applies a member-profile event to the matching contact row inside an
+    /// existing transaction. No-ops when the `inboxId` has no contact row
+    /// — profile events never auto-add contacts; only the action-gated
+    /// coordinator does. Most-recent-wins via `mergeProfile`: an incoming
+    /// `receivedAt` older than the stored `profileUpdatedAt` is dropped.
+    static func applyMemberProfileInTransaction(
+        db: Database,
+        inboxId: String,
+        name: String?,
+        avatarURL: String?,
+        receivedAt: Date
+    ) throws {
+        guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
+            return
+        }
+        let snapshot = ContactProfileSnapshot(
+            displayName: name,
+            avatarURL: avatarURL,
+            bio: nil,
+            profileUpdatedAt: receivedAt
+        )
+        let merged = mergeProfile(into: existing, with: snapshot)
+        try merged.save(db)
     }
 }

@@ -63,19 +63,19 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
 
     func syncContacts(for conversationId: String, force: Bool) async throws {
         try await databaseWriter.write { [selfInboxIdProvider] db in
-            // Short-circuit if we have already synced this conversation and
-            // the caller did not pass force=true. The first-message hook
-            // calls force=false; the member-added hook calls force=true.
+            // Two short-circuits:
+            //   - first-message hook on an already-synced conversation:
+            //     no-op via `!force` (the network-side member-add hook in
+            //     `ConversationWriter` and the local `addMembers` hook are
+            //     responsible for picking up later joiners).
+            //   - member-added hook on a never-synced conversation: skip,
+            //     so we honor the action-gated rule and don't pull
+            //     strangers from a group the local user has not acted in.
             let alreadySynced = try DBConversationContactsSync
                 .filter(DBConversationContactsSync.Columns.conversationId == conversationId)
                 .fetchCount(db) > 0
 
             if alreadySynced == false && force == true {
-                // force=true is meaningful only for conversations the local
-                // user has already acted in (so they have a sync marker). For
-                // never-synced conversations we honor the action-gated PRD
-                // requirement and skip — the local user has not yet posted
-                // there so we should not pull strangers into contacts.
                 Log.debug("Skipping forced contacts sync for never-synced conversation \(conversationId)")
                 return
             }
@@ -116,6 +116,19 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                     profile: snapshot
                 )
                 upsertedCount += 1
+            }
+
+            // Only mark the conversation synced if we actually upserted at
+            // least one non-self contact. The first-message hook can race
+            // ahead of the StreamProcessor / invite-join writers that
+            // populate `conversation_members`; if the coordinator finds an
+            // empty roster we leave the marker absent so the next outbound
+            // message retries the sync once the peer rows have streamed in.
+            // Tradeoff: a legitimate one-person group (only self) will retry
+            // on every send. Acceptable — it's a few indexed reads.
+            guard upsertedCount > 0 else {
+                Log.debug("Contacts sync for \(conversationId) saw no non-self members; skipping marker so next message retries")
+                return
             }
 
             let marker = DBConversationContactsSync(

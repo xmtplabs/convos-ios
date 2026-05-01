@@ -98,7 +98,11 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.conversationWriter = ConversationWriter(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            messageWriter: messageWriter
+            messageWriter: messageWriter,
+            contactSyncCoordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            )
         )
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
@@ -419,6 +423,15 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                 try profile.save(db)
                 try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                // Mirror the profile change onto the contact row if this
+                // inbox is a known contact. No-op otherwise.
+                try ContactsWriter.applyMemberProfileInTransaction(
+                    db: db,
+                    inboxId: senderInboxId,
+                    name: profile.name,
+                    avatarURL: profile.avatar,
+                    receivedAt: Date()
+                )
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -491,6 +504,15 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     try profile.save(db)
                     try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                    // Mirror the profile onto the contact row if this
+                    // inbox is a known contact. No-op otherwise.
+                    try ContactsWriter.applyMemberProfileInTransaction(
+                        db: db,
+                        inboxId: inboxId,
+                        name: profile.name,
+                        avatarURL: profile.avatar,
+                        receivedAt: Date()
+                    )
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")

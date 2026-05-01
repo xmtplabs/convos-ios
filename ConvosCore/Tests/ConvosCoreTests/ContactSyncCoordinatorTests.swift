@@ -263,4 +263,61 @@ struct ContactSyncCoordinatorTests {
         try await coordinator.syncContacts(for: conversationId, force: false)
         #expect(try coordinator.hasSyncedContacts(for: conversationId) == true)
     }
+
+    @Test("syncContacts skips the marker when only self is present so a later sync can retry")
+    func testEmptyRosterDefersMarker() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-1"
+
+        // Initial state: peer rows have not yet streamed in — only self is
+        // a member. This mirrors the race we saw in the field where the
+        // first-message hook fires before the StreamProcessor commits the
+        // peer's `conversation_members` row.
+        try dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId]
+            )
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContacts(for: conversationId, force: false)
+
+        // No contacts and no marker — we deliberately deferred so the next
+        // outbound message gets another chance.
+        #expect(try coordinator.hasSyncedContacts(for: conversationId) == false)
+        let count = try dbManager.dbReader.read { db in
+            try DBContact.fetchCount(db)
+        }
+        #expect(count == 0)
+
+        // Peer arrives.
+        try dbManager.dbWriter.write { db in
+            try DBMember(inboxId: "alice").save(db, onConflict: .ignore)
+            try DBConversationMember(
+                conversationId: conversationId,
+                inboxId: "alice",
+                role: .member,
+                consent: .allowed,
+                createdAt: Date(),
+                invitedByInboxId: nil
+            ).save(db)
+        }
+
+        // Next sync (e.g. from the next outbound message) lands the contact
+        // and writes the marker.
+        try await coordinator.syncContacts(for: conversationId, force: false)
+        #expect(try coordinator.hasSyncedContacts(for: conversationId) == true)
+        let inboxIds: Set<String> = try dbManager.dbReader.read { db in
+            Set(try DBContact.fetchAll(db).map(\.inboxId))
+        }
+        #expect(inboxIds == Set(["alice"]))
+    }
 }

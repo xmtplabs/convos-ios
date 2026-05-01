@@ -72,10 +72,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private let inviteWriter: any InviteWriterProtocol
     private let messageWriter: any IncomingMessageWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
+    private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
-         messageWriter: any IncomingMessageWriterProtocol) {
+         messageWriter: any IncomingMessageWriterProtocol,
+         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil) {
         self.databaseWriter = databaseWriter
         self.inviteWriter = InviteWriter(
             identityStore: identityStore,
@@ -83,6 +85,23 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        self.contactSyncCoordinator = contactSyncCoordinator
+    }
+
+    /// Fires the contact-sync coordinator with `force: true` after a
+    /// network-driven conversation/member commit. The coordinator's
+    /// action-gated check skips never-synced conversations, so this only
+    /// surfaces new members in groups the local user has already acted in.
+    /// Fire-and-forget; errors are logged.
+    private func enqueueContactSyncForNetworkChange(conversationId: String) {
+        guard let coordinator = contactSyncCoordinator else { return }
+        Task.detached {
+            do {
+                try await coordinator.syncContacts(for: conversationId, force: true)
+            } catch {
+                Log.error("Contact sync after network member change failed for \(conversationId): \(error)")
+            }
+        }
     }
 
     func store(
@@ -228,6 +247,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
         )
+
+        // Network-driven member commit just landed (initial conversation
+        // arrival or refresh-with-new-members). Fire the contact-sync
+        // coordinator with `force: true`; the coordinator will skip if the
+        // local user has not acted in this conversation yet (action-gated).
+        enqueueContactSyncForNetworkChange(conversationId: dbConversation.id)
 
         if let preservedInviteTag = saveResult.preservedInviteTag,
            (try conversation.inviteTag).isEmpty {

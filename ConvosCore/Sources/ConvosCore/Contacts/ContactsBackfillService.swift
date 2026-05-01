@@ -28,7 +28,7 @@ final class ContactsBackfillService: ContactsBackfillServiceProtocol, @unchecked
     }
 
     func backfillIfNeeded() async throws {
-        let candidates: [String] = try databaseReader.read { [selfInboxIdProvider] db in
+        let candidates: [String] = try await databaseReader.read { [selfInboxIdProvider] db in
             guard let selfInboxId = try selfInboxIdProvider(db), !selfInboxId.isEmpty else {
                 return []
             }

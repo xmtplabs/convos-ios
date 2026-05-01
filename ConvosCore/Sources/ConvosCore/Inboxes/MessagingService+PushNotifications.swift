@@ -798,6 +798,16 @@ extension MessagingService {
 
                 try profile.save(db)
                 try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                // Mirror the profile change onto the contact row if this
+                // inbox is a known contact. No-op otherwise. Runs from the
+                // NSE so contacts stay fresh on background notifications too.
+                try ContactsWriter.applyMemberProfileInTransaction(
+                    db: db,
+                    inboxId: senderInboxId,
+                    name: profile.name,
+                    avatarURL: profile.avatar,
+                    receivedAt: Date()
+                )
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -868,6 +878,15 @@ extension MessagingService {
 
                     try profile.save(db)
                     try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                    // Mirror the profile onto the contact row if this
+                    // inbox is a known contact. No-op otherwise.
+                    try ContactsWriter.applyMemberProfileInTransaction(
+                        db: db,
+                        inboxId: inboxId,
+                        name: profile.name,
+                        avatarURL: profile.avatar,
+                        receivedAt: Date()
+                    )
                 }
             }
             Log.debug("NSE: Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
@@ -899,7 +918,11 @@ extension MessagingService {
         let conversationWriter = ConversationWriter(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            messageWriter: messageWriter
+            messageWriter: messageWriter,
+            contactSyncCoordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            )
         )
         return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
     }

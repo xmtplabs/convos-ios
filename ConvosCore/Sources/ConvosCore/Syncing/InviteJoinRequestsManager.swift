@@ -195,6 +195,16 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 )
                 try dbProfile.save(db)
 
+                // Mirror the profile onto the contact row if the joiner is
+                // already a known contact. No-op otherwise.
+                try ContactsWriter.applyMemberProfileInTransaction(
+                    db: db,
+                    inboxId: result.joinerInboxId,
+                    name: dbProfile.name,
+                    avatarURL: dbProfile.avatar,
+                    receivedAt: Date()
+                )
+
                 if dbProfile.agentVerification.isConvosAssistant,
                    let conversation = try DBConversation.fetchOne(db, id: result.conversationId),
                    !conversation.hasHadVerifiedAssistant {
