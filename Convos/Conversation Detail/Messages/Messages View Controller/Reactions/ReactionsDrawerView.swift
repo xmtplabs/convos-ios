@@ -42,11 +42,10 @@ struct ReactionsDrawerView: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicatorsFlash(onAppear: true)
             .scrollContentBackground(.hidden)
-            .frame(minHeight: 120, idealHeight: 400, maxHeight: 600)
+            .frame(maxHeight: 600)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
-        .frame(minHeight: 160)
     }
 }
 

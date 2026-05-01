@@ -38,70 +38,24 @@ struct AppSettingsView: View {
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    @ViewBuilder
-    private var connectionsSection: some View {
-        if FeatureFlags.shared.isAssistantEnabled {
-            Section {
-                NavigationLink {
-                    ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
-                } label: {
-                    Text("Connections")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-            } footer: {
-                Text("Enable services on this device and share them with assistants")
-            }
-        }
-    }
-
     var body: some View {
         NavigationStack {
             List {
                 headerSection
                 myInfoSection
-                if FeatureFlags.shared.isAssistantEnabled {
-                    assistantsSection
-                }
+                assistantsSection
                 connectionsSection
                 customizeSection
-                aboutSection
-                deleteAllDataSection
+                linksSection
+                deleteSection
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .contentMargins(.top, 0.0)
             .toolbarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(role: .cancel) {
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .principal) {
-                    ConvosToolbarButton(padding: true) {}
-                        .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
-                        .disabled(true)
-                }
-            }
+            .toolbar { topToolbar }
         }
-    }
-
-    private func sendFeedback() {
-        let email = "convos@xmtp.com"
-        let subject = "Convos Feedback"
-        let mailtoString = "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject)"
-
-        if let mailtoURL = URL(string: mailtoString) {
-            openURL(mailtoURL)
-        }
-    }
-
-    private func openExternalURL(_ urlString: String) {
-        guard let url = URL(string: urlString) else { return }
-        openURL(url)
     }
 
     @ViewBuilder
@@ -177,16 +131,35 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var assistantsSection: some View {
-        Section {
-            NavigationLink {
-                AssistantSettingsView(session: session)
-            } label: {
-                Text("Assistants")
-                    .foregroundStyle(.colorTextPrimary)
+        if FeatureFlags.shared.isAssistantEnabled {
+            Section {
+                NavigationLink {
+                    AssistantSettingsView(session: session)
+                } label: {
+                    Text("Assistants")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+            } footer: {
+                Text("Optional AI for groups")
             }
-            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-        } footer: {
-            Text("Optional AI for groups")
+        }
+    }
+
+    @ViewBuilder
+    private var connectionsSection: some View {
+        if FeatureFlags.shared.isAssistantEnabled {
+            Section {
+                NavigationLink {
+                    ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+                } label: {
+                    Text("Connections")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+            } footer: {
+                Text("Enable services on this device and share them with assistants")
+            }
         }
     }
 
@@ -209,63 +182,85 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
-    private var aboutSection: some View {
+    private var linksSection: some View {
         Section {
-            Button {
-                openExternalURL("https://xmtp.org")
-            } label: {
-                NavigationLink {
-                    EmptyView()
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                        Text("Secured by ")
-                        Image("xmtpIcon")
-                            .renderingMode(.template)
-                            .foregroundStyle(.colorTextPrimary)
-                            .padding(.trailing, 1.0)
-                        Text("XMTP")
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-                }
-            }
-            .foregroundStyle(.colorTextPrimary)
-
-            Button {
-                openExternalURL("https://hq.convos.org/privacy-and-terms")
-            } label: {
-                NavigationLink("Privacy & Terms", destination: EmptyView())
-            }
-            .foregroundStyle(.colorTextPrimary)
-
-            Button {
-                sendFeedback()
-            } label: {
-                Text("Send feedback")
-            }
-            .foregroundStyle(.colorTextPrimary)
-
+            securedByXMTPRow
+            privacyTermsRow
+            sendFeedbackRow
             if !ConfigManager.shared.currentEnvironment.isProduction {
-                NavigationLink {
-                    DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
-                } label: {
-                    Text("Debug")
-                }
-                .foregroundStyle(.colorTextPrimary)
+                debugRow
             }
         } footer: {
-            HStack {
-                Text("Made in the open by XMTP Labs")
-                Spacer()
-                Text("V\(Bundle.appVersion)")
-                    .foregroundStyle(.colorTextTertiary)
-            }
-            .foregroundStyle(.colorTextSecondary)
+            linksFooter
         }
         .listRowSeparatorTint(.colorBorderSubtle)
     }
 
     @ViewBuilder
-    private var deleteAllDataSection: some View {
+    private var securedByXMTPRow: some View {
+        Button {
+            openExternalURL("https://xmtp.org")
+        } label: {
+            NavigationLink {
+                EmptyView()
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
+                    Text("Secured by ")
+                    Image("xmtpIcon")
+                        .renderingMode(.template)
+                        .foregroundStyle(.colorTextPrimary)
+                        .padding(.trailing, 1.0)
+                    Text("XMTP")
+                }
+                .foregroundStyle(.colorTextPrimary)
+            }
+        }
+        .foregroundStyle(.colorTextPrimary)
+    }
+
+    @ViewBuilder
+    private var privacyTermsRow: some View {
+        Button {
+            openExternalURL("https://hq.convos.org/privacy-and-terms")
+        } label: {
+            NavigationLink("Privacy & Terms", destination: EmptyView())
+        }
+        .foregroundStyle(.colorTextPrimary)
+    }
+
+    @ViewBuilder
+    private var sendFeedbackRow: some View {
+        Button {
+            sendFeedback()
+        } label: {
+            Text("Send feedback")
+        }
+        .foregroundStyle(.colorTextPrimary)
+    }
+
+    @ViewBuilder
+    private var debugRow: some View {
+        NavigationLink {
+            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+        } label: {
+            Text("Debug")
+        }
+        .foregroundStyle(.colorTextPrimary)
+    }
+
+    @ViewBuilder
+    private var linksFooter: some View {
+        HStack {
+            Text("Made in the open by XMTP Labs")
+            Spacer()
+            Text("V\(Bundle.appVersion)")
+                .foregroundStyle(.colorTextTertiary)
+        }
+        .foregroundStyle(.colorTextSecondary)
+    }
+
+    @ViewBuilder
+    private var deleteSection: some View {
         Section {
             Button(role: .destructive) {
                 showingDeleteAllDataConfirmation = true
@@ -286,6 +281,36 @@ struct AppSettingsView: View {
                 .interactiveDismissDisabled(viewModel.isDeleting)
             }
         }
+    }
+
+    @ToolbarContentBuilder
+    private var topToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button(role: .cancel) {
+                dismiss()
+            }
+        }
+
+        ToolbarItem(placement: .principal) {
+            ConvosToolbarButton(padding: true) {}
+                .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
+                .disabled(true)
+        }
+    }
+
+    private func sendFeedback() {
+        let email = "convos@xmtp.com"
+        let subject = "Convos Feedback"
+        let mailtoString = "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject)"
+
+        if let mailtoURL = URL(string: mailtoString) {
+            openURL(mailtoURL)
+        }
+    }
+
+    private func openExternalURL(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        openURL(url)
     }
 }
 

@@ -397,6 +397,11 @@ actor SyncingManager: SyncingManagerProtocol {
             // This handles cases where the joiner was added to a group while
             // the inbox was paused, stopped, or the stream had a timeout.
             await discoverNewConversations(params: params)
+
+            await streamProcessor.reconcilePushSubscriptions(
+                params: params,
+                context: "after initial sync"
+            )
         }
     }
 
@@ -602,6 +607,10 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.info("Sync resumed")
 
         await discoverNewConversations(params: params)
+        await streamProcessor.reconcilePushSubscriptions(
+            params: params,
+            context: "after resume"
+        )
     }
 
     func requestDiscovery() async {
@@ -615,6 +624,10 @@ actor SyncingManager: SyncingManagerProtocol {
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
             await discoverNewConversations(params: params)
+            await streamProcessor.reconcilePushSubscriptions(
+                params: params,
+                context: "after requested discovery"
+            )
         } catch {
             Log.error("requestDiscovery failed: \(error)")
         }

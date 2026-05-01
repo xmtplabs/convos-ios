@@ -135,7 +135,15 @@ public final class InviteCoordinator: @unchecked Sendable {
         _ message: XMTPiOS.DecodedMessage,
         client: any InviteClientProvider
     ) async -> JoinResult? {
-        guard message.senderInboxId != client.inviteInboxId else { return nil }
+        let outcome = await processMessageOutcome(message, client: client)
+        return outcome.joinResult
+    }
+
+    public func processMessageOutcome(
+        _ message: XMTPiOS.DecodedMessage,
+        client: any InviteClientProvider
+    ) async -> JoinRequestDMOutcome {
+        guard message.senderInboxId != client.inviteInboxId else { return .noJoinRequest }
 
         let slug: String
         var profile: JoinRequestProfile?
@@ -148,10 +156,12 @@ public final class InviteCoordinator: @unchecked Sendable {
         } else if let text: String = try? message.content() {
             slug = text
         } else {
-            return nil
+            return .noJoinRequest
         }
 
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else { return nil }
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else {
+            return .noJoinRequest
+        }
 
         let request = JoinRequest(
             joinerInboxId: message.senderInboxId,
@@ -169,23 +179,33 @@ public final class InviteCoordinator: @unchecked Sendable {
         since: Date?,
         client: any InviteClientProvider
     ) async -> [JoinResult] {
+        let outcomes = await processJoinRequestOutcomes(since: since, client: client)
+        return outcomes.compactMap(\.joinResult)
+    }
+
+    public func processJoinRequestOutcomes(
+        since: Date?,
+        client: any InviteClientProvider
+    ) async -> [JoinRequestDMOutcome] {
         guard let dms = try? client.listDms(
-            createdAfterNs: since?.nanosecondsSince1970,
+            createdAfterNs: nil,
             createdBeforeNs: nil,
             lastActivityBeforeNs: nil,
-            lastActivityAfterNs: nil,
+            lastActivityAfterNs: since?.nanosecondsSince1970,
             limit: nil,
-            consentStates: [.unknown],
+            consentStates: [.unknown, .allowed],
             orderBy: .lastActivity
         ) else { return [] }
 
-        var results: [JoinResult] = []
+        var outcomes: [JoinRequestDMOutcome] = []
         for dm in dms {
-            if let result = await processDm(dm, client: client) {
-                results.append(result)
+            let outcome = await processDm(dm, since: since, client: client)
+            if case .noJoinRequest = outcome {
+                continue
             }
+            outcomes.append(outcome)
         }
-        return results
+        return outcomes
     }
 
     public func hasOutgoingJoinRequest(
@@ -225,30 +245,30 @@ public final class InviteCoordinator: @unchecked Sendable {
     private func processJoinRequest(
         _ request: JoinRequest,
         client: any InviteClientProvider
-    ) async -> JoinResult? {
+    ) async -> JoinRequestDMOutcome {
         let signedInvite = request.signedInvite
 
         guard !signedInvite.hasExpired else {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .expired)
-            return nil
+            return benignFailure(request, error: .expired)
         }
 
         guard !signedInvite.conversationHasExpired else {
             await sendJoinError(.conversationExpired, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationExpired)
-            return nil
+            return benignFailure(request, error: .conversationExpired)
         }
 
         let creatorInboxId = signedInvite.invitePayload.creatorInboxIdString
 
         guard !creatorInboxId.isEmpty else {
-            await blockSpammer(request, client: client)
-            return nil
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
+            return benignFailure(request, error: .invalidFormat)
         }
 
         guard creatorInboxId == client.inviteInboxId else {
-            await blockSpammer(request, client: client)
-            return nil
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .creatorMismatch)
+            return benignFailure(request, error: .creatorMismatch)
         }
 
         let privateKey: Data
@@ -256,28 +276,36 @@ public final class InviteCoordinator: @unchecked Sendable {
             privateKey = try await privateKeyProvider(creatorInboxId)
         } catch {
             await sendJoinError(.genericFailure, for: request, client: client)
-            delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidSignature)
-            return nil
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
+            return benignFailure(request, error: .processingFailed)
         }
 
         do {
             let expectedPublicKey = try Data.derivePublicKey(from: privateKey)
             guard try signedInvite.verify(with: expectedPublicKey) else {
-                await blockSpammer(request, client: client)
-                return nil
+                return await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature)
             }
         } catch let error as InviteSignatureError {
+            // Threat-model split:
+            // - `.invalidSignature` / `.verificationFailure` only occur once the
+            //   signature has been parsed and run against the expected key — a
+            //   mismatch here means the slug was tampered with, so we deny the
+            //   DM and unsubscribe from its push topic.
+            // - The remaining cases are parse / encoding / key-derivation
+            //   failures that can happen on benign inputs (corrupt slug, format
+            //   skew, transient keychain error). We treat these as recoverable
+            //   so the same joiner can retry without being blocked.
             switch error {
             case .invalidSignature, .verificationFailure:
-                await blockSpammer(request, client: client)
+                return await denyDmForMaliciousInvite(request, client: client, error: .invalidSignature)
             case .invalidContext, .invalidPublicKey, .invalidPrivateKey,
                  .invalidFormat, .signatureFailure, .encodingFailure:
-                delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidSignature)
+                delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
+                return benignFailure(request, error: .processingFailed)
             }
-            return nil
         } catch {
-            delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidSignature)
-            return nil
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .processingFailed)
+            return benignFailure(request, error: .processingFailed)
         }
 
         let conversationId: String
@@ -289,14 +317,14 @@ public final class InviteCoordinator: @unchecked Sendable {
             )
         } catch {
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
-            return nil
+            return benignFailure(request, error: .invalidFormat)
         }
 
         guard let conversation = try? await client.findConversation(conversationId: conversationId) else {
             Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): conversation not found in local store")
             await sendJoinError(.conversationNotFound, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationNotFound(conversationId))
-            return nil
+            return benignFailure(request, error: .conversationNotFound(conversationId))
         }
 
         let consent = (try? conversation.consentState()) ?? .unknown
@@ -304,13 +332,13 @@ public final class InviteCoordinator: @unchecked Sendable {
             Log.warning("Rejecting join for \(conversationId) (inviteTag: \(request.signedInvite.invitePayload.tag)): consent state '\(consent)' is not .allowed")
             await sendJoinError(.consentNotAllowed, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .consentNotAllowed(conversationId, consent))
-            return nil
+            return benignFailure(request, error: .consentNotAllowed(conversationId, consent))
         }
 
         guard case .group(let group) = conversation else {
             await sendJoinError(.genericFailure, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
-            return nil
+            return benignFailure(request, error: .invalidFormat)
         }
 
         try? await group.sync()
@@ -320,12 +348,12 @@ public final class InviteCoordinator: @unchecked Sendable {
             guard signedInvite.invitePayload.tag == currentTag else {
                 await sendJoinError(.conversationExpired, for: request, client: client)
                 delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
-                return nil
+                return benignFailure(request, error: .revoked)
             }
         } catch {
             await sendJoinError(.conversationExpired, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
-            return nil
+            return benignFailure(request, error: .revoked)
         }
 
         do {
@@ -333,7 +361,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         } catch {
             await sendJoinError(.genericFailure, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .addMemberFailed)
-            return nil
+            return benignFailure(request, error: .addMemberFailed)
         }
 
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
@@ -348,16 +376,23 @@ public final class InviteCoordinator: @unchecked Sendable {
             metadata: request.metadata
         )
         delegate?.coordinator(self, didAddMember: result)
-        return result
+        return .accepted(result, dmConversationId: request.dmConversationId)
     }
 
     // MARK: - Helpers
 
     private func processDm(
         _ dm: XMTPiOS.Dm,
+        since: Date?,
         client: any InviteClientProvider
-    ) async -> JoinResult? {
-        guard let messages = try? await dm.messages(afterNs: nil) else { return nil }
+    ) async -> JoinRequestDMOutcome {
+        guard let messages = try? await dm.messages(afterNs: since?.nanosecondsSince1970) else {
+            return .benignFailure(
+                dmConversationId: dm.id,
+                senderInboxId: nil,
+                error: .processingFailed
+            )
+        }
 
         let candidates = messages.filter { message in
             guard let contentType = try? message.encodedContent.type,
@@ -368,23 +403,50 @@ public final class InviteCoordinator: @unchecked Sendable {
             return true
         }
 
+        var firstBenignFailure: JoinRequestDMOutcome?
         for message in candidates {
-            if let result = await processMessage(message, client: client) {
+            let outcome = await processMessageOutcome(message, client: client)
+            switch outcome {
+            case .noJoinRequest:
+                continue
+            case .accepted:
                 try? await dm.updateConsentState(state: .allowed)
-                return result
+                return outcome
+            case .malicious:
+                return outcome
+            case .benignFailure:
+                firstBenignFailure = firstBenignFailure ?? outcome
+                continue
             }
         }
-        return nil
+        return firstBenignFailure ?? .noJoinRequest
     }
 
-    private func blockSpammer(
+    private func benignFailure(
         _ request: JoinRequest,
-        client: any InviteClientProvider
-    ) async {
+        error: JoinRequestError
+    ) -> JoinRequestDMOutcome {
+        .benignFailure(
+            dmConversationId: request.dmConversationId,
+            senderInboxId: request.joinerInboxId,
+            error: error
+        )
+    }
+
+    private func denyDmForMaliciousInvite(
+        _ request: JoinRequest,
+        client: any InviteClientProvider,
+        error: JoinRequestError
+    ) async -> JoinRequestDMOutcome {
         if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .denied)
         }
         delegate?.coordinator(self, didBlockSpammer: request.joinerInboxId, in: request.dmConversationId)
+        return .malicious(
+            dmConversationId: request.dmConversationId,
+            senderInboxId: request.joinerInboxId,
+            error: error
+        )
     }
 
     private func sendJoinError(

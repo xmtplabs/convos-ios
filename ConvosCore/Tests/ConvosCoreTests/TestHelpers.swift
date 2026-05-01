@@ -14,6 +14,42 @@ private let _configureXMTPEndpoint: Void = {
     }
 }()
 
+// Rust tracing only flows to os_log on iOS — gated by env var so CI can
+// capture libxmtp output to disk for artifact upload.
+private let _configureXMTPLogging: Void = {
+    let env = ProcessInfo.processInfo.environment
+    guard let levelString = env["CONVOS_TEST_XMTP_LOG_LEVEL"], !levelString.isEmpty else {
+        return
+    }
+
+    let logLevel: Client.LogLevel
+    switch levelString.lowercased() {
+    case "error": logLevel = .error
+    case "warn", "warning": logLevel = .warn
+    case "info": logLevel = .info
+    case "debug": logLevel = .debug
+    default:
+        print("Unknown CONVOS_TEST_XMTP_LOG_LEVEL '\(levelString)', skipping libxmtp log activation")
+        return
+    }
+
+    let directoryURL: URL = if let custom = env["CONVOS_TEST_XMTP_LOG_DIR"], !custom.isEmpty {
+        URL(fileURLWithPath: custom, isDirectory: true)
+    } else {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-xmtp-logs", isDirectory: true)
+    }
+
+    Client.activatePersistentLibXMTPLogWriter(
+        logLevel: logLevel,
+        rotationSchedule: .never,
+        maxFiles: 5,
+        customLogDirectory: directoryURL
+    )
+
+    print("libxmtp log writer activated at \(directoryURL.path) (level=\(levelString))")
+}()
+
 /// Waits until a condition becomes true, polling at a specified interval
 /// - Parameters:
 ///   - timeout: Maximum time to wait (default: 10 seconds)
@@ -80,7 +116,8 @@ class TestFixtures {
         PushNotificationRegistrar.resetForTesting()
         PushNotificationRegistrar.configure(MockPushNotificationRegistrarProvider())
 
-        // XMTP endpoint is configured at module load time via _configureXMTPEndpoint
+        _ = _configureXMTPEndpoint
+        _ = _configureXMTPLogging
     }
 
     // Create a new XMTP client for testing
@@ -174,6 +211,7 @@ class TestFixtures {
             databaseReader: databaseManager.dbReader,
             identityStore: identityStore,
             environment: environment,
+            deviceInfoProvider: platformProviders.deviceInfo,
             backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
     }

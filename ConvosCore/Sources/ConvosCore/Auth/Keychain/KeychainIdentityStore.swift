@@ -115,7 +115,7 @@ private struct KeychainQuery {
         service: String,
         accessGroup: String,
         accessible: CFString = kSecAttrAccessibleAfterFirstUnlock,
-        synchronizable: Bool = true
+        synchronizable: Bool = false
     ) {
         self.account = account
         self.service = service
@@ -168,21 +168,21 @@ public protocol KeychainIdentityStoreProtocol: Actor {
 
 /// Secure storage for the user's XMTP identity keys in the device keychain.
 ///
-/// The app holds one identity per install. iCloud Keychain sync is enabled via
-/// `kSecAttrSynchronizable = true` + `kSecAttrAccessibleAfterFirstUnlock` so the
-/// identity follows the user across devices on the same Apple ID. The item is
-/// stored in the app-group keychain so the Notification Service Extension can
-/// read it.
+/// The app holds one identity per install. The slot is device-local —
+/// `kSecAttrSynchronizable = false` + `kSecAttrAccessibleAfterFirstUnlock`
+/// so identity keys never leave this device via iCloud Keychain. The
+/// item is stored in the app-group keychain so the Notification Service
+/// Extension can read it.
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
     private let keychainService: String
     private let keychainAccessGroup: String
 
-    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
+    public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
     /// Fixed account key for the stored identity.
-    static let identityAccount: String = "convos-identity"
+    public static let identityAccount: String = "convos-identity"
 
     // MARK: - Initialization
 

@@ -7,7 +7,7 @@ import Testing
 /// so state doesn't leak between tests or into the real app-group.
 @Suite("LegacyDataWipe", .serialized)
 struct LegacyDataWipeTests {
-    // Keychain access group is only used for legacy v1/v2 delete attempts,
+    // Keychain access group is only used for legacy delete attempts,
     // which return errSecItemNotFound in the test simulator keychain and
     // never contribute to the gate — safe to pass a dummy value.
     private let legacyAccessGroup: String = "group.org.convos.tests.legacy-wipe"
@@ -18,6 +18,7 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -32,16 +33,21 @@ struct LegacyDataWipeTests {
 
         // Drop a "legacy" file to prove the wipe didn't run — if it had,
         // this file would be deleted.
-        let grdb = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
+        let grdb = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
         try Data("would-have-been-wiped".utf8).write(to: grdb)
+
+        // Drop a UserDefaults marker that should also survive a no-op pass.
+        fixture.standardDefaults.set("token", forKey: "lastRegisteredDevicePushToken_dev1")
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(FileManager.default.fileExists(atPath: grdb.path))
+        #expect(fixture.standardDefaults.string(forKey: "lastRegisteredDevicePushToken_dev1") == "token")
     }
 
     @Test("Upgrade: legacy artifacts removed + marker set")
@@ -58,6 +64,7 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -89,6 +96,7 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -98,6 +106,56 @@ struct LegacyDataWipeTests {
             #expect(!FileManager.default.fileExists(atPath: url.path), "\(filename) should be gone")
         }
         #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
+    }
+
+    @Test("Active GRDB filename (convos-single-inbox.sqlite) is swept on a generation bump")
+    func activeGRDBFilenameWiped() throws {
+        let fixture = try TempFixture()
+        fixture.defaults.set("single-inbox-v2", forKey: "convos.schemaGeneration")
+
+        let active = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
+        let activeShm = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite-shm")
+        let activeWal = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite-wal")
+        try Data("active".utf8).write(to: active)
+        try Data("shm".utf8).write(to: activeShm)
+        try Data("wal".utf8).write(to: activeWal)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: active.path))
+        #expect(!FileManager.default.fileExists(atPath: activeShm.path))
+        #expect(!FileManager.default.fileExists(atPath: activeWal.path))
+        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
+    }
+
+    @Test("Standard-defaults markers are wiped on a generation bump")
+    func userDefaultsMarkersWiped() throws {
+        let fixture = try TempFixture()
+        fixture.defaults.set("single-inbox-v2", forKey: "convos.schemaGeneration")
+
+        // Per-device push markers (prefix-matched) and the IDFV fallback (exact-matched).
+        fixture.standardDefaults.set(true, forKey: "hasRegisteredDevice_device-A")
+        fixture.standardDefaults.set("token-A", forKey: "lastRegisteredDevicePushToken_device-A")
+        fixture.standardDefaults.set("uuid", forKey: "convos_fallback_device_id")
+        // Unrelated keys must survive.
+        fixture.standardDefaults.set("keep", forKey: "unrelated_user_pref")
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(fixture.standardDefaults.bool(forKey: "hasRegisteredDevice_device-A") == false)
+        #expect(fixture.standardDefaults.string(forKey: "lastRegisteredDevicePushToken_device-A") == nil)
+        #expect(fixture.standardDefaults.string(forKey: "convos_fallback_device_id") == nil)
+        #expect(fixture.standardDefaults.string(forKey: "unrelated_user_pref") == "keep")
     }
 
     @Test("Cold install but with legacy artifacts (no marker): still wipes + marks")
@@ -111,6 +169,7 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -126,6 +185,7 @@ struct LegacyDataWipeTests {
         // First run: fresh install, marker gets set.
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -133,11 +193,12 @@ struct LegacyDataWipeTests {
 
         // Drop a file after the first run — it should survive the second run
         // because the second run short-circuits on the current-generation marker.
-        let newFile = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
+        let newFile = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
         try Data("written-after-first-run".utf8).write(to: newFile)
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -152,11 +213,12 @@ struct LegacyDataWipeTests {
 
         // Pretend we're on an older generation.
         fixture.defaults.set("single-inbox-v0", forKey: "convos.schemaGeneration")
-        let grdb = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
+        let grdb = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
         try Data("stale".utf8).write(to: grdb)
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
+            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -171,7 +233,9 @@ struct LegacyDataWipeTests {
 private final class TempFixture {
     let databasesDirectory: URL
     let defaults: UserDefaults
+    let standardDefaults: UserDefaults
     private let defaultsSuite: String
+    private let standardDefaultsSuite: String
 
     init() throws {
         let base = FileManager.default.temporaryDirectory
@@ -179,16 +243,23 @@ private final class TempFixture {
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         databasesDirectory = base
 
-        defaultsSuite = "convos.tests.\(UUID().uuidString)"
+        defaultsSuite = "convos.tests.app-group.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuite) else {
             throw FixtureError.defaultsAllocationFailed
         }
         self.defaults = defaults
+
+        standardDefaultsSuite = "convos.tests.standard.\(UUID().uuidString)"
+        guard let standardDefaults = UserDefaults(suiteName: standardDefaultsSuite) else {
+            throw FixtureError.defaultsAllocationFailed
+        }
+        self.standardDefaults = standardDefaults
     }
 
     deinit {
         try? FileManager.default.removeItem(at: databasesDirectory)
         defaults.removePersistentDomain(forName: defaultsSuite)
+        standardDefaults.removePersistentDomain(forName: standardDefaultsSuite)
     }
 }
 

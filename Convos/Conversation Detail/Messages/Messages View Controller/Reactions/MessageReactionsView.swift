@@ -22,63 +22,67 @@ struct MessageReactionsView: View {
         }
     }
 
-    var body: some View {
-        Group {
-            GeometryReader { reader in
-                let contentHeight = max(reader.size.height - (Constant.padding * 2.0), 0.0)
-                ZStack(alignment: .leading) {
-                    reactionsScrollView(reader: reader, contentHeight: contentHeight)
-                    HStack(spacing: 0.0) {
-                        Spacer()
-                        selectedEmojiView(reader: reader)
-                        expandCollapseButton(contentHeight: contentHeight)
-                    }
-                }
-                .padding(0.0)
-                .animation(
-                    .spring(response: Constant.springResponse,
-                            dampingFraction: Constant.springDampingFractionPlus),
-                    value: viewModel.viewState
-                )
-            }
-            .frame(width: containerWidth, height: Constant.height)
-            .background(.colorBackgroundSurfaceless)
-            .clipShape(Capsule())
-            .shadow(
-                color: Color.black.opacity(0.15),
-                radius: 10.0,
-                x: 0, y: 0
-            )
-            .scaleEffect(viewModel.viewState.isMinimized ? 0.0 : 1.0)
-            .opacity(viewModel.viewState.isMinimized ? 0.0 : 1.0)
-            .animation(.spring(response: 0.6, dampingFraction: 0.8), value: viewModel.viewState)
-            .onChange(of: viewModel.viewState) { lhs, _ in
-                if lhs == .minimized {
-                    if emojiAppeared.count != viewModel.reactions.count {
-                        emojiAppeared = Array(repeating: false, count: viewModel.reactions.count)
-                    }
-                    let totalDelay = (Constant.emojiAppearanceDelay +
-                                      (Constant.emojiAppearanceDelayStep * Double(viewModel.reactions.count)))
-                    DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
-                        withAnimation {
-                            showMoreAppeared = true
-                        }
-                    }
-                }
+    private var reactionsCapsule: some View {
+        GeometryReader { reader in
+            reactionsCapsuleContents(reader: reader)
+        }
+        .frame(width: containerWidth, height: Constant.height)
+        .background(.colorBackgroundSurfaceless)
+        .clipShape(Capsule())
+        .shadow(color: Color.black.opacity(0.15), radius: 10.0, x: 0, y: 0)
+        .scaleEffect(viewModel.viewState.isMinimized ? 0.0 : 1.0)
+        .opacity(viewModel.viewState.isMinimized ? 0.0 : 1.0)
+        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: viewModel.viewState)
+        .onChange(of: viewModel.viewState) { lhs, _ in
+            handleViewStateChange(from: lhs)
+        }
+    }
+
+    private func reactionsCapsuleContents(reader: GeometryProxy) -> some View {
+        let contentHeight = max(reader.size.height - (Constant.padding * 2.0), 0.0)
+        return ZStack(alignment: .leading) {
+            reactionsScrollView(reader: reader, contentHeight: contentHeight)
+            HStack(spacing: 0.0) {
+                Spacer()
+                selectedEmojiView(reader: reader)
+                expandCollapseButton(contentHeight: contentHeight)
             }
         }
-        .frame(maxWidth: .infinity, alignment: viewModel.alignment)
-        .background(.clear)
-        .emojiPicker(
-            isPresented: $viewModel.showingEmojiPicker,
-            onPick: { emoji in
-                customEmoji = emoji
-                viewModel.add(reaction: .init(emoji: emoji, isSelected: true))
-            },
-            onDelete: {
-                customEmoji = nil
-            }
+        .padding(0.0)
+        .animation(
+            .spring(response: Constant.springResponse, dampingFraction: Constant.springDampingFractionPlus),
+            value: viewModel.viewState
         )
+    }
+
+    private func handleViewStateChange(from previous: MessageReactionMenuViewModel.ViewState) {
+        guard previous == .minimized else { return }
+        if emojiAppeared.count != viewModel.reactions.count {
+            emojiAppeared = Array(repeating: false, count: viewModel.reactions.count)
+        }
+        let totalDelay = Constant.emojiAppearanceDelay
+            + (Constant.emojiAppearanceDelayStep * Double(viewModel.reactions.count))
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+            withAnimation {
+                showMoreAppeared = true
+            }
+        }
+    }
+
+    var body: some View {
+        reactionsCapsule
+            .frame(maxWidth: .infinity, alignment: viewModel.alignment)
+            .background(.clear)
+            .emojiPicker(
+                isPresented: $viewModel.showingEmojiPicker,
+                onPick: { emoji in
+                    customEmoji = emoji
+                    viewModel.add(reaction: .init(emoji: emoji, isSelected: true))
+                },
+                onDelete: {
+                    customEmoji = nil
+                }
+            )
     }
 
     // MARK: - Subviews

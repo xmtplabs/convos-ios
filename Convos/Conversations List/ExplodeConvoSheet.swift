@@ -134,7 +134,21 @@ struct ExplodeConvoSheet: View {
     private var scheduleMenuContent: some View {
         let items = scheduleMenuItems
         let rowHeight: CGFloat = DesignConstants.Spacing.step11x
-        return VStack(alignment: .leading, spacing: 0) {
+        return scheduleMenuList(items: items, rowHeight: rowHeight)
+            .background(alignment: .topLeading) {
+                scheduleMenuHighlight(rowHeight: rowHeight)
+            }
+            .animation(.smooth(duration: 0.15), value: highlightedMenuIndex)
+            .contentShape(Rectangle())
+            .sensoryFeedback(.selection, trigger: highlightedMenuIndex) { _, newValue in
+                newValue != nil
+            }
+            .coordinateSpace(name: "scheduleMenu")
+            .gesture(scheduleMenuGesture(items: items, rowHeight: rowHeight))
+    }
+
+    private func scheduleMenuList(items: [(label: String, showsChevron: Bool)], rowHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack {
                     Text(item.label)
@@ -150,38 +164,38 @@ struct ExplodeConvoSheet: View {
                 .frame(height: rowHeight)
             }
         }
-        .background(alignment: .topLeading) {
-            if highlightedMenuIndex != nil {
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(Color.primary.opacity(0.06))
-                    .frame(height: rowHeight)
-                    .frame(maxWidth: .infinity)
-                    .offset(y: CGFloat(highlightedMenuIndex ?? 0) * rowHeight)
-                    .transition(.opacity.animation(.easeOut(duration: 0.08)))
+    }
+
+    @ViewBuilder
+    private func scheduleMenuHighlight(rowHeight: CGFloat) -> some View {
+        if highlightedMenuIndex != nil {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                .fill(Color.primary.opacity(0.06))
+                .frame(height: rowHeight)
+                .frame(maxWidth: .infinity)
+                .offset(y: CGFloat(highlightedMenuIndex ?? 0) * rowHeight)
+                .transition(.opacity.animation(.easeOut(duration: 0.08)))
+        }
+    }
+
+    private func scheduleMenuGesture(
+        items: [(label: String, showsChevron: Bool)],
+        rowHeight: CGFloat
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("scheduleMenu"))
+            .onChanged { value in
+                let index = Int(value.location.y / rowHeight)
+                let newIndex = (index >= 0 && index < items.count) ? index : nil
+                if newIndex != highlightedMenuIndex {
+                    highlightedMenuIndex = newIndex
+                }
             }
-        }
-        .animation(.smooth(duration: 0.15), value: highlightedMenuIndex)
-        .contentShape(Rectangle())
-        .sensoryFeedback(.selection, trigger: highlightedMenuIndex) { _, newValue in
-            newValue != nil
-        }
-        .coordinateSpace(name: "scheduleMenu")
-        .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .named("scheduleMenu"))
-                .onChanged { value in
-                    let index = Int(value.location.y / rowHeight)
-                    let newIndex = (index >= 0 && index < items.count) ? index : nil
-                    if newIndex != highlightedMenuIndex {
-                        highlightedMenuIndex = newIndex
-                    }
+            .onEnded { _ in
+                if let index = highlightedMenuIndex {
+                    performScheduleMenuAction(at: index)
                 }
-                .onEnded { _ in
-                    if let index = highlightedMenuIndex {
-                        performScheduleMenuAction(at: index)
-                    }
-                    highlightedMenuIndex = nil
-                }
-        )
+                highlightedMenuIndex = nil
+            }
     }
 
     private func performScheduleMenuAction(at index: Int) {

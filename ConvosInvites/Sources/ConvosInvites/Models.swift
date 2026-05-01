@@ -135,6 +135,60 @@ public struct JoinResult: Sendable {
     }
 }
 
+/// Outcome of processing a candidate join-request message in a DM.
+///
+/// The cases drive both the user-visible result and the push-subscription
+/// policy on the host DM:
+///
+/// - `accepted`: Verified join succeeded; the joiner was added to the
+///   group. The DM stays subscribed for follow-up acceptance flows.
+/// - `benignFailure`: Local/transient failure (sync error, missing group,
+///   revoked tag, expired invite, etc). The DM stays subscribed because
+///   the request may legitimately retry from the same joiner — see
+///   `shouldKeepDMSubscribed`.
+/// - `malicious`: Signature verification failed in a way that indicates
+///   tampering. The DM is denied and the device unsubscribes from its
+///   topic so it can no longer wake the inbox.
+/// - `noJoinRequest`: The message was not a join-request candidate.
+public enum JoinRequestDMOutcome: Sendable {
+    case accepted(JoinResult, dmConversationId: String)
+    case benignFailure(dmConversationId: String, senderInboxId: String?, error: JoinRequestError)
+    case malicious(dmConversationId: String, senderInboxId: String, error: JoinRequestError)
+    case noJoinRequest
+
+    public var joinResult: JoinResult? {
+        guard case .accepted(let result, dmConversationId: _) = self else { return nil }
+        return result
+    }
+
+    public var dmConversationId: String? {
+        switch self {
+        case .accepted(_, dmConversationId: let dmConversationId):
+            return dmConversationId
+        case .benignFailure(let dmConversationId, _, _):
+            return dmConversationId
+        case .malicious(let dmConversationId, _, _):
+            return dmConversationId
+        case .noJoinRequest:
+            return nil
+        }
+    }
+
+    public var shouldKeepDMSubscribed: Bool {
+        switch self {
+        case .accepted, .benignFailure:
+            return true
+        case .malicious, .noJoinRequest:
+            return false
+        }
+    }
+
+    public var isMalicious: Bool {
+        guard case .malicious = self else { return false }
+        return true
+    }
+}
+
 // MARK: - Join Errors
 
 /// Errors that can occur when processing join requests
@@ -165,6 +219,9 @@ public enum JoinRequestError: Error, Sendable {
 
     /// Failed to add the member to the group
     case addMemberFailed
+
+    /// The request could not be processed because of a local/transient error
+    case processingFailed
 }
 
 /// Error types sent back to joiners when their request fails.
