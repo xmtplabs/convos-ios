@@ -45,76 +45,9 @@ struct DebugViewSection: View {
 
     var body: some View {
         Group {
-            Section("Features") {
-                Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+            featuresSection
 
-                Toggle("Cloud Connections enabled", isOn: Bindable(FeatureFlags.shared).isCloudConnectionsEnabled)
-
-                let showInfoAction = { showingAssistantsInfoSheet = true }
-                Button(action: showInfoAction) {
-                    Text("Show Assistants Info Sheet")
-                }
-                .selfSizingSheet(isPresented: $showingAssistantsInfoSheet) {
-                    AssistantsInfoView(isConfirmation: true, onConfirm: {})
-                        .padding(.top, 20)
-                }
-
-                let testSafariAction = { showingSafariTestSheet = true }
-                Button(action: testSafariAction) {
-                    Text("Test Safari Sheet in Sheet")
-                }
-                .sheet(isPresented: $showingSafariTestSheet) {
-                    SafariTestSheet()
-                }
-            }
-
-            Section(header: Text("Push Notifications")) {
-                HStack {
-                    Text("Auth Status")
-                    Spacer()
-                    Text(statusText(notificationAuthStatus))
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                HStack {
-                    Text("Authorized")
-                    Spacer()
-                    Text(notificationAuthGranted ? "Yes" : "No")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Device Token")
-                    HStack(spacing: 8) {
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            Text(lastDeviceToken)
-                                .font(.system(.footnote, design: .monospaced))
-                                .foregroundStyle(.colorTextSecondary)
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Button {
-                            UIPasteboard.general.string = lastDeviceToken
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(lastDeviceToken.isEmpty)
-                    }
-                }
-                HStack {
-                    Text("APNS Environment")
-                    Spacer()
-                    Text(ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                HStack {
-                    Button("Request Now") {
-                        Task { await requestNotificationsNow() }
-                    }
-                    .disabled(notificationAuthGranted)
-                    .opacity(notificationAuthGranted ? 0.5 : 1.0)
-                }
-            }
+            pushNotificationsSection
 
             Section("Debug") {
                 HStack {
@@ -254,6 +187,93 @@ struct DebugViewSection: View {
             Button("OK", role: .cancel) {}
         } message: { message in
             Text(message)
+        }
+    }
+
+    // MARK: - Body subviews
+    //
+    // Extracted from `body` so the section list stays under the project's
+    // 100ms warn-long-function-bodies budget. The two heaviest sections
+    // (Features with its inline closure-bound buttons and sheets, and Push
+    // Notifications with its HStack/VStack/ScrollView/Button nesting plus
+    // ternaries) tipped the type-checker over when inline.
+
+    @ViewBuilder
+    private var featuresSection: some View {
+        Section("Features") {
+            Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+
+            Toggle("Cloud Connections enabled", isOn: Bindable(FeatureFlags.shared).isCloudConnectionsEnabled)
+
+            let showInfoAction = { showingAssistantsInfoSheet = true }
+            Button(action: showInfoAction) {
+                Text("Show Assistants Info Sheet")
+            }
+            .selfSizingSheet(isPresented: $showingAssistantsInfoSheet) {
+                AssistantsInfoView(isConfirmation: true, onConfirm: {})
+                    .padding(.top, 20)
+            }
+
+            let testSafariAction = { showingSafariTestSheet = true }
+            Button(action: testSafariAction) {
+                Text("Test Safari Sheet in Sheet")
+            }
+            .sheet(isPresented: $showingSafariTestSheet) {
+                SafariTestSheet()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pushNotificationsSection: some View {
+        let authorizedText: String = notificationAuthGranted ? "Yes" : "No"
+        let requestNowOpacity: Double = notificationAuthGranted ? 0.5 : 1.0
+        Section(header: Text("Push Notifications")) {
+            HStack {
+                Text("Auth Status")
+                Spacer()
+                Text(statusText(notificationAuthStatus))
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Authorized")
+                Spacer()
+                Text(authorizedText)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Device Token")
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        Text(lastDeviceToken)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(.colorTextSecondary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Button {
+                        UIPasteboard.general.string = lastDeviceToken
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(lastDeviceToken.isEmpty)
+                }
+            }
+            HStack {
+                Text("APNS Environment")
+                Spacer()
+                Text(ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Button("Request Now") {
+                    Task { await requestNotificationsNow() }
+                }
+                .disabled(notificationAuthGranted)
+                .opacity(requestNowOpacity)
+            }
         }
     }
 }
