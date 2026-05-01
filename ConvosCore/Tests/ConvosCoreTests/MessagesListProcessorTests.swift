@@ -150,7 +150,8 @@ private func messageIds(from items: [MessagesListItemType]) -> [String] {
     }
 }
 
-/// Count item types
+// Count item types
+// swiftlint:disable:next large_tuple
 private func itemCounts(from items: [MessagesListItemType]) -> (dates: Int, groups: Int, updates: Int) {
     var dates = 0, groups = 0, updates = 0
     for item in items {
@@ -536,7 +537,7 @@ struct MessagesListProcessorLastGroupTests {
     }
 
     @Test("Last group sent by current user is marked")
-    func lastCurrentUserGroupMarked() {
+    func lastCurrentUserGroupMarked() throws {
         let now = Date()
         let messages = [
             makeMessage(id: "1", sender: currentUser, text: "My first", date: now),
@@ -551,10 +552,10 @@ struct MessagesListProcessorLastGroupTests {
         let currentUserGroups = g.filter { $0.sender.isCurrentUser }
         #expect(currentUserGroups.count == 2)
 
-        let lastCurrentUserGroup = currentUserGroups.last!
+        let lastCurrentUserGroup = try #require(currentUserGroups.last)
         #expect(lastCurrentUserGroup.isLastGroupSentByCurrentUser == true)
 
-        let firstCurrentUserGroup = currentUserGroups.first!
+        let firstCurrentUserGroup = try #require(currentUserGroups.first)
         #expect(firstCurrentUserGroup.isLastGroupSentByCurrentUser == false)
     }
 
@@ -856,7 +857,7 @@ struct MessagesListProcessorAssistantJoinTests {
             if case .assistantJoinStatus = $0 { return true }
             return false
         }
-        #expect(ajItems.count == 0)
+        #expect(ajItems.isEmpty)
     }
 
     @Test("Assistant join request hidden and joined update remains visible")
@@ -961,7 +962,7 @@ struct MessagesListProcessorAssistantJoinTests {
             if case .assistantJoinStatus = $0 { return true }
             return false
         }
-        #expect(ajItems.count == 0)
+        #expect(ajItems.isEmpty)
     }
 }
 
@@ -999,7 +1000,6 @@ struct MessagesListProcessorEdgeCaseTests {
         #expect(g[0].id == "group-first-msg")
     }
 
-
     @Test("Rapidly alternating senders with many messages")
     func rapidAlternatingSenders() {
         let now = Date()
@@ -1007,7 +1007,7 @@ struct MessagesListProcessorEdgeCaseTests {
         let messages = (0..<count).map { i in
             makeMessage(
                 id: "msg-\(i)",
-                sender: i % 2 == 0 ? otherUser : currentUser,
+                sender: i.isMultiple(of: 2) ? otherUser : currentUser,
                 text: "Msg \(i)",
                 date: now.addingTimeInterval(Double(i))
             )

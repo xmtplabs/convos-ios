@@ -10,7 +10,7 @@ struct LegacyDataWipeTests {
     // Keychain access group is only used for legacy v1/v2 delete attempts,
     // which return errSecItemNotFound in the test simulator keychain and
     // never contribute to the gate — safe to pass a dummy value.
-    private let legacyAccessGroup = "group.org.convos.tests.legacy-wipe"
+    private let legacyAccessGroup: String = "group.org.convos.tests.legacy-wipe"
 
     @Test("Fresh install: no artifacts, marker set on first run")
     func freshInstallMarkerSet() throws {
