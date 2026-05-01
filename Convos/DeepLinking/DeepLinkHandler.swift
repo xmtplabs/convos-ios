@@ -41,11 +41,27 @@ final class DeepLinkHandler {
             return nil
         }
 
-        guard isConnectionGrantURL(url) else {
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+
+        // Custom scheme: `convos://connections/grant?…` → host="connections", path="/grant"
+        let matchesCustomScheme = url.scheme == ConfigManager.shared.appUrlScheme
+            && url.host == "connections"
+            && pathComponents.first == "grant"
+
+        // Universal link: `https://<domain>/connections/grant?…` → path="/connections/grant"
+        let matchesHttps = url.scheme == "https"
+            && pathComponents.count >= 2
+            && pathComponents[0] == "connections"
+            && pathComponents[1] == "grant"
+
+        guard matchesCustomScheme || matchesHttps else {
             return nil
         }
 
-        guard let (service, conversationId) = connectionGrantParams(from: url) else {
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        guard let service = components?.queryItems?.first(where: { $0.name == "service" })?.value,
+              let conversationId = components?.queryItems?.first(where: { $0.name == "conversationId" })?.value else {
+            Log.warning("Connection grant deep link missing required query parameters")
             return nil
         }
 
@@ -60,35 +76,6 @@ final class DeepLinkHandler {
         }
 
         return .connectionGrant(serviceId: service, conversationId: conversationId)
-    }
-
-    /// Split out so `parseConnectionGrant`'s body stays under the
-    /// project's 100ms warn-long-function-bodies budget — chaining the
-    /// optional `String?` comparisons with `&&` otherwise tips the
-    /// type-checker over.
-    private static func isConnectionGrantURL(_ url: URL) -> Bool {
-        let pathComponents = url.pathComponents.filter { $0 != "/" }
-
-        if url.scheme == ConfigManager.shared.appUrlScheme,
-           url.host == "connections",
-           pathComponents.first == "grant" {
-            return true
-        }
-
-        guard url.scheme == "https", pathComponents.count >= 2 else {
-            return false
-        }
-        return pathComponents[0] == "connections" && pathComponents[1] == "grant"
-    }
-
-    private static func connectionGrantParams(from url: URL) -> (service: String, conversationId: String)? {
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        guard let service = components?.queryItems?.first(where: { $0.name == "service" })?.value,
-              let conversationId = components?.queryItems?.first(where: { $0.name == "conversationId" })?.value else {
-            Log.warning("Connection grant deep link missing required query parameters")
-            return nil
-        }
-        return (service, conversationId)
     }
 
     private static let maxConversationIdLength: Int = 256

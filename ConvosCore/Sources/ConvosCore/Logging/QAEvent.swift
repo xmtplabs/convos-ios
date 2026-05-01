@@ -3,7 +3,6 @@ import Foundation
 public enum QAEvent {
     public enum Category: String {
         case app
-        case backup
         case conversation
         case invite
         case member

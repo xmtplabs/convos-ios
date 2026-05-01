@@ -8,9 +8,9 @@ import Security
 /// whether the current install has already been wiped, so the routine runs at
 /// most once per install generation. Bump `currentGeneration` to force a
 /// re-wipe on next launch when the on-disk format changes incompatibly.
-public enum LegacyDataWipe {
+enum LegacyDataWipe {
     /// Current schema generation. Bump when a schema change requires a wipe.
-    public static let currentGeneration: String = "v1-single-inbox"
+    static let currentGeneration: String = "single-inbox-v2"
 
     private static let schemaGenerationKey: String = "convos.schemaGeneration"
 

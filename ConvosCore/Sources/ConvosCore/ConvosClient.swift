@@ -9,11 +9,10 @@ import GRDB
 /// configuration. The client coordinates between the SessionManager (which handles
 /// multiple messaging service instances) and the DatabaseManager (which provides
 /// persistent storage).
-public final class ConvosClient: @unchecked Sendable {
+public final class ConvosClient {
     private let sessionManager: any SessionManagerProtocol
     private let databaseManager: any DatabaseManagerProtocol
-    public let environment: AppEnvironment
-    public let identityStore: any KeychainIdentityStoreProtocol
+    private let environment: AppEnvironment
     public let expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
     public let scheduledExplosionManager: ScheduledExplosionManagerProtocol?
     public let platformProviders: PlatformProviders
@@ -44,7 +43,6 @@ public final class ConvosClient: @unchecked Sendable {
             sessionManager: sessionManager,
             databaseManager: databaseManager,
             environment: .tests,
-            identityStore: identityStore,
             expiredConversationsWorker: nil,
             scheduledExplosionManager: nil,
             platformProviders: platformProviders
@@ -58,7 +56,6 @@ public final class ConvosClient: @unchecked Sendable {
             sessionManager: sessionManager,
             databaseManager: databaseManager,
             environment: .tests,
-            identityStore: MockKeychainIdentityStore(),
             expiredConversationsWorker: nil,
             scheduledExplosionManager: nil,
             platformProviders: platformProviders
@@ -69,7 +66,6 @@ public final class ConvosClient: @unchecked Sendable {
         sessionManager: any SessionManagerProtocol,
         databaseManager: any DatabaseManagerProtocol,
         environment: AppEnvironment,
-        identityStore: any KeychainIdentityStoreProtocol,
         expiredConversationsWorker: ExpiredConversationsWorkerProtocol?,
         scheduledExplosionManager: ScheduledExplosionManagerProtocol?,
         platformProviders: PlatformProviders
@@ -77,81 +73,8 @@ public final class ConvosClient: @unchecked Sendable {
         self.sessionManager = sessionManager
         self.databaseManager = databaseManager
         self.environment = environment
-        self.identityStore = identityStore
         self.expiredConversationsWorker = expiredConversationsWorker
         self.scheduledExplosionManager = scheduledExplosionManager
         self.platformProviders = platformProviders
-    }
-
-    /// Builds a `BackupManager` bound to the live session's client. Returns
-    /// nil when the client isn't ready yet — `BackupScheduler` treats that
-    /// as "skip, no identity yet."
-    ///
-    /// Constructed on demand rather than cached so a restore that rebuilds
-    /// the cached service doesn't leave the scheduler holding a stale
-    /// client resolver.
-    public func makeBackupManager() -> BackupManager {
-        let service = sessionManager.messagingService()
-        let archiveProvider = ConvosBackupArchiveProvider { [weak service] () async throws -> (any XMTPClientProvider)? in
-            guard let service else { return nil }
-            let result = try await service.sessionStateManager.waitForInboxReadyResult()
-            return result.client
-        }
-        return BackupManager(
-            identityStore: identityStore,
-            archiveProvider: archiveProvider,
-            databaseReader: databaseManager.dbReader,
-            deviceInfo: platformProviders.deviceInfo,
-            environment: environment
-        )
-    }
-
-    /// Current conversation count in the local DB. Drives the UI's
-    /// `canBackUp` gate — we refuse to produce an empty bundle that
-    /// would overwrite the last-good backup in iCloud.
-    public func conversationCount() async -> Int {
-        (try? await databaseManager.dbReader.read { db in
-            try DBConversation.fetchCount(db)
-        }) ?? 0
-    }
-
-    /// True when this install has previously authorized an inbox —
-    /// i.e. there is at least one `DBInbox` row. Lets the app-layer
-    /// tell "fresh install, show restore prompt" from "existing user,
-    /// just boot the session". An identity being present in iCloud
-    /// Keychain is not enough — a brand-new device will see the
-    /// identity synced from another phone but will still have zero
-    /// DBInbox rows until it registers a new installation.
-    public func hasAnyUsedInbox() async -> Bool {
-        (try? await databaseManager.dbReader.read { db in
-            try DBInbox.fetchCount(db) > 0
-        }) ?? false
-    }
-
-    /// Builds a `RestoreManager` bound to this client's identity store +
-    /// database manager. Lifecycle controller defaults to the live
-    /// `SessionManager` if it conforms (it does).
-    public func makeRestoreManager() -> RestoreManager {
-        let lifecycleController = sessionManager as? any RestoreLifecycleControlling
-        let environment = environment
-        let revoker: RestoreInstallationRevoker = { inboxId, signingKey, keepId in
-            try await XMTPInstallationRevoker.revokeOtherInstallations(
-                inboxId: inboxId,
-                signingKey: signingKey,
-                keepInstallationId: keepId,
-                environment: environment
-            )
-        }
-        return RestoreManager(
-            identityStore: identityStore,
-            databaseManager: databaseManager,
-            archiveImporter: ConvosRestoreArchiveImporter(
-                environment: environment,
-                databaseReader: databaseManager.dbReader
-            ),
-            lifecycleController: lifecycleController,
-            installationRevoker: revoker,
-            environment: environment
-        )
     }
 }

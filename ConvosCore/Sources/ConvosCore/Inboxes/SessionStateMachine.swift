@@ -579,8 +579,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        try await assertInstallationActive(client: client)
-
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
 
@@ -665,16 +663,18 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Deliberately do NOT delete the keychain identity. It is
-        // stored with `kSecAttrSynchronizable: true`, so a delete
-        // would propagate via iCloud Keychain and erase the key from
-        // every paired device — making every existing backup bundle
-        // mathematically unrecoverable. We only wipe local data; the
-        // synced identity slot stays intact so the user can restore
-        // or re-register against the same inbox on this device, and
-        // other devices are unaffected.
-        deleteDatabaseFiles()
-        Log.info("Deleted inbox with clientId \(initialClientId) (local data only; keychain identity preserved)")
+        // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
+        let priorIdentity = try? await identityStore.load()
+        try? await identityStore.delete()
+        if let priorIdentity, priorIdentity.clientId == initialClientId {
+            Log.debug("Deleted identity from keychain for clientId: \(initialClientId)")
+            deleteDatabaseFiles()
+        } else if inboxId != nil {
+            Log.debug("Identity absent or not matching clientId: \(initialClientId), continuing cleanup")
+            deleteDatabaseFiles()
+        }
+
+        Log.info("Deleted inbox with clientId \(initialClientId)")
     }
 
     private func handleStop() async throws {
@@ -725,12 +725,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("App entering foreground, resuming sync for clientId \(initialClientId)...")
 
         try await result.client.reconnectLocalDatabase()
-        do {
-            try await assertInstallationActive(client: result.client)
-        } catch {
-            try? result.client.dropLocalDatabaseConnection()
-            throw error
-        }
 
         await startNetworkMonitoring()
         await syncingManager?.resume()
@@ -741,17 +735,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleRetryFromError() async throws {
         try Task.checkCancellation()
-
-        // Terminal errors cannot be recovered by retry — the observer
-        // layer (banners, reset UI) is the only path out. Retrying here
-        // burns the counter silently and, if a retry happens to succeed
-        // by coincidence (e.g. a background refresh updated the keychain
-        // between attempts), lands the session in .ready without the
-        // reset banner ever appearing.
-        if case let .error(error) = _state, error is TerminalSessionError {
-            Log.info("Not retrying terminal error: \(type(of: error))")
-            return
-        }
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
             Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
@@ -803,11 +786,9 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        // Deliberately do NOT delete the keychain identity here. See
-        // `handleDelete` for the full rationale: the identity slot is
-        // synchronizable, so deleting it would cascade via iCloud
-        // Keychain to every paired device and orphan every existing
-        // backup bundle.
+        // Identity deletion is idempotent — safe to retry if a previous attempt failed partway through.
+        try? await identityStore.delete()
+        Log.debug("Deleted identity from keychain (clientId: \(initialClientId))")
 
         try Task.checkCancellation()
 
@@ -993,27 +974,6 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private static let backendAuthMaxRetries: Int = 3
     private static let backendAuthBaseDelay: UInt64 = 2_000_000_000
-
-    private func assertInstallationActive(client: any XMTPClientProvider) async throws {
-        // If a peer device ran restore and revoked this installation in the
-        // tail of its flow, surface the replacement rather than quietly hand
-        // the user a session whose inbox writes will all bounce.
-        if await XMTPInstallationStateChecker.isInstallationActive(
-            inboxId: client.inboxId,
-            installationId: client.installationId,
-            environment: environment
-        ) {
-            return
-        }
-        Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
-        do {
-            try await ConversationLocalStateWriter(databaseWriter: databaseWriter)
-                .markAllConversationsInactive()
-        } catch {
-            Log.warning("SessionStateMachine: failed to mark conversations inactive on device replacement: \(error)")
-        }
-        throw DeviceReplacedError()
-    }
 
     private func authenticateBackend() async throws {
         try Task.checkCancellation()
