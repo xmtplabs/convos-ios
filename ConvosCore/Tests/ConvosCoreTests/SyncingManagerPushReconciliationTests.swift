@@ -176,7 +176,7 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         let topics: [String]
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
+    private let state: OSAllocatedUnfairLock<[SubscribeCall]> = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
 
     var subscribeCalls: [SubscribeCall] {
         state.withLock { $0 }

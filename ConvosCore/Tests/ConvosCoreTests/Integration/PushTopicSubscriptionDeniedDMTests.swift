@@ -138,14 +138,17 @@ private final class ThrowawayPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         let topics: [String]
     }
 
-    private let lock = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
+    private let lock: OSAllocatedUnfairLock<[SubscribeCall]> = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
 
     var subscribeCalls: [SubscribeCall] {
         lock.withLock { $0 }
     }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        URLRequest(url: URL(string: "https://example.com")!)
+        guard let url = URL(string: "https://example.com") else {
+            throw URLError(.badURL)
+        }
+        return URLRequest(url: url)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {}

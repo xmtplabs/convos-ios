@@ -150,26 +150,26 @@ struct LinkPreviewDetectionTests {
     }
 
     @Test("Rejects IPv6 loopback")
-    func rejectsIPv6Loopback() {
-        let url = URL(string: "https://[::1]/admin")!
+    func rejectsIPv6Loopback() throws {
+        let url = try #require(URL(string: "https://[::1]/admin"))
         #expect(LinkPreview.isPrivateHost(url))
     }
 
     @Test("Rejects IPv6 link-local")
-    func rejectsIPv6LinkLocal() {
-        let url = URL(string: "https://[fe80::1]/page")!
+    func rejectsIPv6LinkLocal() throws {
+        let url = try #require(URL(string: "https://[fe80::1]/page"))
         #expect(LinkPreview.isPrivateHost(url))
     }
 
     @Test("Rejects IPv6 unique local (fc/fd)")
-    func rejectsIPv6UniqueLocal() {
-        let url = URL(string: "https://[fd12:3456::1]/page")!
+    func rejectsIPv6UniqueLocal() throws {
+        let url = try #require(URL(string: "https://[fd12:3456::1]/page"))
         #expect(LinkPreview.isPrivateHost(url))
     }
 
     @Test("Allows public IPv6")
-    func allowsPublicIPv6() {
-        let url = URL(string: "https://[2607:f8b0:4004:800::200e]/")!
+    func allowsPublicIPv6() throws {
+        let url = try #require(URL(string: "https://[2607:f8b0:4004:800::200e]/"))
         #expect(!LinkPreview.isPrivateHost(url))
     }
 }
