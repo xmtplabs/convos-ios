@@ -66,9 +66,6 @@ enum ConversationOnboardingState: Equatable {
     /// Autodismissed success state after saving first Quickname
     case savedAsQuicknameSuccess
 
-    /// Show "Tap to chat as [Name]" with the user's quickname
-    case addQuickname(settings: ProfileSettings, profileImage: UIImage?)
-
     /// Ask user to allow notifications (undetermined state)
     case requestNotifications
 
@@ -78,7 +75,6 @@ enum ConversationOnboardingState: Equatable {
     /// Notifications denied, prompt to change in settings
     case notificationsDenied
 
-    static let addQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
     // how long we wait before showing the description string
@@ -87,8 +83,6 @@ enum ConversationOnboardingState: Equatable {
     /// Returns the autodismiss duration for this state, or nil if autodismiss is not enabled
     var autodismissDuration: CGFloat? {
         switch self {
-        case .addQuickname:
-            return Self.addQuicknameViewDuration
         case .savedAsQuicknameSuccess:
             return Self.savedAsQuicknameSuccessDuration
         case .notificationsEnabled:
@@ -261,8 +255,6 @@ final class ConversationOnboardingCoordinator {
 
             // Transition to next state based on current state
             switch state {
-            case .addQuickname:
-                await addQuicknameDidAutoDismiss()
             case .savedAsQuicknameSuccess:
                 await transitionAfterQuickname()
             case .notificationsEnabled:
@@ -371,13 +363,13 @@ final class ConversationOnboardingCoordinator {
             state = .setupQuickname
             QAEvent.emit(.onboarding, "setup_quickname", ["reason": "no_quickname"])
             handleStateChange()
-        } else if !hasSetQuicknameForConversation {
-            let profileImage = profileSettings.profileImage
-            state = .addQuickname(settings: profileSettings, profileImage: profileImage)
-            QAEvent.emit(.onboarding, "add_quickname", ["name": profileSettings.profile.displayName])
-            handleStateChange()
         } else {
-            QAEvent.emit(.onboarding, "quickname_skipped", ["reason": "already_set"])
+            if !hasSetQuicknameForConversation {
+                setHasSetQuickname(true, for: conversationId)
+                QAEvent.emit(.onboarding, "quickname_auto_applied", ["name": profileSettings.profile.displayName])
+            } else {
+                QAEvent.emit(.onboarding, "quickname_skipped", ["reason": "already_set"])
+            }
             await transitionAfterQuickname()
         }
     }
@@ -399,10 +391,7 @@ final class ConversationOnboardingCoordinator {
 
     /// User tapped to set up their quickname (opens profile editor)
     func didTapProfilePhoto() {
-        guard case .setupQuickname = state else {
-            skipAddQuickname()
-            return
-        }
+        guard case .setupQuickname = state else { return }
         hasShownQuicknameEditor = true
         shouldAnimateAvatarForQuicknameSetup = false
         state = .settingUpQuickname
@@ -425,19 +414,6 @@ final class ConversationOnboardingCoordinator {
         if let conversationId = currentConversationId {
             setHasSetQuickname(true, for: conversationId)
         }
-        await transitionAfterQuickname()
-    }
-
-    func skipAddQuickname() {
-        guard case .addQuickname = state else { return }
-        QAEvent.emit(.onboarding, "quickname_dismissed", ["reason": "user"])
-        Task {
-            await transitionAfterQuickname()
-        }
-    }
-
-    private func addQuicknameDidAutoDismiss() async {
-        QAEvent.emit(.onboarding, "quickname_dismissed", ["reason": "auto"])
         await transitionAfterQuickname()
     }
 

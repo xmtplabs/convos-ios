@@ -28,4 +28,10 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
             throw publishError
         }
     }
+
+    public var syncedConversationIds: [String] = []
+
+    public func syncFromGlobalProfile(conversationId: String) async throws {
+        syncedConversationIds.append(conversationId)
+    }
 }

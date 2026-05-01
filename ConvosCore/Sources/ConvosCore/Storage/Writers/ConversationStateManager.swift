@@ -167,6 +167,22 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         default:
             break
         }
+
+        if case .ready(let result) = state {
+            scheduleProfileSync(for: result.conversationId)
+        }
+    }
+
+    private func scheduleProfileSync(for conversationId: String) {
+        guard !DBConversation.isDraft(id: conversationId) else { return }
+        let writer = myProfileWriter
+        Task.detached {
+            do {
+                try await writer.syncFromGlobalProfile(conversationId: conversationId)
+            } catch {
+                Log.warning("Failed to sync global profile to conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - DraftConversationWriterProtocol Methods

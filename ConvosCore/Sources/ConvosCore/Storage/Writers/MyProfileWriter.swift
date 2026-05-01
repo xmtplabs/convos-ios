@@ -10,6 +10,9 @@ public protocol MyProfileWriterProtocol {
     /// Use this when the caller needs to know whether the ProfileUpdate reached the network
     /// (e.g. to roll back a dependent local write).
     func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws
+    /// Reads `DBMyProfile` and writes/publishes any fields that differ from this group's
+    /// `DBMemberProfile`. No-op when nothing is set yet or the group already matches.
+    func syncFromGlobalProfile(conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
@@ -184,6 +187,33 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         await sendProfileUpdate(profile: updatedProfile, group: group)
+    }
+
+    func syncFromGlobalProfile(conversationId: String) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxId = inboxReady.client.inboxId
+
+        let global = try await databaseWriter.read { db in
+            try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db)
+        }
+        guard let global else { return }
+
+        let member = try await databaseWriter.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+        }
+
+        let normalizedGlobalName: String? = (global.name?.isEmpty ?? true) ? nil : global.name
+        if normalizedGlobalName != member?.name {
+            try await update(displayName: normalizedGlobalName ?? "", conversationId: conversationId)
+        }
+
+        if let imageData = global.imageData, member?.avatar == nil {
+            if let image = ImageType(data: imageData) {
+                try await update(avatar: image, conversationId: conversationId)
+            }
+        }
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {

@@ -45,22 +45,6 @@ struct ConversationOnboardingView: View {
                 SetupQuicknameSuccessView()
                     .transition(.blurReplace)
 
-            case let .addQuickname(settings, profileImage):
-                AddQuicknameView(
-                    profile: .constant(settings.profile),
-                    profileImage: .constant(profileImage),
-                    onUseProfile: { profile, image in
-                        onUseQuickname(profile, image)
-                        Task {
-                            await coordinator.didSelectQuickname()
-                        }
-                    },
-                    onDismiss: {
-                        coordinator.skipAddQuickname()
-                    }
-                )
-                .transition(.blurReplace)
-
             case .requestNotifications,
                     .notificationsEnabled,
                     .notificationsDenied:
@@ -185,27 +169,6 @@ struct ConversationOnboardingView: View {
     )
     .onAppear {
         coordinator.state = .setupQuickname
-    }
-    .padding()
-}
-
-#Preview("Add Quickname") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
-        onPresentProfileSettings: {}
-    )
-    .onAppear {
-        coordinator.state = .addQuickname(
-            settings: ProfileSettings.defaultSettings,
-            profileImage: nil
-        )
     }
     .padding()
 }

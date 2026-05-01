@@ -24,6 +24,7 @@ struct MessagesInputView: View {
     let animateAvatarForQuickname: Bool
     let messagesTextFieldEnabled: Bool
     let isCollapsed: Bool
+    let canEditProfile: Bool
     private let focused: MessagesViewInputFocus = .message
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
@@ -76,7 +77,9 @@ struct MessagesInputView: View {
         .task(id: animateAvatarForQuickname) {
             updateAnimation()
         }
+        .disabled(!canEditProfile)
         .hoverEffect(.lift)
+        .hoverEffectDisabled(!canEditProfile)
         .accessibilityLabel("Edit your profile")
         .accessibilityIdentifier("profile-avatar-button")
     }
@@ -592,6 +595,7 @@ private struct ComposerSideConvoCard: View {
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
             isCollapsed: true,
+            canEditProfile: true,
             onProfilePhotoTap: {},
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil }

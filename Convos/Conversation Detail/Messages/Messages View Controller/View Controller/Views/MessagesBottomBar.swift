@@ -293,6 +293,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 isCollapsed: !isMessageInputFocused,
+                canEditProfile: profileSettings.profileSettings.isDefault,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
@@ -326,7 +327,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             focusState: $focusState,
             focused: .displayName,
             settingsSymbolName: "lanyardcard.fill",
-            showsSettingsButton: !profileSettings.profileSettings.isDefault && !onboardingCoordinator.isSettingUpQuickname,
+            showsSettingsButton: false,
             onSubmit: onDisplayNameEndedEditing,
             onSettings: onProfileSettings
         )
