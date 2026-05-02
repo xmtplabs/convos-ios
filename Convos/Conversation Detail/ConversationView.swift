@@ -20,6 +20,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingAssistantsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
+    #if DEBUG
+    @State private var showingDebugInjector: Bool = false
+    #endif
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private var showPullToAddAssistant: Bool {
@@ -134,6 +137,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onConvosAction: { viewModel.onConvosButtonTapped() },
+            onDebugAttachmentTap: debugAttachmentTapHandler,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     if showPullToAddAssistant {
@@ -252,6 +256,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .accessibilityIdentifier("scan-invite-button")
     }
 
+    private var debugAttachmentTapHandler: (() -> Void)? {
+        #if DEBUG
+        return { showingDebugInjector = true }
+        #else
+        return nil
+        #endif
+    }
+
+    private var debugInjectorBinding: Binding<Bool> {
+        #if DEBUG
+        return $showingDebugInjector
+        #else
+        return .constant(false)
+        #endif
+    }
+
     var body: some View {
         messagesView
         .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
@@ -292,6 +312,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
         }
         .toolbar { topBarTrailing }
+        .debugConnectionInjectorSheet(
+            isPresented: debugInjectorBinding,
+            conversationId: viewModel.conversation.id,
+            messagingService: viewModel.messagingService
+        )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,

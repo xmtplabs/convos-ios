@@ -2,6 +2,7 @@
 import UIKit
 #endif
 import Combine
+import ConvosConnections
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -151,6 +152,9 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
+    }
+
+    public func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
     }
 }
 
