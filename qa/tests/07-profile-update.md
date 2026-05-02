@@ -55,9 +55,17 @@ Join two CLI-created conversations from the app. Name them "Profile Test A" and 
 
 ### Per-conversation profile isolation
 
+> The edits in steps 4–14 must use the **per-conversation** editor reached
+> from conversation info (the avatar/profile area inside the info view),
+> not the App Settings → My Info global editor. The conversation-info
+> editor only writes the per-conversation `DBMemberProfile`. Edits made
+> through App Settings → My Info would update the global profile and
+> propagate to every conversation on next activation (activate-sync) —
+> see test 14 for that flow.
+
 19. Navigate back to the conversations list.
 20. Open "Profile Test B".
-21. Verify the display name in "Profile Test B" is still the original name — NOT "Updated QA Name". Profile changes in one conversation must not affect other conversations.
+21. Verify the display name in "Profile Test B" is still the original name — NOT "Updated QA Name". Per-conversation profile changes must not affect other conversations.
 22. Send a message in "Profile Test B" and verify the original name appears.
 
 ## Teardown

@@ -1,73 +1,66 @@
-# Test: Profile Flow
+# Test: Global Profile + Activate-Sync
 
-Verify that the profile feature works end-to-end: setting up a profile, having it auto-applied to new conversations, editing per-conversation identity via the quick edit view, and overriding with the profile from the My Info view.
+Verify the global profile model end-to-end:
+
+1. The user's global profile (display name + avatar) auto-applies to **new** conversations.
+2. Editing the global profile in App Settings → My Info propagates to **existing** conversations the next time each one becomes active (activate-sync).
+3. The avatar shown in an old conversation does not flicker through the stale cached photo when the global has just changed.
+
+The "Tap to chat as X" pill, the standalone Quickname preset, the post-save "new you in every convo" sheet, and the per-conversation "Use" override button no longer exist.
 
 ## Prerequisites
 
-- The app is running and has a profile already set up (from the onboarding flow or a previous session).
+- The app is running and a global profile is already set (run test 01 first if not).
 - The convos CLI is initialized for the dev environment.
-- If no profile is set up, set one up first by creating a conversation and going through the onboarding flow.
-
-Note the profile display name and avatar before starting. These will be verified throughout the test.
 
 ## Steps
 
-### Part 1: Profile auto-applied on new conversation
+### Part 1: Global profile auto-applies to new conversations
 
-1. Create a new conversation via the CLI with a name like "Profile Test" and a profile name for the CLI user.
-2. Generate an invite and open it as a deep link in the app. Wait 2-3 seconds for the app to send the join request.
-3. Start the CLI `process-join-requests` command **in the background** (append `&` in bash) and **in the same parallel call block**, use `sim_tap_id` with identifier `"Tap to chat"` and `retries: 30` to find-and-tap the profile pill in one atomic operation. The pill appears as soon as the conversation becomes ready (during join processing) and auto-dismisses after ~8 seconds. The background CLI command and the `sim_tap_id` must be issued simultaneously so polling starts before the pill appears. Do not use `sim_wait_for_element` followed by a separate tap — the pill will auto-dismiss between the two calls.
-4. After the pill is tapped, take a screenshot and verify:
-   - The composer area shows the profile avatar next to the text field.
-   - The text field placeholder says "Chat as <profile display name>".
-7. Send a message from the app.
-8. Verify the sent message appears with the profile display name.
-9. Use the CLI to check the member profiles for the conversation. Verify the app user's profile shows the profile display name.
+1. Note the current global profile name and avatar (visible in App Settings → My Info).
+2. Create a new conversation via the CLI with a name like "Profile Test A" and a profile name for the CLI user.
+3. Generate an invite and open it as a deep link in the app. Wait 2–3 seconds for the join request to send.
+4. Run the CLI `process-join-requests` command and let it complete. The conversation reaches `.ready` in the app silently — there is no "Tap to chat" pill to dismiss.
+5. Verify the composer placeholder shows "Chat as &lt;global display name&gt;" and the avatar next to the composer is the global avatar.
+6. Send a message from the app and verify the sent message renders with the global display name and avatar.
+7. Use the CLI to inspect the conversation profiles. The app user's profile should show the global display name and an avatar URL.
 
-### Part 2: Edit display name via quick edit
+### Part 2: Edit the global profile from App Settings
 
-10. Tap the avatar button next to the message composer. This should open the quick edit view — a capsule-shaped editor with a photo picker, a text field for the display name, a lanyard button for settings, and a checkmark done button.
-11. Verify the quick edit view is visible. The text field should show the current display name.
-12. Clear the display name and type a new name like "Custom Name".
-13. Tap the done button (checkmark) to save.
-14. Verify the composer now shows "Chat as Custom Name" in the placeholder.
-15. Send a message and verify it appears with "Custom Name" as the sender.
-16. Use the CLI to check profiles — the app user's name should now be "Custom Name".
+8. From the conversations list, tap the Convos settings button (top-left) to open App Settings.
+9. Verify the "My info" row shows the lanyard icon, the text "My info", and the current global display name and avatar on the right side. There is **no** footer about "Private unless you choose to share" or "stored on your device".
+10. Tap the "My info" row. The My Info view opens.
+11. Change the global display name to "Updated QA Name".
+12. Optionally change the avatar via the photo picker. The picker pre-selects the current avatar.
+13. Navigate back to App Settings. The "My info" row should now show "Updated QA Name" and the new avatar.
 
-### Part 3: Override with profile from My Info view
+### Part 3: Updated global propagates to a NEW conversation
 
-17. Tap the avatar button again to open the quick edit view.
-18. Tap the lanyard button (the settings button with the lanyard icon). This should open the My Info view as a sheet.
-19. In the My Info view, verify:
-    - There is a section showing how you appear in the current convo (with the "Custom Name" you set in Part 2).
-    - There is a profile section showing your saved profile with a "Use" button.
-20. Tap the "Use" button next to the profile.
-21. The button should change to a checkmark to confirm.
-22. Dismiss the My Info view.
-23. Verify the composer now shows "Chat as <profile display name>" (back to the profile).
-24. Send a message and verify it appears with the profile display name.
-25. Use the CLI to verify the profile was updated back to the profile.
+14. Create another conversation via the CLI with a name like "Profile Test B".
+15. Generate an invite and open it as a deep link. Wait 2–3 seconds.
+16. Run `process-join-requests` and let it complete.
+17. Verify the composer placeholder shows "Chat as Updated QA Name" and the new avatar.
+18. Send a message and verify it renders with the new name and avatar.
+19. Use the CLI to verify the app user's profile in this conversation shows "Updated QA Name" and an avatar URL.
 
-### Part 4: Edit profile from App Settings
+### Part 4: Activate-sync propagates to an EXISTING conversation
 
-26. Navigate back to the conversations list.
-27. Tap the Convos settings button (top-left corner) to open App Settings.
-28. In App Settings, find the "My info" row. It should show the lanyard icon, the text "My info", and the current profile display name and avatar on the right side.
-29. Tap the "My info" row. This should navigate to the My Info view with the profile editable.
-30. Change the profile display name to something new like "Updated QN".
-31. Optionally change the profile avatar using the photo picker.
-32. Navigate back to App Settings. The "My info" row should now show the updated profile name.
-33. Dismiss App Settings.
+This is the new behavior introduced with the global profile model. Existing conversations pick up the new global the next time they become active.
 
-### Part 5: Verify updated profile in a new conversation
+20. Open conversation "Profile Test A" (created in Part 1).
+21. Verify the avatar on the user's own messages updates to the new avatar **without flickering through the old cached avatar**. (The in-memory global is shown immediately while the per-conversation row syncs in the background.)
+22. Verify the composer placeholder updates to "Chat as Updated QA Name".
+23. Send a message and verify it renders with the new name and avatar.
+24. Use the CLI to inspect "Profile Test A" profiles. Verify the app user's profile has been updated to the new name and that the avatar URL has changed (new upload).
+25. The "Only visible to you" sender preview avatar (when a message is in-flight) should also show the new avatar — not the old one.
 
-34. Create another conversation via the CLI with a different name like "Profile Persist Test".
-35. Generate an invite and open it as a deep link. Wait 2-3 seconds for the app to send the join request.
-36. Start the CLI `process-join-requests` command **in the background** (append `&`) and **in the same parallel call block**, use `sim_tap_id` with identifier `"Tap to chat"` and `retries: 30` to find-and-tap the profile pill atomically.
-37. Verify the tap result label contains the updated profile display name ("Updated QN" or whatever was set in Part 4).
-38. Verify the composer shows "Chat as Updated QN".
-39. Send a message and verify it appears with the updated profile display name.
-40. Use the CLI to check profiles — the app user's name should be the updated profile.
+### Part 5: Per-conversation override is preserved (regression check)
+
+26. From "Profile Test A", open the conversation info view.
+27. Tap the user's own avatar/profile area to enter the per-conversation editor and change ONLY the per-conversation display name to "A-only Name". Save.
+28. Verify the composer in "Profile Test A" now shows "Chat as A-only Name".
+29. Open App Settings → My Info and confirm the global is **still** "Updated QA Name" — the per-conversation edit must not have overwritten the global.
+30. Open "Profile Test B" and verify it still shows "Chat as Updated QA Name" — the per-conversation edit must not have leaked to other conversations.
 
 ## Teardown
 
@@ -75,20 +68,34 @@ Explode all conversations created during this test via the CLI.
 
 ## Pass/Fail Criteria
 
-- [ ] Profile pill appears above the composer when entering a new conversation
-- [ ] Profile pill shows the correct display name and avatar
-- [ ] After applying the profile, the composer shows "Chat as <display name>"
-- [ ] Messages sent with the profile show the correct display name
-- [ ] Profile is visible to other participants via CLI
-- [ ] Quick edit view opens when tapping the avatar
-- [ ] Display name can be changed via the quick edit view
-- [ ] Changed display name is reflected in the composer and sent messages
-- [ ] Lanyard button in quick edit opens the My Info view
-- [ ] My Info view shows the current convo identity and the profile
-- [ ] "Use" button in My Info applies the profile to the current conversation
-- [ ] Profile override is reflected in the composer and sent messages
-- [ ] App Settings "My info" row shows the current profile
-- [ ] Profile can be edited from App Settings My Info view
-- [ ] Updated profile appears in App Settings row after saving
-- [ ] Updated profile pill appears in a new conversation with the new name
-- [ ] Updated profile is applied correctly to the new conversation
+### Part 1 — Auto-apply to new conversations
+
+- [ ] No "Tap to chat" pill appears (the pill UI is gone)
+- [ ] Composer shows "Chat as &lt;global display name&gt;" and the global avatar in a fresh conversation
+- [ ] Sent messages render with the global display name and avatar
+- [ ] CLI shows the global profile (name + avatar URL) in the conversation member profiles
+
+### Part 2 — Edit global from App Settings
+
+- [ ] App Settings "My info" row reflects the current global profile
+- [ ] No "Private unless you choose to share" footer is shown
+- [ ] My Info view edits the global profile
+- [ ] App Settings row updates immediately after saving
+
+### Part 3 — New conversation picks up updated global
+
+- [ ] Composer shows the updated global name + avatar in the next new conversation
+- [ ] CLI shows the updated profile in that conversation
+
+### Part 4 — Activate-sync for existing conversations
+
+- [ ] Existing conversation's composer updates to the new global name
+- [ ] Avatar updates to the new global without flickering through the stale cached photo
+- [ ] CLI shows the updated profile in the existing conversation after activation
+- [ ] The "Only visible to you" sender-preview avatar shows the new avatar
+
+### Part 5 — Per-conversation override preserved
+
+- [ ] Editing display name from conversation info only affects that conversation
+- [ ] Global profile in App Settings is unchanged
+- [ ] Other conversations still show the global name

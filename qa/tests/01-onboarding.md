@@ -27,17 +27,13 @@ Verify that a first-time user can launch the app, create a conversation, and com
 8. As soon as the element is found, tap it immediately using `sim_tap_id` with identifier `setup-profile-button`.
 9. The quick-edit profile editor should appear. Enter a display name like "QA Tester" in `quick-edit-display-name-field`.
 10. Tap `quick-edit-done-button` to save.
-11. A "Profile saved" confirmation screen appears with identity explanation and "Continue" button.
-
-### Continue past profile confirmation
-
-12. Tap "Continue" on the profile confirmation screen. This must be done before the notification prompt will appear.
+11. A small "Profile saved" pill appears briefly above the composer and auto-dismisses after ~3 seconds. There is no "Continue" button — the flow advances automatically.
 
 ### Notification permission
 
-13. After tapping Continue, a custom notification prompt appears with `notification-permission-button` ("Notify me of new messages"). Tap it.
-14. The system notification permission dialog appears (Allow / Don't Allow). Tap either option.
-15. The onboarding flow should complete and the conversation view should be fully usable.
+12. After the "Profile saved" pill auto-dismisses, a custom notification prompt appears with `notification-permission-button` ("Notify me of new messages"). Tap it.
+13. The system notification permission dialog appears (Allow / Don't Allow). Tap either option.
+14. The onboarding flow should complete and the conversation view should be fully usable.
 
 ### Verify post-onboarding state
 
