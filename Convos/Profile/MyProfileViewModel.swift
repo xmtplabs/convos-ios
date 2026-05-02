@@ -69,25 +69,28 @@ class MyProfileViewModel {
 
     /// Returns the image to display for the current user in this conversation.
     ///
-    /// Prefers the in-memory global image when one of:
-    ///   - The per-conversation member has no avatar yet (nothing to show otherwise).
-    ///   - The per-conversation member's `imageSourceContentDigest` matches the current
-    ///     global digest, meaning the per-conversation avatar was uploaded *from* the same
-    ///     global photo we hold in memory. In that case the in-memory image is identical
-    ///     to what the per-conversation cache would eventually load, and using it directly
-    ///     avoids the flicker between an old cached image and a new uploaded one while
-    ///     activate-sync replaces the per-conversation avatar.
-    /// Otherwise falls back to the per-conversation cache, preserving any future
-    /// per-conversation override.
+    /// Per-conversation profiles can hold either a *synced* avatar (uploaded from the
+    /// user's global photo, so `imageSourceContentDigest` is set) or a *per-conversation
+    /// override* (the user picked a different photo just for this conversation, so
+    /// `imageSourceContentDigest` is nil).
+    ///
+    /// - No per-conversation avatar → fall through to the global (if any).
+    /// - Per-conversation override (digest nil) → keep the per-conversation cache; the
+    ///   user explicitly chose a different photo here.
+    /// - Synced per-conversation avatar (digest set) → prefer the in-memory global
+    ///   image. If the digests already match, this just avoids an async cache fetch.
+    ///   If they differ, the global is newer (the user just changed it) and
+    ///   activate-sync will catch the per-conversation avatar up shortly — showing the
+    ///   new global immediately avoids flickering through the stale cached photo.
     private static func preferredImage(for profile: Profile) -> UIImage? {
         let global = ProfileSettingsViewModel.shared
         if profile.avatar == nil {
             return global.profileImage
         }
-        if let memberDigest = profile.imageSourceContentDigest,
-           let globalDigest = global.profileImageContentDigest,
-           memberDigest == globalDigest,
-           global.profileImage != nil {
+        if profile.imageSourceContentDigest == nil {
+            return ImageCache.shared.image(for: profile)
+        }
+        if global.profileImage != nil {
             return global.profileImage
         }
         return ImageCache.shared.image(for: profile)
