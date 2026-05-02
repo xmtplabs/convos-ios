@@ -521,6 +521,8 @@ extension Array where Element == DBMessage {
             return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionInvocation(summary: $0) } ?? .text("")
         case .connectionInvocationResult:
             return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionInvocationResult(summary: $0) } ?? .text("")
+        case .connectionPayload:
+            return decodeConnectionSummary(jsonText: dbMessage.text).map { .connectionPayload(summary: $0) } ?? .text("")
         }
     }
 
@@ -617,7 +619,7 @@ extension Array where Element == DBMessage {
              .capabilityRequestResult,
              .connectionEvent:
             return nil
-        case .connectionInvocation, .connectionInvocationResult:
+        case .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             return nil
         }
 
@@ -661,7 +663,7 @@ extension Array where Element == DBMessage {
              .capabilityRequestResult,
              .connectionEvent:
             parentContent = .text("[Update]")
-        case .connectionInvocation, .connectionInvocationResult:
+        case .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             parentContent = .text("")
         }
 

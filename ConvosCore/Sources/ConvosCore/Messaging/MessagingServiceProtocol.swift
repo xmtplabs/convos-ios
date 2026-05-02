@@ -60,10 +60,10 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
 
-    /// Debug-only injection point used by the in-app testing tools to dispatch a fake
-    /// `ConnectionPayload` (e.g. a synthesized HealthKit background update) to a
-    /// conversation. Mirrors what `HealthBackgroundObserverRoutine` would send when a real
-    /// observer fires, so the agent's incoming-payload handler exercises end-to-end. Real
-    /// implementations no-op outside of DEBUG builds.
+    /// Injection point used by the in-app debug attachment tool to dispatch a synthesized
+    /// `ConnectionPayload` (e.g. a fake HealthKit background update) to a conversation.
+    /// Mirrors what `HealthBackgroundObserverRoutine` would send when a real observer
+    /// fires, so the agent's incoming-payload handler can be exercised end-to-end. The UI
+    /// entry point is `#if DEBUG`-gated in the main app target.
     func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws
 }

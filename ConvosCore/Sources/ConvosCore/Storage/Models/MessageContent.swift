@@ -43,7 +43,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
          connectionGrantRequest(CloudConnectionGrantRequest),
          connectionEvent(summary: ConnectionEventSummary),
          connectionInvocation(summary: ConnectionEventSummary),
-         connectionInvocationResult(summary: ConnectionEventSummary)
+         connectionInvocationResult(summary: ConnectionEventSummary),
+         connectionPayload(summary: ConnectionEventSummary)
 
     public var showsInMessagesList: Bool {
         switch self {
@@ -74,7 +75,13 @@ public enum MessageContent: Hashable, Codable, Sendable {
 
     public var showsSender: Bool {
         switch self {
-        case .update, .assistantJoinRequest, .connectionGrantRequest, .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+        case .update,
+             .assistantJoinRequest,
+             .connectionGrantRequest,
+             .connectionEvent,
+             .connectionInvocation,
+             .connectionInvocationResult,
+             .connectionPayload:
             false
         default:
             true

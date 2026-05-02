@@ -81,6 +81,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleConnectionInvocationContent()
         case ContentTypeConnectionInvocationResult:
             components = try handleConnectionInvocationResultContent()
+        case ContentTypeConnectionPayload:
+            components = try handleConnectionPayloadContent()
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
@@ -607,6 +609,28 @@ extension XMTPiOS.DecodedMessage {
         return DBMessageComponents(
             messageType: .original,
             contentType: .connectionInvocationResult,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionPayloadContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let payload = content as? ConnectionPayload else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        // Sender display name is resolved at processor time, so the stored summary
+        // intentionally omits the actor — the processor prepends it before render.
+        let summary = ConnectionMessageSummaryFormatter.payloadSummary(payload, senderName: nil)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionPayload,
             sourceMessageId: nil,
             emoji: nil,
             attachmentUrls: [],

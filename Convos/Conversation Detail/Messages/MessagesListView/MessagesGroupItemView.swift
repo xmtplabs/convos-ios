@@ -120,7 +120,7 @@ struct MessagesGroupItemView: View {
             EmptyView()
         case .connectionGrantRequest(let request):
             connectionGrantRequestBubble(request: request)
-        case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+        case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             EmptyView()
         }
     }

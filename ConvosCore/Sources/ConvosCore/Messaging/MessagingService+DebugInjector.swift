@@ -4,12 +4,13 @@ import Foundation
 @preconcurrency import XMTPiOS
 
 extension MessagingService {
-    /// Debug-only injection: synthesize a `ConnectionPayload` and send it to a conversation
-    /// as if `HealthBackgroundObserverRoutine` had emitted it. Used by the in-app debug
-    /// sheet to exercise the agent's incoming-payload path without waiting for HealthKit
-    /// to fire. No-ops in Release.
+    /// Sends a synthesized `ConnectionPayload` to a conversation as if a real
+    /// `HealthBackgroundObserverRoutine` (or similar source) had emitted it. The in-app
+    /// debug sheet uses this to exercise the agent's incoming-payload path without waiting
+    /// for HealthKit to fire. The UI entry point is gated behind `#if DEBUG`; the
+    /// underlying send is unconditionally available so the call works regardless of how
+    /// SwiftPM resolved the package's compilation conditions.
     func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
-        #if DEBUG
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversationId) else {
             throw DebugInjectorError.conversationNotFound(conversationId)
@@ -19,7 +20,6 @@ extension MessagingService {
             content: payload,
             options: .init(contentType: codec.contentType)
         )
-        #endif
     }
 
     enum DebugInjectorError: Error, LocalizedError {

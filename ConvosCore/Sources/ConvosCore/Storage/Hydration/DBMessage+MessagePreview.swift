@@ -70,7 +70,7 @@ extension DBLastMessageWithSource {
                  .capabilityRequest,
                  .capabilityRequestResult:
                 text = ""
-            case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
                 text = connectionEventSummaryText
             }
 
@@ -108,7 +108,7 @@ extension DBLastMessageWithSource {
                  .capabilityRequest,
                  .capabilityRequestResult:
                 text = ""
-            case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+            case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
                 text = connectionEventSummaryText
             }
 

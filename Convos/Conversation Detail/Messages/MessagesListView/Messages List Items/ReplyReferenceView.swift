@@ -32,7 +32,7 @@ struct ReplyReferenceView: View {
             return preview.title ?? preview.displayHost
         case .update, .assistantJoinRequest, .connectionGrantRequest, .connectionEvent:
             return ""
-        case .connectionInvocation(let summary), .connectionInvocationResult(let summary):
+        case .connectionInvocation(let summary), .connectionInvocationResult(let summary), .connectionPayload(let summary):
             return String(summary.text.prefix(80))
         }
     }

@@ -41,6 +41,48 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
+    /// Formats a `ConnectionPayload` (a device-to-agent background update) for display in
+    /// the messages list. The caller passes the resolved sender display name from the
+    /// conversation's member metadata; if nil, the text is just the action without an
+    /// actor (e.g. "added health activity") so the renderer can prepend the actor itself.
+    public static func payloadSummary(_ payload: ConnectionPayload, senderName: String? = nil) -> ConnectionEventSummary {
+        let label = activityLabel(for: payload.source)
+        let text: String
+        if let senderName, !senderName.isEmpty {
+            text = "\(senderName) added \(label) activity"
+        } else {
+            text = "added \(label) activity"
+        }
+        return .init(
+            text: text,
+            outcome: .success,
+            icon: icon(for: payload.source)
+        )
+    }
+
+    private static func activityLabel(for kind: ConnectionKind) -> String {
+        switch kind {
+        case .health:
+            return "health"
+        case .calendar:
+            return "calendar"
+        case .contacts:
+            return "contacts"
+        case .photos:
+            return "photo"
+        case .music:
+            return "music"
+        case .homeKit:
+            return "home"
+        case .location:
+            return "location"
+        case .motion:
+            return "motion"
+        case .screenTime:
+            return "Screen Time"
+        }
+    }
+
     public static func resultSummary(_ result: ConnectionInvocationResult, senderName: String? = nil) -> ConnectionEventSummary {
         let actor = senderName ?? "Assistant"
         switch result.status {

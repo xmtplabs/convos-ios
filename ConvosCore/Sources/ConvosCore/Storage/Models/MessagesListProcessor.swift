@@ -174,6 +174,31 @@ public final class MessagesListProcessor: Sendable {
                 continue
             }
 
+            if case .connectionPayload(let payloadSummary) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let actor = msg.sender.profile.displayName
+                let resolvedText = actor.isEmpty
+                    ? payloadSummary.text
+                    : "\(actor) \(payloadSummary.text)"
+                let summaryWithActor = ConnectionEventSummary(
+                    text: resolvedText,
+                    outcome: payloadSummary.outcome,
+                    icon: payloadSummary.icon
+                )
+                items.append(.connectionEvent(id: msg.messageId, summary: summaryWithActor, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
             let messageDate = msg.date
             var addedDateSeparator = false
             if let lastDate = lastMessageDate {

@@ -169,7 +169,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 30.0
         case .connectionGrantRequest:
             height = 160.0
-        case .connectionEvent, .connectionInvocation, .connectionInvocationResult:
+        case .connectionEvent, .connectionInvocation, .connectionInvocationResult, .connectionPayload:
             height = 0.0
         }
 
