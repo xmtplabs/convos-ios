@@ -111,6 +111,31 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("createHealthBackgroundSubscriptions") { db in
+            // Per-(conversation, agent, HealthSampleType) subscription rows. The
+            // observer-query anchor is an NSKeyed-archived `HKQueryAnchor` produced by
+            // anchored object queries; nil until the first delta is delivered for the
+            // subscription. See docs/plans/healthkit-background-subscriptions.md.
+            try db.create(table: "healthBackgroundSubscription") { t in
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("agentInboxId", .text).notNull()
+                t.column("typeIdentifier", .text).notNull()
+                t.column("frequency", .text).notNull()
+                t.column("historyDays", .integer).notNull()
+                t.column("anchor", .blob)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["conversationId", "agentInboxId", "typeIdentifier"])
+            }
+
+            try db.create(
+                index: "healthBackgroundSubscription_typeIdentifier",
+                on: "healthBackgroundSubscription",
+                columns: ["typeIdentifier"]
+            )
+        }
+
         return migrator
     }
 
