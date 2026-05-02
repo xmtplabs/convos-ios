@@ -35,7 +35,7 @@ struct SetupProfileView: View {
                 Image(systemName: "lanyardcard.fill")
                     .foregroundStyle(.colorLava)
                     .accessibilityHidden(true)
-                Text("Add your name for this convo")
+                Text("Add your name and pic")
                     .font(.callout)
                     .foregroundStyle(.colorTextPrimaryInverted)
             }
@@ -46,7 +46,7 @@ struct SetupProfileView: View {
                     .fill(.colorBackgroundInverted)
             )
         }
-        .accessibilityLabel("Add your name for this convo")
+        .accessibilityLabel("Add your name and pic")
         .accessibilityIdentifier("setup-profile-button")
         .transition(.blurReplace)
         .hoverEffect(.lift)

@@ -466,7 +466,7 @@ Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onbo
 - **Use `sim_find_elements` as a fallback** if `sim_tap_id` exhausts retries — to check whether the element appeared and dismissed between polls.
 
 Known ephemeral elements:
-- **Setup profile prompt**: appears during first-conversation onboarding for users who have not set a global profile yet. Search using label `"Add your name for this convo"` or identifier `setup-profile-button`. Does not auto-dismiss (requires interaction).
+- **Setup profile prompt**: appears during first-conversation onboarding for users who have not set a global profile yet. Search using label `"Add your name and pic"` or identifier `setup-profile-button`. Does not auto-dismiss (requires interaction).
 - **"Profile saved" pill**: appears briefly above the composer after the user saves the global profile from the onboarding setup flow. Auto-dismisses after ~3 seconds. Do not gate the rest of the onboarding flow on tapping it — there is no Continue button; the flow advances automatically.
 - Older docs referenced a "Profile pill" / "Tap to chat as X" pill (identifier `add-profile-button`/`add-quickname-button`) that auto-dismissed after ~8 seconds. **That pill no longer exists.** The global profile auto-applies on every new conversation without prompting; if a test expects to tap that pill, the test needs updating (see `qa/tests/14-profile.md` for the current model).
 

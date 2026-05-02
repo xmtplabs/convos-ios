@@ -84,7 +84,7 @@ steps:
     criteria: app_interactive_after_delete
     note: >
       A new conversation is created with a fresh identity (default name "Somebody"),
-      QR code, and "Add your name for this convo" banner.
+      QR code, and "Add your name and pic" banner.
 
 teardown: []
 
