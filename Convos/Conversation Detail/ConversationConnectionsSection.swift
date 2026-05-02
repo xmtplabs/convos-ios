@@ -15,6 +15,7 @@ final class ConversationConnectionsViewModel {
     private(set) var connections: [CloudConnection] = []
     private(set) var grantedConnectionIds: Set<String> = []
     private(set) var deviceConnections: [DeviceConnection] = ConnectionKind.allCases
+        .filter(SupportedConnections.isSupported)
         .sorted { $0.displayName < $1.displayName }
         .map { DeviceConnection(kind: $0, isEnabled: false) }
 
@@ -96,7 +97,7 @@ final class ConversationConnectionsViewModel {
     private func refreshDeviceConnections() {
         Task { [self] in
             var items: [DeviceConnection] = []
-            for kind in ConnectionKind.allCases {
+            for kind in ConnectionKind.allCases where SupportedConnections.isSupported(kind) {
                 let isReadEnabled = await self.enablementStore.isEnabled(kind: kind, capability: .read, conversationId: self.conversationId)
                 var hasWrite = false
                 for capability in ConnectionCapability.allCases where capability.isWrite {
@@ -136,7 +137,7 @@ struct ConversationConnectionsSection: View {
                 }
             }
 
-            ForEach(viewModel.connections) { connection in
+            ForEach(viewModel.connections.filter { SupportedConnections.isSupported(cloudServiceId: $0.serviceId) }) { connection in
                 let info = CloudConnectionServiceCatalog.info(for: connection.serviceId)
                 FeatureRowItem(
                     imageName: nil,

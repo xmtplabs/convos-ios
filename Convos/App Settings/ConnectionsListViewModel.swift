@@ -119,7 +119,7 @@ final class ConnectionsListViewModel {
         Task { [connections, deviceConnectionAuthorizer] in
             var builtRows: [Row] = []
 
-            for service in CloudConnectionServiceCatalog.all {
+            for service in CloudConnectionServiceCatalog.all where SupportedConnections.isSupported(cloudServiceId: service.id) {
                 let active = connections.first(where: { $0.serviceId == service.id })
                 builtRows.append(
                     Row(
@@ -133,7 +133,7 @@ final class ConnectionsListViewModel {
                 )
             }
 
-            for kind in ConnectionKind.allCases {
+            for kind in ConnectionKind.allCases where SupportedConnections.isSupported(kind) {
                 let status: ConnectionAuthorizationStatus?
                 switch kind {
                 case .homeKit:
