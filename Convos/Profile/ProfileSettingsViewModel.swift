@@ -32,14 +32,20 @@ class ProfileSettingsViewModel {
         self.writer = messagingService.myGlobalProfileWriter()
         let repository = messagingService.myGlobalProfileRepository()
         self.repository = repository
+        if let profile = try? repository.fetch() {
+            apply(profile: profile)
+        }
         repository.myGlobalProfilePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] profile in
-                guard let self else { return }
-                self.editingDisplayName = profile?.name ?? ""
-                self.profileImage = profile?.imageData.flatMap(UIImage.init(data:))
+                self?.apply(profile: profile)
             }
             .store(in: &cancellables)
+    }
+
+    private func apply(profile: MyProfile?) {
+        editingDisplayName = profile?.name ?? ""
+        profileImage = profile?.imageData.flatMap(UIImage.init(data:))
     }
 
     func save() {
