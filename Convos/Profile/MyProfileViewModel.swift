@@ -203,8 +203,9 @@ class MyProfileViewModel {
             didChange = true
         }
 
-        if let profileImage {
-            update(profileImage: profileImage, conversationId: conversationId)
+        let pendingProfileImage = profileImage
+        if let pendingProfileImage {
+            update(profileImage: pendingProfileImage, conversationId: conversationId)
             didChange = true
             self.profileImage = nil
         }
@@ -215,7 +216,7 @@ class MyProfileViewModel {
             // here. Image and name still flow through this view model and need forwarding.
             let settingsViewModel = ProfileSettingsViewModel.shared
             settingsViewModel.editingDisplayName = trimmedDisplayName
-            settingsViewModel.profileImage = profileImage
+            settingsViewModel.profileImage = pendingProfileImage
             settingsViewModel.save()
             saveDisplayNameAsProfile = false
         }

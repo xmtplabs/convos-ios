@@ -16,6 +16,7 @@ final class MyGlobalProfileRepository: MyGlobalProfileRepositoryProtocol {
     private let profileSubject: CurrentValueSubject<MyProfile?, Never> = .init(nil)
     private var stateObserver: StateObserverHandle?
     private var observationCancellable: AnyCancellable?
+    private var observingInboxId: String?
 
     init(
         sessionStateManager: any SessionStateManagerProtocol,
@@ -54,12 +55,15 @@ final class MyGlobalProfileRepository: MyGlobalProfileRepositoryProtocol {
         case .idle:
             profileSubject.send(nil)
             observationCancellable?.cancel()
+            observingInboxId = nil
         default:
             break
         }
     }
 
     private func startObserving(inboxId: String) {
+        guard observingInboxId != inboxId else { return }
+        observingInboxId = inboxId
         observationCancellable?.cancel()
         observationCancellable = ValueObservation
             .tracking { db in

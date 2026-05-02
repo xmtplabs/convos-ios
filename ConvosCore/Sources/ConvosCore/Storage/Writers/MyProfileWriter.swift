@@ -214,28 +214,39 @@ final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
             try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
         }
 
-        let normalizedGlobalName: String? = (global.name?.isEmpty ?? true) ? nil : global.name
-        if normalizedGlobalName != member?.name {
-            try await update(displayName: normalizedGlobalName ?? "", conversationId: conversationId)
+        // global.name is already trim/clamp/nil-if-empty normalized by MyGlobalProfileWriter,
+        // so it can be compared to member?.name directly without re-normalizing here.
+        if global.name != member?.name {
+            try await update(displayName: global.name ?? "", conversationId: conversationId)
         }
 
-        let needsAvatarUpload: Bool
         if global.imageData == nil {
-            needsAvatarUpload = false
-        } else if member?.avatar == nil {
-            needsAvatarUpload = true
+            // Global avatar was cleared. Propagate the removal so the per-conversation avatar
+            // doesn't outlive it.
+            if member?.avatar != nil {
+                try await update(
+                    avatar: nil,
+                    imageSourceContentDigest: nil,
+                    conversationId: conversationId
+                )
+            }
         } else {
-            // Compare content digests so the decision is reliable regardless of whether the
-            // photos library returned an asset identifier. nil-vs-something on either side
-            // counts as a change and triggers a re-upload.
-            needsAvatarUpload = member?.imageSourceContentDigest != global.imageContentDigest
-        }
-        if needsAvatarUpload, let imageData = global.imageData, let image = ImageType(data: imageData) {
-            try await update(
-                avatar: image,
-                imageSourceContentDigest: global.imageContentDigest,
-                conversationId: conversationId
-            )
+            let needsAvatarUpload: Bool
+            if member?.avatar == nil {
+                needsAvatarUpload = true
+            } else {
+                // Compare content digests so the decision is reliable regardless of whether the
+                // photos library returned an asset identifier. nil-vs-something on either side
+                // counts as a change and triggers a re-upload.
+                needsAvatarUpload = member?.imageSourceContentDigest != global.imageContentDigest
+            }
+            if needsAvatarUpload, let imageData = global.imageData, let image = ImageType(data: imageData) {
+                try await update(
+                    avatar: image,
+                    imageSourceContentDigest: global.imageContentDigest,
+                    conversationId: conversationId
+                )
+            }
         }
     }
 
