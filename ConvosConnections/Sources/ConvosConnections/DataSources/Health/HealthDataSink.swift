@@ -69,6 +69,13 @@ public final class HealthDataSink: DataSink, @unchecked Sendable {
             return await fetchSummaryLast24Hours(invocation)
         case HealthActionSchemas.fetchSamples.actionName:
             return await fetchSamples(invocation)
+        case HealthActionSchemas.subscribeBackgroundDelivery.actionName,
+             HealthActionSchemas.unsubscribeBackgroundDelivery.actionName:
+            return Self.makeResult(
+                for: invocation,
+                status: .executionFailed,
+                errorMessage: "Action '\(invocation.action.name)' is declared in the manifest but not yet wired up in this build."
+            )
         default:
             return Self.makeResult(
                 for: invocation,
