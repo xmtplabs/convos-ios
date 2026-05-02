@@ -16,9 +16,14 @@ class ProfileSettingsViewModel {
     var editingDisplayName: String = ""
     var profileImage: UIImage?
     /// `PHAsset.localIdentifier` for the asset backing `profileImage` when picked from the
-    /// photo library. Persisted alongside the image so we can preselect it next time the
-    /// picker opens and detect when the user picks a different asset.
+    /// photo library. Used purely so the picker can preselect the previously chosen asset
+    /// next time it opens — change detection uses `profileImageContentDigest` instead.
     var profileImageAssetIdentifier: String?
+    /// Content-addressed digest of the persisted `profileImage`. Set by activate-sync's
+    /// uploader and by `apply(profile:)`; consumers can compare it against
+    /// `Profile.imageSourceContentDigest` to confirm a per-conversation avatar was synced
+    /// from the current global photo (used to avoid avatar flicker mid-sync).
+    var profileImageContentDigest: String?
 
     var exampleDisplayName: String = "Somebody"
 
@@ -51,6 +56,7 @@ class ProfileSettingsViewModel {
         editingDisplayName = profile?.name ?? ""
         profileImage = profile?.imageData.flatMap(UIImage.init(data:))
         profileImageAssetIdentifier = profile?.imageAssetIdentifier
+        profileImageContentDigest = profile?.imageContentDigest
     }
 
     func save() {
@@ -84,6 +90,7 @@ class ProfileSettingsViewModel {
         editingDisplayName = ""
         profileImage = nil
         profileImageAssetIdentifier = nil
+        profileImageContentDigest = nil
         guard let writer else { return }
         Task {
             do {

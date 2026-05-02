@@ -31,7 +31,6 @@ struct MessagesView<BottomBarContent: View>: View {
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
-    @Binding var profileImageAssetIdentifier: String?
     let onboardingCoordinator: ConversationOnboardingCoordinator
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
@@ -141,7 +140,6 @@ struct MessagesView<BottomBarContent: View>: View {
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
-                profileImageAssetIdentifier: $profileImageAssetIdentifier,
                 isPhotoPickerPresented: $isPhotoPickerPresented,
                 focusState: $focusState,
                 focusCoordinator: focusCoordinator,

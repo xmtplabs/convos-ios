@@ -2,9 +2,9 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
-public protocol MyProfileWriterProtocol {
+public protocol MyProfileWriterProtocol: Sendable {
     func update(displayName: String, conversationId: String) async throws
-    func update(avatar: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String) async throws
+    func update(avatar: ImageType?, imageSourceContentDigest: String?, conversationId: String) async throws
     func update(metadata: ProfileMetadata?, conversationId: String) async throws
     /// Like `update(metadata:conversationId:)` but propagates ProfileUpdate publish failures.
     /// Use this when the caller needs to know whether the ProfileUpdate reached the network
@@ -17,7 +17,7 @@ public protocol MyProfileWriterProtocol {
 
 public extension MyProfileWriterProtocol {
     func update(avatar: ImageType?, conversationId: String) async throws {
-        try await update(avatar: avatar, imageSourceAssetIdentifier: nil, conversationId: conversationId)
+        try await update(avatar: avatar, imageSourceContentDigest: nil, conversationId: conversationId)
     }
 }
 
@@ -26,7 +26,7 @@ enum MyProfileWriterError: Error {
     case profileUpdatePublishFailed(underlying: any Error)
 }
 
-class MyProfileWriter: MyProfileWriterProtocol {
+final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
@@ -109,7 +109,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
     }
 
-    func update(avatar: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String) async throws {
+    func update(avatar: ImageType?, imageSourceContentDigest: String?, conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -138,7 +138,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
             ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
             let updatedProfile = profile
                 .with(avatar: nil, salt: nil, nonce: nil, key: nil)
-                .with(imageSourceAssetIdentifier: nil)
+                .with(imageSourceContentDigest: nil)
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
@@ -179,7 +179,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
                 nonce: encryptedPayload.nonce,
                 key: groupKey
             )
-            .with(imageSourceAssetIdentifier: imageSourceAssetIdentifier)
+            .with(imageSourceContentDigest: imageSourceContentDigest)
 
         do {
             try await group.updateProfile(updatedProfile)
@@ -224,15 +224,16 @@ class MyProfileWriter: MyProfileWriterProtocol {
             needsAvatarUpload = false
         } else if member?.avatar == nil {
             needsAvatarUpload = true
-        } else if let globalAssetId = global.imageAssetIdentifier {
-            needsAvatarUpload = member?.imageSourceAssetIdentifier != globalAssetId
         } else {
-            needsAvatarUpload = false
+            // Compare content digests so the decision is reliable regardless of whether the
+            // photos library returned an asset identifier. nil-vs-something on either side
+            // counts as a change and triggers a re-upload.
+            needsAvatarUpload = member?.imageSourceContentDigest != global.imageContentDigest
         }
         if needsAvatarUpload, let imageData = global.imageData, let image = ImageType(data: imageData) {
             try await update(
                 avatar: image,
-                imageSourceAssetIdentifier: global.imageAssetIdentifier,
+                imageSourceContentDigest: global.imageContentDigest,
                 conversationId: conversationId
             )
         }

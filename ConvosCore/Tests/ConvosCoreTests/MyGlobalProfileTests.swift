@@ -110,6 +110,27 @@ struct MyGlobalProfileTests {
         try await fixture.writer.update(imageData: nil, imageAssetIdentifier: "asset-ignored")
         #expect(try fixture.repository.fetch()?.imageAssetIdentifier == nil)
     }
+
+    @Test("imageContentDigest is computed on save and changes with imageData")
+    func imageContentDigestTracksImageData() async throws {
+        let fixture = try await Fixture.make()
+        try await fixture.writer.save(name: nil, imageData: Data([0x01, 0x02]), imageAssetIdentifier: nil, metadata: nil)
+        let firstDigest = try fixture.repository.fetch()?.imageContentDigest
+        #expect(firstDigest != nil)
+
+        // Same bytes → same digest
+        try await fixture.writer.save(name: nil, imageData: Data([0x01, 0x02]), imageAssetIdentifier: nil, metadata: nil)
+        #expect(try fixture.repository.fetch()?.imageContentDigest == firstDigest)
+
+        // Different bytes → different digest
+        try await fixture.writer.update(imageData: Data([0x09, 0x09]), imageAssetIdentifier: nil)
+        #expect(try fixture.repository.fetch()?.imageContentDigest != firstDigest)
+        #expect(try fixture.repository.fetch()?.imageContentDigest != nil)
+
+        // imageData cleared → digest cleared
+        try await fixture.writer.update(imageData: nil, imageAssetIdentifier: nil)
+        #expect(try fixture.repository.fetch()?.imageContentDigest == nil)
+    }
 }
 
 private struct Fixture {

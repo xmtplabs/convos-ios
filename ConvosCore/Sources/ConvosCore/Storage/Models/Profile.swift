@@ -15,10 +15,17 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     public let avatarNonce: Data?
     public let avatarKey: Data?
     public let isAgent: Bool
+    /// When non-nil, the avatar was uploaded by activate-sync from the global profile and
+    /// this digest matches `DBMyProfile.imageContentDigest` at the time of upload. Callers
+    /// rendering the current user's avatar can compare this against the global digest to
+    /// decide whether the in-memory global image is the right thing to display (avoids the
+    /// flicker of the per-conversation cache transitioning during sync).
+    public let imageSourceContentDigest: String?
     public let metadata: ProfileMetadata?
 
     private enum CodingKeys: String, CodingKey {
-        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent, metadata
+        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent
+        case imageSourceContentDigest, metadata
     }
 
     public init(
@@ -30,6 +37,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         isAgent: Bool = false,
+        imageSourceContentDigest: String? = nil,
         metadata: ProfileMetadata? = nil
     ) {
         self.inboxId = inboxId
@@ -40,6 +48,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
         self.isAgent = isAgent
+        self.imageSourceContentDigest = imageSourceContentDigest
         self.metadata = metadata
     }
 
@@ -53,6 +62,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarNonce = try container.decodeIfPresent(Data.self, forKey: .avatarNonce)
         self.avatarKey = try container.decodeIfPresent(Data.self, forKey: .avatarKey)
         self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
+        self.imageSourceContentDigest = try container.decodeIfPresent(String.self, forKey: .imageSourceContentDigest)
         self.metadata = try container.decodeIfPresent(ProfileMetadata.self, forKey: .metadata)
     }
 
@@ -163,6 +173,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             isAgent: isAgent,
+            imageSourceContentDigest: imageSourceContentDigest,
             metadata: metadata
         )
     }

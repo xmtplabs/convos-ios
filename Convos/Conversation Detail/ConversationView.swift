@@ -58,7 +58,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
-            profileImageAssetIdentifier: $viewModel.myProfileViewModel.profileImageAssetIdentifier,
             onboardingCoordinator: onboardingCoordinator,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,

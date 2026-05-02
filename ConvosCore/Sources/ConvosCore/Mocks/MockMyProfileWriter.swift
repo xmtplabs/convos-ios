@@ -4,7 +4,7 @@ import Foundation
 public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     public struct AvatarUpdate {
         public let image: ImageType?
-        public let imageSourceAssetIdentifier: String?
+        public let imageSourceContentDigest: String?
         public let conversationId: String
     }
 
@@ -20,10 +20,10 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
         updatedDisplayNames.append((name: displayName, conversationId: conversationId))
     }
 
-    public func update(avatar: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String) async throws {
+    public func update(avatar: ImageType?, imageSourceContentDigest: String?, conversationId: String) async throws {
         updatedAvatars.append(.init(
             image: avatar,
-            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
             conversationId: conversationId
         ))
     }

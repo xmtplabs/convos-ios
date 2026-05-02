@@ -10,6 +10,7 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let name: Column = Column(CodingKeys.name)
         static let imageData: Column = Column(CodingKeys.imageData)
         static let imageAssetIdentifier: Column = Column(CodingKeys.imageAssetIdentifier)
+        static let imageContentDigest: Column = Column(CodingKeys.imageContentDigest)
         static let metadata: Column = Column(CodingKeys.metadata)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
@@ -17,10 +18,14 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let inboxId: String
     let name: String?
     let imageData: Data?
-    /// Photos library `PHAsset.localIdentifier` for the source image, when picked from the
-    /// user's library. Used by activate-sync to detect when the global photo has changed and
-    /// trigger a fresh per-conversation upload.
+    /// Photos library `PHAsset.localIdentifier` for the source image, used purely for picker
+    /// preselection UX. Not used for change detection — the picker may return nil here under
+    /// limited library access, so we rely on `imageContentDigest` for that.
     let imageAssetIdentifier: String?
+    /// Stable, content-addressed digest of `imageData` (base64 SHA-256). Activate-sync
+    /// compares this against `DBMemberProfile.imageSourceContentDigest` to decide whether a
+    /// per-conversation re-upload is needed.
+    let imageContentDigest: String?
     let metadata: ProfileMetadata?
     let updatedAt: Date
 
@@ -29,6 +34,7 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         name: String? = nil,
         imageData: Data? = nil,
         imageAssetIdentifier: String? = nil,
+        imageContentDigest: String? = nil,
         metadata: ProfileMetadata? = nil,
         updatedAt: Date = Date()
     ) {
@@ -36,6 +42,7 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.name = name
         self.imageData = imageData
         self.imageAssetIdentifier = imageAssetIdentifier
+        self.imageContentDigest = imageContentDigest
         self.metadata = metadata
         self.updatedAt = updatedAt
     }

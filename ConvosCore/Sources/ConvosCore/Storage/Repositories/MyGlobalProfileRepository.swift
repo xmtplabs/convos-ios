@@ -87,6 +87,7 @@ extension DBMyProfile {
             name: name,
             imageData: imageData,
             imageAssetIdentifier: imageAssetIdentifier,
+            imageContentDigest: imageContentDigest,
             metadata: metadata,
             updatedAt: updatedAt
         )

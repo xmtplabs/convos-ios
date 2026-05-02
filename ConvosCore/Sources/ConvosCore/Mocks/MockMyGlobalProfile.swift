@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 
 public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @unchecked Sendable {
@@ -17,6 +18,7 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             name: resolvedName,
             imageData: imageData,
             imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
+            imageContentDigest: Self.digest(of: imageData),
             metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
             updatedAt: Date()
         )
@@ -31,6 +33,7 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             name: resolved,
             imageData: base.imageData,
             imageAssetIdentifier: base.imageAssetIdentifier,
+            imageContentDigest: base.imageContentDigest,
             metadata: base.metadata,
             updatedAt: Date()
         )
@@ -43,6 +46,7 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             name: base.name,
             imageData: imageData,
             imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
+            imageContentDigest: Self.digest(of: imageData),
             metadata: base.metadata,
             updatedAt: Date()
         )
@@ -55,9 +59,15 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             name: base.name,
             imageData: base.imageData,
             imageAssetIdentifier: base.imageAssetIdentifier,
+            imageContentDigest: base.imageContentDigest,
             metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
             updatedAt: Date()
         )
+    }
+
+    private static func digest(of imageData: Data?) -> String? {
+        guard let imageData else { return nil }
+        return Data(SHA256.hash(data: imageData)).base64EncodedString()
     }
 
     public func delete() async throws {

@@ -177,10 +177,12 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         guard !DBConversation.isDraft(id: conversationId) else { return }
         let writer = myProfileWriter
         Task.detached {
-            do {
-                try await writer.syncFromGlobalProfile(conversationId: conversationId)
-            } catch {
-                Log.warning("Failed to sync global profile to conversation \(conversationId): \(error.localizedDescription)")
+            await ProfileSyncCoordinator.shared.run(conversationId: conversationId) {
+                do {
+                    try await writer.syncFromGlobalProfile(conversationId: conversationId)
+                } catch {
+                    Log.warning("Failed to sync global profile to conversation \(conversationId): \(error.localizedDescription)")
+                }
             }
         }
     }

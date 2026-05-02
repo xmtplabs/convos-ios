@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 
@@ -30,6 +31,7 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
             name: trim(name),
             imageData: imageData,
             imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
+            imageContentDigest: Self.digest(of: imageData),
             metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
             updatedAt: Date()
         )
@@ -46,6 +48,7 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
                 name: resolved,
                 imageData: current.imageData,
                 imageAssetIdentifier: current.imageAssetIdentifier,
+                imageContentDigest: current.imageContentDigest,
                 metadata: current.metadata,
                 updatedAt: Date()
             )
@@ -59,6 +62,7 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
                 name: current.name,
                 imageData: imageData,
                 imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
+                imageContentDigest: Self.digest(of: imageData),
                 metadata: current.metadata,
                 updatedAt: Date()
             )
@@ -72,10 +76,19 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
                 name: current.name,
                 imageData: current.imageData,
                 imageAssetIdentifier: current.imageAssetIdentifier,
+                imageContentDigest: current.imageContentDigest,
                 metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
                 updatedAt: Date()
             )
         }
+    }
+
+    /// Base64-encoded SHA-256 of the image bytes. Used as a stable, content-addressed
+    /// identifier — independent of photos library access — so activate-sync can detect
+    /// when the image changed and re-upload to per-conversation members.
+    private static func digest(of imageData: Data?) -> String? {
+        guard let imageData else { return nil }
+        return Data(SHA256.hash(data: imageData)).base64EncodedString()
     }
 
     func delete() async throws {
