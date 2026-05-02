@@ -49,6 +49,15 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("myProfileImageAssetIdentifier") { db in
+            let columns = try db.columns(in: "myProfile").map(\.name)
+            if !columns.contains("imageAssetIdentifier") {
+                try db.alter(table: "myProfile") { t in
+                    t.add(column: "imageAssetIdentifier", .text)
+                }
+            }
+        }
+
         migrator.registerMigration("createConnections") { db in
             try db.create(table: "connection") { t in
                 t.column("id", .text).notNull().primaryKey()

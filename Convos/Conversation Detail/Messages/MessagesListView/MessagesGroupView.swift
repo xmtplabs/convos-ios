@@ -288,7 +288,7 @@ struct MessagesGroupView: View {
                         .font(.caption)
                     ProfileAvatarView(
                         profile: group.sender.profile,
-                        profileImage: nil,
+                        profileImage: ProfileSettingsViewModel.shared.profileImage,
                         useSystemPlaceholder: false
                     )
                     .frame(width: 16, height: 16)

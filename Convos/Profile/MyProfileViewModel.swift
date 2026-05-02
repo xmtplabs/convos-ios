@@ -50,7 +50,7 @@ class MyProfileViewModel {
 
         self.editingDisplayName = profile.name ?? ""
         self.editingEmoji = profile.profileEmoji ?? ""
-        self.profileImage = ImageCache.shared.image(for: profile) ?? ProfileSettingsViewModel.shared.profileImage
+        self.profileImage = ProfileSettingsViewModel.shared.profileImage ?? ImageCache.shared.image(for: profile)
     }
 
     func cancelEditingDisplayName() {
@@ -65,7 +65,7 @@ class MyProfileViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] profile in
                 guard let self else { return }
-                self.profileImage = ImageCache.shared.image(for: profile) ?? ProfileSettingsViewModel.shared.profileImage
+                self.profileImage = ProfileSettingsViewModel.shared.profileImage ?? ImageCache.shared.image(for: profile)
                 self.profile = profile
                 self.editingEmoji = profile.profileEmoji ?? ""
             }
