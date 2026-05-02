@@ -4,9 +4,9 @@ import GRDB
 /// Writes the local user's global profile (`DBMyProfile`). Local-only; does
 /// not publish to any group.
 public protocol MyGlobalProfileWriterProtocol {
-    func save(name: String?, imageData: Data?, metadata: ProfileMetadata?) async throws
+    func save(name: String?, imageData: Data?, imageAssetIdentifier: String?, metadata: ProfileMetadata?) async throws
     func update(name: String?) async throws
-    func update(imageData: Data?) async throws
+    func update(imageData: Data?, imageAssetIdentifier: String?) async throws
     func update(metadata: ProfileMetadata?) async throws
     func delete() async throws
 }
@@ -23,12 +23,13 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
         self.databaseWriter = databaseWriter
     }
 
-    func save(name: String?, imageData: Data?, metadata: ProfileMetadata?) async throws {
+    func save(name: String?, imageData: Data?, imageAssetIdentifier: String?, metadata: ProfileMetadata?) async throws {
         let inboxId = try await currentInboxId()
         let row = DBMyProfile(
             inboxId: inboxId,
             name: trim(name),
             imageData: imageData,
+            imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
             metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
             updatedAt: Date()
         )
@@ -44,18 +45,20 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
                 inboxId: current.inboxId,
                 name: resolved,
                 imageData: current.imageData,
+                imageAssetIdentifier: current.imageAssetIdentifier,
                 metadata: current.metadata,
                 updatedAt: Date()
             )
         }
     }
 
-    func update(imageData: Data?) async throws {
+    func update(imageData: Data?, imageAssetIdentifier: String?) async throws {
         try await mutate { current in
             DBMyProfile(
                 inboxId: current.inboxId,
                 name: current.name,
                 imageData: imageData,
+                imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
                 metadata: current.metadata,
                 updatedAt: Date()
             )
@@ -68,6 +71,7 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
                 inboxId: current.inboxId,
                 name: current.name,
                 imageData: current.imageData,
+                imageAssetIdentifier: current.imageAssetIdentifier,
                 metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
                 updatedAt: Date()
             )

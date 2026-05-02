@@ -86,6 +86,7 @@ extension DBMyProfile {
             inboxId: inboxId,
             name: name,
             imageData: imageData,
+            imageAssetIdentifier: imageAssetIdentifier,
             metadata: metadata,
             updatedAt: updatedAt
         )

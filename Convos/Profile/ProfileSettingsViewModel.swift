@@ -15,6 +15,10 @@ class ProfileSettingsViewModel {
     }
     var editingDisplayName: String = ""
     var profileImage: UIImage?
+    /// `PHAsset.localIdentifier` for the asset backing `profileImage` when picked from the
+    /// photo library. Persisted alongside the image so we can preselect it next time the
+    /// picker opens and detect when the user picks a different asset.
+    var profileImageAssetIdentifier: String?
 
     var exampleDisplayName: String = "Somebody"
 
@@ -46,6 +50,7 @@ class ProfileSettingsViewModel {
     private func apply(profile: MyProfile?) {
         editingDisplayName = profile?.name ?? ""
         profileImage = profile?.imageData.flatMap(UIImage.init(data:))
+        profileImageAssetIdentifier = profile?.imageAssetIdentifier
     }
 
     func save() {
@@ -56,12 +61,14 @@ class ProfileSettingsViewModel {
         let trimmedName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName: String? = trimmedName.isEmpty ? nil : trimmedName
         let imageData = profileImage?.jpegData(compressionQuality: 1.0)
+        let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
         let isDefault = profileSettings.isDefault
         Task {
             do {
                 try await writer.save(
                     name: resolvedName,
                     imageData: imageData,
+                    imageAssetIdentifier: assetIdentifier,
                     metadata: nil
                 )
                 if !isDefault {
@@ -76,6 +83,7 @@ class ProfileSettingsViewModel {
     func delete() {
         editingDisplayName = ""
         profileImage = nil
+        profileImageAssetIdentifier = nil
         guard let writer else { return }
         Task {
             do {

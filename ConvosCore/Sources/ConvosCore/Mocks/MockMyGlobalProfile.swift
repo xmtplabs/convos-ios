@@ -8,7 +8,7 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
         self.stored = stored
     }
 
-    public func save(name: String?, imageData: Data?, metadata: ProfileMetadata?) async throws {
+    public func save(name: String?, imageData: Data?, imageAssetIdentifier: String?, metadata: ProfileMetadata?) async throws {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
         let inboxId = stored?.inboxId ?? "mock-inbox-id"
@@ -16,6 +16,7 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             inboxId: inboxId,
             name: resolvedName,
             imageData: imageData,
+            imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
             metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
             updatedAt: Date()
         )
@@ -29,17 +30,19 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             inboxId: base.inboxId,
             name: resolved,
             imageData: base.imageData,
+            imageAssetIdentifier: base.imageAssetIdentifier,
             metadata: base.metadata,
             updatedAt: Date()
         )
     }
 
-    public func update(imageData: Data?) async throws {
+    public func update(imageData: Data?, imageAssetIdentifier: String?) async throws {
         let base = stored ?? MyProfile(inboxId: "mock-inbox-id")
         stored = MyProfile(
             inboxId: base.inboxId,
             name: base.name,
             imageData: imageData,
+            imageAssetIdentifier: imageData == nil ? nil : imageAssetIdentifier,
             metadata: base.metadata,
             updatedAt: Date()
         )
@@ -51,6 +54,7 @@ public final class MockMyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @un
             inboxId: base.inboxId,
             name: base.name,
             imageData: base.imageData,
+            imageAssetIdentifier: base.imageAssetIdentifier,
             metadata: (metadata?.isEmpty ?? true) ? nil : metadata,
             updatedAt: Date()
         )

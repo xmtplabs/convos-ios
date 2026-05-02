@@ -187,6 +187,7 @@ class MyProfileViewModel {
             let settingsViewModel = ProfileSettingsViewModel.shared
             settingsViewModel.editingDisplayName = trimmedDisplayName
             settingsViewModel.profileImage = profileImage
+            settingsViewModel.profileImageAssetIdentifier = nil
             settingsViewModel.save()
             saveDisplayNameAsQuickname = false
         }

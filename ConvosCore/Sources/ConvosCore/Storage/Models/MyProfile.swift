@@ -5,6 +5,7 @@ public struct MyProfile: Equatable, Hashable, Sendable {
     public let inboxId: String
     public let name: String?
     public let imageData: Data?
+    public let imageAssetIdentifier: String?
     public let metadata: ProfileMetadata?
     public let updatedAt: Date
 
@@ -12,12 +13,14 @@ public struct MyProfile: Equatable, Hashable, Sendable {
         inboxId: String,
         name: String? = nil,
         imageData: Data? = nil,
+        imageAssetIdentifier: String? = nil,
         metadata: ProfileMetadata? = nil,
         updatedAt: Date = Date()
     ) {
         self.inboxId = inboxId
         self.name = name
         self.imageData = imageData
+        self.imageAssetIdentifier = imageAssetIdentifier
         self.metadata = metadata
         self.updatedAt = updatedAt
     }

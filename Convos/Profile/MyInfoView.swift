@@ -90,6 +90,7 @@ struct MyInfoView: View {
                             ImagePickerButton(
                                 currentImage: $quicknameViewModel.profileImage,
                                 isPickerPresented: $isImagePickerPresented,
+                                currentImageAssetIdentifier: $quicknameViewModel.profileImageAssetIdentifier,
                                 showsCurrentImage: true,
                                 symbolSize: 12.0,
                                 symbolName: "photo.fill"

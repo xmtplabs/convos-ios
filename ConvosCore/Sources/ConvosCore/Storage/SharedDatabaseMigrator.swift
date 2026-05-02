@@ -37,8 +37,15 @@ extension SharedDatabaseMigrator {
                 t.column("inboxId", .text).notNull().primaryKey()
                 t.column("name", .text)
                 t.column("imageData", .blob)
+                t.column("imageAssetIdentifier", .text)
                 t.column("metadata", .jsonText)
                 t.column("updatedAt", .datetime).notNull()
+            }
+        }
+
+        migrator.registerMigration("memberProfileImageSourceAssetIdentifier") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "imageSourceAssetIdentifier", .text)
             }
         }
 

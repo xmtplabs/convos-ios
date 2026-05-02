@@ -9,7 +9,7 @@ struct MyGlobalProfileTests {
     func saveRoundTrip() async throws {
         let fixture = try await Fixture.make()
         let imageData = Data([0x01, 0x02, 0x03])
-        try await fixture.writer.save(name: "Alice", imageData: imageData, metadata: nil)
+        try await fixture.writer.save(name: "Alice", imageData: imageData, imageAssetIdentifier: nil, metadata: nil)
 
         let profile = try fixture.repository.fetch()
         #expect(profile?.inboxId == fixture.inboxId)
@@ -22,7 +22,7 @@ struct MyGlobalProfileTests {
     func saveTrims() async throws {
         let fixture = try await Fixture.make()
         let padded = "  Alice  "
-        try await fixture.writer.save(name: padded, imageData: nil, metadata: nil)
+        try await fixture.writer.save(name: padded, imageData: nil, imageAssetIdentifier: nil, metadata: nil)
 
         let profile = try fixture.repository.fetch()
         #expect(profile?.name == "Alice")
@@ -33,7 +33,7 @@ struct MyGlobalProfileTests {
         let fixture = try await Fixture.make()
         let imageData = Data([0xAA, 0xBB])
         let metadata: ProfileMetadata = ["emoji": .string("🚀")]
-        try await fixture.writer.save(name: "Alice", imageData: imageData, metadata: metadata)
+        try await fixture.writer.save(name: "Alice", imageData: imageData, imageAssetIdentifier: nil, metadata: metadata)
 
         try await fixture.writer.update(name: "Bob")
 
@@ -47,10 +47,10 @@ struct MyGlobalProfileTests {
     func updateImagePreservesOtherFields() async throws {
         let fixture = try await Fixture.make()
         let metadata: ProfileMetadata = ["emoji": .string("🌟")]
-        try await fixture.writer.save(name: "Alice", imageData: nil, metadata: metadata)
+        try await fixture.writer.save(name: "Alice", imageData: nil, imageAssetIdentifier: nil, metadata: metadata)
 
         let imageData = Data([0xCC, 0xDD])
-        try await fixture.writer.update(imageData: imageData)
+        try await fixture.writer.update(imageData: imageData, imageAssetIdentifier: "asset-xyz")
 
         let profile = try fixture.repository.fetch()
         #expect(profile?.name == "Alice")
@@ -61,7 +61,7 @@ struct MyGlobalProfileTests {
     @Test("update(metadata:) collapses empty metadata to nil")
     func updateEmptyMetadataIsNil() async throws {
         let fixture = try await Fixture.make()
-        try await fixture.writer.save(name: "Alice", imageData: nil, metadata: ["emoji": .string("🌟")])
+        try await fixture.writer.save(name: "Alice", imageData: nil, imageAssetIdentifier: nil, metadata: ["emoji": .string("🌟")])
 
         try await fixture.writer.update(metadata: [:])
 
@@ -72,7 +72,7 @@ struct MyGlobalProfileTests {
     @Test("delete removes the row")
     func deleteRemovesRow() async throws {
         let fixture = try await Fixture.make()
-        try await fixture.writer.save(name: "Alice", imageData: Data([0x01]), metadata: nil)
+        try await fixture.writer.save(name: "Alice", imageData: Data([0x01]), imageAssetIdentifier: nil, metadata: nil)
         #expect(try fixture.repository.fetch() != nil)
 
         try await fixture.writer.delete()
@@ -82,8 +82,8 @@ struct MyGlobalProfileTests {
     @Test("save overwrites prior row")
     func saveOverwrites() async throws {
         let fixture = try await Fixture.make()
-        try await fixture.writer.save(name: "Alice", imageData: Data([0x01]), metadata: nil)
-        try await fixture.writer.save(name: "Bob", imageData: nil, metadata: nil)
+        try await fixture.writer.save(name: "Alice", imageData: Data([0x01]), imageAssetIdentifier: nil, metadata: nil)
+        try await fixture.writer.save(name: "Bob", imageData: nil, imageAssetIdentifier: nil, metadata: nil)
 
         let profile = try fixture.repository.fetch()
         #expect(profile?.name == "Bob")
@@ -94,6 +94,21 @@ struct MyGlobalProfileTests {
     func fetchReturnsNilWhenEmpty() async throws {
         let fixture = try await Fixture.make()
         #expect(try fixture.repository.fetch() == nil)
+    }
+
+    @Test("imageAssetIdentifier round-trips and is cleared when imageData is nil")
+    func imageAssetIdentifierRoundTrip() async throws {
+        let fixture = try await Fixture.make()
+        try await fixture.writer.save(
+            name: "Alice",
+            imageData: Data([0x01]),
+            imageAssetIdentifier: "asset-abc",
+            metadata: nil
+        )
+        #expect(try fixture.repository.fetch()?.imageAssetIdentifier == "asset-abc")
+
+        try await fixture.writer.update(imageData: nil, imageAssetIdentifier: "asset-ignored")
+        #expect(try fixture.repository.fetch()?.imageAssetIdentifier == nil)
     }
 }
 

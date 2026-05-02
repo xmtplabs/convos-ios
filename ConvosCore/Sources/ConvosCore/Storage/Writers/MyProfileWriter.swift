@@ -4,7 +4,7 @@ import GRDB
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
-    func update(avatar: ImageType?, conversationId: String) async throws
+    func update(avatar: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String) async throws
     func update(metadata: ProfileMetadata?, conversationId: String) async throws
     /// Like `update(metadata:conversationId:)` but propagates ProfileUpdate publish failures.
     /// Use this when the caller needs to know whether the ProfileUpdate reached the network
@@ -13,6 +13,12 @@ public protocol MyProfileWriterProtocol {
     /// Reads `DBMyProfile` and writes/publishes any fields that differ from this group's
     /// `DBMemberProfile`. No-op when nothing is set yet or the group already matches.
     func syncFromGlobalProfile(conversationId: String) async throws
+}
+
+public extension MyProfileWriterProtocol {
+    func update(avatar: ImageType?, conversationId: String) async throws {
+        try await update(avatar: avatar, imageSourceAssetIdentifier: nil, conversationId: conversationId)
+    }
 }
 
 enum MyProfileWriterError: Error {
@@ -103,7 +109,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
     }
 
-    func update(avatar: ImageType?, conversationId: String) async throws {
+    func update(avatar: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -130,7 +136,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         guard let avatarImage = avatar else {
             ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
-            let updatedProfile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
+            let updatedProfile = profile
+                .with(avatar: nil, salt: nil, nonce: nil, key: nil)
+                .with(imageSourceAssetIdentifier: nil)
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
@@ -164,12 +172,14 @@ class MyProfileWriter: MyProfileWriterProtocol {
             acl: "public-read"
         )
 
-        let updatedProfile = profile.with(
-            avatar: uploadedAssetUrl,
-            salt: encryptedPayload.salt,
-            nonce: encryptedPayload.nonce,
-            key: groupKey
-        )
+        let updatedProfile = profile
+            .with(
+                avatar: uploadedAssetUrl,
+                salt: encryptedPayload.salt,
+                nonce: encryptedPayload.nonce,
+                key: groupKey
+            )
+            .with(imageSourceAssetIdentifier: imageSourceAssetIdentifier)
 
         do {
             try await group.updateProfile(updatedProfile)
@@ -209,10 +219,22 @@ class MyProfileWriter: MyProfileWriterProtocol {
             try await update(displayName: normalizedGlobalName ?? "", conversationId: conversationId)
         }
 
-        if let imageData = global.imageData, member?.avatar == nil {
-            if let image = ImageType(data: imageData) {
-                try await update(avatar: image, conversationId: conversationId)
-            }
+        let needsAvatarUpload: Bool
+        if global.imageData == nil {
+            needsAvatarUpload = false
+        } else if member?.avatar == nil {
+            needsAvatarUpload = true
+        } else if let globalAssetId = global.imageAssetIdentifier {
+            needsAvatarUpload = member?.imageSourceAssetIdentifier != globalAssetId
+        } else {
+            needsAvatarUpload = false
+        }
+        if needsAvatarUpload, let imageData = global.imageData, let image = ImageType(data: imageData) {
+            try await update(
+                avatar: image,
+                imageSourceAssetIdentifier: global.imageAssetIdentifier,
+                conversationId: conversationId
+            )
         }
     }
 
