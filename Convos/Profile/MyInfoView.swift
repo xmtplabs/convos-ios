@@ -27,15 +27,6 @@ struct MyInfoView: View {
                     .font(.system(size: 40, weight: .bold))
                     .tracking(-1)
                     .foregroundStyle(.colorTextPrimary)
-
-                Text("Private unless you choose to share it")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextPrimary)
-                    .padding(.bottom, DesignConstants.Spacing.stepX)
-
-                Text("Your info is stored on your device only.")
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
             }
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.horizontal, DesignConstants.Spacing.step2x)
@@ -152,9 +143,6 @@ struct MyInfoView: View {
                     }
                     .buttonStyle(.borderless)
                     .listRowInsets(.init(top: DesignConstants.Spacing.step2x, leading: 10.0, bottom: DesignConstants.Spacing.step2x, trailing: 10.0))
-                } footer: {
-                    Text("Quickname: a name and pic to use quick")
-                        .foregroundStyle(.colorTextSecondary)
                 }
 
                 Section {

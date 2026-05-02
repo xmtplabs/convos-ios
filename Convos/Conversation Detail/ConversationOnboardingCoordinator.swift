@@ -58,8 +58,6 @@ enum ConversationOnboardingState: Equatable {
 
     case settingUpQuickname
 
-    case quicknameLearnMore
-
     /// Waiting to see if the user saves a quickname
     case presentingProfileSettings
 
@@ -106,7 +104,6 @@ final class ConversationOnboardingCoordinator {
     var isSettingUpQuickname: Bool {
         switch state {
         case .settingUpQuickname,
-                .quicknameLearnMore,
                 .presentingProfileSettings:
             return true
         default:
@@ -398,16 +395,6 @@ final class ConversationOnboardingCoordinator {
         handleStateChange()
     }
 
-    func presentWhatIsQuickname() {
-        state = .quicknameLearnMore
-        handleStateChange()
-    }
-
-    func onContinueFromWhatIsQuickname() {
-        state = .savedAsQuicknameSuccess
-        handleStateChange()
-    }
-
     func didSelectQuickname() async {
         QAEvent.emit(.onboarding, "quickname_applied")
         shouldAnimateAvatarForQuicknameSetup = false
@@ -430,7 +417,7 @@ final class ConversationOnboardingCoordinator {
         quicknameViewModel.profileImage = profileImage
         quicknameViewModel.save()
         QAEvent.emit(.onboarding, "quickname_saved", ["name": displayName])
-        state = .quicknameLearnMore
+        state = .savedAsQuicknameSuccess
         handleStateChange()
     }
 

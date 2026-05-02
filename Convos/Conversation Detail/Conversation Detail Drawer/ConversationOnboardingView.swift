@@ -32,7 +32,7 @@ struct ConversationOnboardingView: View {
 
             // Show the current onboarding state
             switch coordinator.state {
-            case .idle, .started, .settingUpQuickname, .quicknameLearnMore, .presentingProfileSettings:
+            case .idle, .started, .settingUpQuickname, .presentingProfileSettings:
                 EmptyView()
 
             case .setupQuickname:
@@ -70,15 +70,6 @@ struct ConversationOnboardingView: View {
         }
         .transition(.blurReplace)
         .animation(.spring(duration: 0.4, bounce: 0.2), value: coordinator.state)
-        .selfSizingSheet(isPresented: Binding(get: {
-            coordinator.state == .quicknameLearnMore
-        }, set: { _ in
-        })) {
-            WhatIsQuicknameView {
-                coordinator.onContinueFromWhatIsQuickname()
-            }
-            .interactiveDismissDisabled()
-        }
     }
 }
 

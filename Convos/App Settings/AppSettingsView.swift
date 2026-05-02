@@ -116,8 +116,6 @@ struct AppSettingsView: View {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
-        } footer: {
-            Text("Private unless you choose to share")
         }
     }
 

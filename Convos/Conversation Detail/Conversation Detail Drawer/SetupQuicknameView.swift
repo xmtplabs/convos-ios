@@ -7,7 +7,7 @@ struct SetupQuicknameSuccessView: View {
                 Image(systemName: "lanyardcard.fill")
                     .foregroundStyle(.colorLava)
 
-                Text("Quickname saved")
+                Text("Profile saved")
                     .font(.callout)
                     .foregroundStyle(.colorTextPrimary)
             }
