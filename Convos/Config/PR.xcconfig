@@ -1,0 +1,52 @@
+// PR Preview Configuration
+// Used by the firebase_pr fastlane lane to ship per-PR ad-hoc builds
+// to Firebase App Distribution under a separate bundle id so they don't
+// collide with TestFlight Dev builds on testers' devices.
+
+CONFIG_FILE = config.pr.json
+DEVELOPMENT_TEAM = FY4NZR34Z3
+
+// Match Dev's compile-time conditions so behavior matches what testers see.
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+
+// Override Swift Package optimization for debugging.
+OTHER_SWIFT_FLAGS = $(inherited) -Onone -Xfrontend -warn-long-expression-type-checking=10000 -Xfrontend -warn-long-function-bodies=10000
+
+// Relax strict concurrency for archive builds while pre-existing Sendable
+// violations get fixed.
+SWIFT_STRICT_CONCURRENCY = minimal
+
+// Don't fail archive on pre-existing Swift warnings.
+SWIFT_TREAT_WARNINGS_AS_ERRORS = NO
+GCC_TREAT_WARNINGS_AS_ERRORS = NO
+
+// Bundle IDs — distinct from Dev so PR builds and TestFlight Dev builds
+// can coexist on a tester's device.
+MAIN_BUNDLE_ID = org.convos.ios-preview.pr
+PRODUCT_BUNDLE_IDENTIFIER = $(MAIN_BUNDLE_ID)
+
+CONVOS_BUNDLE_ID = $(MAIN_BUNDLE_ID)
+CONVOS_TESTS_BUNDLE_ID = $(MAIN_BUNDLE_ID).tests
+CONVOS_APP_CLIP_BUNDLE_ID = $(MAIN_BUNDLE_ID).Clip
+CONVOS_APP_CLIP_TESTS_BUNDLE_ID = $(MAIN_BUNDLE_ID).ConvosAppClipTests
+CONVOS_APP_CLIP_UI_TESTS_BUNDLE_ID = $(MAIN_BUNDLE_ID).ConvosAppClipUITests
+NOTIFICATION_SERVICE_BUNDLE_ID = $(MAIN_BUNDLE_ID).ConvosNSE
+
+// Environment-specific entitlements. Same backend as Dev so domains/APNs match.
+APP_GROUP_IDENTIFIER = group.$(MAIN_BUNDLE_ID)
+ICLOUD_CONTAINER_IDENTIFIER = iCloud.$(MAIN_BUNDLE_ID)
+ASSOCIATED_DOMAIN = dev.convos.org
+WEB_CREDENTIALS_DOMAIN = dev.convos.org
+SECONDARY_ASSOCIATED_DOMAIN = app-dev.convos.org
+URL_SCHEME = convos-pr
+KEYCHAIN_GROUP_IDENTIFIER = $(MAIN_BUNDLE_ID)
+APP_DISPLAY_NAME = Convos PR
+APNS_ENVIRONMENT = production
+
+// Reuse the Dev app icon so we don't have to maintain a separate asset.
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
+
+// Debuggable build settings (Dev parity).
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+ENABLE_TESTABILITY = YES
+DEBUG_INFORMATION_FORMAT = dwarf

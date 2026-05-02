@@ -1,0 +1,161 @@
+# Firebase PR Build
+#
+# Builds the Convos (PR Preview) scheme ad-hoc on every PR and uploads
+# the IPA to Firebase App Distribution so testers can install the change
+# directly from the Firebase tester app, with a separate bundle id
+# (org.convos.ios-preview.pr) so it doesn't collide with TestFlight Dev.
+#
+# Required repository secrets:
+#   CONVOS_CERTIFICATES_TOKEN     - GitHub PAT with read access to
+#                                   xmtplabs/convos-certificates
+#   MATCH_PASSWORD                - Passphrase for the match repo encryption
+#   FIREBASE_SERVICE_ACCOUNT_JSON - Full JSON contents of a service account
+#                                   with the App Distribution Admin role
+#   CACHIX_AUTH_TOKEN             - Auth token for the xmtp Cachix cache
+#                                   (required if the cache is private)
+#
+# Required repository variables:
+#   FIREBASE_APP_ID_PR            - Firebase iOS app id (1:NNN:ios:HEX) for
+#                                   org.convos.ios-preview.pr
+#
+# Optional repository variable:
+#   FIREBASE_TESTER_GROUPS        - Comma-separated tester group aliases.
+#                                   Defaults to "xmtp-internal".
+
+name: Firebase PR Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main", "dev"]
+
+concurrency:
+  group: firebase-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firebase_pr:
+    name: Build & upload to Firebase App Distribution
+    runs-on: warp-macos-latest-arm64-12x
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Checkout convos-certificates (match repo)
+        uses: actions/checkout@v6
+        with:
+          repository: xmtplabs/convos-certificates
+          token: ${{ secrets.CONVOS_CERTIFICATES_TOKEN }}
+          path: convos-certificates
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # NAR export goes through the daemon, no sudo. Split restore/save so the
+      # cache saves immediately after pinning, not on job teardown.
+      - name: Restore pinned Xcode from cache
+        id: xcode-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/xcode-store.nar.gz
+          key: xcode-nix-store-x9hdz5mfp44i9b05sswp271jdv68r8vx
+
+      - name: Import cached Xcode into Nix store
+        if: steps.xcode-cache.outputs.cache-hit == 'true'
+        env:
+          XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+        run: |
+          if nix path-info "$XCODE_NIX_PATH" >/dev/null 2>&1; then
+            echo "Already in store — skipping import"
+          else
+            echo "Importing cached NAR…"
+            gunzip -c ~/xcode-store.nar.gz | nix-store --import
+          fi
+
+      # Skip rehash if path is already in the store (cache import or warm VM).
+      # Update XCODE_NIX_PATH on Xcode bumps.
+      - name: Pin system Xcode into the Nix store
+        env:
+          XCODE_APP_PATH: /Applications/Xcode_26.3.app
+          XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+        run: |
+          if nix path-info "$XCODE_NIX_PATH" >/dev/null 2>&1; then
+            echo "Xcode already in store at $XCODE_NIX_PATH — skipping import"
+          else
+            echo "Importing $XCODE_APP_PATH (slow on first run)…"
+            STORE_PATH=$(nix store add --name Xcode.app "$XCODE_APP_PATH")
+            echo "Pinned at: $STORE_PATH"
+            if [ "$STORE_PATH" != "$XCODE_NIX_PATH" ]; then
+              echo "::warning::Resulting store path $STORE_PATH does not match the pinned XCODE_NIX_PATH; update the workflow."
+            fi
+          fi
+
+      - name: Export pinned Xcode for cache save
+        if: steps.xcode-cache.outputs.cache-hit != 'true'
+        env:
+          XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+        run: |
+          echo "Exporting $XCODE_NIX_PATH for cache…"
+          nix-store --export "$XCODE_NIX_PATH" | gzip > ~/xcode-store.nar.gz
+          ls -lh ~/xcode-store.nar.gz
+
+      # Save immediately after export so the cache lands even if a later step
+      # (fastlane, Firebase upload) fails. Skipped on cache hit.
+      - name: Save pinned Xcode to cache
+        if: steps.xcode-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/xcode-store.nar.gz
+          key: xcode-nix-store-x9hdz5mfp44i9b05sswp271jdv68r8vx
+
+      - name: Set up xmtp Cachix cache
+        uses: cachix/cachix-action@v15
+        with:
+          name: xmtp
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Backup guard: drop Xcode-shaped paths even if step order shifts.
+          # YAML-single-quoted so backslashes pass through to cachix's Haskell regex.
+          pushFilter: '(-Xcode\.app$|-xcode-)'
+
+      - name: Enter dev shell
+        uses: nicknovitski/nix-develop@v1
+        with:
+          arguments: "--accept-flake-config --impure"
+
+      - name: Verify Xcode
+        run: xcodebuild -version
+
+      # Generate Secrets.swift before xcodebuild runs so the file-synchronized
+      # group picks it up at planning time. PR builds talk to Dev backend via
+      # config.pr.json — no real secret values needed, env vars stay empty.
+      - name: Generate Secrets.swift
+        env:
+          BUILD_CONFIGURATION: Dev
+        run: ./Scripts/generate-secrets-secure.sh
+
+      - name: Run fastlane firebase_pr
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          # CI uses the locally checked-out match repo (cloned via actions/checkout
+          # with CONVOS_CERTIFICATES_TOKEN). Local dev uses SSH (Matchfile default).
+          MATCH_GIT_URL: ${{ github.workspace }}/convos-certificates
+          FIREBASE_APP_ID_PR: ${{ vars.FIREBASE_APP_ID_PR }}
+          # JSON content is piped straight through; never written to disk on the runner.
+          FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS || 'xmtp-internal' }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: fastlane firebase_pr
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Convos-PR-${{ github.event.pull_request.number || github.run_id }}.ipa
+          path: build/Convos-PR.ipa
+          if-no-files-found: warn
+          retention-days: 14
