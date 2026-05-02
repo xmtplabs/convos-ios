@@ -6,8 +6,8 @@ struct ConversationOnboardingView: View {
     @Bindable var coordinator: ConversationOnboardingCoordinator
     let focusCoordinator: FocusCoordinator
     let scrollOverscrollAmount: CGFloat
-    let onTapSetupQuickname: () -> Void
-    let onUseQuickname: (Profile, UIImage?) -> Void
+    let onTapSetupProfile: () -> Void
+    let onUseProfile: (Profile, UIImage?) -> Void
     let onPresentProfileSettings: () -> Void
 
     private var permissionState: NotificationPermissionState? {
@@ -32,17 +32,17 @@ struct ConversationOnboardingView: View {
 
             // Show the current onboarding state
             switch coordinator.state {
-            case .idle, .started, .settingUpQuickname, .presentingProfileSettings:
+            case .idle, .started, .settingUpProfile, .presentingProfileSettings:
                 EmptyView()
 
-            case .setupQuickname:
-                SetupQuicknameView {
-                    onTapSetupQuickname()
+            case .setupProfile:
+                SetupProfileView {
+                    onTapSetupProfile()
                 }
                 .transition(.blurReplace)
 
-            case .savedAsQuicknameSuccess:
-                SetupQuicknameSuccessView()
+            case .savedProfileSuccess:
+                SetupProfileSuccessView()
                     .transition(.blurReplace)
 
             case .requestNotifications,
@@ -78,9 +78,9 @@ struct ConversationOnboardingView: View {
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     let onboardingSteps: [ConversationOnboardingState] = [
         .idle,
-        .setupQuickname,
-        .settingUpQuickname,
-        .savedAsQuicknameSuccess,
+        .setupProfile,
+        .settingUpProfile,
+        .savedProfileSuccess,
         .requestNotifications,
         .notificationsEnabled
     ]
@@ -117,18 +117,18 @@ struct ConversationOnboardingView: View {
             coordinator: coordinator,
             focusCoordinator: focusCoordinator,
             scrollOverscrollAmount: 0,
-            onTapSetupQuickname: {},
-            onUseQuickname: { _, _ in },
+            onTapSetupProfile: {},
+            onUseProfile: { _, _ in },
             onPresentProfileSettings: {}
         )
         .onAppear {
-            coordinator.state = .setupQuickname
+            coordinator.state = .setupProfile
         }
         .padding()
     }
 }
 
-#Preview("Setup Quickname - Not Dismissible") {
+#Preview("Setup Profile - Not Dismissible") {
     @Previewable @State var coordinator = ConversationOnboardingCoordinator()
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
 
@@ -136,17 +136,17 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
+        onTapSetupProfile: {},
+        onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
-        coordinator.state = .setupQuickname
+        coordinator.state = .setupProfile
     }
     .padding()
 }
 
-#Preview("Setup Quickname - Auto Dismiss") {
+#Preview("Setup Profile - Auto Dismiss") {
     @Previewable @State var coordinator = ConversationOnboardingCoordinator()
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
 
@@ -154,12 +154,12 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
+        onTapSetupProfile: {},
+        onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
-        coordinator.state = .setupQuickname
+        coordinator.state = .setupProfile
     }
     .padding()
 }
@@ -172,8 +172,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
+        onTapSetupProfile: {},
+        onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -190,8 +190,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
+        onTapSetupProfile: {},
+        onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -208,8 +208,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
+        onTapSetupProfile: {},
+        onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -226,8 +226,8 @@ struct ConversationOnboardingView: View {
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
-        onTapSetupQuickname: {},
-        onUseQuickname: { _, _ in },
+        onTapSetupProfile: {},
+        onUseProfile: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {

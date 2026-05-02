@@ -458,15 +458,15 @@ The fields are: `[timestamp] [level] [source file:line] [namespace] message`
 
 ### Ephemeral / Auto-Dismissing UI
 
-Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding pills, quickname pills, success confirmations). These require fast detection:
+Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding pills, profile pills, success confirmations). These require fast detection:
 
-- **Start polling BEFORE the trigger completes.** Many ephemeral elements appear during an async operation (e.g., the quickname pill appears while `process-join-requests` is still running). If you wait for the CLI command to finish before polling, the pill may already be gone. Run the CLI command **in the background** (append `&` in bash) and start tapping **immediately** — do not wait for the background command to complete.
+- **Start polling BEFORE the trigger completes.** Many ephemeral elements appear during an async operation (e.g., the profile pill appears while `process-join-requests` is still running). If you wait for the CLI command to finish before polling, the pill may already be gone. Run the CLI command **in the background** (append `&` in bash) and start tapping **immediately** — do not wait for the background command to complete.
 - **Use `sim_tap_id` with `retries` to find-and-tap in one atomic operation.** Do not use `sim_wait_for_element` followed by a separate `sim_tap_id` — the element can auto-dismiss between the two calls. `sim_tap_id` with retries polls and taps the instant it finds the element.
-- **Search by label text, not accessibility identifier.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views. Use a substring of the label instead (e.g., `"Tap to chat"` for the quickname pill).
+- **Search by label text, not accessibility identifier.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views. Use a substring of the label instead (e.g., `"Tap to chat"` for the profile pill).
 - **Use `sim_find_elements` as a fallback** if `sim_tap_id` exhausts retries — to check whether the element appeared and dismissed between polls.
 - If a test step says "look for" an ephemeral element, the sequence should be: start the trigger in the background → immediately call `sim_tap_id` with retries → then screenshot to verify the result after tapping.
 
-**Example pattern for invite + quickname pill:**
+**Example pattern for invite + profile pill:**
 ```
 # 1. Open invite in app
 sim_open_url ...
@@ -482,8 +482,8 @@ sim_screenshot
 ```
 
 Known ephemeral elements:
-- **Quickname pill**: appears above the composer when entering a new conversation with a quickname set. Search using label substring `"Tap to chat"` (full label is like `"UQ, Tap to chat as Updated QN"`). Accessibility identifier is `add-quickname-button` but may not be found reliably — prefer label search. Auto-dismisses after ~8 seconds.
-- **Setup quickname prompt**: appears during first-conversation onboarding. Search using label `"Add your name for this convo"` or identifier `setup-quickname-button`. Does not auto-dismiss (requires interaction).
+- **Profile pill**: appears above the composer when entering a new conversation with a profile set. Search using label substring `"Tap to chat"` (full label is like `"UQ, Tap to chat as Updated QN"`). Accessibility identifier is `add-profile-button` but may not be found reliably — prefer label search. Auto-dismisses after ~8 seconds.
+- **Setup profile prompt**: appears during first-conversation onboarding. Search using label `"Add your name for this convo"` or identifier `setup-profile-button`. Does not auto-dismiss (requires interaction).
 - **Saved/success confirmations**: brief confirmations that auto-dismiss after ~3 seconds.
 
 ### Verifying Results
@@ -517,7 +517,7 @@ When a test requires fresh CLI state:
 
 When the app launches for the first time (or after a reset), the conversation creation flow includes an onboarding sequence:
 
-1. After creating a conversation, a "setup quickname" prompt appears at the bottom of the conversation.
+1. After creating a conversation, a "setup profile" prompt appears at the bottom of the conversation.
 2. The onboarding also includes a notification permission request.
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.

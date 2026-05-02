@@ -21,7 +21,7 @@ struct MessagesInputView: View {
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
-    let animateAvatarForQuickname: Bool
+    let animateAvatarForProfileSetup: Bool
     let messagesTextFieldEnabled: Bool
     let isCollapsed: Bool
     let canEditProfile: Bool
@@ -46,7 +46,7 @@ struct MessagesInputView: View {
     @State private var avatarScale: CGFloat = 1.0
 
     private func updateAnimation() {
-        if animateAvatarForQuickname {
+        if animateAvatarForProfileSetup {
             withAnimation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                 avatarScale = 1.2
             }
@@ -68,13 +68,13 @@ struct MessagesInputView: View {
             ProfileAvatarView(
                 profile: profile,
                 profileImage: profileImage,
-                useSystemPlaceholder: animateAvatarForQuickname
+                useSystemPlaceholder: animateAvatarForProfileSetup
             )
         }
         .frame(width: sendButtonSize, height: sendButtonSize)
         .frame(alignment: .bottomLeading)
         .scaleEffect(avatarScale)
-        .task(id: animateAvatarForQuickname) {
+        .task(id: animateAvatarForProfileSetup) {
             updateAnimation()
         }
         .disabled(!canEditProfile)
@@ -565,17 +565,17 @@ private struct ComposerSideConvoCard: View {
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var selectedAttachmentImage: UIImage?
     @Previewable @State var pendingInviteURLPreview: String? = "https://convos.xyz/invite/test-code"
-    @Previewable @State var animateAvatarForQuickname: Bool = false
+    @Previewable @State var animateAvatarForProfileSetup: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
     VStack {
         Spacer()
         Button {
             withAnimation {
-                animateAvatarForQuickname.toggle()
+                animateAvatarForProfileSetup.toggle()
             }
         } label: {
-            Text("Toggle Quickname Setup")
+            Text("Toggle Profile Setup")
         }
         Spacer()
     }
@@ -592,7 +592,7 @@ private struct ComposerSideConvoCard: View {
             pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
-            animateAvatarForQuickname: animateAvatarForQuickname,
+            animateAvatarForProfileSetup: animateAvatarForProfileSetup,
             messagesTextFieldEnabled: true,
             isCollapsed: true,
             canEditProfile: true,

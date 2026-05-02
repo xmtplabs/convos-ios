@@ -48,7 +48,7 @@ steps:
     criteria: cancel_preserves_data
     note: >
       Confirmation dialog: "Delete everything? This will permanently delete all
-      conversations on this device, as well as your Quickname." Red "Hold to delete"
+      conversations on this device, as well as your Profile." Red "Hold to delete"
       button (id="hold-to-delete-button", label="Hold to delete all data") and Cancel.
 
   - id: perform_deletion

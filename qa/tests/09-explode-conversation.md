@@ -56,7 +56,7 @@ Verify that exploding a conversation removes it for all participants under the *
 12. Open a different conversation from the app (the test setup should have ensured at least one other conversation exists; if not, create one before steps 1-5). Confirm:
     - The conversation opens normally.
     - The user can still send and receive messages.
-    - The user's profile / Quickname is unchanged.
+    - The user's profile / Profile is unchanged.
     - This confirms the explode did **not** destroy the user's identity — it only removed them from the one exploded group.
 
 ## Two-simulator variant (Device B as joiner observing explosion)
@@ -69,7 +69,7 @@ When time allows, run a second pass of this test with two simulators:
 4. Verify on B:
    - The conversation disappears from B's conversations list (mechanism: B receives either the `ExplodeSettings` message or the MLS "removed" event, whichever arrives first; both result in the conversation being filtered out).
    - B's other conversations are unaffected.
-   - B's profile / Quickname is unchanged.
+   - B's profile / Profile is unchanged.
 
 ## Teardown
 

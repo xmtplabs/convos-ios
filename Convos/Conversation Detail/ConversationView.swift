@@ -4,7 +4,7 @@ import SwiftUI
 
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
-    @Bindable var quicknameViewModel: ProfileSettingsViewModel
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let onScanInviteCode: () -> Void
@@ -155,11 +155,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
                         scrollOverscrollAmount: scrollOverscrollAmount,
-                        onTapSetupQuickname: {
+                        onTapSetupProfile: {
                             onboardingCoordinator.didTapProfilePhoto()
                             viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                         },
-                        onUseQuickname: viewModel.onUseQuickname(_:_:),
+                        onUseProfile: viewModel.onUseProfile(_:_:),
                         onPresentProfileSettings: viewModel.onProfileSettings
                     )
                 }
@@ -255,13 +255,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 profile: .constant(viewModel.myProfileViewModel.profile),
                 profileImage: $viewModel.myProfileViewModel.profileImage,
                 editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
-                quicknameViewModel: quicknameViewModel,
+                profileSettingsViewModel: profileSettingsViewModel,
                 showsCancelButton: true,
                 showsProfile: true,
-                showsUseQuicknameButton: true,
-                canEditQuickname: false
+                showsUseProfileButton: true,
+                canEditProfile: false
             ) { profileSettings in
-                viewModel.onUseQuickname(profileSettings.profile, profileSettings.profileImage)
+                viewModel.onUseProfile(profileSettings.profile, profileSettings.profileImage)
             }
             .onDisappear {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
@@ -271,7 +271,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,
-                quicknameViewModel: quicknameViewModel
+                profileSettingsViewModel: profileSettingsViewModel
             )
             .background(.colorBackgroundSurfaceless)
         }
@@ -351,13 +351,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = .mock
-    @Previewable @State var quicknameViewModel: ProfileSettingsViewModel = .shared
+    @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     NavigationStack {
         ConversationView(
             viewModel: viewModel,
-            quicknameViewModel: quicknameViewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             onScanInviteCode: {},

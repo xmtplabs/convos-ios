@@ -763,7 +763,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     func startOnboarding() {
         // Draft ids are ephemeral placeholders (e.g. "draft-<UUID>"). Running the
-        // coordinator against them would write hasSetQuicknameForConversation_<uuid>
+        // coordinator against them would write hasSetProfileForConversation_<uuid>
         // flags that are never read again — the real id arrives later via the
         // conversation publisher and triggers startOnboarding from didSet.
         guard !conversation.isDraft else { return }
@@ -1294,7 +1294,7 @@ extension ConversationViewModel {
         Task { await cachedMessageWriter.cancelEagerUpload(trackingKey: trackingKey) }
     }
 
-    func onUseQuickname(_ profile: Profile, _ profileImage: UIImage?) {
+    func onUseProfile(_ profile: Profile, _ profileImage: UIImage?) {
         myProfileViewModel.update(using: profile, profileImage: profileImage, conversationId: conversation.id)
     }
 
@@ -1330,8 +1330,8 @@ extension ConversationViewModel {
             profileImage: pickedImage
         )
 
-        if onboardingCoordinator.isSettingUpQuickname {
-            focusCoordinator.endEditing(for: .displayName, context: .onboardingQuickname)
+        if onboardingCoordinator.isSettingUpProfile {
+            focusCoordinator.endEditing(for: .displayName, context: .onboardingProfile)
         } else {
             focusCoordinator.endEditing(for: .displayName, context: context)
         }

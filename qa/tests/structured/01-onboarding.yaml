@@ -2,7 +2,7 @@ id: "01"
 name: "Fresh Onboarding Flow"
 description: >
   Verify that a first-time user can launch the app, create a conversation,
-  and complete the quickname onboarding flow.
+  and complete the profile onboarding flow.
 tags: [onboarding, core, destructive]
 depends_on: []
 estimated_duration_s: 120
@@ -39,45 +39,45 @@ steps:
       - element_exists: { id: "message-text-field" }
     criteria: compose_opens_conversation
 
-  - id: quickname_prompt
-    name: "Quickname setup prompt appears"
+  - id: profile_prompt
+    name: "Profile setup prompt appears"
     actions:
-      - wait_for_element: { id: "setup-quickname-button", timeout: 15 }
+      - wait_for_element: { id: "setup-profile-button", timeout: 15 }
     verify:
-      - element_exists: { id: "setup-quickname-button" }
-    criteria: quickname_prompt_appears
+      - element_exists: { id: "setup-profile-button" }
+    criteria: profile_prompt_appears
     note: "Poll immediately — ephemeral element may appear quickly after conversation creation"
 
-  - id: quickname_setup
-    name: "Set quickname via profile editor"
+  - id: profile_setup
+    name: "Set profile via profile editor"
     actions:
-      - tap: { id: "setup-quickname-button" }
+      - tap: { id: "setup-profile-button" }
       - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
       - type_in_field: { id: "quick-edit-display-name-field", text: "QA Tester", clear_first: true }
       - tap: { id: "quick-edit-done-button" }
     verify:
       - find_elements: { pattern: "QA Tester" }
-    criteria: quickname_can_be_set
+    criteria: profile_can_be_set
     note: >
       Quick-edit uses quick-edit-display-name-field and quick-edit-done-button.
       A keyboard tutorial overlay may appear on fresh simulators — dismiss it
       by tapping "Continue" before typing.
 
-  - id: quickname_saved
-    name: "Quickname saved confirmation appears"
+  - id: profile_saved
+    name: "Profile saved confirmation appears"
     actions:
       - wait_for_element: { label_contains: "new you in every convo", timeout: 10 }
     verify:
       - element_exists: { label_contains: "new you in every convo" }
-    criteria: quickname_saved_confirmation
+    criteria: profile_saved_confirmation
 
-  - id: continue_after_quickname
-    name: "Tap Continue on quickname confirmation screen"
+  - id: continue_after_profile
+    name: "Tap Continue on profile confirmation screen"
     actions:
       - tap: { label: "Continue" }
       - wait_for_element: { id: "notification-permission-button", timeout: 10 }
     note: >
-      The quickname confirmation screen shows identity explanation and a
+      The profile confirmation screen shows identity explanation and a
       Continue button. Tapping it advances to the notification permission step.
 
   - id: notification_permission
@@ -127,12 +127,12 @@ criteria:
     description: "App launches to an empty conversations list after simulator erase"
   compose_opens_conversation:
     description: "Compose button opens a new conversation flow"
-  quickname_prompt_appears:
-    description: "Quickname setup prompt appears after creating the first conversation"
-  quickname_can_be_set:
-    description: "Quickname can be set via the profile editor"
-  quickname_saved_confirmation:
-    description: "Quickname saved confirmation appears"
+  profile_prompt_appears:
+    description: "Profile setup prompt appears after creating the first conversation"
+  profile_can_be_set:
+    description: "Profile can be set via the profile editor"
+  profile_saved_confirmation:
+    description: "Profile saved confirmation appears"
   notification_step_shown:
     description: "Notification permission step is shown"
   onboarding_completes:

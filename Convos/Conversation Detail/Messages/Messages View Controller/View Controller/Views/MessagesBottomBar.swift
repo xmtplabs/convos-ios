@@ -56,8 +56,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
 
-    var quicknamePlaceholderText: String {
-        onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "Your name"
+    var profilePlaceholderText: String {
+        onboardingCoordinator.state == .settingUpProfile ? "Add your name" : "Your name"
     }
 
     var body: some View {
@@ -290,7 +290,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
-                animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
+                animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 isCollapsed: !isMessageInputFocused,
                 canEditProfile: profileSettings.profileSettings.isDefault,
@@ -320,7 +320,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @ViewBuilder
     private var expandedQuickEditView: some View {
         QuickEditView(
-            placeholderText: quicknamePlaceholderText,
+            placeholderText: profilePlaceholderText,
             text: $displayName,
             image: $profileImage,
             isImagePickerPresented: $isImagePickerPresented,

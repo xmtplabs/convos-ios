@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct SetupQuicknameSuccessView: View {
+struct SetupProfileSuccessView: View {
     var body: some View {
         Group {
             HStack(spacing: DesignConstants.Spacing.stepX) {
@@ -22,10 +22,10 @@ struct SetupQuicknameSuccessView: View {
 }
 
 #Preview {
-    SetupQuicknameSuccessView()
+    SetupProfileSuccessView()
 }
 
-struct SetupQuicknameView: View {
+struct SetupProfileView: View {
     let action: () -> Void
     var body: some View {
         Button {
@@ -47,7 +47,7 @@ struct SetupQuicknameView: View {
             )
         }
         .accessibilityLabel("Add your name for this convo")
-        .accessibilityIdentifier("setup-quickname-button")
+        .accessibilityIdentifier("setup-profile-button")
         .transition(.blurReplace)
         .hoverEffect(.lift)
         .padding(.vertical, DesignConstants.Spacing.step4x)
@@ -56,7 +56,7 @@ struct SetupQuicknameView: View {
 
 #Preview {
     VStack(spacing: 20) {
-        SetupQuicknameView {}
+        SetupProfileView {}
     }
     .padding()
 }

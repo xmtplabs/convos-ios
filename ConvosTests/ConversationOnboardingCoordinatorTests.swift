@@ -10,10 +10,10 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
     let testAutodismissDuration: CGFloat = 0.05
 
     func cleanUpUserDefaults(target userDefaults: UserDefaults = .standard) {
-        userDefaults.removeObject(forKey: "hasShownQuicknameEditor")
+        userDefaults.removeObject(forKey: "hasShownProfileEditor")
         userDefaults.removeObject(forKey: "hasCompletedConversationOnboarding")
-        userDefaults.removeObject(forKey: "hasSetQuicknameForConversation_\(testConversationId)")
-        userDefaults.removeObject(forKey: "hasSeenAddAsQuickname")
+        userDefaults.removeObject(forKey: "hasSetProfileForConversation_\(testConversationId)")
+        userDefaults.removeObject(forKey: "hasSeenAddAsProfile")
     }
 
     override func setUp() async throws {
@@ -63,13 +63,13 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state, .started)
     }
 
-    func testInviteWasAccepted_NotificationsAlreadyGranted_GoesToQuickname() async {
+    func testInviteWasAccepted_NotificationsAlreadyGranted_GoesToProfile() async {
         mockNotificationCenter.authStatus = .authorized
         coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
 
-        XCTAssertEqual(coordinator.state, .setupQuickname)
+        XCTAssertEqual(coordinator.state, .setupProfile)
         XCTAssertFalse(coordinator.isWaitingForInviteAcceptance)
     }
 
@@ -83,7 +83,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isWaitingForInviteAcceptance)
     }
 
-    func testInviteWasAccepted_GrantNotifications_ThenQuickname() async {
+    func testInviteWasAccepted_GrantNotifications_ThenProfile() async {
         mockNotificationCenter.authStatus = .notDetermined
         coordinator.isWaitingForInviteAcceptance = true
 
@@ -104,34 +104,34 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     // MARK: - Normal Flow Tests (Not Waiting for Invite)
 
-    func testStart_FirstTimeUser_ShowsNonDismissibleSetupQuickname() async {
+    func testStart_FirstTimeUser_ShowsNonDismissibleSetupProfile() async {
         await coordinator.start(for: testConversationId)
-        XCTAssertEqual(coordinator.state, .setupQuickname)
+        XCTAssertEqual(coordinator.state, .setupProfile)
     }
 
-    func testDidTapSetupQuickname_MarksAsShown() async {
+    func testDidTapSetupProfile_MarksAsShown() async {
         await coordinator.start(for: testConversationId)
         coordinator.didTapProfilePhoto()
 
-        let hasShown = UserDefaults.standard.bool(forKey: "hasShownQuicknameEditor")
+        let hasShown = UserDefaults.standard.bool(forKey: "hasShownProfileEditor")
         XCTAssertTrue(hasShown)
     }
 
-    // MARK: - Auto-Dismiss Setup Quickname Tests
+    // MARK: - Auto-Dismiss Setup Profile Tests
 
-    func testStart_HasSeenEditorWithQuickname_AutoAppliesAndAdvances() async {
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+    func testStart_HasSeenEditorWithProfile_AutoAppliesAndAdvances() async {
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
         mockNotificationCenter.authStatus = .notDetermined
 
         await coordinator.start(for: testConversationId)
 
         let profileSettings = ProfileSettingsViewModel.shared.profileSettings
         if profileSettings.isDefault {
-            XCTAssertEqual(coordinator.state, .setupQuickname)
+            XCTAssertEqual(coordinator.state, .setupProfile)
         } else {
             XCTAssertEqual(coordinator.state, .requestNotifications)
             XCTAssertTrue(
-                UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(testConversationId)"),
+                UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"),
                 "Auto-apply must mark the per-conversation flag"
             )
         }
@@ -147,11 +147,11 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertTrue(hasCompleted)
     }
 
-    func testStart_AlreadySetQuicknameForConversation_GoesToNotifications() async {
+    func testStart_AlreadySetProfileForConversation_GoesToNotifications() async {
         mockNotificationCenter.authStatus = .notDetermined
 
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
-        UserDefaults.standard.set(true, forKey: "hasSetQuicknameForConversation_\(testConversationId)")
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
+        UserDefaults.standard.set(true, forKey: "hasSetProfileForConversation_\(testConversationId)")
 
         await coordinator.start(for: testConversationId)
         XCTAssertEqual(coordinator.state, .requestNotifications)
@@ -171,27 +171,27 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testReset_ClearsAllState() async {
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
 
         coordinator.reset()
 
         let hasCompleted = UserDefaults.standard.bool(forKey: "hasCompletedConversationOnboarding")
-        let hasShown = UserDefaults.standard.bool(forKey: "hasShownQuicknameEditor")
+        let hasShown = UserDefaults.standard.bool(forKey: "hasShownProfileEditor")
 
         XCTAssertFalse(hasCompleted)
         XCTAssertFalse(hasShown)
         XCTAssertEqual(coordinator.state, .idle)
     }
 
-    // MARK: - Per-Conversation Quickname Tests
+    // MARK: - Per-Conversation Profile Tests
 
-    func testDidSelectQuickname_TransitionsToNotifications() async {
+    func testDidSelectProfile_TransitionsToNotifications() async {
         mockNotificationCenter.authStatus = .notDetermined
 
         await coordinator.start(for: testConversationId)
-        XCTAssertEqual(coordinator.state, .setupQuickname)
+        XCTAssertEqual(coordinator.state, .setupProfile)
 
-        await coordinator.didSelectQuickname()
+        await coordinator.didSelectProfile()
 
         XCTAssertEqual(coordinator.state, .requestNotifications)
     }
@@ -200,8 +200,8 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         let conversation1 = "conversation-1"
         let conversation2 = "conversation-2"
 
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
-        UserDefaults.standard.set(true, forKey: "hasSetQuicknameForConversation_\(conversation1)")
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
+        UserDefaults.standard.set(true, forKey: "hasSetProfileForConversation_\(conversation1)")
         mockNotificationCenter.authStatus = .notDetermined
 
         coordinator.state = .idle
@@ -209,87 +209,87 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
         let profileSettings = ProfileSettingsViewModel.shared.profileSettings
         if profileSettings.isDefault {
-            XCTAssertEqual(coordinator.state, .setupQuickname)
+            XCTAssertEqual(coordinator.state, .setupProfile)
         } else {
             XCTAssertEqual(coordinator.state, .requestNotifications)
         }
 
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversation1)")
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversation2)")
+        UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversation1)")
+        UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversation2)")
     }
 
     func testReset_WithConversationId_ClearsConversationFlag() async {
-        UserDefaults.standard.set(true, forKey: "hasSetQuicknameForConversation_\(testConversationId)")
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(testConversationId)"))
+        UserDefaults.standard.set(true, forKey: "hasSetProfileForConversation_\(testConversationId)")
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"))
 
         coordinator.reset(conversationId: testConversationId)
 
-        XCTAssertFalse(UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(testConversationId)"))
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(testConversationId)"))
     }
 
     // MARK: - Completed Onboarding Tests
 
-    func testStart_HasCompletedOnboarding_NewConversation_SurfacesQuicknameOrAutoApplies() async {
+    func testStart_HasCompletedOnboarding_NewConversation_SurfacesProfileOrAutoApplies() async {
         mockNotificationCenter.authStatus = .authorized
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
 
         let newConversationId = "new-convo-after-onboarding"
         await coordinator.start(for: newConversationId)
 
         let profileSettings = ProfileSettingsViewModel.shared.profileSettings
         if profileSettings.isDefault {
-            XCTAssertEqual(coordinator.state, .setupQuickname)
+            XCTAssertEqual(coordinator.state, .setupProfile)
             XCTAssertFalse(
-                UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)"),
-                "Entering setupQuickname must not preemptively mark the per-conversation flag"
+                UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(newConversationId)"),
+                "Entering setupProfile must not preemptively mark the per-conversation flag"
             )
         } else {
             XCTAssertEqual(coordinator.state, .idle)
             XCTAssertTrue(
-                UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(newConversationId)"),
+                UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(newConversationId)"),
                 "Auto-apply must mark the per-conversation flag"
             )
         }
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(newConversationId)")
+        UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(newConversationId)")
     }
 
-    func testDidSelectQuickname_SetsPerConversationFlag() async {
+    func testDidSelectProfile_SetsPerConversationFlag() async {
         mockNotificationCenter.authStatus = .authorized
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
 
-        let conversationId = "convo-applying-quickname"
+        let conversationId = "convo-applying-profile"
         await coordinator.start(for: conversationId)
         XCTAssertFalse(
-            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(conversationId)"),
+            UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(conversationId)"),
             "Pre-condition: flag should not yet be set after start()"
         )
 
-        await coordinator.didSelectQuickname()
+        await coordinator.didSelectProfile()
 
         XCTAssertTrue(
-            UserDefaults.standard.bool(forKey: "hasSetQuicknameForConversation_\(conversationId)"),
-            "didSelectQuickname (user applied the quickname) must set the per-conversation flag"
+            UserDefaults.standard.bool(forKey: "hasSetProfileForConversation_\(conversationId)"),
+            "didSelectProfile (user applied the profile) must set the per-conversation flag"
         )
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversationId)")
+        UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversationId)")
     }
 
     func testStart_HasCompletedOnboarding_ReopensSameConversation_Skips() async {
         mockNotificationCenter.authStatus = .authorized
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.set(true, forKey: "hasShownQuicknameEditor")
+        UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
 
         let conversationId = "convo-seen-before"
-        UserDefaults.standard.set(true, forKey: "hasSetQuicknameForConversation_\(conversationId)")
+        UserDefaults.standard.set(true, forKey: "hasSetProfileForConversation_\(conversationId)")
 
         await coordinator.start(for: conversationId)
 
-        if case .setupQuickname = coordinator.state {
+        if case .setupProfile = coordinator.state {
             XCTFail("Re-opening a convo with the per-conversation flag set must not re-prompt")
         }
 
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(conversationId)")
+        UserDefaults.standard.removeObject(forKey: "hasSetProfileForConversation_\(conversationId)")
     }
 
     // MARK: - App Lifecycle Tests
@@ -311,7 +311,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         mockNotificationCenter.authStatus = .denied
 
         await coordinator.start(for: testConversationId)
-        await coordinator.didSelectQuickname()
+        await coordinator.didSelectProfile()
         XCTAssertEqual(coordinator.state, .notificationsDenied)
 
         mockNotificationCenter.authStatus = .authorized
@@ -324,7 +324,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await waitForState(.idle)
     }
 
-    func testAppBecomesActive_DeniedState_EnabledAfterInviteFlow_ContinuesToQuickname() async {
+    func testAppBecomesActive_DeniedState_EnabledAfterInviteFlow_ContinuesToProfile() async {
         mockNotificationCenter.authStatus = .denied
         coordinator.isWaitingForInviteAcceptance = true
 
@@ -338,7 +338,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await waitForState(.notificationsEnabled)
 
         await waitForAutodismiss()
-        await waitForState(.setupQuickname)
+        await waitForState(.setupProfile)
     }
 
     private func waitForState(

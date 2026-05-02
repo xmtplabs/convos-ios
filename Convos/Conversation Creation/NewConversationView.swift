@@ -3,7 +3,7 @@ import SwiftUI
 
 struct NewConversationView: View {
     let viewModel: NewConversationViewModel
-    @Bindable var quicknameViewModel: ProfileSettingsViewModel
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -32,7 +32,7 @@ struct NewConversationView: View {
                     } else if let conversationViewModel = viewModel.conversationViewModel {
                         ConversationView(
                             viewModel: conversationViewModel,
-                            quicknameViewModel: quicknameViewModel,
+                            profileSettingsViewModel: profileSettingsViewModel,
                             focusState: focusState,
                             focusCoordinator: coordinator,
                             onScanInviteCode: viewModel.onScanInviteCode,
@@ -136,14 +136,14 @@ private struct ErrorSheetWithRetry: View {
         messagingService: MockMessagingService(),
         showingFullScreenScanner: false
     )
-    @Previewable @State var quicknameViewModel: ProfileSettingsViewModel = .shared
+    @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
     @Previewable @State var presented: Bool = true
     VStack {
     }
     .sheet(isPresented: $presented) {
         NewConversationView(
             viewModel: viewModel,
-            quicknameViewModel: quicknameViewModel
+            profileSettingsViewModel: profileSettingsViewModel
         )
     }
 }

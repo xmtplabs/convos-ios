@@ -11,7 +11,7 @@ Based on the [Software Factory](https://factory.strongdm.ai) model from StrongDM
 ## Current State
 
 What exists today:
-- **QA test suite** — 15 tests covering onboarding, messaging, invites, reactions, replies, profiles, pinning, muting, locking, exploding, migration, quicknames, and performance
+- **QA test suite** — 15 tests covering onboarding, messaging, invites, reactions, replies, profiles, pinning, muting, locking, exploding, migration, profiles, and performance
 - **QA rules** (`qa/RULES.md`) — error classification, log monitoring, ephemeral UI handling, self-improvement practices
 - **QA skills** — `qa` (runner), `qa-writer` (authoring new tests), `convos-cli` (CLI reference), `run` (build + launch)
 - **Claude Code + Pi** — agent harness with MCP tools, simulator control, subagents
@@ -51,7 +51,7 @@ The QA suite is the foundation of agent trust. If the agent can't reliably valid
 
 **Fix known issues:**
 - Attachment testing needs real image files (ImageMagick/Pillow dependency or bundled test assets)
-- Ephemeral UI detection still occasionally misses quickname pill
+- Ephemeral UI detection still occasionally misses profile pill
 - `UNIQUE constraint: conversation.inviteTag` error needs investigation
 
 **Reliability:**

@@ -78,7 +78,7 @@ class ProfileSettingsViewModel {
                     metadata: nil
                 )
                 if !isDefault {
-                    ConversationOnboardingCoordinator.markQuicknameEditorShown()
+                    ConversationOnboardingCoordinator.markProfileEditorShown()
                 }
             } catch {
                 Log.error("Failed saving profile settings: \(error.localizedDescription)")

@@ -16,7 +16,7 @@ class MyProfileViewModel {
 
     var isEditingDisplayName: Bool = false
     var editingDisplayName: String = ""
-    var saveDisplayNameAsQuickname: Bool = false
+    var saveDisplayNameAsProfile: Bool = false
 
     var profileImage: UIImage?
     var editingEmoji: String = ""
@@ -209,7 +209,7 @@ class MyProfileViewModel {
             self.profileImage = nil
         }
 
-        if saveDisplayNameAsQuickname {
+        if saveDisplayNameAsProfile {
             // QuickEditView writes the asset identifier directly to
             // ProfileSettingsViewModel.shared via an inline binding, so no need to copy it
             // here. Image and name still flow through this view model and need forwarding.
@@ -217,7 +217,7 @@ class MyProfileViewModel {
             settingsViewModel.editingDisplayName = trimmedDisplayName
             settingsViewModel.profileImage = profileImage
             settingsViewModel.save()
-            saveDisplayNameAsQuickname = false
+            saveDisplayNameAsProfile = false
         }
 
         return didChange
