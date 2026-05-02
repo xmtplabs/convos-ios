@@ -24,6 +24,7 @@ final class ConversationCapabilityResolutionsViewModel {
     private let session: any SessionManagerProtocol
     private var resolutionsCancellable: AnyCancellable?
     private var latestResolutions: [CapabilityResolution] = []
+    private var recomputeTask: Task<Void, Never>?
 
     init(conversationId: String, session: any SessionManagerProtocol) {
         self.conversationId = conversationId
@@ -57,9 +58,11 @@ final class ConversationCapabilityResolutionsViewModel {
     private func recomputeRows() {
         let resolutions = latestResolutions
         let registry = session.capabilityProviderRegistry()
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.rows = await Self.buildRows(from: resolutions, registry: registry)
+        recomputeTask?.cancel()
+        recomputeTask = Task { @MainActor [weak self] in
+            let computed = await Self.buildRows(from: resolutions, registry: registry)
+            guard !Task.isCancelled, let self else { return }
+            self.rows = computed
         }
     }
 

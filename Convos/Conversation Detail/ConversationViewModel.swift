@@ -1046,7 +1046,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else { continue }
             let wasEnabled = await store.isEnabled(kind: kind, capability: capability, conversationId: conversationId)
             await store.setEnabled(true, kind: kind, capability: capability, conversationId: conversationId)
-            if capability == .read {
+            if capability == .read, !wasEnabled {
                 try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
             }
             if capability.isWrite, !wasEnabled {

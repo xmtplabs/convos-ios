@@ -46,11 +46,21 @@ public enum CapabilityProviderBootstrap {
         registry: any CapabilityProviderRegistry
     ) async {
         // Compute the desired set of provider ids from the current connections list.
-        let desiredProviders: [(ProviderID, CloudCapabilityProvider)] = connections.compactMap { connection in
-            guard let provider = CloudCapabilityProvider.from(connection) else { return nil }
-            return (provider.id, provider)
+        // Multiple connections sharing a `serviceId` generate the same `ProviderID` and
+        // would silently overwrite one another in the registry. Deduplicate up front
+        // (last wins, matching the registry's existing semantics) and warn so the
+        // collision is visible until provider id disambiguation lands.
+        var seenIds: Set<ProviderID> = []
+        var desiredProviders: [(ProviderID, CloudCapabilityProvider)] = []
+        for connection in connections {
+            guard let provider = CloudCapabilityProvider.from(connection) else { continue }
+            if !seenIds.insert(provider.id).inserted {
+                Log.warning("CapabilityProviderBootstrap: duplicate ProviderID \(provider.id.rawValue) — only one connection will be registered")
+                desiredProviders.removeAll { $0.0 == provider.id }
+            }
+            desiredProviders.append((provider.id, provider))
         }
-        let desiredIds = Set(desiredProviders.map(\.0))
+        let desiredIds = seenIds
 
         // Drop everything currently registered under the `composio.` namespace that isn't
         // in the desired set. We touch only cloud providers so device registrations

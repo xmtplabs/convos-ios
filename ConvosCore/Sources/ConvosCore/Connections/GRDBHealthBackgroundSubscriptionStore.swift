@@ -13,16 +13,28 @@ public actor GRDBHealthBackgroundSubscriptionStore: HealthBackgroundSubscription
 
     public func upsert(_ subscription: HealthBackgroundSubscription) async throws {
         try await dbWriter.write { db in
-            try DBHealthBackgroundSubscription(
-                conversationId: subscription.conversationId,
-                agentInboxId: subscription.agentInboxId,
-                typeIdentifier: subscription.typeIdentifier.rawValue,
-                frequency: subscription.frequency.rawValue,
-                historyDays: subscription.historyDays,
-                anchor: subscription.anchor,
-                createdAt: subscription.createdAt,
-                updatedAt: subscription.updatedAt
-            ).save(db, onConflict: .replace)
+            try db.execute(
+                sql: """
+                    INSERT INTO healthBackgroundSubscription
+                        (conversationId, agentInboxId, typeIdentifier, frequency, historyDays, anchor, createdAt, updatedAt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(conversationId, agentInboxId, typeIdentifier) DO UPDATE SET
+                        frequency = excluded.frequency,
+                        historyDays = excluded.historyDays,
+                        anchor = excluded.anchor,
+                        updatedAt = excluded.updatedAt
+                    """,
+                arguments: [
+                    subscription.conversationId,
+                    subscription.agentInboxId,
+                    subscription.typeIdentifier.rawValue,
+                    subscription.frequency.rawValue,
+                    subscription.historyDays,
+                    subscription.anchor,
+                    subscription.createdAt,
+                    subscription.updatedAt,
+                ]
+            )
         }
     }
 

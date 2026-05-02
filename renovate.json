@@ -5,14 +5,14 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Match the libxmtp tag in Package.swift `revision:` pins. Both -dev and -nightly tags are recognized as currentValue so manual dev pins aren't dropped; the versioningTemplate constrains *update candidates* to nightly only.",
+      "description": "Match the libxmtp tag in Package.swift `revision:` pins. Both -dev and -nightly tags are recognized so Renovate can parse the current pin in either format and propose updates.",
       "managerFilePatterns": ["/Package\\.swift$/"],
       "matchStrings": [
         "url:\\s*\"https://github\\.com/xmtp/libxmtp\\.git\"[\\s\\S]*?revision:\\s*\"(?<currentValue>ios-[^\"]+)\""
       ],
       "datasourceTemplate": "git-tags",
       "depNameTemplate": "https://github.com/xmtp/libxmtp",
-      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-nightly\\.(?<build>\\d{8}\\.[a-f0-9]+)$"
+      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(nightly|dev)\\.(?<build>[\\w.]+)$"
     },
     {
       "customType": "regex",
@@ -23,7 +23,7 @@
       ],
       "datasourceTemplate": "git-tags",
       "depNameTemplate": "https://github.com/xmtp/libxmtp",
-      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-nightly\\.(?<build>\\d{8}\\.[a-f0-9]+)$"
+      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(nightly|dev)\\.(?<build>[\\w.]+)$"
     }
   ],
   "packageRules": [

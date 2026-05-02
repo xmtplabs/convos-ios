@@ -46,7 +46,6 @@ public actor HealthBackgroundObserverRoutine {
     /// Idempotent — calling `start()` twice is a no-op.
     public func start() async throws {
         guard !hasStarted else { return }
-        hasStarted = true
 
         let allRows = try await store.allSubscriptions()
         let typesNeedingObserver = Set(allRows.map(\.typeIdentifier))
@@ -55,6 +54,8 @@ public actor HealthBackgroundObserverRoutine {
             try await registerObserver(for: type)
             try await manager.applyEffectiveFrequency(for: type)
         }
+
+        hasStarted = true
     }
 
     /// Re-evaluate observer registration and iOS frequency for `typeIdentifier`.

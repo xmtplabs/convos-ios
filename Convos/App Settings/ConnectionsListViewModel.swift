@@ -28,6 +28,7 @@ final class ConnectionsListViewModel {
     private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
     private let deviceConnectionAuthorizer: any DeviceConnectionAuthorizer
     private var cancellable: AnyCancellable?
+    private var rebuildTask: Task<Void, Never>?
 
     init(
         cloudConnectionManager: any CloudConnectionManagerProtocol,
@@ -116,7 +117,8 @@ final class ConnectionsListViewModel {
     }
 
     private func rebuildRows() {
-        Task { [connections, deviceConnectionAuthorizer] in
+        rebuildTask?.cancel()
+        rebuildTask = Task { [connections, deviceConnectionAuthorizer, isConnecting] in
             var builtRows: [Row] = []
 
             for service in CloudConnectionServiceCatalog.all where SupportedConnections.isSupported(cloudServiceId: service.id) {
@@ -154,7 +156,9 @@ final class ConnectionsListViewModel {
             }
 
             builtRows.sort { lhs, rhs in lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending }
-            await MainActor.run {
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, !Task.isCancelled else { return }
                 self.rows = builtRows
             }
         }

@@ -50,6 +50,13 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try container.decode(Int.self, forKey: .version)
+        guard version <= Self.supportedVersion else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .version,
+                in: container,
+                debugDescription: "Unsupported version \(version); max supported is \(Self.supportedVersion)"
+            )
+        }
         self.requestId = try container.decode(String.self, forKey: .requestId)
         self.subject = try container.decode(CapabilitySubject.self, forKey: .subject)
         self.capability = try container.decode(ConnectionCapability.self, forKey: .capability)
