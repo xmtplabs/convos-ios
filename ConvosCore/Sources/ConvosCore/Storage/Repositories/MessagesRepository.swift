@@ -660,11 +660,20 @@ extension Array where Element == DBMessage {
              .assistantJoinRequest,
              .connectionGrantRequest,
              .capabilityRequest,
-             .capabilityRequestResult,
-             .connectionEvent:
+             .capabilityRequestResult:
             parentContent = .text("[Update]")
-        case .connectionInvocation, .connectionInvocationResult, .connectionPayload:
-            parentContent = .text("")
+        case .connectionEvent:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionEvent(summary: $0) } ?? .text("[Update]")
+        case .connectionInvocation:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionInvocation(summary: $0) } ?? .text("")
+        case .connectionInvocationResult:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionInvocationResult(summary: $0) } ?? .text("")
+        case .connectionPayload:
+            parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
+                .map { .connectionPayload(summary: $0) } ?? .text("")
         }
 
         let parentMessage = Message(
