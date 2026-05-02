@@ -26,7 +26,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
     internal let deviceInfoProvider: any DeviceInfoProviding
-    private let environment: AppEnvironment
+    let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
 

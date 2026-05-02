@@ -62,7 +62,7 @@ actor HealthInvocationRouter {
             return result
         }
 
-        let result: ConnectionInvocationResult
+        var result: ConnectionInvocationResult
         if isSubscribe {
             result = await manager.handleSubscribe(
                 invocation: invocation,
@@ -77,16 +77,30 @@ actor HealthInvocationRouter {
             )
         }
 
-        try? await delivery.deliver(result, to: conversationId)
-
-        if result.status == .success,
-           let typeIdentifier = Self.parsedTypeIdentifier(from: invocation) {
-            do {
-                try await routine.applyForType(typeIdentifier)
-            } catch {
-                Log.error("Failed to apply observer for \(typeIdentifier.rawValue): \(error.localizedDescription)")
+        // Apply the observer change before delivering the result so the agent never sees
+        // success while the iOS-level observer is mis-armed. If apply fails, downgrade the
+        // status so the agent can retry rather than assume the subscription is live.
+        if result.status == .success {
+            if let typeIdentifier = Self.parsedTypeIdentifier(from: invocation) {
+                do {
+                    try await routine.applyForType(typeIdentifier)
+                } catch {
+                    Log.error("Failed to apply observer for \(typeIdentifier.rawValue): \(error.localizedDescription)")
+                    result = ConnectionInvocationResult(
+                        invocationId: invocation.invocationId,
+                        kind: .health,
+                        actionName: actionName,
+                        status: .executionFailed,
+                        result: result.result,
+                        errorMessage: "Subscription stored but observer registration failed: \(error.localizedDescription)"
+                    )
+                }
+            } else {
+                Log.warning("HealthInvocationRouter: success result with unparseable typeIdentifier in \(actionName) — observer not applied.")
             }
         }
+
+        try? await delivery.deliver(result, to: conversationId)
         return result
     }
 

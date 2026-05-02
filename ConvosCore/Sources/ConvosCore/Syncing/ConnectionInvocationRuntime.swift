@@ -27,7 +27,9 @@ actor ConnectionInvocationRuntime {
 
     private var lazyDelivery: XMTPConnectionDelivery?
     private var lazyHealthRouter: HealthInvocationRouter?
-    private var bootstrapped: Bool = false
+    /// Single in-flight bootstrap. The first `process()` call kicks it off; concurrent
+    /// callers `await` the same task so nobody sees a half-built `lazyHealthRouter`.
+    private var bootstrapTask: Task<XMTPConnectionDelivery, Never>?
 
     init(
         store: any EnablementStore,
@@ -46,7 +48,7 @@ actor ConnectionInvocationRuntime {
     }
 
     func process(message: DecodedMessage, conversationId: String, client: any XMTPClientProvider) async {
-        let delivery = ensureBootstrapped(client: client)
+        let delivery = await ensureBootstrapped(client: client)
 
         if let router = lazyHealthRouter,
            let invocation = decodeInvocation(message: message),
@@ -71,51 +73,67 @@ actor ConnectionInvocationRuntime {
         await listener.processIncoming(message: message, conversationId: conversationId)
     }
 
-    private func ensureBootstrapped(client: any XMTPClientProvider) -> XMTPConnectionDelivery {
-        if let lazyDelivery {
+    private func ensureBootstrapped(client: any XMTPClientProvider) async -> XMTPConnectionDelivery {
+        if let lazyDelivery, bootstrapTask == nil {
             return lazyDelivery
         }
+        if let bootstrapTask {
+            return await bootstrapTask.value
+        }
         let provider = UncheckedSendableClient(client)
+        let task = Task<XMTPConnectionDelivery, Never> { [weak self] in
+            guard let self else {
+                return XMTPConnectionDelivery { _ in nil }
+            }
+            return await self.performBootstrap(provider: provider)
+        }
+        bootstrapTask = task
+        let delivery = await task.value
+        bootstrapTask = nil
+        return delivery
+    }
+
+    private func performBootstrap(provider: UncheckedSendableClient) async -> XMTPConnectionDelivery {
         let delivery = XMTPConnectionDelivery { conversationId in
             try await provider.value.conversationsProvider.findConversation(conversationId: conversationId)
         }
-        self.lazyDelivery = delivery
 
-        if let healthSubscriptionStore,
-           let healthGateway,
-           let healthBackfillReader,
-           let healthDeltaReader,
-           let healthRegistrar,
-           !bootstrapped {
-            bootstrapped = true
-            let manager = HealthBackgroundSubscriptionManager(
-                store: healthSubscriptionStore,
-                gateway: healthGateway,
-                reader: healthBackfillReader,
-                delivery: delivery
-            )
-            let routine = HealthBackgroundObserverRoutine(
-                store: healthSubscriptionStore,
-                manager: manager,
-                registrar: healthRegistrar,
-                reader: healthDeltaReader,
-                delivery: delivery
-            )
-            self.lazyHealthRouter = HealthInvocationRouter(
-                enablementStore: store,
-                manager: manager,
-                routine: routine,
-                delivery: delivery
-            )
-            Task { [routine] in
-                do {
-                    try await routine.start()
-                } catch {
-                    Log.error("Failed to start health observer routine: \(error.localizedDescription)")
-                }
-            }
+        guard let healthSubscriptionStore,
+              let healthGateway,
+              let healthBackfillReader,
+              let healthDeltaReader,
+              let healthRegistrar else {
+            self.lazyDelivery = delivery
+            return delivery
         }
 
+        let manager = HealthBackgroundSubscriptionManager(
+            store: healthSubscriptionStore,
+            gateway: healthGateway,
+            reader: healthBackfillReader,
+            delivery: delivery
+        )
+        let routine = HealthBackgroundObserverRoutine(
+            store: healthSubscriptionStore,
+            manager: manager,
+            registrar: healthRegistrar,
+            reader: healthDeltaReader,
+            delivery: delivery
+        )
+        do {
+            try await routine.start()
+        } catch {
+            Log.error("Failed to start health observer routine: \(error.localizedDescription)")
+        }
+        // Publish router and delivery only after `start()` completes so concurrent callers
+        // never see a router whose routine hasn't booted its existing rows yet.
+        self.lazyHealthRouter = HealthInvocationRouter(
+            enablementStore: store,
+            manager: manager,
+            routine: routine,
+            delivery: delivery
+        )
+        self.lazyDelivery = delivery
         return delivery
     }
 

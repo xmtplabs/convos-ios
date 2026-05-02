@@ -142,6 +142,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         .filter(DBMessage.Columns.contentType != MessageContentType.assistantJoinRequest.rawValue)
         .filter(DBMessage.Columns.contentType != MessageContentType.connectionGrantRequest.rawValue)
         .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocation.rawValue)
+        .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocationResult.rawValue)
+        .filter(DBMessage.Columns.contentType != MessageContentType.connectionPayload.rawValue)
         .annotated { max($0.dateNs) }
         .group(\.conversationId)
 
@@ -161,12 +163,12 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                     src.text as sourceMessageText
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType NOT IN (?, ?, ?, ?)
+                WHERE m.contentType NOT IN (?, ?, ?, ?, ?, ?)
                 AND m.dateNs = (
                     SELECT MAX(m2.dateNs)
                     FROM message m2
                     WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType NOT IN (?, ?, ?, ?)
+                    AND m2.contentType NOT IN (?, ?, ?, ?, ?, ?)
                 )
                 """,
             arguments: [
@@ -174,10 +176,14 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 MessageContentType.assistantJoinRequest.rawValue,
                 MessageContentType.connectionGrantRequest.rawValue,
                 MessageContentType.connectionInvocation.rawValue,
+                MessageContentType.connectionInvocationResult.rawValue,
+                MessageContentType.connectionPayload.rawValue,
                 MessageContentType.update.rawValue,
                 MessageContentType.assistantJoinRequest.rawValue,
                 MessageContentType.connectionGrantRequest.rawValue,
                 MessageContentType.connectionInvocation.rawValue,
+                MessageContentType.connectionInvocationResult.rawValue,
+                MessageContentType.connectionPayload.rawValue,
             ]
         )
 

@@ -185,12 +185,9 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let actor = msg.sender.profile.displayName
-                let resolvedText = actor.isEmpty
-                    ? payloadSummary.text
-                    : "\(actor) \(payloadSummary.text)"
+                let actor = msg.sender.isCurrentUser ? "You" : msg.sender.profile.displayName
                 let summaryWithActor = ConnectionEventSummary(
-                    text: resolvedText,
+                    text: "\(actor) \(payloadSummary.text)",
                     outcome: payloadSummary.outcome,
                     icon: payloadSummary.icon
                 )

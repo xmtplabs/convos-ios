@@ -79,7 +79,7 @@ public enum ConnectionMessageSummaryFormatter {
         case .motion:
             return "motion"
         case .screenTime:
-            return "Screen Time"
+            return "screen time"
         }
     }
 

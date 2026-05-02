@@ -1,3 +1,4 @@
+import ConvosConnections
 import ConvosConnectionsXMTP
 import Foundation
 @preconcurrency import XMTPiOS
@@ -14,6 +15,7 @@ public struct HiddenMessageDebugEntry: Sendable, Identifiable, Hashable {
         case connectionEvent = "Connection event"
         case connectionInvocation = "Connection invocation"
         case connectionInvocationResult = "Connection result"
+        case connectionPayload = "Connection payload"
         case unknown = "Unknown"
     }
 
@@ -107,6 +109,10 @@ private extension HiddenMessageDebugEntry {
                   contentType.typeID == ContentTypeConnectionInvocationResult.typeID {
             reason = .connectionInvocationResult
             summary = Self.connectionInvocationResultSummary(content: encodedContent)
+        } else if contentType.authorityID == ContentTypeConnectionPayload.authorityID,
+                  contentType.typeID == ContentTypeConnectionPayload.typeID {
+            reason = .connectionPayload
+            summary = Self.connectionPayloadSummary(content: encodedContent)
         } else if Self.visibleContentTypes.contains(where: {
             $0.authorityID == contentType.authorityID && $0.typeID == contentType.typeID
         }) {
@@ -245,5 +251,16 @@ private extension HiddenMessageDebugEntry {
             parts.append("error=\(errorMessage)")
         }
         return parts.joined(separator: ", ")
+    }
+
+    static func connectionPayloadSummary(content: EncodedContent) -> String {
+        guard let payload = try? ConnectionPayloadCodec().decode(content: content) else {
+            return "<decode failed>"
+        }
+        return [
+            "source=\(payload.source.rawValue)",
+            "id=\(payload.id.uuidString.prefix(8))",
+            "summary=\(payload.summary)",
+        ].joined(separator: ", ")
     }
 }
