@@ -458,33 +458,17 @@ The fields are: `[timestamp] [level] [source file:line] [namespace] message`
 
 ### Ephemeral / Auto-Dismissing UI
 
-Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding pills, profile pills, success confirmations). These require fast detection:
+Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding success confirmations). These require fast detection:
 
-- **Start polling BEFORE the trigger completes.** Many ephemeral elements appear during an async operation (e.g., the profile pill appears while `process-join-requests` is still running). If you wait for the CLI command to finish before polling, the pill may already be gone. Run the CLI command **in the background** (append `&` in bash) and start tapping **immediately** — do not wait for the background command to complete.
+- **Start polling BEFORE the trigger completes.** If you wait for an async operation (CLI command, network request, animation) to finish before polling, the element may already be gone. Run the trigger in the background (append `&` in bash) and start polling **immediately**.
 - **Use `sim_tap_id` with `retries` to find-and-tap in one atomic operation.** Do not use `sim_wait_for_element` followed by a separate `sim_tap_id` — the element can auto-dismiss between the two calls. `sim_tap_id` with retries polls and taps the instant it finds the element.
-- **Search by label text, not accessibility identifier.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views. Use a substring of the label instead (e.g., `"Tap to chat"` for the profile pill).
+- **Search by label text when the identifier is unreliable.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views — use a substring of the label instead.
 - **Use `sim_find_elements` as a fallback** if `sim_tap_id` exhausts retries — to check whether the element appeared and dismissed between polls.
-- If a test step says "look for" an ephemeral element, the sequence should be: start the trigger in the background → immediately call `sim_tap_id` with retries → then screenshot to verify the result after tapping.
-
-**Example pattern for invite + profile pill:**
-```
-# 1. Open invite in app
-sim_open_url ...
-sleep 3
-
-# 2. Start join processing in background AND tap simultaneously
-# These two calls must be made in the SAME function_calls block so they run in parallel:
-bash: convos conversations process-join-requests --conversation <id> &
-sim_tap_id: identifier="Tap to chat", retries=30
-
-# 3. Screenshot to verify the result
-sim_screenshot
-```
 
 Known ephemeral elements:
-- **Profile pill**: appears above the composer when entering a new conversation with a profile set. Search using label substring `"Tap to chat"` (full label is like `"UQ, Tap to chat as Updated QN"`). Accessibility identifier is `add-profile-button` but may not be found reliably — prefer label search. Auto-dismisses after ~8 seconds.
-- **Setup profile prompt**: appears during first-conversation onboarding. Search using label `"Add your name for this convo"` or identifier `setup-profile-button`. Does not auto-dismiss (requires interaction).
-- **Saved/success confirmations**: brief confirmations that auto-dismiss after ~3 seconds.
+- **Setup profile prompt**: appears during first-conversation onboarding for users who have not set a global profile yet. Search using label `"Add your name for this convo"` or identifier `setup-profile-button`. Does not auto-dismiss (requires interaction).
+- **"Profile saved" pill**: appears briefly above the composer after the user saves the global profile from the onboarding setup flow. Auto-dismisses after ~3 seconds. Do not gate the rest of the onboarding flow on tapping it — there is no Continue button; the flow advances automatically.
+- Older docs referenced a "Profile pill" / "Tap to chat as X" pill (identifier `add-profile-button`/`add-quickname-button`) that auto-dismissed after ~8 seconds. **That pill no longer exists.** The global profile auto-applies on every new conversation without prompting; if a test expects to tap that pill, the test needs updating (see `qa/tests/14-profile.md` for the current model).
 
 ### Verifying Results
 
