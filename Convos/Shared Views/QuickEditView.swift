@@ -16,6 +16,7 @@ struct QuickEditView: View {
     @Binding var text: String
     @Binding var image: UIImage?
     @Binding var isImagePickerPresented: Bool
+    var imageAssetIdentifier: Binding<String?>?
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focused: MessagesViewInputFocus
     let imageSymbolName: String = "photo.fill.on.rectangle.fill"
@@ -98,6 +99,7 @@ struct QuickEditView: View {
             ImagePickerButton(
                 currentImage: $image,
                 isPickerPresented: $isImagePickerPresented,
+                currentImageAssetIdentifier: imageAssetIdentifier,
                 symbolName: imageSymbolName
             )
             .frame(width: 52.0, height: 52.0)

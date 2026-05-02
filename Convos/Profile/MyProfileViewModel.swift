@@ -19,6 +19,11 @@ class MyProfileViewModel {
     var saveDisplayNameAsQuickname: Bool = false
 
     var profileImage: UIImage?
+    /// `PHAsset.localIdentifier` for the picked photo when the user is using the bottom-bar
+    /// editor to set their global profile (`canEditProfile == true`). Forwarded to
+    /// `ProfileSettingsViewModel` on save so the picker remembers the selection and so
+    /// activate-sync can detect future changes.
+    var profileImageAssetIdentifier: String?
     var editingEmoji: String = ""
 
     // Computed properties for display
@@ -187,7 +192,7 @@ class MyProfileViewModel {
             let settingsViewModel = ProfileSettingsViewModel.shared
             settingsViewModel.editingDisplayName = trimmedDisplayName
             settingsViewModel.profileImage = profileImage
-            settingsViewModel.profileImageAssetIdentifier = nil
+            settingsViewModel.profileImageAssetIdentifier = profileImageAssetIdentifier
             settingsViewModel.save()
             saveDisplayNameAsQuickname = false
         }

@@ -24,6 +24,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
+    @Binding var profileImageAssetIdentifier: String?
     @Binding var isPhotoPickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
@@ -324,6 +325,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             text: $displayName,
             image: $profileImage,
             isImagePickerPresented: $isImagePickerPresented,
+            imageAssetIdentifier: $profileImageAssetIdentifier,
             focusState: $focusState,
             focused: .displayName,
             settingsSymbolName: "lanyardcard.fill",
@@ -348,6 +350,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Previewable @State var pendingInviteURLPreview: String?
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
+    @Previewable @State var profileImageAssetIdentifier: String?
     @Previewable @State var isPhotoPickerPresented: Bool = false
     @Previewable @State var onboardingCoordinator: ConversationOnboardingCoordinator = .init()
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
@@ -404,6 +407,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
+            profileImageAssetIdentifier: $profileImageAssetIdentifier,
             isPhotoPickerPresented: $isPhotoPickerPresented,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,

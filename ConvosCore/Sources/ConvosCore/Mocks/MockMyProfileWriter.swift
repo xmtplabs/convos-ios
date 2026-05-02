@@ -2,8 +2,14 @@ import Foundation
 
 /// Mock implementation of MyProfileWriterProtocol for testing
 public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
+    public struct AvatarUpdate {
+        public let image: ImageType?
+        public let imageSourceAssetIdentifier: String?
+        public let conversationId: String
+    }
+
     public var updatedDisplayNames: [(name: String, conversationId: String)] = []
-    public var updatedAvatars: [(image: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String)] = []
+    public var updatedAvatars: [AvatarUpdate] = []
     public var updatedMetadata: [(metadata: ProfileMetadata?, conversationId: String)] = []
     public var publishedMetadata: [(metadata: ProfileMetadata?, conversationId: String)] = []
     public var publishError: (any Error)?
@@ -15,7 +21,7 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
     }
 
     public func update(avatar: ImageType?, imageSourceAssetIdentifier: String?, conversationId: String) async throws {
-        updatedAvatars.append((
+        updatedAvatars.append(.init(
             image: avatar,
             imageSourceAssetIdentifier: imageSourceAssetIdentifier,
             conversationId: conversationId
