@@ -13,7 +13,7 @@ Describe what the test should cover. Examples:
 ```
 /qa-writer test for conversation archive flow
 /qa-writer verify that muted conversations still receive badge updates
-/qa-writer regression test for the quickname banner on joined conversations (test 14 FAIL)
+/qa-writer regression test for the profile banner on joined conversations (test 14 FAIL)
 ```
 
 ## Before writing

@@ -1,13 +1,13 @@
 import SwiftUI
 
-struct SetupQuicknameSuccessView: View {
+struct SetupProfileSuccessView: View {
     var body: some View {
         Group {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image(systemName: "lanyardcard.fill")
                     .foregroundStyle(.colorLava)
 
-                Text("Quickname saved")
+                Text("Profile saved")
                     .font(.callout)
                     .foregroundStyle(.colorTextPrimary)
             }
@@ -22,10 +22,10 @@ struct SetupQuicknameSuccessView: View {
 }
 
 #Preview {
-    SetupQuicknameSuccessView()
+    SetupProfileSuccessView()
 }
 
-struct SetupQuicknameView: View {
+struct SetupProfileView: View {
     let action: () -> Void
     var body: some View {
         Button {
@@ -35,7 +35,7 @@ struct SetupQuicknameView: View {
                 Image(systemName: "lanyardcard.fill")
                     .foregroundStyle(.colorLava)
                     .accessibilityHidden(true)
-                Text("Add your name for this convo")
+                Text("Add your name and pic")
                     .font(.callout)
                     .foregroundStyle(.colorTextPrimaryInverted)
             }
@@ -46,8 +46,8 @@ struct SetupQuicknameView: View {
                     .fill(.colorBackgroundInverted)
             )
         }
-        .accessibilityLabel("Add your name for this convo")
-        .accessibilityIdentifier("setup-quickname-button")
+        .accessibilityLabel("Add your name and pic")
+        .accessibilityIdentifier("setup-profile-button")
         .transition(.blurReplace)
         .hoverEffect(.lift)
         .padding(.vertical, DesignConstants.Spacing.step4x)
@@ -56,7 +56,7 @@ struct SetupQuicknameView: View {
 
 #Preview {
     VStack(spacing: 20) {
-        SetupQuicknameView {}
+        SetupProfileView {}
     }
     .padding()
 }

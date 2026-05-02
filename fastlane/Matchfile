@@ -1,0 +1,17 @@
+# fastlane/Matchfile
+git_url("git@github.com:xmtplabs/convos-certificates.git")
+storage_mode("git")
+git_branch("main")
+
+app_identifier([
+  "org.convos.ios",
+  "org.convos.ios-preview",
+  "org.convos.ios-preview.pr",
+  "org.convos.ios-testnet",
+  "org.convos.ios.ConvosNSE",
+  "org.convos.ios-preview.ConvosNSE",
+  "org.convos.ios-preview.pr.ConvosNSE",
+  "org.convos.ios-testnet.ConvosNSE"
+])
+
+team_id("FY4NZR34Z3")

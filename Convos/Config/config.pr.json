@@ -1,0 +1,13 @@
+{
+  "environment": "dev",
+  "backendUrl": "https://api.dev.convos.xyz/api",
+  "xmtpNetwork": "dev",
+  "bundleId": "org.convos.ios-preview.pr",
+  "appGroupIdentifier": "group.org.convos.ios-preview.pr",
+  "relyingPartyIdentifier": "dev.convos.org",
+  "associatedDomains": [
+    "dev.convos.org",
+    "app-dev.convos.org"
+  ],
+  "appUrlScheme": "convos-pr"
+}

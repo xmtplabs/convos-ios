@@ -1,6 +1,6 @@
 # Test: Fresh Onboarding Flow
 
-Verify that a first-time user can launch the app, create a conversation, and complete the quickname onboarding flow.
+Verify that a first-time user can launch the app, create a conversation, and complete the profile onboarding flow.
 
 ## Prerequisites
 
@@ -21,23 +21,19 @@ Verify that a first-time user can launch the app, create a conversation, and com
 5. Enter a conversation name like "QA Onboarding Test".
 6. Tap the send button or type a first message and send it.
 
-### Quickname onboarding appears
+### Profile onboarding appears
 
-7. After creating the conversation, **immediately** poll for the setup quickname prompt using `sim_wait_for_element` with identifier `setup-quickname-button` (timeout: 5s, interval: 1s). Do not take screenshots or perform other operations first — the prompt may appear quickly after conversation creation.
-8. As soon as the element is found, tap it immediately using `sim_tap_id` with identifier `setup-quickname-button`.
+7. After creating the conversation, **immediately** poll for the setup profile prompt using `sim_wait_for_element` with identifier `setup-profile-button` (timeout: 5s, interval: 1s). Do not take screenshots or perform other operations first — the prompt may appear quickly after conversation creation.
+8. As soon as the element is found, tap it immediately using `sim_tap_id` with identifier `setup-profile-button`.
 9. The quick-edit profile editor should appear. Enter a display name like "QA Tester" in `quick-edit-display-name-field`.
 10. Tap `quick-edit-done-button` to save.
-11. A "Quickname saved" confirmation screen appears with identity explanation and "Continue" button.
-
-### Continue past quickname confirmation
-
-12. Tap "Continue" on the quickname confirmation screen. This must be done before the notification prompt will appear.
+11. A small "Profile saved" pill appears briefly above the composer and auto-dismisses after ~3 seconds. There is no "Continue" button — the flow advances automatically.
 
 ### Notification permission
 
-13. After tapping Continue, a custom notification prompt appears with `notification-permission-button` ("Notify me of new messages"). Tap it.
-14. The system notification permission dialog appears (Allow / Don't Allow). Tap either option.
-15. The onboarding flow should complete and the conversation view should be fully usable.
+12. After the "Profile saved" pill auto-dismisses, a custom notification prompt appears with `notification-permission-button` ("Notify me of new messages"). Tap it.
+13. The system notification permission dialog appears (Allow / Don't Allow). Tap either option.
+14. The onboarding flow should complete and the conversation view should be fully usable.
 
 ### Verify post-onboarding state
 
@@ -49,9 +45,9 @@ Verify that a first-time user can launch the app, create a conversation, and com
 - [ ] App launches to an empty conversations list after simulator erase
 - [ ] Compose button opens a new conversation flow
 - [ ] Conversation can be created with a name
-- [ ] Quickname setup prompt appears after creating the first conversation
-- [ ] Quickname can be set via the profile editor
-- [ ] Quickname saved confirmation appears
+- [ ] Profile setup prompt appears after creating the first conversation
+- [ ] Profile can be set via the profile editor
+- [ ] Profile saved confirmation appears
 - [ ] Notification permission step is shown
 - [ ] Onboarding completes and the conversation is usable
 - [ ] Conversation appears in the conversations list with the correct name

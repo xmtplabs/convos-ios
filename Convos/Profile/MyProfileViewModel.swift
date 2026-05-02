@@ -16,7 +16,7 @@ class MyProfileViewModel {
 
     var isEditingDisplayName: Bool = false
     var editingDisplayName: String = ""
-    var saveDisplayNameAsQuickname: Bool = false
+    var saveDisplayNameAsProfile: Bool = false
 
     var profileImage: UIImage?
     var editingEmoji: String = ""
@@ -45,6 +45,7 @@ class MyProfileViewModel {
 
         self.editingDisplayName = profile.name ?? ""
         self.editingEmoji = profile.profileEmoji ?? ""
+        self.profileImage = Self.preferredImage(for: profile)
     }
 
     func cancelEditingDisplayName() {
@@ -58,11 +59,41 @@ class MyProfileViewModel {
         myProfileRepository.myProfilePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] profile in
-                self?.profileImage = ImageCache.shared.image(for: profile)
-                self?.profile = profile
-                self?.editingEmoji = profile.profileEmoji ?? ""
+                guard let self else { return }
+                self.profileImage = Self.preferredImage(for: profile)
+                self.profile = profile
+                self.editingEmoji = profile.profileEmoji ?? ""
             }
             .store(in: &cancellables)
+    }
+
+    /// Returns the image to display for the current user in this conversation.
+    ///
+    /// Per-conversation profiles can hold either a *synced* avatar (uploaded from the
+    /// user's global photo, so `imageSourceContentDigest` is set) or a *per-conversation
+    /// override* (the user picked a different photo just for this conversation, so
+    /// `imageSourceContentDigest` is nil).
+    ///
+    /// - No per-conversation avatar → fall through to the global (if any).
+    /// - Per-conversation override (digest nil) → keep the per-conversation cache; the
+    ///   user explicitly chose a different photo here.
+    /// - Synced per-conversation avatar (digest set) → prefer the in-memory global
+    ///   image. If the digests already match, this just avoids an async cache fetch.
+    ///   If they differ, the global is newer (the user just changed it) and
+    ///   activate-sync will catch the per-conversation avatar up shortly — showing the
+    ///   new global immediately avoids flickering through the stale cached photo.
+    private static func preferredImage(for profile: Profile) -> UIImage? {
+        let global = ProfileSettingsViewModel.shared
+        if profile.avatar == nil {
+            return global.profileImage
+        }
+        if profile.imageSourceContentDigest == nil {
+            return ImageCache.shared.image(for: profile)
+        }
+        if global.profileImage != nil {
+            return global.profileImage
+        }
+        return ImageCache.shared.image(for: profile)
     }
 
     private func beginUpdate() {
@@ -83,7 +114,7 @@ class MyProfileViewModel {
         editingDisplayName = displayName
         updateDisplayNameTask?.cancel()
         beginUpdate()
-        nonisolated(unsafe) let unsafeWriter = myProfileWriter
+        let unsafeWriter = myProfileWriter
         updateDisplayNameTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
@@ -99,7 +130,7 @@ class MyProfileViewModel {
         updateMetadataTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
-        nonisolated(unsafe) let unsafeWriter = myProfileWriter
+        let unsafeWriter = myProfileWriter
         updateMetadataTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
@@ -119,7 +150,7 @@ class MyProfileViewModel {
         updateImageTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
-        nonisolated(unsafe) let unsafeWriter = myProfileWriter
+        let unsafeWriter = myProfileWriter
         updateImageTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }
@@ -175,22 +206,22 @@ class MyProfileViewModel {
             didChange = true
         }
 
-        if let profileImage {
-            update(profileImage: profileImage, conversationId: conversationId)
+        let pendingProfileImage = profileImage
+        if let pendingProfileImage {
+            update(profileImage: pendingProfileImage, conversationId: conversationId)
             didChange = true
             self.profileImage = nil
         }
 
-        if saveDisplayNameAsQuickname {
-            let current = QuicknameSettings.current()
-                .with(displayName: trimmedDisplayName)
-                .with(profileImage: profileImage)
-            do {
-                try current.save()
-            } catch {
-                Log.error("Error saving profile as Quickname: \(error.localizedDescription)")
-            }
-            saveDisplayNameAsQuickname = false
+        if saveDisplayNameAsProfile {
+            // QuickEditView writes the asset identifier directly to
+            // ProfileSettingsViewModel.shared via an inline binding, so no need to copy it
+            // here. Image and name still flow through this view model and need forwarding.
+            let settingsViewModel = ProfileSettingsViewModel.shared
+            settingsViewModel.editingDisplayName = trimmedDisplayName
+            settingsViewModel.profileImage = pendingProfileImage
+            settingsViewModel.save()
+            saveDisplayNameAsProfile = false
         }
 
         return didChange

@@ -11,6 +11,7 @@ extension DBMemberProfile {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             isAgent: isAgent,
+            imageSourceContentDigest: imageSourceContentDigest,
             metadata: metadata
         )
     }

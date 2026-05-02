@@ -100,9 +100,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
 
         let observation = ValueObservation
             .tracking { db in
-                try DBMemberProfile
-                    .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                    .hydrateProfile() ?? .empty(inboxId: inboxId, conversationId: conversationId)
+                try Self.observedProfile(db, inboxId: inboxId, conversationId: conversationId)
             }
             .publisher(in: databaseReader)
             .replaceError(with: .empty(inboxId: inboxId, conversationId: conversationId))
@@ -142,10 +140,29 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
 
         let conversationId = self.conversationId
         return try databaseReader.read { db in
-            try DBMemberProfile
-                .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
-                .hydrateProfile() ?? .empty(inboxId: inboxId, conversationId: conversationId)
+            try Self.observedProfile(db, inboxId: inboxId, conversationId: conversationId)
         }
+    }
+
+    /// Falls back to `DBMyProfile` (the inbox-wide profile) when no `DBMemberProfile` exists
+    /// for this conversation yet. Avoids an empty-profile flash on draft conversations and
+    /// during the brief window between `.ready` and the activate-sync write.
+    private static func observedProfile(_ db: Database, inboxId: String, conversationId: String) throws -> Profile {
+        if let member = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
+            return member.hydrateProfile()
+        }
+        if let global = try DBMyProfile
+            .filter(DBMyProfile.Columns.inboxId == inboxId)
+            .fetchOne(db) {
+            return Profile(
+                inboxId: inboxId,
+                conversationId: conversationId,
+                name: (global.name?.isEmpty ?? true) ? nil : global.name,
+                avatar: nil,
+                metadata: global.metadata
+            )
+        }
+        return .empty(inboxId: inboxId, conversationId: conversationId)
     }
 }
 

@@ -1,17 +1,20 @@
 # ADR 005: Member Profile System
 
 > **Status**: Accepted (revised 2026-03; clarified against
-> [ADR 011](./011-single-inbox-identity-model.md) on 2026-04-20).
+> [ADR 011](./011-single-inbox-identity-model.md) on 2026-04-20;
+> Quickname replaced by a global profile + activate-sync on 2026-05-02).
 > **Supersedes**: Original ADR 005 (profile storage in appData)
 >
-> Profiles remain **per-conversation** even under the single-inbox identity
-> model. The data model (`DBMemberProfile` keyed on
-> `(conversationId, inboxId)`), the wire formats (`ProfileUpdate`,
-> `ProfileSnapshot`, `JoinRequest`), and the resolution precedence below
-> are unchanged by ADR 011. What changed is that `inboxId` is now 1:1 with
-> the user across every conversation rather than 1:1 with one
-> conversation, so two different `DBMemberProfile` rows for the same user
-> share an `inboxId` but keep independent name/avatar/metadata.
+> Profiles are **per-conversation on the wire** (one `DBMemberProfile` row
+> per `(conversationId, inboxId)`), but locally the user now has a single
+> **global profile** (`DBMyProfile`) that becomes the default for every new
+> conversation and propagates into existing conversations the next time
+> each one becomes active. The wire formats (`ProfileUpdate`,
+> `ProfileSnapshot`, `JoinRequest`) and the resolution precedence below
+> are unchanged by ADR 011 or by the global-profile change; ADR 011 made
+> `inboxId` 1:1 with the user across every conversation, and the
+> global-profile change moved the local profile preset out of UserDefaults
+> and into a GRDB table that drives auto-application.
 
 ## Context
 
@@ -30,7 +33,7 @@ The original design stored profiles in the group's `appData` field as compressed
 
 ## Decision
 
-Member profiles are stored and transmitted as **XMTP group messages** using two custom content types. A complementary **Quickname** feature provides local-only profile presets for convenient reuse across conversations.
+Member profiles are stored and transmitted as **XMTP group messages** using two custom content types. Locally, each user owns a single **global profile** that drives the default identity for new conversations and is propagated into existing conversations on next activation.
 
 ### 1. Profile Messages
 
@@ -167,16 +170,39 @@ struct DBMemberProfile {
 
 The `avatarKey` is populated from the conversation's `imageEncryptionKey` during profile writes — it's never transmitted in ProfileUpdate or ProfileSnapshot messages.
 
-### 7. Quickname: Local Profile Presets
+### 7. Global Profile + Activate-Sync
 
-Quickname solves the UX problem of repeatedly entering profile information without compromising privacy.
+Each user maintains a single **global profile** locally — display name, avatar, and metadata — that becomes the default for every new conversation. This solves the UX problem of repeatedly entering profile information without compromising privacy: the global profile never leaves the device, and other participants only ever see the per-conversation profile (`DBMemberProfile`) message that gets sent.
 
-1. User creates a Quickname profile locally (display name + optional avatar)
-2. When joining/creating a new conversation, the app prompts: "Tap to chat as [Quickname]"
-3. If accepted, the Quickname profile is copied to the new conversation's per-conversation profile
-4. User can modify the per-conversation profile independently afterward
+**Storage** (`DBMyProfile`, GRDB):
 
-**Storage**: Quickname data is stored locally only (UserDefaults + filesystem) and never transmitted. Other participants cannot detect whether a profile was applied via Quickname or entered manually.
+```swift
+struct DBMyProfile {
+    let inboxId: String              // Primary key
+    let name: String?
+    let imageData: Data?             // Raw avatar bytes (encrypted at rest)
+    let imageAssetIdentifier: String?// PHAsset id, used to preselect picker
+    let imageContentDigest: String?  // SHA-256 base64; the sync identity
+    let metadata: ProfileMetadata?
+    let updatedAt: Date
+}
+```
+
+The image is held as raw bytes locally. `imageContentDigest` is a SHA-256 of the bytes — it is the canonical identity used to detect changes (the `imageAssetIdentifier` is photo-library-specific and only used to preselect the picker).
+
+**Default for new conversations.** When a draft conversation is created, the global profile populates the placeholder identity in the composer. When the conversation reaches `.ready`, the per-conversation `DBMemberProfile` is created with the global name/avatar and the global digest is recorded as `imageSourceContentDigest`.
+
+**Activate-sync for existing conversations.** Whenever a conversation transitions to `.ready` (`ConversationStateManager.scheduleProfileSync`), `MyProfileWriter.syncFromGlobalProfile` runs:
+
+1. Compare `global.name` to `member.name`. If different, send a `ProfileUpdate` with the new name.
+2. Compare `global.imageContentDigest` to `member.imageSourceContentDigest`. If they differ, re-upload the new avatar from the global bytes and stamp the new digest into the per-conversation row.
+3. If the global avatar was cleared (`global.imageData == nil`) and the member still has an avatar, propagate the removal.
+
+Per-conversation rows whose `imageSourceContentDigest` is `nil` are treated as **per-conversation overrides** (the user explicitly picked a different photo just for this conversation) and are not overwritten by activate-sync. Today the UI does not surface a per-conversation override — the field exists so the model can absorb the future "nickname / different photo per conversation" feature without a schema change.
+
+**Serialization.** `ProfileSyncCoordinator` (an actor keyed by `conversationId`) chains rapid `.ready` transitions for the same conversation so two syncs cannot race and double-upload. Different conversations sync independently.
+
+**Privacy model.** The global profile lives only in the local GRDB database and the in-memory cache. Other participants cannot detect that a profile was applied from a global preset versus typed in conversation by conversation — the wire format is the same `ProfileUpdate` either way.
 
 ### 8. Profile Photo Storage
 
@@ -238,7 +264,7 @@ Profile messages received via push notifications are processed silently in the N
 ### Negative
 
 - **Message scan on snapshot build**: Building a snapshot scans up to 500 messages (bounded)
-- **No global identity**: Users must set up profiles per-conversation (mitigated by Quickname)
+- **Sync gap on reactivation**: Existing conversations only pick up a new global name/avatar the next time they become active, so the user may briefly see an older name/avatar from a peer's perspective until their next `.ready` transition propagates the change
 - **Avatar URL dependency**: If image hosting goes down, avatars break
 - **Dual-write overhead**: During Phase 2, both messages and appData are written (temporary)
 - **Brief stale data on initial sync**: appData profiles may briefly show before message-sourced profiles are processed
@@ -249,7 +275,7 @@ Profile messages received via push notifications are processed silently in the N
 |----------|-----------|
 | Cross-conversation linkability | Per-conversation profiles are independent rows, but the underlying `inboxId` is shared across conversations under ADR 011 — a peer in two of the user's conversations can correlate them via the inbox ID |
 | Profile server correlation | No profile server exists |
-| Quickname detection | Local-only; other participants cannot detect reuse |
+| Global profile detection | The global profile is local-only (`DBMyProfile`); other participants only see the per-conversation `ProfileUpdate` and cannot tell whether it came from a global preset or was typed manually |
 | Profile scope | Visible only to members of that conversation |
 | Anonymity | Profiles are optional; users can participate without name/avatar |
 | Message-level encryption | ProfileUpdate/ProfileSnapshot messages are E2E encrypted by XMTP |
@@ -281,8 +307,13 @@ Profile messages received via push notifications are processed silently in the N
 
 ### ConvosCore
 
-- `Storage/Database Models/DBMemberProfile.swift` — GRDB profile model with metadata
-- `Storage/Writers/MyProfileWriter.swift` — sends ProfileUpdate + best-effort appData write
+- `Storage/Database Models/DBMemberProfile.swift` — GRDB per-conversation profile model (carries `imageSourceContentDigest` for activate-sync)
+- `Storage/Database Models/DBMyProfile.swift` — GRDB global profile model (raw image bytes, content digest, asset identifier)
+- `Storage/Writers/MyProfileWriter.swift` — sends ProfileUpdate + best-effort appData write; `syncFromGlobalProfile` performs activate-sync
+- `Storage/Writers/MyGlobalProfileWriter.swift` — writes the global profile to `DBMyProfile`, computes the SHA-256 content digest
+- `Storage/Writers/ProfileSyncCoordinator.swift` — actor that serializes activate-sync per `conversationId`
+- `Storage/Writers/ConversationStateManager.swift` — schedules activate-sync on `.ready`
+- `Storage/Repositories/MyGlobalProfileRepository.swift` — observed read access to `DBMyProfile`
 - `Storage/Writers/ConversationWriter.swift` — message-primary reads with gap-fill from appData
 - `Storage/Writers/ConversationMetadataWriter.swift` — sends ProfileSnapshot after addMembers
 - `Syncing/StreamProcessor.swift` — intercepts profile messages, writes to GRDB, sends initial snapshots
@@ -293,8 +324,8 @@ Profile messages received via push notifications are processed silently in the N
 
 ### Main App
 
-- `Profile/QuicknameSettings.swift` — local Quickname storage
-- `Profile/QuicknameSettingsViewModel.swift` — Quickname UI logic
+- `Profile/ProfileSettingsViewModel.swift` — global profile editor backed by `DBMyProfile`
+- `Profile/MyProfileViewModel.swift` — per-conversation editor; `preferredImage(for:)` chooses the in-memory global vs the per-conversation cache to avoid avatar flicker between activate-sync passes
 
 ## Related ADRs
 

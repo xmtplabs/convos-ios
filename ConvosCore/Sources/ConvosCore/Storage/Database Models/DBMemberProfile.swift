@@ -46,6 +46,8 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let avatarNonce: Column = Column(CodingKeys.avatarNonce)
         static let avatarKey: Column = Column(CodingKeys.avatarKey)
         static let avatarLastRenewed: Column = Column(CodingKeys.avatarLastRenewed)
+        static let imageSourceAssetIdentifier: Column = Column(CodingKeys.imageSourceAssetIdentifier)
+        static let imageSourceContentDigest: Column = Column(CodingKeys.imageSourceContentDigest)
         static let memberKind: Column = Column(CodingKeys.memberKind)
         static let metadata: Column = Column(CodingKeys.metadata)
     }
@@ -58,6 +60,14 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let avatarNonce: Data?
     let avatarKey: Data?
     let avatarLastRenewed: Date?
+    /// Vestigial. Superseded by `imageSourceContentDigest` for change detection. Not read or
+    /// written by current code; the column remains so previously-applied migrations stay
+    /// consistent with the registered migration list.
+    let imageSourceAssetIdentifier: String?
+    /// Stable, content-addressed digest of the source image that was uploaded for this
+    /// member's avatar (set when activate-sync uploads from the global profile). Compared
+    /// against `DBMyProfile.imageContentDigest` to decide whether a re-upload is needed.
+    let imageSourceContentDigest: String?
     let memberKind: DBMemberKind?
     let metadata: ProfileMetadata?
 
@@ -78,6 +88,8 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         avatarLastRenewed: Date? = nil,
+        imageSourceAssetIdentifier: String? = nil,
+        imageSourceContentDigest: String? = nil,
         memberKind: DBMemberKind? = nil,
         metadata: ProfileMetadata? = nil
     ) {
@@ -89,6 +101,8 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
         self.avatarLastRenewed = avatarLastRenewed
+        self.imageSourceAssetIdentifier = imageSourceAssetIdentifier
+        self.imageSourceContentDigest = imageSourceContentDigest
         self.memberKind = memberKind
         self.metadata = metadata
     }
@@ -140,7 +154,10 @@ extension DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
             avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
         )
     }
 
@@ -148,7 +165,10 @@ extension DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
             avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
         )
     }
 
@@ -156,7 +176,10 @@ extension DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
             avatarSalt: salt, avatarNonce: nonce, avatarKey: key,
-            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
         )
     }
 
@@ -164,7 +187,21 @@ extension DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
             avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
+        )
+    }
+
+    func with(imageSourceContentDigest: String?) -> DBMemberProfile {
+        .init(
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
         )
     }
 
@@ -172,7 +209,10 @@ extension DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
             avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
         )
     }
 
@@ -180,7 +220,10 @@ extension DBMemberProfile {
         .init(
             conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
             avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
+            avatarLastRenewed: avatarLastRenewed,
+            imageSourceAssetIdentifier: imageSourceAssetIdentifier,
+            imageSourceContentDigest: imageSourceContentDigest,
+            memberKind: memberKind, metadata: metadata
         )
     }
 

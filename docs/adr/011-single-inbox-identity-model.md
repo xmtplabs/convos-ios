@@ -30,10 +30,10 @@ Strong on privacy, expensive in complexity:
   per-conversation coordination logic; the test surface was dominated by
   multi-inbox coordination scenarios that were correspondingly flaky.
 
-The model also imposed user-facing friction (Quickname as a preset to
-approximate a single identity across conversations, per-conversation
-profile copies to keep display names consistent) without delivering
-correspondingly strong privacy: a malicious peer in any one conversation
+The model also imposed user-facing friction (Quickname as a UserDefaults
+preset to approximate a single identity across conversations,
+per-conversation profile copies to keep display names consistent) without
+delivering correspondingly strong privacy: a malicious peer in any one conversation
 already sees the user's content in that conversation, and the `clientId`
 indirection protects the *backend* from learning inbox IDs regardless of
 whether there is one inbox or many.
@@ -205,9 +205,12 @@ as a clean break.
   LRU, pre-creation timing, triple-inbox authorization) no longer exist.
   Post-refactor full-suite flake rate measured at 0 / 10 runs; see
   [`docs/plans/integration-test-stabilization-log.md`](../plans/integration-test-stabilization-log.md).
-- **Consistent display identity.** Quickname is dropped as a preset
-  because users no longer need a mechanism to approximate a single identity
-  across inboxes — they just have one.
+- **Consistent display identity.** The Quickname preset is replaced by a
+  proper local global profile (`DBMyProfile`) that is the default identity
+  for new conversations and that propagates into existing conversations on
+  next activation. See [ADR 005 §7](./005-member-profile-system.md). A
+  per-conversation override hook is preserved in the schema for a future
+  "nickname / different photo per conversation" feature.
 
 ### Negative
 

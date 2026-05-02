@@ -92,7 +92,7 @@ final class FocusCoordinator {
     /// Determines the next focus after a field finishes editing
     func nextFocus(after current: MessagesViewInputFocus, context: FocusTransitionContext) -> MessagesViewInputFocus? {
         switch (current, context) {
-        case (.displayName, .onboardingQuickname):
+        case (.displayName, .onboardingProfile):
             // During onboarding, dismiss keyboard to show onboarding UI
             return nil
 
@@ -495,7 +495,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
 
 /// Context for focus transitions to make smart decisions about next focus
 enum FocusTransitionContext {
-    case onboardingQuickname
+    case onboardingProfile
     case quickEditor
     case editProfile
     case conversation

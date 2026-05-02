@@ -58,6 +58,16 @@ Create a conversation via CLI with a name like "Photo Test" and a profile name. 
 22. Verify the new photo replaces the old one on the user's avatar in the conversation.
 23. Use the CLI to verify the updated photo URL.
 
+### (Reference) Global profile photo + activate-sync
+
+> Test 14 covers the global profile flow end-to-end. Briefly: changing
+> the photo from App Settings → My Info updates the global photo; the
+> next time an existing conversation becomes active, `MyProfileWriter
+> .syncFromGlobalProfile` re-uploads the new photo for that conversation
+> and the avatar updates without flickering through the stale cached
+> photo (the in-memory global is shown immediately while the
+> per-conversation row catches up in the background).
+
 ## Teardown
 
 Explode the conversation via CLI.

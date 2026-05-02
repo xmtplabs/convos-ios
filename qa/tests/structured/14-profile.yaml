@@ -1,0 +1,264 @@
+id: "14"
+name: "Global Profile + Activate-Sync"
+description: >
+  Verify the global profile model end-to-end: it auto-applies to NEW
+  conversations, edits to it propagate to EXISTING conversations the next
+  time each becomes active (activate-sync), and per-conversation
+  overrides are preserved. The "Tap to chat" pill, the standalone
+  Quickname preset, the post-save "new you in every convo" sheet, and the
+  per-conversation "Use" override button no longer exist.
+tags: [profile, core]
+depends_on: ["01"]
+estimated_duration_s: 360
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+  global_profile_set: true
+
+state:
+  conversation_id_a: null
+  conversation_id_b: null
+  invite_url_a: null
+  invite_url_b: null
+  initial_profile: "QA Tester"
+  updated_profile: "Updated QA Name"
+
+setup:
+  - action: read_global_profile
+    save:
+      initial_profile: "from My Info display name"
+    note: >
+      Test 01 leaves the global profile set to "QA Tester" by default.
+      If running standalone, ensure App Settings > My Info has a
+      non-empty display name first.
+
+steps:
+  # ───────────────────────────────────────────────────────────────────────
+  # Part 1: Global profile auto-applies to NEW conversations
+  # ───────────────────────────────────────────────────────────────────────
+  - id: join_conversation_a
+    name: "Join CLI-created conversation A"
+    actions:
+      - cli_create_conversation:
+          name: "Profile Test A"
+          profile_name: "CLI Bot"
+        save:
+          conversation_id_a: "from cli output"
+      - cli_generate_invite:
+          conversation: "$conversation_id_a"
+        save:
+          invite_url_a: "from cli output"
+      - sim_open_url: { url: "$invite_url_a" }
+      - cli_process_joins: { conversation: "$conversation_id_a" }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_a_joined
+
+  - id: global_auto_applied_a
+    name: "Composer auto-shows global profile (no setup banner)"
+    actions:
+      - find_elements: { label_contains: "Chat as $initial_profile" }
+    verify:
+      - element_exists: { label_contains: "Chat as $initial_profile" }
+      - element_absent: { id: "setup-profile-button" }
+      - element_absent: { label_contains: "Tap to chat" }
+    criteria: global_auto_applied
+    note: >
+      The setup-profile-button only appears for first-time users (test 01
+      covers that). Once a global profile is set, every new conversation
+      auto-applies it without prompting.
+
+  - id: send_message_a
+    name: "Sent message in A renders with global name"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Hello from A" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "$initial_profile" }
+    verify:
+      - element_exists: { label_contains: "$initial_profile: Hello from A" }
+    criteria: global_on_messages_a
+
+  - id: cli_verify_a
+    name: "CLI sees the global profile in conversation A"
+    actions:
+      - cli_get_conversation_profiles: { conversation: "$conversation_id_a" }
+    verify:
+      - cli_output_contains: "$initial_profile"
+      - cli_output_matches_regex: "image_url.*http"
+    criteria: cli_sees_global_a
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Part 2: Edit global profile from App Settings
+  # ───────────────────────────────────────────────────────────────────────
+  - id: open_app_settings
+    name: "Open App Settings → My Info"
+    actions:
+      - tap: { id: "BackButton", optional: true }
+      - tap: { id: "convos-settings-button" }
+      - wait_for_element: { label_contains: "My info", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "My info" }
+      - element_absent: { label_contains: "Private unless you choose to share" }
+    criteria: app_settings_my_info_visible
+
+  - id: edit_global
+    name: "Change global display name"
+    actions:
+      - tap: { label: "My info" }
+      - wait_for_element: { id: "profile-display-name-field", timeout: 10 }
+      - type_in_field: { id: "profile-display-name-field", text: "$updated_profile", clear_first: true }
+      - press_return: { id: "profile-display-name-field" }
+      - tap: { id: "BackButton" }
+      - wait_for_element: { label_contains: "$updated_profile", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "$updated_profile" }
+    criteria: global_edited
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Part 3: Updated global propagates to a NEW conversation
+  # ───────────────────────────────────────────────────────────────────────
+  - id: join_conversation_b
+    name: "Join CLI-created conversation B"
+    actions:
+      - tap: { id: "close-app-settings", optional: true }
+      - cli_create_conversation:
+          name: "Profile Test B"
+          profile_name: "CLI Bot"
+        save:
+          conversation_id_b: "from cli output"
+      - cli_generate_invite:
+          conversation: "$conversation_id_b"
+        save:
+          invite_url_b: "from cli output"
+      - sim_open_url: { url: "$invite_url_b" }
+      - cli_process_joins: { conversation: "$conversation_id_b" }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "Chat as $updated_profile" }
+    criteria: updated_global_in_new_convo
+
+  - id: cli_verify_b
+    name: "CLI sees updated global in conversation B"
+    actions:
+      - cli_get_conversation_profiles: { conversation: "$conversation_id_b" }
+    verify:
+      - cli_output_contains: "$updated_profile"
+    criteria: cli_sees_updated_b
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Part 4: Activate-sync into the EXISTING conversation
+  # ───────────────────────────────────────────────────────────────────────
+  - id: reopen_a_for_sync
+    name: "Reopen conversation A and verify activate-sync"
+    actions:
+      - tap: { id: "BackButton" }
+      - wait_for_element: { label_contains: "Profile Test A", timeout: 10 }
+      - tap: { label: "Profile Test A" }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+      - find_elements: { label_contains: "Chat as $updated_profile" }
+    verify:
+      - element_exists: { label_contains: "Chat as $updated_profile" }
+    criteria: activate_sync_propagates_name
+    note: >
+      activate-sync runs when the conversation transitions to .ready.
+      The avatar uses the in-memory global immediately so it does NOT
+      flicker through the stale cached photo while the per-conversation
+      avatar re-uploads in the background. Visual flicker is hard to
+      assert programmatically — the markdown test calls it out for human
+      verification.
+
+  - id: send_message_a_after_sync
+    name: "Sent message in A renders with updated global"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "After sync" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "$updated_profile: After sync" }
+    verify:
+      - element_exists: { label_contains: "$updated_profile: After sync" }
+    criteria: updated_global_on_messages_a
+
+  - id: cli_verify_a_after_sync
+    name: "CLI sees updated global in conversation A"
+    actions:
+      - cli_get_conversation_profiles: { conversation: "$conversation_id_a" }
+    verify:
+      - cli_output_contains: "$updated_profile"
+    criteria: cli_sees_updated_a
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Part 5: Per-conversation override is preserved
+  # ───────────────────────────────────────────────────────────────────────
+  - id: per_conv_override
+    name: "Edit per-conversation name in A only"
+    actions:
+      - tap: { id: "profile-avatar-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "A-only Name", clear_first: true }
+      - tap: { id: "quick-edit-done-button" }
+      - wait_for_element: { label_contains: "Chat as A-only Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Chat as A-only Name" }
+    criteria: per_conv_override_applied
+
+  - id: global_unchanged
+    name: "Global in App Settings is still the updated name"
+    actions:
+      - tap: { id: "BackButton" }
+      - tap: { id: "convos-settings-button" }
+      - wait_for_element: { label_contains: "My info", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "$updated_profile" }
+      - element_absent: { label_contains: "A-only Name" }
+    criteria: global_not_overwritten
+
+  - id: convo_b_unaffected
+    name: "Conversation B still shows the global name"
+    actions:
+      - tap: { id: "close-app-settings", optional: true }
+      - tap: { label: "Profile Test B" }
+      - wait_for_element: { label_contains: "Chat as $updated_profile", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Chat as $updated_profile" }
+      - element_absent: { label_contains: "A-only Name" }
+    criteria: per_conv_override_isolated
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id_a" }
+    optional: true
+  - action: explode_conversation
+    args: { id: "$conversation_id_b" }
+    optional: true
+
+criteria:
+  conversation_a_joined:
+    description: "Joined conversation A successfully"
+  global_auto_applied:
+    description: "Global profile auto-applies to a new conversation; no setup banner or pill"
+  global_on_messages_a:
+    description: "Sent message in A shows the global display name"
+  cli_sees_global_a:
+    description: "CLI confirms the global profile in conversation A member profiles"
+  app_settings_my_info_visible:
+    description: "App Settings shows the My Info row without the privacy footer"
+  global_edited:
+    description: "Global profile display name updated and reflected in App Settings"
+  updated_global_in_new_convo:
+    description: "Newly joined conversation B shows the updated global name in the composer"
+  cli_sees_updated_b:
+    description: "CLI confirms the updated global in conversation B"
+  activate_sync_propagates_name:
+    description: "Reopening conversation A propagates the new global name (activate-sync)"
+  updated_global_on_messages_a:
+    description: "Messages sent in A after activate-sync use the new global name"
+  cli_sees_updated_a:
+    description: "CLI confirms the updated global in conversation A after activate-sync"
+  per_conv_override_applied:
+    description: "Per-conversation display name change applies in A"
+  global_not_overwritten:
+    description: "Editing the per-conversation name in A does not change the global"
+  per_conv_override_isolated:
+    description: "Per-conversation name change in A does not leak to other conversations"

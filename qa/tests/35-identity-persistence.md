@@ -18,7 +18,7 @@ Verify that the single-inbox user identity persists across an app reinstall on t
    - Once a conversation is created (see step 3), the user's profile is visible with an inbox ID present (inboxable via debug / settings panel if available).
 3. Create a conversation titled "Persistence Test Alpha" via the compose flow and send one text message.
 4. Take a screenshot and note:
-   - The displayed profile/Quickname (if any) for the local user
+   - The displayed profile/Profile (if any) for the local user
    - The presence of the conversation in the list
 
 ## Phase 2: Uninstall the App

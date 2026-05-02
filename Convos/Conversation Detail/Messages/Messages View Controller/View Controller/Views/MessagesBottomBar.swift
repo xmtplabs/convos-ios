@@ -45,7 +45,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
-    @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
+    @State private var profileSettings: ProfileSettingsViewModel = .shared
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -58,8 +58,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
 
-    var quicknamePlaceholderText: String {
-        onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "Your name"
+    var profilePlaceholderText: String {
+        onboardingCoordinator.state == .settingUpProfile ? "Add your name" : "Your name"
     }
 
     @ViewBuilder
@@ -320,9 +320,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
-                animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
+                animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 isCollapsed: !isMessageInputFocused,
+                canEditProfile: profileSettings.profileSettings.isDefault,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
@@ -349,14 +350,18 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @ViewBuilder
     private var expandedQuickEditView: some View {
         QuickEditView(
-            placeholderText: quicknamePlaceholderText,
+            placeholderText: profilePlaceholderText,
             text: $displayName,
             image: $profileImage,
             isImagePickerPresented: $isImagePickerPresented,
+            imageAssetIdentifier: Binding(
+                get: { profileSettings.profileImageAssetIdentifier },
+                set: { profileSettings.profileImageAssetIdentifier = $0 }
+            ),
             focusState: $focusState,
             focused: .displayName,
             settingsSymbolName: "lanyardcard.fill",
-            showsSettingsButton: !quicknameSettings.quicknameSettings.isDefault && !onboardingCoordinator.isSettingUpQuickname,
+            showsSettingsButton: false,
             onSubmit: onDisplayNameEndedEditing,
             onSettings: onProfileSettings
         )

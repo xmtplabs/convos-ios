@@ -77,7 +77,7 @@ Use the CLI to create a conversation named "Pending Test Group" with a profile n
 ### Approve the invite and verify transition
 
 35. From the CLI, process the join request for the conversation. Use `--watch --timeout 30`.
-36. Wait for the join to complete. Start the `process-join-requests` in the background and look for the quickname pill in the app (per ephemeral UI rules in RULES.md).
+36. Wait for the join to complete. Start the `process-join-requests` in the background and look for the profile pill in the app (per ephemeral UI rules in RULES.md).
 37. After the join is processed, the conversation should automatically transition in the home view — the "Verifying" subtitle should be replaced by normal conversation content (a timestamp or message preview).
 38. The conversation's list item ID should change from `conversation-list-item-draft-*` to a non-draft ID.
 39. If the pending invites filter is active, the conversation should disappear from the filtered list (it's no longer pending).

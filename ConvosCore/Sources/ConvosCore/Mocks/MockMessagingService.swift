@@ -74,6 +74,14 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _myProfileWriter
     }
 
+    public func myGlobalProfileWriter() -> any MyGlobalProfileWriterProtocol {
+        MockMyGlobalProfileWriter()
+    }
+
+    public func myGlobalProfileRepository() -> any MyGlobalProfileRepositoryProtocol {
+        MockMyGlobalProfileRepository()
+    }
+
     public func conversationStateManager() -> any ConversationStateManagerProtocol {
         _conversationStateManager
     }

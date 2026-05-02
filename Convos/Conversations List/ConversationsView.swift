@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
 
     @Namespace private var namespace: Namespace.ID
     @State private var presentingAppSettings: Bool = false
@@ -196,7 +196,7 @@ struct ConversationsView: View {
                 if let conversationViewModel = viewModel.selectedConversationViewModel {
                     ConversationView(
                         viewModel: conversationViewModel,
-                        quicknameViewModel: quicknameViewModel,
+                        profileSettingsViewModel: profileSettingsViewModel,
                         focusState: focusState,
                         focusCoordinator: coordinator,
                         onScanInviteCode: {},
@@ -240,7 +240,7 @@ struct ConversationsView: View {
         .modifier(ConversationsSheetModifier(
             presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
-            quicknameViewModel: quicknameViewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
             namespace: namespace
         ))
@@ -258,7 +258,7 @@ struct ConversationsView: View {
 private struct ConversationsSheetModifier: ViewModifier {
     @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
-    let quicknameViewModel: QuicknameSettingsViewModel
+    let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
     var namespace: Namespace.ID
 
@@ -267,7 +267,7 @@ private struct ConversationsSheetModifier: ViewModifier {
             .sheet(isPresented: $presentingAppSettings) {
                 AppSettingsView(
                     viewModel: viewModel.appSettingsViewModel,
-                    quicknameViewModel: quicknameViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
                     session: viewModel.session,
                     onDeleteAllData: viewModel.deleteAllData
                 )
@@ -279,7 +279,7 @@ private struct ConversationsSheetModifier: ViewModifier {
             .sheet(item: $viewModel.newConversationViewModel) { newConvoViewModel in
                 NewConversationView(
                     viewModel: newConvoViewModel,
-                    quicknameViewModel: quicknameViewModel
+                    profileSettingsViewModel: profileSettingsViewModel
                 )
                 .background(.colorBackgroundSurfaceless)
                 .presentationSizing(.page)
@@ -346,20 +346,20 @@ private struct ConversationsSheetModifier: ViewModifier {
             Conversation.mockPendingInvite(id: "draft-pending-1", name: "Secret Club")
         ]
     )
-    let quicknameViewModel = QuicknameSettingsViewModel.shared
+    let profileSettingsViewModel = ProfileSettingsViewModel.shared
 
     ConversationsView(
         viewModel: viewModel,
-        quicknameViewModel: quicknameViewModel
+        profileSettingsViewModel: profileSettingsViewModel
     )
 }
 
 #Preview("Original") {
     let convos = ConvosClient.mock()
     let viewModel = ConversationsViewModel(session: convos.session)
-    let quicknameViewModel = QuicknameSettingsViewModel.shared
+    let profileSettingsViewModel = ProfileSettingsViewModel.shared
     ConversationsView(
         viewModel: viewModel,
-        quicknameViewModel: quicknameViewModel
+        profileSettingsViewModel: profileSettingsViewModel
     )
 }

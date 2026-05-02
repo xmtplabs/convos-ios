@@ -32,6 +32,40 @@ extension SharedDatabaseMigrator {
             try SharedDatabaseMigrator.createSingleInboxSchema(db)
         }
 
+        migrator.registerMigration("createMyProfile") { db in
+            try db.create(table: "myProfile") { t in
+                t.column("inboxId", .text).notNull().primaryKey()
+                t.column("name", .text)
+                t.column("imageData", .blob)
+                t.column("metadata", .jsonText)
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
+
+        migrator.registerMigration("myProfileImageAssetIdentifier") { db in
+            try db.alter(table: "myProfile") { t in
+                t.add(column: "imageAssetIdentifier", .text)
+            }
+        }
+
+        // Vestigial: superseded by `profileImageContentDigest`. Kept registered so DBs that
+        // already applied it don't trip GRDB's migration-checksum check; the column itself is
+        // unused going forward.
+        migrator.registerMigration("memberProfileImageSourceAssetIdentifier") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "imageSourceAssetIdentifier", .text)
+            }
+        }
+
+        migrator.registerMigration("profileImageContentDigest") { db in
+            try db.alter(table: "myProfile") { t in
+                t.add(column: "imageContentDigest", .text)
+            }
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "imageSourceContentDigest", .text)
+            }
+        }
+
         migrator.registerMigration("createConnections") { db in
             try db.create(table: "connection") { t in
                 t.column("id", .text).notNull().primaryKey()

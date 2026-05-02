@@ -7,18 +7,18 @@ struct MyInfoView: View {
     @Binding var profileImage: UIImage?
     @Binding var editingDisplayName: String
 
-    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
 
     let showsCancelButton: Bool
     let showsProfile: Bool
-    let showsUseQuicknameButton: Bool
-    let canEditQuickname: Bool
+    let showsUseProfileButton: Bool
+    let canEditProfile: Bool
 
-    let onUseQuickname: (QuicknameSettings) -> Void
+    let onUseProfile: (ProfileSettings) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isImagePickerPresented: Bool = false
-    @State private var didUseQuickname: Bool = false
+    @State private var didUseProfile: Bool = false
 
     private var headerSection: some View {
         Section {
@@ -27,15 +27,6 @@ struct MyInfoView: View {
                     .font(.system(size: 40, weight: .bold))
                     .tracking(-1)
                     .foregroundStyle(.colorTextPrimary)
-
-                Text("Private unless you choose to share it")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextPrimary)
-                    .padding(.bottom, DesignConstants.Spacing.stepX)
-
-                Text("Your info is stored on your device only.")
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
             }
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.horizontal, DesignConstants.Spacing.step2x)
@@ -88,8 +79,8 @@ struct MyInfoView: View {
                 .listRowInsets(.all, 0.0)
                 .listSectionSpacing(DesignConstants.Spacing.step6x)
                 .onDisappear {
-                    if canEditQuickname {
-                        quicknameViewModel.save()
+                    if canEditProfile {
+                        profileSettingsViewModel.save()
                     }
                 }
                 .toolbar { toolbarContent }
@@ -101,7 +92,7 @@ struct MyInfoView: View {
         Form {
             headerSection
             profileSection
-            quicknameSection
+            editProfileSection
             socialNamesSection
             humanAgeSection
         }
@@ -119,62 +110,60 @@ struct MyInfoView: View {
     }
 
     @ViewBuilder
-    private var quicknameSection: some View {
+    private var editProfileSection: some View {
         Section {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                quicknameAvatarAndName
+                editProfileAvatarAndName
                 Spacer()
-                if showsUseQuicknameButton {
-                    useQuicknameButton
+                if showsUseProfileButton {
+                    useProfileButton
                 }
             }
             .buttonStyle(.borderless)
             .listRowInsets(.init(top: DesignConstants.Spacing.step2x, leading: 10.0, bottom: DesignConstants.Spacing.step2x, trailing: 10.0))
-        } footer: {
-            Text("Quickname: a name and pic to use quick")
-                .foregroundStyle(.colorTextSecondary)
         }
     }
 
     @ViewBuilder
-    private var quicknameAvatarAndName: some View {
-        if canEditQuickname {
+    private var editProfileAvatarAndName: some View {
+        if canEditProfile {
             ImagePickerButton(
-                currentImage: $quicknameViewModel.profileImage,
+                currentImage: $profileSettingsViewModel.profileImage,
                 isPickerPresented: $isImagePickerPresented,
+                currentImageAssetIdentifier: $profileSettingsViewModel.profileImageAssetIdentifier,
                 showsCurrentImage: true,
                 symbolSize: 12.0,
                 symbolName: "photo.fill"
             )
             .frame(width: 32.0, height: 32.0)
-            .accessibilityIdentifier("quickname-image-picker")
+            .accessibilityIdentifier("profile-image-picker")
 
-            TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
+            TextField("Somebody", text: $profileSettingsViewModel.editingDisplayName)
                 .scrollDismissesKeyboard(.interactively)
                 .submitLabel(.done)
-                .accessibilityIdentifier("quickname-display-name-field")
+                .accessibilityIdentifier("profile-display-name-field")
         } else {
             ProfileAvatarView(
-                profile: quicknameViewModel.profile,
-                profileImage: quicknameViewModel.profileImage,
+                profile: profileSettingsViewModel.profile,
+                profileImage: profileSettingsViewModel.profileImage,
                 useSystemPlaceholder: false
             )
             .frame(width: 32.0, height: 32.0)
 
             Text(
-                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
+                profileSettingsViewModel.editingDisplayName.isEmpty ? "Somebody" : profileSettingsViewModel.editingDisplayName
             )
             .foregroundStyle(.colorTextPrimary)
         }
     }
 
     @ViewBuilder
-    private var useQuicknameButton: some View {
+    private var useProfileButton: some View {
         Button {
             withAnimation {
-                didUseQuickname = true
+                didUseProfile = true
             }
-            onUseQuickname(quicknameViewModel.quicknameSettings)
+            onUseProfile(profileSettingsViewModel.profileSettings)
         } label: {
             ZStack {
                 Text("Use")
@@ -182,9 +171,9 @@ struct MyInfoView: View {
                     .foregroundStyle(.colorTextPrimaryInverted)
                     .padding(.horizontal, 10.0)
                     .padding(.vertical, 6.0)
-                    .opacity(didUseQuickname ? 0.0 : 1.0)
+                    .opacity(didUseProfile ? 0.0 : 1.0)
 
-                if didUseQuickname {
+                if didUseProfile {
                     Image(systemName: "checkmark")
                         .symbolEffect(.bounce, options: .nonRepeating)
                         .font(.body)
@@ -195,10 +184,10 @@ struct MyInfoView: View {
             }
             .frame(minHeight: DesignConstants.Spacing.step8x)
         }
-        .disabled(didUseQuickname)
+        .disabled(didUseProfile)
         .background(Capsule().fill(.colorFillPrimary))
-        .accessibilityLabel(didUseQuickname ? "Quickname applied" : "Use quickname")
-        .accessibilityIdentifier("use-quickname-button")
+        .accessibilityLabel(didUseProfile ? "Profile applied" : "Use profile")
+        .accessibilityIdentifier("use-profile-button")
     }
 
     @ViewBuilder
@@ -240,17 +229,17 @@ struct MyInfoView: View {
 
 #Preview {
     @Previewable @State var viewModel: MyProfileViewModel = .mock
-    @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
+    @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
 
     MyInfoView(
         profile: .constant(viewModel.profile),
         profileImage: $viewModel.profileImage,
         editingDisplayName: $viewModel.editingDisplayName,
-        quicknameViewModel: quicknameViewModel,
+        profileSettingsViewModel: profileSettingsViewModel,
         showsCancelButton: false,
         showsProfile: true,
-        showsUseQuicknameButton: true,
-        canEditQuickname: false
+        showsUseProfileButton: true,
+        canEditProfile: false
     ) { _ in
     }
 }

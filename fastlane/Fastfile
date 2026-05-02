@@ -1,0 +1,17 @@
+default_platform(:ios)
+
+# Reusable constants
+PROJECT          = "Convos.xcodeproj"
+PR_SCHEME        = "Convos (PR Preview)"
+PR_CONFIG        = "PR Preview"
+PR_BUNDLE_ID     = "org.convos.ios-preview.pr"
+PR_NSE_BUNDLE_ID = "org.convos.ios-preview.pr.ConvosNSE"
+MATCH_GIT_URL    = ENV["MATCH_GIT_URL"] || "git@github.com:xmtplabs/convos-certificates.git"
+OUTPUT_DIR       = "build"
+OUTPUT_NAME      = "Convos-PR.ipa"
+
+
+import "lanes/match.rb"
+import "lanes/firebase.rb"
+import "lanes/helpers.rb"
+import "lanes/bootstrap.rb"

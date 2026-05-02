@@ -45,15 +45,15 @@ final class AppSettingsViewModel {
     }
 
     private func resetLocalState() {
-        Self.resetQuickname()
+        Self.resetProfile()
         Self.resetGlobalDefaults()
         Self.resetConversationDefaults()
         Self.resetConversationsDefaults()
         Self.resetOnboardingDefaults()
     }
 
-    private static func resetQuickname() {
-        QuicknameSettingsViewModel.shared.delete()
+    private static func resetProfile() {
+        ProfileSettingsViewModel.shared.delete()
     }
 
     private static func resetGlobalDefaults() {

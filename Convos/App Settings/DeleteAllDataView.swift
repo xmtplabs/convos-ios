@@ -11,7 +11,7 @@ struct DeleteAllDataView: View {
     }
 
     var subtitle: String {
-        "This will permanently delete all conversations on this device, as well as your Quickname."
+        "This will permanently delete all conversations on this device, as well as your profile."
     }
 
     var body: some View {

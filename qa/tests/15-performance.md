@@ -40,7 +40,7 @@ Measures time to open a conversation with a small number of messages (< 50). If 
 
 1. Ensure a conversation exists with **at least 20 messages** of mixed content types. If not, create one:
    a. Create a conversation via CLI with a profile name.
-   b. Generate an invite and join from the app (process join request in background, tap the quickname pill per ephemeral UI rules).
+   b. Generate an invite and join from the app (process join request in background, tap the profile pill per ephemeral UI rules).
    c. Send a mix of messages from the CLI — short texts, longer paragraphs, and emoji-heavy messages:
       ```bash
       for i in $(seq 1 20); do

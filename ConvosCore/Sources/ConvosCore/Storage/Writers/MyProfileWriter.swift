@@ -2,14 +2,23 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
-public protocol MyProfileWriterProtocol {
+public protocol MyProfileWriterProtocol: Sendable {
     func update(displayName: String, conversationId: String) async throws
-    func update(avatar: ImageType?, conversationId: String) async throws
+    func update(avatar: ImageType?, imageSourceContentDigest: String?, conversationId: String) async throws
     func update(metadata: ProfileMetadata?, conversationId: String) async throws
     /// Like `update(metadata:conversationId:)` but propagates ProfileUpdate publish failures.
     /// Use this when the caller needs to know whether the ProfileUpdate reached the network
     /// (e.g. to roll back a dependent local write).
     func updateAndPublish(metadata: ProfileMetadata?, conversationId: String) async throws
+    /// Reads `DBMyProfile` and writes/publishes any fields that differ from this group's
+    /// `DBMemberProfile`. No-op when nothing is set yet or the group already matches.
+    func syncFromGlobalProfile(conversationId: String) async throws
+}
+
+public extension MyProfileWriterProtocol {
+    func update(avatar: ImageType?, conversationId: String) async throws {
+        try await update(avatar: avatar, imageSourceContentDigest: nil, conversationId: conversationId)
+    }
 }
 
 enum MyProfileWriterError: Error {
@@ -17,7 +26,7 @@ enum MyProfileWriterError: Error {
     case profileUpdatePublishFailed(underlying: any Error)
 }
 
-class MyProfileWriter: MyProfileWriterProtocol {
+final class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
@@ -100,7 +109,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
     }
 
-    func update(avatar: ImageType?, conversationId: String) async throws {
+    func update(avatar: ImageType?, imageSourceContentDigest: String?, conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -127,7 +136,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         guard let avatarImage = avatar else {
             ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
-            let updatedProfile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
+            let updatedProfile = profile
+                .with(avatar: nil, salt: nil, nonce: nil, key: nil)
+                .with(imageSourceContentDigest: nil)
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
@@ -161,12 +172,14 @@ class MyProfileWriter: MyProfileWriterProtocol {
             acl: "public-read"
         )
 
-        let updatedProfile = profile.with(
-            avatar: uploadedAssetUrl,
-            salt: encryptedPayload.salt,
-            nonce: encryptedPayload.nonce,
-            key: groupKey
-        )
+        let updatedProfile = profile
+            .with(
+                avatar: uploadedAssetUrl,
+                salt: encryptedPayload.salt,
+                nonce: encryptedPayload.nonce,
+                key: groupKey
+            )
+            .with(imageSourceContentDigest: imageSourceContentDigest)
 
         do {
             try await group.updateProfile(updatedProfile)
@@ -184,6 +197,57 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         await sendProfileUpdate(profile: updatedProfile, group: group)
+    }
+
+    func syncFromGlobalProfile(conversationId: String) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxId = inboxReady.client.inboxId
+
+        let global = try await databaseWriter.read { db in
+            try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db)
+        }
+        guard let global else { return }
+
+        let member = try await databaseWriter.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+        }
+
+        // global.name is already trim/clamp/nil-if-empty normalized by MyGlobalProfileWriter,
+        // so it can be compared to member?.name directly without re-normalizing here.
+        if global.name != member?.name {
+            try await update(displayName: global.name ?? "", conversationId: conversationId)
+        }
+
+        if global.imageData == nil {
+            // Global avatar was cleared. Propagate the removal so the per-conversation avatar
+            // doesn't outlive it.
+            if member?.avatar != nil {
+                try await update(
+                    avatar: nil,
+                    imageSourceContentDigest: nil,
+                    conversationId: conversationId
+                )
+            }
+        } else {
+            let needsAvatarUpload: Bool
+            if member?.avatar == nil {
+                needsAvatarUpload = true
+            } else {
+                // Compare content digests so the decision is reliable regardless of whether the
+                // photos library returned an asset identifier. nil-vs-something on either side
+                // counts as a change and triggers a re-upload.
+                needsAvatarUpload = member?.imageSourceContentDigest != global.imageContentDigest
+            }
+            if needsAvatarUpload, let imageData = global.imageData, let image = ImageType(data: imageData) {
+                try await update(
+                    avatar: image,
+                    imageSourceContentDigest: global.imageContentDigest,
+                    conversationId: conversationId
+                )
+            }
+        }
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {
