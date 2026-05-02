@@ -1,5 +1,5 @@
 {
-  "originHash" : "892101647b071fc4a8ef18a320c83b79b2fd66064da846770efe681932cb327c",
+  "originHash" : "9a89f560c6cecec4f5157682d897237c98b1627d30b040a591e67439dfd841a8",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -44,15 +44,6 @@
       "state" : {
         "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
         "version" : "0.2.0"
-      }
-    },
-    {
-      "identity" : "devicekit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/devicekit/DeviceKit.git",
-      "state" : {
-        "revision" : "56b997e8a61707218f9af09f32b2a1d1806fd792",
-        "version" : "5.8.0"
       }
     },
     {
