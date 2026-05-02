@@ -30,22 +30,71 @@ struct HealthBackgroundSubscriptionManagerTests {
         }
     }
 
+    private final class RecordingReader: HealthBackfillReader, @unchecked Sendable {
+        struct Call: Equatable {
+            let typeIdentifier: HealthSampleType
+            let startDate: Date
+            let endDate: Date
+        }
+
+        var calls: [Call] = []
+        var samplesToReturn: [HealthSample] = []
+        var anchorToReturn: Data?
+        var errorToThrow: Error?
+
+        func backfill(typeIdentifier: HealthSampleType, startDate: Date, endDate: Date) async throws -> HealthBackfillResult {
+            calls.append(Call(typeIdentifier: typeIdentifier, startDate: startDate, endDate: endDate))
+            if let errorToThrow { throw errorToThrow }
+            return HealthBackfillResult(samples: samplesToReturn, anchor: anchorToReturn)
+        }
+    }
+
+    private final class RecordingDelivery: ConnectionDelivering, @unchecked Sendable {
+        struct PayloadDelivery: Equatable {
+            let payload: ConnectionPayload
+            let conversationId: String
+        }
+
+        var payloadCalls: [PayloadDelivery] = []
+        var payloadError: Error?
+
+        func deliver(_ payload: ConnectionPayload, to conversationId: String) async throws {
+            if let payloadError { throw payloadError }
+            payloadCalls.append(PayloadDelivery(payload: payload, conversationId: conversationId))
+        }
+
+        func deliver(_ result: ConnectionInvocationResult, to conversationId: String) async throws {}
+    }
+
     private struct StubError: Error {}
 
     private struct Harness {
         let manager: HealthBackgroundSubscriptionManager
         let store: InMemoryHealthBackgroundSubscriptionStore
         let gateway: RecordingGateway
+        let reader: RecordingReader?
+        let delivery: RecordingDelivery?
     }
 
     private func makeManager(
         store: InMemoryHealthBackgroundSubscriptionStore = InMemoryHealthBackgroundSubscriptionStore(),
-        gateway: RecordingGateway = RecordingGateway()
+        gateway: RecordingGateway = RecordingGateway(),
+        reader: RecordingReader? = nil,
+        delivery: RecordingDelivery? = nil,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) -> Harness {
         Harness(
-            manager: HealthBackgroundSubscriptionManager(store: store, gateway: gateway),
+            manager: HealthBackgroundSubscriptionManager(
+                store: store,
+                gateway: gateway,
+                reader: reader,
+                delivery: delivery,
+                now: now
+            ),
             store: store,
-            gateway: gateway
+            gateway: gateway,
+            reader: reader,
+            delivery: delivery
         )
     }
 
@@ -351,5 +400,144 @@ struct HealthBackgroundSubscriptionManagerTests {
             HealthBackgroundSubscription(conversationId: "c3", agentInboxId: "a3", typeIdentifier: .stepCount, frequency: .hourly, historyDays: 7, createdAt: now, updatedAt: now),
         ]
         #expect(manager.effectiveFrequency(among: rows) == .hourly)
+    }
+
+    // MARK: - backfill
+
+    private static let fixedNow: Date = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func makeBackfillSample(
+        type: HealthSampleType = .stepCount,
+        offset: TimeInterval = -3600,
+        value: Double = 1_234
+    ) -> HealthSample {
+        HealthSample(
+            type: type,
+            startDate: Self.fixedNow.addingTimeInterval(offset),
+            endDate: Self.fixedNow.addingTimeInterval(offset),
+            value: value,
+            unit: "count"
+        )
+    }
+
+    @Test("subscribe runs backfill across the requested window and delivers a payload before applying the gateway")
+    func subscribeRunsBackfill() async throws {
+        let reader = RecordingReader()
+        reader.samplesToReturn = [makeBackfillSample(value: 500), makeBackfillSample(offset: -7200, value: 1_500)]
+        reader.anchorToReturn = Data([0x01, 0x02])
+        let delivery = RecordingDelivery()
+        let harness = makeManager(reader: reader, delivery: delivery, now: { Self.fixedNow })
+
+        let result = await harness.manager.handleSubscribe(
+            invocation: makeSubscribeInvocation(historyDays: 7),
+            conversationId: "conv-1",
+            agentInboxId: "agent-1"
+        )
+
+        #expect(result.status == .success)
+        #expect(result.result["backfillSampleCount"]?.intValue == 2)
+
+        let expectedStart = Calendar(identifier: .gregorian)
+            .date(byAdding: .day, value: -7, to: Self.fixedNow) ?? Self.fixedNow
+        #expect(reader.calls == [
+            RecordingReader.Call(typeIdentifier: .stepCount, startDate: expectedStart, endDate: Self.fixedNow),
+        ])
+        #expect(delivery.payloadCalls.count == 1)
+        let delivered = try #require(delivery.payloadCalls.first)
+        #expect(delivered.conversationId == "conv-1")
+        guard case .health(let payload) = delivered.payload.body else {
+            Issue.record("delivered body should be .health")
+            return
+        }
+        #expect(payload.samples.count == 2)
+        #expect(payload.rangeStart == expectedStart)
+        #expect(payload.rangeEnd == Self.fixedNow)
+
+        let rows = try await harness.store.allSubscriptions()
+        #expect(rows.first?.anchor == Data([0x01, 0x02]))
+    }
+
+    @Test("subscribe defaults backfill window to schema default when historyDays is not provided")
+    func subscribeDefaultBackfillWindow() async throws {
+        let reader = RecordingReader()
+        let delivery = RecordingDelivery()
+        let harness = makeManager(reader: reader, delivery: delivery, now: { Self.fixedNow })
+
+        _ = await harness.manager.handleSubscribe(
+            invocation: makeSubscribeInvocation(historyDays: nil),
+            conversationId: "conv-1",
+            agentInboxId: "agent-1"
+        )
+
+        let expectedStart = Calendar(identifier: .gregorian)
+            .date(byAdding: .day, value: -HealthActionSchemas.defaultHistoryDays, to: Self.fixedNow) ?? Self.fixedNow
+        #expect(reader.calls.first?.startDate == expectedStart)
+    }
+
+    @Test("subscribe with no reader still succeeds and reports backfillSampleCount: 0")
+    func subscribeNoReader() async throws {
+        let harness = makeManager()
+
+        let result = await harness.manager.handleSubscribe(
+            invocation: makeSubscribeInvocation(),
+            conversationId: "conv-1",
+            agentInboxId: "agent-1"
+        )
+
+        #expect(result.status == .success)
+        #expect(result.result["backfillSampleCount"]?.intValue == 0)
+    }
+
+    @Test("subscribe surfaces reader errors as executionFailed and skips the gateway call")
+    func subscribeReaderFailureSurfaces() async throws {
+        let reader = RecordingReader()
+        reader.errorToThrow = StubError()
+        let delivery = RecordingDelivery()
+        let harness = makeManager(reader: reader, delivery: delivery)
+
+        let result = await harness.manager.handleSubscribe(
+            invocation: makeSubscribeInvocation(),
+            conversationId: "conv-1",
+            agentInboxId: "agent-1"
+        )
+
+        #expect(result.status == .executionFailed)
+        let rows = try await harness.store.allSubscriptions()
+        #expect(rows.count == 1)
+        #expect(harness.gateway.enableCalls.isEmpty)
+    }
+
+    @Test("subscribe surfaces delivery errors as executionFailed and skips the gateway call")
+    func subscribeDeliveryFailureSurfaces() async throws {
+        let reader = RecordingReader()
+        reader.samplesToReturn = [makeBackfillSample()]
+        let delivery = RecordingDelivery()
+        delivery.payloadError = StubError()
+        let harness = makeManager(reader: reader, delivery: delivery)
+
+        let result = await harness.manager.handleSubscribe(
+            invocation: makeSubscribeInvocation(),
+            conversationId: "conv-1",
+            agentInboxId: "agent-1"
+        )
+
+        #expect(result.status == .executionFailed)
+        #expect(harness.gateway.enableCalls.isEmpty)
+    }
+
+    @Test("subscribe persists the anchor only when the reader returns one")
+    func subscribePersistsAnchorWhenPresent() async throws {
+        let reader = RecordingReader()
+        let delivery = RecordingDelivery()
+        let harness = makeManager(reader: reader, delivery: delivery)
+
+        _ = await harness.manager.handleSubscribe(
+            invocation: makeSubscribeInvocation(),
+            conversationId: "conv-1",
+            agentInboxId: "agent-1"
+        )
+
+        let rows = try await harness.store.allSubscriptions()
+        #expect(rows.first?.anchor == nil)
     }
 }

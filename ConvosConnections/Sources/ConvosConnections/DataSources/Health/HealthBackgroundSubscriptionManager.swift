@@ -23,13 +23,22 @@ import Foundation
 public actor HealthBackgroundSubscriptionManager {
     private let store: any HealthBackgroundSubscriptionStore
     private let gateway: any HealthBackgroundDeliveryGateway
+    private let reader: (any HealthBackfillReader)?
+    private let delivery: (any ConnectionDelivering)?
+    private let now: @Sendable () -> Date
 
     public init(
         store: any HealthBackgroundSubscriptionStore,
-        gateway: any HealthBackgroundDeliveryGateway
+        gateway: any HealthBackgroundDeliveryGateway,
+        reader: (any HealthBackfillReader)? = nil,
+        delivery: (any ConnectionDelivering)? = nil,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.store = store
         self.gateway = gateway
+        self.reader = reader
+        self.delivery = delivery
+        self.now = now
     }
 
     /// Handle a `subscribe_background_delivery` invocation. The caller has already
@@ -63,6 +72,17 @@ public actor HealthBackgroundSubscriptionManager {
             return makeResult(for: invocation, status: .executionFailed, errorMessage: "Failed to persist subscription: \(error.localizedDescription)")
         }
 
+        let backfill: BackfillOutcome
+        do {
+            backfill = try await runBackfill(for: subscription)
+        } catch {
+            return makeResult(
+                for: invocation,
+                status: .executionFailed,
+                errorMessage: "Subscription stored but backfill failed: \(error.localizedDescription)"
+            )
+        }
+
         do {
             try await applyEffectiveFrequency(for: parsed.typeIdentifier)
         } catch {
@@ -78,7 +98,7 @@ public actor HealthBackgroundSubscriptionManager {
             status: .success,
             result: [
                 "subscriptionId": .string(subscriptionId(for: subscription)),
-                "backfillSampleCount": .int(0),
+                "backfillSampleCount": .int(backfill.sampleCount),
             ]
         )
     }
@@ -119,6 +139,69 @@ public actor HealthBackgroundSubscriptionManager {
         }
 
         return makeResult(for: invocation, status: .success)
+    }
+
+    /// Run the one-shot backfill query for a freshly-persisted subscription, deliver
+    /// the resulting `ConnectionPayload` to the conversation, and persist the anchor
+    /// produced by HealthKit.
+    ///
+    /// Returns a no-op outcome (zero samples, nil anchor) when the manager wasn't
+    /// constructed with a reader and delivery — callers can treat backfill as a
+    /// best-effort augmentation of subscribe.
+    private func runBackfill(
+        for subscription: HealthBackgroundSubscription
+    ) async throws -> BackfillOutcome {
+        guard let reader, let delivery else {
+            return BackfillOutcome(sampleCount: 0)
+        }
+        let endDate = now()
+        let startDate = Calendar(identifier: .gregorian)
+            .date(byAdding: .day, value: -subscription.historyDays, to: endDate) ?? endDate
+        let result = try await reader.backfill(
+            typeIdentifier: subscription.typeIdentifier,
+            startDate: startDate,
+            endDate: endDate
+        )
+
+        let payload = ConnectionPayload(
+            source: .health,
+            capturedAt: endDate,
+            body: .health(HealthPayload(
+                summary: backfillSummary(
+                    type: subscription.typeIdentifier,
+                    sampleCount: result.samples.count,
+                    historyDays: subscription.historyDays
+                ),
+                samples: result.samples,
+                rangeStart: startDate,
+                rangeEnd: endDate
+            ))
+        )
+
+        try await delivery.deliver(payload, to: subscription.conversationId)
+
+        if let anchor = result.anchor {
+            try await store.updateAnchor(
+                conversationId: subscription.conversationId,
+                agentInboxId: subscription.agentInboxId,
+                typeIdentifier: subscription.typeIdentifier,
+                anchor: anchor
+            )
+        }
+
+        return BackfillOutcome(sampleCount: result.samples.count)
+    }
+
+    private func backfillSummary(type: HealthSampleType, sampleCount: Int, historyDays: Int) -> String {
+        let label = type.displayName.lowercased()
+        if sampleCount == 0 {
+            return "No \(label) samples in the last \(historyDays) days."
+        }
+        return "Backfill: \(sampleCount) \(label) sample\(sampleCount == 1 ? "" : "s") from the last \(historyDays) days."
+    }
+
+    private struct BackfillOutcome {
+        let sampleCount: Int
     }
 
     /// Re-evaluate which frequency iOS should be running for `typeIdentifier` based on
