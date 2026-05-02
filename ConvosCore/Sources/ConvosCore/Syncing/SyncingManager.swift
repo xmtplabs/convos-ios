@@ -142,14 +142,40 @@ actor SyncingManager: SyncingManagerProtocol {
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         let enablementStore: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+        let healthSubscriptionStore = GRDBHealthBackgroundSubscriptionStore(
+            dbWriter: databaseWriter,
+            dbReader: databaseReader
+        )
+        let invocationRuntime = Self.makeInvocationRuntime(
+            enablementStore: enablementStore,
+            healthSubscriptionStore: healthSubscriptionStore
+        )
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager,
             notificationCenter: notificationCenter,
-            invocationRuntime: ConnectionInvocationRuntime(store: enablementStore)
+            invocationRuntime: invocationRuntime
         )
+    }
+
+    private static func makeInvocationRuntime(
+        enablementStore: any EnablementStore,
+        healthSubscriptionStore: any HealthBackgroundSubscriptionStore
+    ) -> ConnectionInvocationRuntime {
+        #if canImport(HealthKit)
+        return ConnectionInvocationRuntime(
+            store: enablementStore,
+            healthSubscriptionStore: healthSubscriptionStore,
+            healthGateway: HKHealthStoreBackgroundDeliveryGateway(),
+            healthBackfillReader: HKHealthStoreBackfillReader(),
+            healthDeltaReader: HKHealthStoreDeltaReader(),
+            healthRegistrar: HKHealthStoreObserverRegistrar()
+        )
+        #else
+        return ConnectionInvocationRuntime(store: enablementStore)
+        #endif
     }
 
     deinit {
