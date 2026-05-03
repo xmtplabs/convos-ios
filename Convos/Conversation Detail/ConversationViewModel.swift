@@ -1294,30 +1294,39 @@ extension ConversationViewModel {
         isSendingPhoto = true
 
         var consumedReply = false
-        for attachment in attachments {
-            let attachmentReplyId: String? = consumedReply ? nil : replyTarget?.messageId
-            switch attachment {
-            case .photo(let photo):
-                try await sendStagedPhoto(photo, replyToMessageId: attachmentReplyId, messageWriter: messageWriter)
-            case .video(let video):
-                _ = try await messageWriter.sendVideo(at: video.url, replyToMessageId: attachmentReplyId)
-            case .file(let file):
-                do {
-                    _ = try await messageWriter.sendFile(
-                        at: file.url,
-                        filename: file.filename,
-                        mimeType: file.mimeType,
-                        replyToMessageId: attachmentReplyId
-                    )
-                    try? FileManager.default.removeItem(at: file.url)
-                } catch {
-                    try? FileManager.default.removeItem(at: file.url)
-                    throw error
+        var nextIndex: Int = 0
+        do {
+            for (index, attachment) in attachments.enumerated() {
+                nextIndex = index + 1
+                let attachmentReplyId: String? = consumedReply ? nil : replyTarget?.messageId
+                switch attachment {
+                case .photo(let photo):
+                    try await sendStagedPhoto(photo, replyToMessageId: attachmentReplyId, messageWriter: messageWriter)
+                case .video(let video):
+                    _ = try await messageWriter.sendVideo(at: video.url, replyToMessageId: attachmentReplyId)
+                case .file(let file):
+                    do {
+                        _ = try await messageWriter.sendFile(
+                            at: file.url,
+                            filename: file.filename,
+                            mimeType: file.mimeType,
+                            replyToMessageId: attachmentReplyId
+                        )
+                        try? FileManager.default.removeItem(at: file.url)
+                    } catch {
+                        try? FileManager.default.removeItem(at: file.url)
+                        throw error
+                    }
                 }
+                consumedReply = true
             }
-            consumedReply = true
+            return true
+        } catch {
+            for unsent in attachments[nextIndex...] {
+                cleanupAttachment(unsent)
+            }
+            throw error
         }
-        return true
     }
 
     private func sendStagedPhoto(
