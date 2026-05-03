@@ -9,6 +9,9 @@ struct FileAttachmentBubble: View {
     let profile: Profile
 
     var body: some View {
+        let trailingPadding: CGFloat = isOutgoing
+            ? DesignConstants.Spacing.step5x
+            : DesignConstants.Spacing.step3x
         MessageContainer(style: style, isOutgoing: isOutgoing) {
             FileAttachmentRow(
                 filename: attachment.filename,
@@ -18,7 +21,7 @@ struct FileAttachmentBubble: View {
                 isOutgoing: isOutgoing
             )
             .padding(.leading, DesignConstants.Spacing.step3x)
-            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .padding(.trailing, trailingPadding)
             .padding(.vertical, DesignConstants.Spacing.step2x)
         }
         .accessibilityIdentifier("file-attachment-bubble")

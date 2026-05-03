@@ -752,12 +752,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     // MARK: - File
 
     func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        // The hydrator in MessagesRepository strips everything before the first underscore
+        // when deriving a display filename from a local file:// key, so the prefix here
+        // must contain no underscores — only a single one separating prefix from filename.
+        let uniquePrefix = "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8))"
         let params = AttachmentUploadParams(
             dataURL: fileURL,
             filename: filename,
             mimeType: mimeType,
             mediaTypeLabel: "file",
-            cacheFilename: "\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8))_\(filename)"
+            cacheFilename: "\(uniquePrefix)_\(filename)"
         )
 
         return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)
