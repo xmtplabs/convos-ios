@@ -569,10 +569,29 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             Log.debug("Encountered expired conversation for the first time.")
         }
 
+        seedInviteTagCacheIfNeeded(for: conversationToSave)
+
         return ConversationSaveResult(
             clientConversationId: actualClientConversationId,
             oldImageURL: oldImageURL,
             preservedInviteTag: preservedInviteTag
+        )
+    }
+
+    /// Mirror the saved invite tag into the process-wide cache that
+    /// `XMTPGroup.atomicUpdateMetadata` consults. Closes the cold-start
+    /// gap where an invitee receives a welcome with empty appData and
+    /// writes metadata before any wire read populates the cache: the
+    /// local DB is the authoritative record of every tag we have ever
+    /// known, so seeding from here gives the guard a value to compare
+    /// against on the very first write. Skips drafts — their id has no
+    /// matching XMTPiOS.Group.
+    private func seedInviteTagCacheIfNeeded(for conversation: DBConversation) {
+        guard !conversation.inviteTag.isEmpty,
+              !DBConversation.isDraft(id: conversation.id) else { return }
+        XMTPiOS.Group.recordObservedInviteTag(
+            conversation.inviteTag,
+            groupId: conversation.id
         )
     }
 

@@ -2,7 +2,6 @@ import ConvosAppData
 import Foundation
 import XMTPiOS
 
-// swiftlint:disable:next orphaned_doc_comment
 /// XMTP groups expose an 8 KB `appData` field that Convos uses to store structured
 /// metadata as a compressed, base64-encoded protobuf. This metadata includes:
 /// - Invite tag: Unique identifier linking invites to conversations
@@ -25,7 +24,7 @@ import XMTPiOS
 /// that consults this cache.
 private final class LastObservedInviteTagCache: @unchecked Sendable {
     private var storage: [String: String] = [:]
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
 
     func set(_ tag: String, forGroupId groupId: String) {
         lock.lock(); defer { lock.unlock() }
@@ -51,7 +50,12 @@ extension XMTPiOS.Group {
     /// already have.
     private static let lastObservedInviteTagCache: LastObservedInviteTagCache = .init()
 
-    fileprivate static func recordObservedInviteTag(_ tag: String, groupId: String) {
+    /// Records a non-empty invite tag we have observed for a group. Empty tags
+    /// are ignored — caching empty would defeat the post-modify guard. Callable
+    /// from anywhere in ConvosCore so non-XMTP code paths (e.g. local-DB
+    /// writes in `ConversationWriter`) can seed the cache after a cold start
+    /// before any wire read has occurred.
+    static func recordObservedInviteTag(_ tag: String, groupId: String) {
         guard !tag.isEmpty else { return }
         lastObservedInviteTagCache.set(tag, forGroupId: groupId)
     }
@@ -403,7 +407,7 @@ extension XMTPiOS.Group {
                 Log.error(
                     "[MetadataDebug] operation=\(operation) groupId=\(id) attempt=\(attempt + 1) refusing to write — would publish empty-tag metadata but lastObservedInviteTag=\(lastObserved)"
                 )
-                throw ConversationCustomMetadataError.metadataUpdateFailed
+                throw ConversationCustomMetadataError.refusedToPublishEmptyInviteTag(cachedTag: lastObserved)
             }
 
             try await updateMetadata(metadata)
@@ -446,7 +450,7 @@ extension XMTPiOS.Group {
             Log.error(
                 "[MetadataDebug] updateMetadata refusing to publish empty-tag metadata for groupId=\(id) — lastObservedInviteTag=\(lastObserved)"
             )
-            throw ConversationCustomMetadataError.metadataUpdateFailed
+            throw ConversationCustomMetadataError.refusedToPublishEmptyInviteTag(cachedTag: lastObserved)
         }
 
         let encodedMetadata = try metadata.toCompactString()

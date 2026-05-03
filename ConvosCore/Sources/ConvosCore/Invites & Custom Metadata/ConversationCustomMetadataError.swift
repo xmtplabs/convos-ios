@@ -9,6 +9,7 @@ enum ConversationCustomMetadataError: Error, LocalizedError {
     case appDataLimitExceeded(limit: Int, actualSize: Int)
     case invalidInviteTag(String)
     case metadataUpdateFailed
+    case refusedToPublishEmptyInviteTag(cachedTag: String)
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +25,8 @@ enum ConversationCustomMetadataError: Error, LocalizedError {
             return "Invalid invite tag: \(tag)"
         case .metadataUpdateFailed:
             return "Failed to update conversation metadata after multiple retries"
+        case .refusedToPublishEmptyInviteTag(let cachedTag):
+            return "Refused to publish empty invite tag (cached non-empty tag: \(cachedTag))"
         }
     }
 }
@@ -39,6 +42,7 @@ extension ConversationCustomMetadataError: DisplayError {
         case .invalidInboxIdHex: return "Invalid profile"
         case .invalidInviteTag: return "Invalid invite tag"
         case .metadataUpdateFailed: return "Update failed"
+        case .refusedToPublishEmptyInviteTag: return "Update failed"
         }
     }
 
@@ -55,6 +59,8 @@ extension ConversationCustomMetadataError: DisplayError {
         case .invalidInviteTag:
             return "Invalid invite tag format"
         case .metadataUpdateFailed:
+            return "Failed to update conversation. Please try again."
+        case .refusedToPublishEmptyInviteTag:
             return "Failed to update conversation. Please try again."
         }
     }
