@@ -19,8 +19,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
-    @Binding var selectedAttachmentImage: UIImage?
-    var isVideoAttachment: Bool = false
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
@@ -29,7 +28,6 @@ struct MessagesView<BottomBarContent: View>: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
-    var pendingFileAttachment: PendingFileAttachment?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -41,7 +39,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
-    let onClearFile: () -> Void
+    let onClearMediaAttachment: (UUID) -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
@@ -58,6 +56,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onPhotoSelected: (UIImage) -> Void
     let onVideoSelected: (URL) -> Void
     let onFileSelected: (URL, String, String, Int) -> Void
     let onAboutAssistants: () -> Void
@@ -131,8 +130,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 profile: profile,
                 displayName: $displayName,
                 messageText: $messageText,
-                selectedAttachmentImage: $selectedAttachmentImage,
-                isVideoAttachment: isVideoAttachment,
+                pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
                 pendingInviteEmoji: pendingInviteEmoji,
@@ -141,7 +139,6 @@ struct MessagesView<BottomBarContent: View>: View {
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                pendingFileAttachment: pendingFileAttachment,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 isPhotoPickerPresented: $isPhotoPickerPresented,
@@ -156,8 +153,9 @@ struct MessagesView<BottomBarContent: View>: View {
                 },
                 onClearInvite: onClearInvite,
                 onClearLinkPreview: onClearLinkPreview,
-                onClearFile: onClearFile,
+                onClearMediaAttachment: onClearMediaAttachment,
                 onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                onPhotoSelected: onPhotoSelected,
                 onVideoSelected: onVideoSelected,
                 onFileSelected: onFileSelected,
                 onProfileSettings: onProfileSettings,

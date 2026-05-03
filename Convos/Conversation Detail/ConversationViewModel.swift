@@ -15,12 +15,73 @@ struct PendingInvite {
     var explodeDuration: ExplodeDuration?
 }
 
-struct PendingFileAttachment: Equatable {
+struct PendingFileAttachment: Identifiable, Equatable {
+    let id: UUID
     let url: URL
     let filename: String
     let mimeType: String
     let fileSize: Int
+
+    init(id: UUID = UUID(), url: URL, filename: String, mimeType: String, fileSize: Int) {
+        self.id = id
+        self.url = url
+        self.filename = filename
+        self.mimeType = mimeType
+        self.fileSize = fileSize
+    }
+
+    static func == (lhs: PendingFileAttachment, rhs: PendingFileAttachment) -> Bool {
+        lhs.id == rhs.id
+    }
 }
+
+struct PendingPhotoAttachment: Identifiable, Equatable {
+    let id: UUID
+    let image: UIImage
+    var eagerUploadKey: String?
+
+    init(id: UUID = UUID(), image: UIImage, eagerUploadKey: String? = nil) {
+        self.id = id
+        self.image = image
+        self.eagerUploadKey = eagerUploadKey
+    }
+
+    static func == (lhs: PendingPhotoAttachment, rhs: PendingPhotoAttachment) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+struct PendingVideoAttachment: Identifiable, Equatable {
+    let id: UUID
+    let url: URL
+    var thumbnail: UIImage?
+
+    init(id: UUID = UUID(), url: URL, thumbnail: UIImage? = nil) {
+        self.id = id
+        self.url = url
+        self.thumbnail = thumbnail
+    }
+
+    static func == (lhs: PendingVideoAttachment, rhs: PendingVideoAttachment) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+enum PendingMediaAttachment: Identifiable, Equatable {
+    case photo(PendingPhotoAttachment)
+    case video(PendingVideoAttachment)
+    case file(PendingFileAttachment)
+
+    var id: UUID {
+        switch self {
+        case .photo(let p): return p.id
+        case .video(let v): return v.id
+        case .file(let f): return f.id
+        }
+    }
+}
+
+let maxPendingMediaAttachments: Int = 8
 
 enum ExplodeDuration: CaseIterable {
     case sixtySeconds
@@ -259,19 +320,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     var typingThrottleDate: Date?
 
-    var selectedAttachmentImage: UIImage? {
-        didSet {
-            if selectedAttachmentImage != nil, oldValue == nil {
-                onPhotoAttached()
-            }
-        }
-    }
-    var selectedVideoURL: URL?
-    var selectedVideoThumbnail: UIImage?
-    private var videoThumbnailTask: Task<Void, Never>?
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
+    @ObservationIgnored
+    private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
     var voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
-    private(set) var currentEagerUploadKey: String?
-    var pendingFileAttachment: PendingFileAttachment?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
@@ -325,11 +377,23 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     var sendButtonEnabled: Bool {
         !messageText.isEmpty
-            || selectedAttachmentImage != nil
+            || !pendingMediaAttachments.isEmpty
             || pendingInvite != nil
             || pastedLinkPreview != nil
-            || pendingFileAttachment != nil
     }
+
+    var canStageMoreMedia: Bool {
+        pendingMediaAttachments.count < maxPendingMediaAttachments
+    }
+
+    var canStageSideConvo: Bool {
+        pendingInvite == nil
+    }
+
+    var canRecordVoiceMemo: Bool {
+        pendingMediaAttachments.isEmpty
+    }
+
     private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
 
@@ -897,51 +961,88 @@ extension ConversationViewModel {
         onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
     }
 
-    func onFileSelected(url: URL, filename: String, mimeType: String, fileSize: Int) {
-        if let existing = pendingFileAttachment {
-            try? FileManager.default.removeItem(at: existing.url)
+    func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
+        guard canStageMoreMedia else {
+            try? FileManager.default.removeItem(at: url)
+            return
         }
-        // Files are mutually exclusive with photos and videos in send-time
-        // dispatch, so clear any staged photo/video here to avoid silently
-        // dropping it when the user taps Send. Setting selectedAttachmentImage
-        // to nil triggers the onChange in ConversationView which calls
-        // onPhotoRemoved and cancels any in-flight eager photo upload.
-        selectedAttachmentImage = nil
-        selectedVideoURL = nil
-        selectedVideoThumbnail = nil
-        pendingFileAttachment = PendingFileAttachment(
-            url: url,
-            filename: filename,
-            mimeType: mimeType,
-            fileSize: fileSize
-        )
+        let attachment = PendingFileAttachment(url: url, filename: filename, mimeType: mimeType, fileSize: fileSize)
+        pendingMediaAttachments.append(.file(attachment))
     }
 
-    func clearPendingFile() {
-        if let existing = pendingFileAttachment {
-            try? FileManager.default.removeItem(at: existing.url)
-        }
-        pendingFileAttachment = nil
-    }
+    func addVideoAttachment(url: URL) {
+        guard canStageMoreMedia else { return }
+        let attachment = PendingVideoAttachment(url: url)
+        let attachmentId = attachment.id
+        pendingMediaAttachments.append(.video(attachment))
 
-    func onVideoSelected(_ url: URL) {
-        if pendingFileAttachment != nil {
-            clearPendingFile()
-        }
-        selectedVideoURL = url
-        videoThumbnailTask?.cancel()
-        videoThumbnailTask = Task {
+        videoThumbnailTasks[attachmentId] = Task { [weak self] in
             do {
                 let service = VideoCompressionService()
                 let asset = AVURLAsset(url: url)
                 let thumbnailData = try await service.generateThumbnail(for: asset)
-                guard !Task.isCancelled, self.selectedVideoURL == url else { return }
-                self.selectedVideoThumbnail = UIImage(data: thumbnailData)
-                self.selectedAttachmentImage = self.selectedVideoThumbnail
-                self.onPhotoAttached()
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self else { return }
+                    guard let index = self.pendingMediaAttachments.firstIndex(where: { $0.id == attachmentId }),
+                          case .video(var video) = self.pendingMediaAttachments[index] else { return }
+                    video.thumbnail = UIImage(data: thumbnailData)
+                    self.pendingMediaAttachments[index] = .video(video)
+                    self.videoThumbnailTasks.removeValue(forKey: attachmentId)
+                }
             } catch {
                 Log.error("Failed to generate video thumbnail: \(error)")
             }
+        }
+        onPhotoAttached()
+    }
+
+    func addPhotoAttachment(_ image: UIImage) {
+        guard canStageMoreMedia else { return }
+        let attachment = PendingPhotoAttachment(image: image)
+        let attachmentId = attachment.id
+        pendingMediaAttachments.append(.photo(attachment))
+
+        let messageWriter = cachedMessageWriter
+        Task { [weak self] in
+            do {
+                let trackingKey = try await messageWriter.startEagerUpload(image: image)
+                await MainActor.run {
+                    guard let self else { return }
+                    guard let index = self.pendingMediaAttachments.firstIndex(where: { $0.id == attachmentId }),
+                          case .photo(var photo) = self.pendingMediaAttachments[index] else {
+                        // User removed the attachment before upload started. Cancel the upload.
+                        Task { await messageWriter.cancelEagerUpload(trackingKey: trackingKey) }
+                        return
+                    }
+                    photo.eagerUploadKey = trackingKey
+                    self.pendingMediaAttachments[index] = .photo(photo)
+                }
+            } catch {
+                Log.error("Error starting eager upload: \(error)")
+            }
+        }
+        onPhotoAttached()
+    }
+
+    func removeMediaAttachment(id: UUID) {
+        guard let index = pendingMediaAttachments.firstIndex(where: { $0.id == id }) else { return }
+        let attachment = pendingMediaAttachments.remove(at: index)
+        cleanupAttachment(attachment)
+    }
+
+    private func cleanupAttachment(_ attachment: PendingMediaAttachment) {
+        switch attachment {
+        case .photo(let photo):
+            if let trackingKey = photo.eagerUploadKey {
+                let messageWriter = cachedMessageWriter
+                Task { await messageWriter.cancelEagerUpload(trackingKey: trackingKey) }
+            }
+        case .video(let video):
+            videoThumbnailTasks[video.id]?.cancel()
+            videoThumbnailTasks.removeValue(forKey: video.id)
+        case .file(let file):
+            try? FileManager.default.removeItem(at: file.url)
         }
     }
 
@@ -1025,37 +1126,32 @@ extension ConversationViewModel {
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
-        let hasAttachment = selectedAttachmentImage != nil || selectedVideoURL != nil || pendingFileAttachment != nil
+        let hasMedia = !pendingMediaAttachments.isEmpty
         let hasInvite = pendingInvite != nil
         let hasLinkPreview = pastedLinkPreview != nil
 
-        guard hasText || hasAttachment || hasInvite || hasLinkPreview else { return }
+        guard hasText || hasMedia || hasInvite || hasLinkPreview else { return }
 
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
-        let prevAttachmentImage = selectedAttachmentImage
-        let eagerUploadKey = currentEagerUploadKey
+        let prevMediaAttachments = pendingMediaAttachments
         let prevInviteURL = pendingInvite?.fullURL
         let sideConvoName = pendingInviteConvoName
         let sideConvoLinkedId = pendingInvite?.linkedConversationId
         let sideConvoExplodeDuration = pendingInvite?.explodeDuration
         let sideConvoImage = pendingInviteImage
         let prevLinkURL = pastedLinkPreview?.url
-        let prevVideoURL = selectedVideoURL
-        let prevFileAttachment = pendingFileAttachment
 
         stopTyping()
         messageText = ""
         replyingToMessage = nil
-        selectedAttachmentImage = nil
-        selectedVideoURL = nil
-        selectedVideoThumbnail = nil
-        currentEagerUploadKey = nil
+        pendingMediaAttachments = []
+        videoThumbnailTasks.values.forEach { $0.cancel() }
+        videoThumbnailTasks.removeAll()
         pendingInvite = nil
         pendingInviteConvoName = ""
         pendingInviteImage = nil
         pastedLinkPreview = nil
-        pendingFileAttachment = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter
@@ -1075,22 +1171,23 @@ extension ConversationViewModel {
             let pendingInviteMessageId = sideConvoResult.pendingMessageId
 
             do {
-                let photoTrackingKey = try await sendAttachmentIfNeeded(
-                    videoURL: prevVideoURL,
-                    attachmentImage: prevAttachmentImage,
-                    fileAttachment: prevFileAttachment,
-                    eagerUploadKey: eagerUploadKey,
+                // Send each media attachment as its own message, in bar order.
+                // The first attachment carries the reply target (if any); subsequent
+                // attachments and trailing text/invite/link are not replies.
+                let mediaTookReply = try await sendMediaAttachmentsSequentially(
+                    prevMediaAttachments,
                     replyTarget: replyTarget,
                     messageWriter: messageWriter
                 )
 
+                let trailingReplyTarget: AnyMessage? = mediaTookReply ? nil : replyTarget
                 let finalInviteURL = pendingInviteMessageId != nil ? nil : inviteURL
                 try await sendTextAndLinksIfNeeded(
                     text: hasText ? prevMessageText : nil,
                     inviteURL: finalInviteURL,
                     linkURL: prevLinkURL,
-                    photoTrackingKey: photoTrackingKey,
-                    replyTarget: replyTarget,
+                    photoTrackingKey: nil,
+                    replyTarget: trailingReplyTarget,
                     messageWriter: messageWriter
                 )
             } catch {
@@ -1180,45 +1277,68 @@ extension ConversationViewModel {
         return (inviteURL, pendingMessageId)
     }
 
-    private func sendAttachmentIfNeeded(
-        videoURL: URL?,
-        attachmentImage: UIImage?,
-        fileAttachment: PendingFileAttachment?,
-        eagerUploadKey: String?,
+    /// Send each staged media attachment as its own message, in bar order, awaiting each
+    /// publish so they arrive in order on the recipient. The first attachment carries the
+    /// reply target (if any). Returns true if a media attachment was sent and consumed
+    /// the reply target.
+    ///
+    /// If any attachment fails, the chain stops — that attachment surfaces as a failed
+    /// bubble via the existing markMessageFailed path inside the writer; subsequent
+    /// attachments and the trailing text/invite/link are not sent.
+    private func sendMediaAttachmentsSequentially(
+        _ attachments: [PendingMediaAttachment],
         replyTarget: AnyMessage?,
         messageWriter: any OutgoingMessageWriterProtocol
-    ) async throws -> String? {
-        if let fileAttachment {
-            defer { try? FileManager.default.removeItem(at: fileAttachment.url) }
-            return try await messageWriter.sendFile(
-                at: fileAttachment.url,
-                filename: fileAttachment.filename,
-                mimeType: fileAttachment.mimeType,
-                replyToMessageId: replyTarget?.messageId
-            )
-        } else if let videoURL {
-            isSendingPhoto = true
-            return try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.messageId)
-        } else if attachmentImage != nil {
-            isSendingPhoto = true
-            if let trackingKey = eagerUploadKey {
-                if let replyTarget {
-                    try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyTarget.messageId)
-                } else {
-                    try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+    ) async throws -> Bool {
+        guard !attachments.isEmpty else { return false }
+        isSendingPhoto = true
+
+        var consumedReply = false
+        for attachment in attachments {
+            let attachmentReplyId: String? = consumedReply ? nil : replyTarget?.messageId
+            switch attachment {
+            case .photo(let photo):
+                try await sendStagedPhoto(photo, replyToMessageId: attachmentReplyId, messageWriter: messageWriter)
+            case .video(let video):
+                _ = try await messageWriter.sendVideo(at: video.url, replyToMessageId: attachmentReplyId)
+            case .file(let file):
+                do {
+                    _ = try await messageWriter.sendFile(
+                        at: file.url,
+                        filename: file.filename,
+                        mimeType: file.mimeType,
+                        replyToMessageId: attachmentReplyId
+                    )
+                    try? FileManager.default.removeItem(at: file.url)
+                } catch {
+                    try? FileManager.default.removeItem(at: file.url)
+                    throw error
                 }
-                return trackingKey
-            } else if let image = attachmentImage {
-                let key = try await messageWriter.startEagerUpload(image: image)
-                if let replyTarget {
-                    try await messageWriter.sendEagerPhotoReply(trackingKey: key, toMessageWithClientId: replyTarget.messageId)
-                } else {
-                    try await messageWriter.sendEagerPhoto(trackingKey: key)
-                }
-                return key
             }
+            consumedReply = true
         }
-        return nil
+        return true
+    }
+
+    private func sendStagedPhoto(
+        _ photo: PendingPhotoAttachment,
+        replyToMessageId: String?,
+        messageWriter: any OutgoingMessageWriterProtocol
+    ) async throws {
+        // Reuse the eager upload that started when the photo was staged, falling back to
+        // a fresh start if the upload hadn't kicked off yet (race: user staged + sent
+        // before the eager-upload task had a chance to write back the tracking key).
+        let trackingKey: String
+        if let existing = photo.eagerUploadKey {
+            trackingKey = existing
+        } else {
+            trackingKey = try await messageWriter.startEagerUpload(image: photo.image)
+        }
+        if let replyToMessageId {
+            try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
+        } else {
+            try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+        }
     }
 
     private func sendTextAndLinksIfNeeded(
@@ -1323,32 +1443,6 @@ extension ConversationViewModel {
                 Log.error("Failed to delete message: \(error.localizedDescription)")
             }
         }
-    }
-
-    func onPhotoSelected(_ image: UIImage) {
-        if pendingFileAttachment != nil {
-            clearPendingFile()
-        }
-        let messageWriter = cachedMessageWriter
-        if let existingKey = currentEagerUploadKey {
-            currentEagerUploadKey = nil
-            Task { await messageWriter.cancelEagerUpload(trackingKey: existingKey) }
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let trackingKey = try await messageWriter.startEagerUpload(image: image)
-                await MainActor.run { self.currentEagerUploadKey = trackingKey }
-            } catch {
-                Log.error("Error starting eager upload: \(error)")
-            }
-        }
-    }
-
-    func onPhotoRemoved() {
-        guard let trackingKey = currentEagerUploadKey else { return }
-        currentEagerUploadKey = nil
-        Task { await cachedMessageWriter.cancelEagerUpload(trackingKey: trackingKey) }
     }
 
     func onUseProfile(_ profile: Profile, _ profileImage: UIImage?) {

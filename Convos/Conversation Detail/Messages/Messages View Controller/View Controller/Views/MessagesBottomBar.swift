@@ -36,8 +36,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
-    @Binding var selectedAttachmentImage: UIImage?
-    var isVideoAttachment: Bool = false
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
@@ -46,7 +45,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
-    var pendingFileAttachment: PendingFileAttachment?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -58,8 +56,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
-    let onClearFile: () -> Void
+    let onClearMediaAttachment: (UUID) -> Void
     let onDisplayNameEndedEditing: () -> Void
+    let onPhotoSelected: (UIImage) -> Void
     let onVideoSelected: (URL) -> Void
     let onFileSelected: (URL, String, String, Int) -> Void
     let onProfileSettings: () -> Void
@@ -165,7 +164,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     focusCoordinator.moveFocus(to: .message)
                 } else if let data = try? await newValue.loadTransferable(type: Data.self),
                           let image = UIImage(data: data) {
-                    selectedAttachmentImage = image
+                    onPhotoSelected(image)
                     selectedPhoto = nil
                     didSelectPhotoThisSession = true
                     isPhotoPickerPresented = false
@@ -176,7 +175,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         .fullScreenCover(isPresented: $isCameraPresented) {
             CameraPickerView(
                 onImageCaptured: { image in
-                    selectedAttachmentImage = image
+                    onPhotoSelected(image)
                     isCameraPresented = false
                     focusCoordinator.moveFocus(to: .message)
                 },
@@ -369,8 +368,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 displayName: $displayName,
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
-                selectedAttachmentImage: $selectedAttachmentImage,
-                isVideoAttachment: isVideoAttachment,
+                pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
                 pendingInviteEmoji: pendingInviteEmoji,
@@ -379,7 +377,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                pendingFileAttachment: pendingFileAttachment,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
@@ -390,7 +387,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
                 onClearLinkPreview: onClearLinkPreview,
-                onClearFile: onClearFile
+                onClearMediaAttachment: onClearMediaAttachment
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -441,7 +438,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Previewable @State var profile: Profile = .mock()
     @Previewable @State var profileName: String = ""
     @Previewable @State var messageText: String = ""
-    @Previewable @State var selectedAttachmentImage: UIImage?
     @Previewable @State var pendingInviteURLPreview: String?
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
@@ -495,7 +491,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             profile: profile,
             displayName: $profileName,
             messageText: $messageText,
-            selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
             pendingInviteConvoName: .constant(""),
             pendingInviteImage: .constant(nil),
@@ -512,10 +507,11 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil },
             onClearLinkPreview: {},
-            onClearFile: {},
+            onClearMediaAttachment: { _ in },
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },
+            onPhotoSelected: { _ in },
             onVideoSelected: { _ in },
             onFileSelected: { _, _, _, _ in },
             onProfileSettings: {},

@@ -43,8 +43,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationImage: $viewModel.conversationImage,
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
-            selectedAttachmentImage: $viewModel.selectedAttachmentImage,
-            isVideoAttachment: viewModel.selectedVideoURL != nil,
+            pendingMediaAttachments: viewModel.pendingMediaAttachments,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
             pendingInviteEmoji: viewModel.conversation.conversationEmoji,
@@ -56,7 +55,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.updateLinkedConversationName(name)
                 focusCoordinator.endEditing(for: .sideConvoName, context: .quickEditor)
             },
-            pendingFileAttachment: viewModel.pendingFileAttachment,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -76,7 +74,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onClearInvite: viewModel.clearPendingInvite,
             onClearLinkPreview: { viewModel.pastedLinkPreview = nil },
-            onClearFile: viewModel.clearPendingFile,
+            onClearMediaAttachment: viewModel.removeMediaAttachment(id:),
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
@@ -98,8 +96,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
-            onVideoSelected: viewModel.onVideoSelected(_:),
-            onFileSelected: viewModel.onFileSelected(url:filename:mimeType:fileSize:),
+            onPhotoSelected: viewModel.addPhotoAttachment(_:),
+            onVideoSelected: viewModel.addVideoAttachment(url:),
+            onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
@@ -233,13 +232,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     var body: some View {
         messagesView
-        .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
-            if let image = newValue {
-                viewModel.onPhotoSelected(image)
-            } else if oldValue != nil {
-                viewModel.onPhotoRemoved()
-            }
-        }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForPastedLink()
