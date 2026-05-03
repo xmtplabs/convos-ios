@@ -18,16 +18,55 @@ import XMTPiOS
 ///
 /// This allows Convos to store rich conversation metadata without requiring a backend.
 
+/// Process-wide, thread-safe cache of the last non-empty invite tag we have
+/// ever observed per group. Survives only as long as the process — that is
+/// fine, since the worst case on cold start is the unguarded behavior we
+/// already have. See `XMTPiOS.Group.atomicUpdateMetadata` for the guard
+/// that consults this cache.
+private final class LastObservedInviteTagCache: @unchecked Sendable {
+    private var storage: [String: String] = [:]
+    private let lock = NSLock()
+
+    func set(_ tag: String, forGroupId groupId: String) {
+        lock.lock(); defer { lock.unlock() }
+        storage[groupId] = tag
+    }
+
+    func get(groupId: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return storage[groupId]
+    }
+}
+
 // MARK: - XMTPiOS.Group + CustomMetadata
 
 extension XMTPiOS.Group {
     private static let appDataByteLimit: Int = 8 * 1024
 
+    /// Process-wide cache of the most recent non-empty invite tag we have ever
+    /// observed for each group, keyed by `group.id`. Populated by
+    /// `atomicUpdateMetadata` on every successful read, and consulted by the
+    /// pre-write guard below. Survives only as long as the process — that is
+    /// fine, since the worst case on cold start is the unguarded behavior we
+    /// already have.
+    private static let lastObservedInviteTagCache: LastObservedInviteTagCache = .init()
+
+    fileprivate static func recordObservedInviteTag(_ tag: String, groupId: String) {
+        guard !tag.isEmpty else { return }
+        lastObservedInviteTagCache.set(tag, forGroupId: groupId)
+    }
+
+    fileprivate static func lastObservedInviteTag(groupId: String) -> String? {
+        lastObservedInviteTagCache.get(groupId: groupId)
+    }
+
     var currentCustomMetadata: ConversationCustomMetadata {
         get throws {
             do {
                 let currentAppData = try self.appData()
-                return ConversationCustomMetadata.parseAppData(currentAppData)
+                let parsed = ConversationCustomMetadata.parseAppData(currentAppData)
+                Self.recordObservedInviteTag(parsed.tag, groupId: id)
+                return parsed
             } catch {
                 Log.error("Failed to read custom metadata: \(error)")
                 return .init()
@@ -330,6 +369,11 @@ extension XMTPiOS.Group {
         for attempt in 0..<maxRetries {
             let beforeAppData = try appData()
             let beforeMetadata = ConversationCustomMetadata.parseAppData(beforeAppData)
+
+            // Record any non-empty tag we observe so subsequent writes can
+            // detect a stale empty read and refuse to wipe.
+            Self.recordObservedInviteTag(beforeMetadata.tag, groupId: id)
+
             var metadata = beforeMetadata
             modify(&metadata)
 
@@ -338,6 +382,27 @@ extension XMTPiOS.Group {
             )
             if !beforeMetadata.tag.isEmpty && metadata.tag.isEmpty {
                 Log.error("[MetadataDebug] operation=\(operation) cleared invite tag for groupId=\(id)")
+                throw ConversationCustomMetadataError.metadataUpdateFailed
+            }
+
+            // Post-modify guard: if the read returned empty but the
+            // closure also produced empty (e.g. `updateProfile` only
+            // touches `profiles`), and we have ever observed a non-empty
+            // tag for this group, the wire read is stale and committing
+            // now would publish empty-tag metadata that finalizes the
+            // wipe for every other member. This was the side-convo
+            // failure mode in convos-logs-BD663A2F (8dbded shrunk
+            // 303 → 24 bytes after a peer commit, every later join
+            // request was rejected as `conversationExpired`).
+            //
+            // Legitimate restore paths (e.g. `restoreInviteTagIfMissing`)
+            // set `metadata.tag` inside `modify` and therefore pass.
+            if metadata.tag.isEmpty,
+               let lastObserved = Self.lastObservedInviteTag(groupId: id),
+               !lastObserved.isEmpty {
+                Log.error(
+                    "[MetadataDebug] operation=\(operation) groupId=\(id) attempt=\(attempt + 1) refusing to write — would publish empty-tag metadata but lastObservedInviteTag=\(lastObserved)"
+                )
                 throw ConversationCustomMetadataError.metadataUpdateFailed
             }
 
@@ -366,6 +431,21 @@ extension XMTPiOS.Group {
            !currentTag.isEmpty,
            metadata.tag.isEmpty {
             Log.error("[MetadataDebug] updateMetadata refusing to clear invite tag for groupId=\(id)")
+            throw ConversationCustomMetadataError.metadataUpdateFailed
+        }
+
+        // Second-line guard: if the on-wire read returned empty but we
+        // have ever observed a non-empty tag for this group, refuse to
+        // publish empty-tag metadata. The first-line guard above only
+        // fires when the on-wire read currently returns the non-empty
+        // tag — it cannot detect a wipe that already landed remotely
+        // and is silently propagating through this writer.
+        if metadata.tag.isEmpty,
+           let lastObserved = Self.lastObservedInviteTag(groupId: id),
+           !lastObserved.isEmpty {
+            Log.error(
+                "[MetadataDebug] updateMetadata refusing to publish empty-tag metadata for groupId=\(id) — lastObservedInviteTag=\(lastObserved)"
+            )
             throw ConversationCustomMetadataError.metadataUpdateFailed
         }
 

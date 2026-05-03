@@ -79,31 +79,43 @@ struct SideConvoInviteTagWipeTests {
         // present this commit publishes empty-tag metadata, finalizing
         // the wipe; every subsequent join with `originalTag` will fail
         // with `InviteJoinError.conversationExpired`.
-        try await groupB.updateProfile(
-            DBMemberProfile(
-                conversationId: groupB.id,
-                inboxId: clientB.inboxID,
-                name: "Bob",
-                avatar: nil
+        //
+        // The fix in `XMTPGroup+CustomMetadata.atomicUpdateMetadata`
+        // refuses the write when the wire read came back empty but we
+        // have a cached non-empty tag (from when B initially synced and
+        // saw the group). The expected outcome is therefore EITHER:
+        //   (a) the write throws, OR
+        //   (b) the write succeeds but the on-wire tag is preserved.
+        // Both satisfy the invariant "a member's write must not wipe
+        // the side convo's invite tag." Today both fail.
+        var memberWriteThrew = false
+        do {
+            try await groupB.updateProfile(
+                DBMemberProfile(
+                    conversationId: groupB.id,
+                    inboxId: clientB.inboxID,
+                    name: "Bob",
+                    avatar: nil
+                )
             )
-        )
+        } catch {
+            memberWriteThrew = true
+        }
 
         // Sync the creator and re-read the on-wire tag.
         try await clientA.conversations.sync()
         try await groupA.sync()
         let tagAfterMemberWrite = try groupA.inviteTag
 
-        // After the fix this assertion passes (the member's write is
-        // rejected before it can commit empty-tag metadata). With the
-        // current code the assertion fails — `tagAfterMemberWrite` is
-        // empty, reproducing the bug.
+        let invariantHolds = memberWriteThrew || (tagAfterMemberWrite == originalTag)
         #expect(
-            tagAfterMemberWrite == originalTag,
+            invariantHolds,
             """
             Side convo invite tag was wiped by a member's metadata write.
             originalTag=\(originalTag)
             tagAfterMemberWrite=\(tagAfterMemberWrite)
-            Subsequent joins with originalTag will be rejected as
+            memberWriteThrew=\(memberWriteThrew)
+            Subsequent joins with originalTag would be rejected as
             InviteJoinError.conversationExpired (see investigation logs
             convos-logs-BD663A2F).
             """
@@ -140,26 +152,34 @@ struct SideConvoInviteTagWipeTests {
 
         // Force `appData` empty from the same client. `atomicUpdateMetadata`
         // re-reads on every attempt; subsequent writes will see an empty
-        // `beforeMetadata` and the guard at line 339 will not catch the
-        // wipe.
+        // `beforeMetadata`. With the fix in place the cached
+        // `lastObservedInviteTag` (populated by `ensureInviteTag` above)
+        // makes `atomicUpdateMetadata` refuse the write rather than
+        // commit empty-tag metadata.
         try await group.updateAppData(appData: "")
 
-        try await group.updateProfile(
-            DBMemberProfile(
-                conversationId: group.id,
-                inboxId: clientA.inboxID,
-                name: "Alice",
-                avatar: nil
+        var writeThrew = false
+        do {
+            try await group.updateProfile(
+                DBMemberProfile(
+                    conversationId: group.id,
+                    inboxId: clientA.inboxID,
+                    name: "Alice",
+                    avatar: nil
+                )
             )
-        )
+        } catch {
+            writeThrew = true
+        }
 
         let tagAfterWrite = try group.inviteTag
+        let invariantHolds = writeThrew || (tagAfterWrite == originalTag)
         #expect(
-            tagAfterWrite == originalTag,
+            invariantHolds,
             """
             atomicUpdateMetadata committed an empty-tag write because the
             stale `appData` read returned an empty `ConversationCustomMetadata`.
-            originalTag=\(originalTag) tagAfterWrite=\(tagAfterWrite)
+            originalTag=\(originalTag) tagAfterWrite=\(tagAfterWrite) writeThrew=\(writeThrew)
             """
         )
 
