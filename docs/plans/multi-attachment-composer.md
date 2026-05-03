@@ -26,11 +26,17 @@ The cost is N publishes instead of 1: more network chatter, more potential parti
 
 ## Send sequence
 
-For a send with staged state `[photo, video, file]` + side convo + text:
+Side convo and media are mutually exclusive (see Rules), so there are two send paths.
+
+**Media path** — staged state `[photo, video, file]` + text:
+
+1. Each media attachment publishes as its own message, in bar order, **awaited sequentially** so they land in order on the recipient
+2. Text + link preview publishes last (existing path)
+
+**Side convo path** — staged side convo + text:
 
 1. Side convo invite publishes first (existing path)
-2. Each media attachment publishes as its own message, in bar order, **awaited sequentially** so they land in order on the recipient
-3. Text + link preview publishes last (existing path)
+2. Text + link preview publishes last (existing path)
 
 If attachment N of M fails to upload or publish, the chain stops. The failed attachment surfaces as a failed-message bubble using the existing failed-message UI (which already supports retry and delete per item). Subsequent attachments and the trailing text are not sent — the user sees the failed bubble in chat and can decide whether to retry it or recompose.
 
