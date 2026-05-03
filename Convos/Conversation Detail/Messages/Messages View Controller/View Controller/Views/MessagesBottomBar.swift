@@ -13,6 +13,7 @@ private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
 private struct FilePickerModifier: ViewModifier {
     @Binding var isPresented: Bool
     @Binding var showTooLargeAlert: Bool
+    @Binding var showTruncatedAlert: Bool
     let onResult: (Result<[URL], Error>) -> Void
 
     func body(content: Content) -> some View {
@@ -20,13 +21,18 @@ private struct FilePickerModifier: ViewModifier {
             .fileImporter(
                 isPresented: $isPresented,
                 allowedContentTypes: [.item],
-                allowsMultipleSelection: false,
+                allowsMultipleSelection: true,
                 onCompletion: onResult
             )
             .alert("File too large", isPresented: $showTooLargeAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Files must be 20 MB or smaller.")
+            }
+            .alert("Some files weren't added", isPresented: $showTruncatedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("You can attach up to \(maxPendingMediaAttachments) photos, videos, and files in one message.")
             }
     }
 }
@@ -78,7 +84,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var isCameraPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
     @State private var showFileTooLargeAlert: Bool = false
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showFileTruncatedAlert: Bool = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
@@ -151,24 +158,27 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 }
             }
         }
-        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .any(of: [.images, .videos]))
-        .onChange(of: selectedPhoto) { _, newValue in
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $selectedPhotos,
+            maxSelectionCount: max(1, maxPendingMediaAttachments - pendingMediaAttachments.count),
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: selectedPhotos) { _, newValue in
+            guard !newValue.isEmpty else { return }
+            let items = newValue
+            selectedPhotos = []
+            didSelectPhotoThisSession = true
+            isPhotoPickerPresented = false
+            focusCoordinator.moveFocus(to: .message)
             Task {
-                guard let newValue else { return }
-
-                if let videoFile = try? await newValue.loadTransferable(type: VideoFile.self) {
-                    onVideoSelected(videoFile.url)
-                    selectedPhoto = nil
-                    didSelectPhotoThisSession = true
-                    isPhotoPickerPresented = false
-                    focusCoordinator.moveFocus(to: .message)
-                } else if let data = try? await newValue.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) {
-                    onPhotoSelected(image)
-                    selectedPhoto = nil
-                    didSelectPhotoThisSession = true
-                    isPhotoPickerPresented = false
-                    focusCoordinator.moveFocus(to: .message)
+                for item in items {
+                    if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
+                        await MainActor.run { onVideoSelected(videoFile.url) }
+                    } else if let data = try? await item.loadTransferable(type: Data.self),
+                              let image = UIImage(data: data) {
+                        await MainActor.run { onPhotoSelected(image) }
+                    }
                 }
             }
         }
@@ -193,6 +203,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         FilePickerModifier(
             isPresented: $isFilePickerPresented,
             showTooLargeAlert: $showFileTooLargeAlert,
+            showTruncatedAlert: $showFileTruncatedAlert,
             onResult: handleFileImporterResult
         )
     }
@@ -200,8 +211,15 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     private func handleFileImporterResult(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else { return }
-            stageFile(at: url)
+            let remaining = maxPendingMediaAttachments - pendingMediaAttachments.count
+            guard remaining > 0 else { return }
+            let toStage = Array(urls.prefix(remaining))
+            if urls.count > toStage.count {
+                showFileTruncatedAlert = true
+            }
+            for url in toStage {
+                stageFile(at: url)
+            }
         case .failure(let error):
             Log.error("File picker error: \(error)")
         }
@@ -352,6 +370,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         }
                         onConvosAction()
                     },
+                    isMediaCapacityFull: pendingMediaAttachments.count >= maxPendingMediaAttachments,
+                    isVoiceMemoDisabled: !pendingMediaAttachments.isEmpty,
                     isSideConvoDisabled: pendingInviteURL != nil
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
