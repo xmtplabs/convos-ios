@@ -901,6 +901,14 @@ extension ConversationViewModel {
         if let existing = pendingFileAttachment {
             try? FileManager.default.removeItem(at: existing.url)
         }
+        // Files are mutually exclusive with photos and videos in send-time
+        // dispatch, so clear any staged photo/video here to avoid silently
+        // dropping it when the user taps Send. Setting selectedAttachmentImage
+        // to nil triggers the onChange in ConversationView which calls
+        // onPhotoRemoved and cancels any in-flight eager photo upload.
+        selectedAttachmentImage = nil
+        selectedVideoURL = nil
+        selectedVideoThumbnail = nil
         pendingFileAttachment = PendingFileAttachment(
             url: url,
             filename: filename,
@@ -917,6 +925,9 @@ extension ConversationViewModel {
     }
 
     func onVideoSelected(_ url: URL) {
+        if pendingFileAttachment != nil {
+            clearPendingFile()
+        }
         selectedVideoURL = url
         videoThumbnailTask?.cancel()
         videoThumbnailTask = Task {
@@ -1315,6 +1326,9 @@ extension ConversationViewModel {
     }
 
     func onPhotoSelected(_ image: UIImage) {
+        if pendingFileAttachment != nil {
+            clearPendingFile()
+        }
         let messageWriter = cachedMessageWriter
         if let existingKey = currentEagerUploadKey {
             currentEagerUploadKey = nil
