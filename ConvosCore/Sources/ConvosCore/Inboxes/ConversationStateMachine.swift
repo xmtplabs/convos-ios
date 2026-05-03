@@ -282,6 +282,11 @@ public actor ConversationStateMachine {
         return try await writer.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
     }
 
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
+    }
+
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         let writer = try await getOrCreateMessageWriter()
         try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)

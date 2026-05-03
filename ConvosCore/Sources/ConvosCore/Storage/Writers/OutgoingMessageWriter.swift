@@ -33,6 +33,9 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// Send a voice memo from a local audio file URL.
     func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String
 
+    /// Send a generic file attachment from a local file URL.
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String
+
     /// Send a text reply to an existing message.
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws
 
@@ -489,6 +492,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var thumbnailData: Data?
         var waveformLevels: [Float]?
         var mediaTypeLabel: String = "attachment"
+        /// Filename used for the local cache copy / tracking key. Defaults to `filename`.
+        /// Override when `filename` may collide across sends (e.g. user-picked files).
+        var cacheFilename: String?
     }
 
     private func sendFileAttachment(
@@ -496,7 +502,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         replyToMessageId: String?
     ) async throws -> String {
         let clientMessageId = UUID().uuidString
-        let localCacheURL = try photoService.localCacheURL(for: params.filename)
+        let localCacheURL = try photoService.localCacheURL(for: params.cacheFilename ?? params.filename)
 
         try FileManager.default.createDirectory(
             at: localCacheURL.deletingLastPathComponent(),
@@ -738,6 +744,24 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             duration: duration,
             waveformLevels: waveformLevels,
             mediaTypeLabel: "voice_memo"
+        )
+
+        return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)
+    }
+
+    // MARK: - File
+
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        // The hydrator in MessagesRepository strips everything before the first underscore
+        // when deriving a display filename from a local file:// key, so the prefix here
+        // must contain no underscores — only a single one separating prefix from filename.
+        let uniquePrefix = "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8))"
+        let params = AttachmentUploadParams(
+            dataURL: fileURL,
+            filename: filename,
+            mimeType: mimeType,
+            mediaTypeLabel: "file",
+            cacheFilename: "\(uniquePrefix)_\(filename)"
         )
 
         return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)

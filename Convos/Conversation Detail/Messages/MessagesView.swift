@@ -29,6 +29,7 @@ struct MessagesView<BottomBarContent: View>: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    var pendingFileAttachment: PendingFileAttachment?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -40,6 +41,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
+    let onClearFile: () -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
@@ -57,6 +59,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onVideoSelected: (URL) -> Void
+    let onFileSelected: (URL, String, String, Int) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
@@ -138,6 +141,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+                pendingFileAttachment: pendingFileAttachment,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 isPhotoPickerPresented: $isPhotoPickerPresented,
@@ -152,8 +156,10 @@ struct MessagesView<BottomBarContent: View>: View {
                 },
                 onClearInvite: onClearInvite,
                 onClearLinkPreview: onClearLinkPreview,
+                onClearFile: onClearFile,
                 onDisplayNameEndedEditing: onDisplayNameEndedEditing,
                 onVideoSelected: onVideoSelected,
+                onFileSelected: onFileSelected,
                 onProfileSettings: onProfileSettings,
                 onVoiceMemoTap: onVoiceMemoTap,
                 voiceMemoRecorder: voiceMemoRecorder,

@@ -2,9 +2,33 @@ import ConvosCore
 import ConvosCoreiOS
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum MessagesViewInputFocus: Hashable {
     case message, displayName, conversationName, voiceMemoRecording, sideConvoName
+}
+
+private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
+
+private struct FilePickerModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var showTooLargeAlert: Bool
+    let onResult: (Result<[URL], Error>) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(
+                isPresented: $isPresented,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: false,
+                onCompletion: onResult
+            )
+            .alert("File too large", isPresented: $showTooLargeAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Files must be 20 MB or smaller.")
+            }
+    }
 }
 
 struct MessagesBottomBar<BottomBarContent: View>: View {
@@ -22,6 +46,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    var pendingFileAttachment: PendingFileAttachment?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -33,8 +58,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
+    let onClearFile: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onVideoSelected: (URL) -> Void
+    let onFileSelected: (URL, String, String, Int) -> Void
     let onProfileSettings: () -> Void
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
@@ -50,6 +77,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var isMessageInputFocused: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
+    @State private var isFilePickerPresented: Bool = false
+    @State private var showFileTooLargeAlert: Bool = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
@@ -61,6 +90,12 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     }
 
     var body: some View {
+        bodyContent
+            .modifier(filePickerModifier)
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
         VStack(spacing: 0) {
             bottomBarContent()
             VoiceMemoKeyboardFocusKeeper(
@@ -153,6 +188,59 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             )
             .ignoresSafeArea()
         }
+    }
+
+    private var filePickerModifier: FilePickerModifier {
+        FilePickerModifier(
+            isPresented: $isFilePickerPresented,
+            showTooLargeAlert: $showFileTooLargeAlert,
+            onResult: handleFileImporterResult
+        )
+    }
+
+    private func handleFileImporterResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            stageFile(at: url)
+        case .failure(let error):
+            Log.error("File picker error: \(error)")
+        }
+    }
+
+    private func stageFile(at sourceURL: URL) {
+        let didStartAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: sourceURL.path)
+        let fileSize = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        guard fileSize > 0 else {
+            Log.error("File picker: failed to read file size for \(sourceURL.lastPathComponent)")
+            return
+        }
+        guard fileSize <= maxFileAttachmentSizeBytes else {
+            showFileTooLargeAlert = true
+            return
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-\(sourceURL.lastPathComponent)")
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+        } catch {
+            Log.error("Failed to copy picked file to temp: \(error)")
+            return
+        }
+
+        let mimeType = UTType(filenameExtension: sourceURL.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+
+        onFileSelected(tempURL, sourceURL.lastPathComponent, mimeType, fileSize)
+        focusCoordinator.moveFocus(to: .message)
     }
 
     private var isVoiceMemoActive: Bool {
@@ -255,6 +343,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
                     onVoiceMemoTap: startVoiceMemoRecording,
+                    onFilePickerTap: {
+                        isFilePickerPresented = true
+                    },
                     onConvosAction: {
                         guard pendingInviteURL == nil else { return }
                         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
@@ -288,6 +379,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+                pendingFileAttachment: pendingFileAttachment,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForProfileSetup: onboardingCoordinator.shouldAnimateAvatarForProfileSetup,
@@ -297,7 +389,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
-                onClearLinkPreview: onClearLinkPreview
+                onClearLinkPreview: onClearLinkPreview,
+                onClearFile: onClearFile
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -419,10 +512,12 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil },
             onClearLinkPreview: {},
+            onClearFile: {},
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },
             onVideoSelected: { _ in },
+            onFileSelected: { _, _, _, _ in },
             onProfileSettings: {},
             onVoiceMemoTap: {},
             voiceMemoRecorder: VoiceMemoRecorder(),

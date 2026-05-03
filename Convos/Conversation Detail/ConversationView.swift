@@ -56,6 +56,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.updateLinkedConversationName(name)
                 focusCoordinator.endEditing(for: .sideConvoName, context: .quickEditor)
             },
+            pendingFileAttachment: viewModel.pendingFileAttachment,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -75,6 +76,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onClearInvite: viewModel.clearPendingInvite,
             onClearLinkPreview: { viewModel.pastedLinkPreview = nil },
+            onClearFile: viewModel.clearPendingFile,
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
@@ -97,6 +99,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             onVideoSelected: viewModel.onVideoSelected(_:),
+            onFileSelected: viewModel.onFileSelected(url:filename:mimeType:fileSize:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },

@@ -8,6 +8,30 @@ struct FileAttachmentBubble: View {
     let isOutgoing: Bool
     let profile: Profile
 
+    var body: some View {
+        MessageContainer(style: style, isOutgoing: isOutgoing) {
+            FileAttachmentRow(
+                filename: attachment.filename,
+                mimeType: attachment.mimeType,
+                fileSize: attachment.fileSize,
+                fileTypeLabel: attachment.fileTypeLabel,
+                isOutgoing: isOutgoing
+            )
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+        }
+        .accessibilityIdentifier("file-attachment-bubble")
+        .accessibilityLabel("File: \(attachment.filename ?? "Unknown file")")
+    }
+}
+
+struct FileAttachmentRow: View {
+    let filename: String?
+    let mimeType: String?
+    let fileSize: Int?
+    var fileTypeLabel: String?
+    var isOutgoing: Bool = false
+
     private var textColor: Color {
         isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary
     }
@@ -24,52 +48,52 @@ struct FileAttachmentBubble: View {
         isOutgoing ? .colorTextPrimaryInverted.opacity(0.8) : .secondary
     }
 
-    var body: some View {
-        MessageContainer(style: style, isOutgoing: isOutgoing) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                fileIcon
-                    .frame(width: 44, height: 44)
-                    .accessibilityIdentifier("file-attachment-icon")
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayFilename)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(textColor)
-                        .lineLimit(2)
-                        .accessibilityIdentifier("file-attachment-filename")
-
-                    Text(subtitleText)
-                        .font(.caption)
-                        .foregroundStyle(secondaryTextColor)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("file-attachment-subtitle")
-                }
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-        }
-        .accessibilityIdentifier("file-attachment-bubble")
-        .accessibilityLabel("File: \(displayFilename)")
+    private var displayFilename: String {
+        filename ?? "Unknown file"
     }
 
-    private var displayFilename: String {
-        attachment.filename ?? "Unknown file"
+    private var filenameExtension: String? {
+        guard let filename, let dotIndex = filename.lastIndex(of: ".") else { return nil }
+        let ext = filename[filename.index(after: dotIndex)...]
+        return ext.isEmpty ? nil : String(ext).lowercased()
     }
 
     private var subtitleText: String {
         var parts: [String] = []
-        if let label = attachment.fileTypeLabel {
-            parts.append(label)
-        } else if let ext = attachment.filenameExtension {
+        if let fileTypeLabel {
+            parts.append(fileTypeLabel)
+        } else if let ext = filenameExtension {
             parts.append(ext.uppercased())
         }
-        if let size = attachment.fileSize {
-            parts.append(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+        if let fileSize {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(fileSize), countStyle: .file))
         }
         if parts.isEmpty {
             return "File"
         }
         return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            fileIcon
+                .frame(width: 44, height: 44)
+                .accessibilityIdentifier("file-attachment-icon")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayFilename)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(textColor)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("file-attachment-filename")
+
+                Text(subtitleText)
+                    .font(.caption)
+                    .foregroundStyle(secondaryTextColor)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("file-attachment-subtitle")
+            }
+        }
     }
 
     @ViewBuilder
@@ -84,7 +108,7 @@ struct FileAttachmentBubble: View {
     }
 
     private var fileIconSymbol: String {
-        if let ext = attachment.filenameExtension {
+        if let ext = filenameExtension {
             switch ext {
             case "pdf":
                 return "doc.text.fill"
@@ -113,7 +137,7 @@ struct FileAttachmentBubble: View {
             }
         }
 
-        if let mimeType = attachment.mimeType {
+        if let mimeType {
             if mimeType.hasPrefix("text/") { return "doc.plaintext.fill" }
             if mimeType.hasPrefix("application/json") { return "curlybraces" }
             if mimeType.hasPrefix("application/pdf") { return "doc.text.fill" }
