@@ -17,7 +17,8 @@ struct FileAttachmentBubble: View {
                 fileTypeLabel: attachment.fileTypeLabel,
                 isOutgoing: isOutgoing
             )
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.leading, DesignConstants.Spacing.step3x)
+            .padding(.trailing, DesignConstants.Spacing.step4x)
             .padding(.vertical, DesignConstants.Spacing.step2x)
         }
         .accessibilityIdentifier("file-attachment-bubble")

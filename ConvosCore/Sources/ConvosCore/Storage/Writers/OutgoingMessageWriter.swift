@@ -492,6 +492,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var thumbnailData: Data?
         var waveformLevels: [Float]?
         var mediaTypeLabel: String = "attachment"
+        /// Filename used for the local cache copy / tracking key. Defaults to `filename`.
+        /// Override when `filename` may collide across sends (e.g. user-picked files).
+        var cacheFilename: String?
     }
 
     private func sendFileAttachment(
@@ -499,7 +502,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         replyToMessageId: String?
     ) async throws -> String {
         let clientMessageId = UUID().uuidString
-        let localCacheURL = try photoService.localCacheURL(for: params.filename)
+        let localCacheURL = try photoService.localCacheURL(for: params.cacheFilename ?? params.filename)
 
         try FileManager.default.createDirectory(
             at: localCacheURL.deletingLastPathComponent(),
@@ -753,7 +756,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             dataURL: fileURL,
             filename: filename,
             mimeType: mimeType,
-            mediaTypeLabel: "file"
+            mediaTypeLabel: "file",
+            cacheFilename: "\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8))_\(filename)"
         )
 
         return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)
