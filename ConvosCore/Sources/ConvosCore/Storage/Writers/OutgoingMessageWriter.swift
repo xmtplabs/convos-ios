@@ -33,6 +33,9 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// Send a voice memo from a local audio file URL.
     func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String
 
+    /// Send a generic file attachment from a local file URL.
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String
+
     /// Send a text reply to an existing message.
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws
 
@@ -738,6 +741,19 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             duration: duration,
             waveformLevels: waveformLevels,
             mediaTypeLabel: "voice_memo"
+        )
+
+        return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)
+    }
+
+    // MARK: - File
+
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        let params = AttachmentUploadParams(
+            dataURL: fileURL,
+            filename: filename,
+            mimeType: mimeType,
+            mediaTypeLabel: "file"
         )
 
         return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)

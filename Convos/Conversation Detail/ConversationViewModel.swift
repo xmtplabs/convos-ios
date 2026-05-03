@@ -15,6 +15,13 @@ struct PendingInvite {
     var explodeDuration: ExplodeDuration?
 }
 
+struct PendingFileAttachment: Equatable {
+    let url: URL
+    let filename: String
+    let mimeType: String
+    let fileSize: Int
+}
+
 enum ExplodeDuration: CaseIterable {
     case sixtySeconds
     case oneHour
@@ -264,6 +271,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private var videoThumbnailTask: Task<Void, Never>?
     var voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
     private(set) var currentEagerUploadKey: String?
+    var pendingFileAttachment: PendingFileAttachment?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
@@ -316,7 +324,11 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var pendingInviteImage: UIImage?
 
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil || pastedLinkPreview != nil
+        !messageText.isEmpty
+            || selectedAttachmentImage != nil
+            || pendingInvite != nil
+            || pastedLinkPreview != nil
+            || pendingFileAttachment != nil
     }
     private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
@@ -885,6 +897,25 @@ extension ConversationViewModel {
         onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
     }
 
+    func onFileSelected(url: URL, filename: String, mimeType: String, fileSize: Int) {
+        if let existing = pendingFileAttachment {
+            try? FileManager.default.removeItem(at: existing.url)
+        }
+        pendingFileAttachment = PendingFileAttachment(
+            url: url,
+            filename: filename,
+            mimeType: mimeType,
+            fileSize: fileSize
+        )
+    }
+
+    func clearPendingFile() {
+        if let existing = pendingFileAttachment {
+            try? FileManager.default.removeItem(at: existing.url)
+        }
+        pendingFileAttachment = nil
+    }
+
     func onVideoSelected(_ url: URL) {
         selectedVideoURL = url
         videoThumbnailTask?.cancel()
@@ -983,7 +1014,7 @@ extension ConversationViewModel {
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
-        let hasAttachment = selectedAttachmentImage != nil || selectedVideoURL != nil
+        let hasAttachment = selectedAttachmentImage != nil || selectedVideoURL != nil || pendingFileAttachment != nil
         let hasInvite = pendingInvite != nil
         let hasLinkPreview = pastedLinkPreview != nil
 
@@ -1000,6 +1031,7 @@ extension ConversationViewModel {
         let sideConvoImage = pendingInviteImage
         let prevLinkURL = pastedLinkPreview?.url
         let prevVideoURL = selectedVideoURL
+        let prevFileAttachment = pendingFileAttachment
 
         stopTyping()
         messageText = ""
@@ -1012,6 +1044,7 @@ extension ConversationViewModel {
         pendingInviteConvoName = ""
         pendingInviteImage = nil
         pastedLinkPreview = nil
+        pendingFileAttachment = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter
@@ -1034,6 +1067,7 @@ extension ConversationViewModel {
                 let photoTrackingKey = try await sendAttachmentIfNeeded(
                     videoURL: prevVideoURL,
                     attachmentImage: prevAttachmentImage,
+                    fileAttachment: prevFileAttachment,
                     eagerUploadKey: eagerUploadKey,
                     replyTarget: replyTarget,
                     messageWriter: messageWriter
@@ -1138,11 +1172,20 @@ extension ConversationViewModel {
     private func sendAttachmentIfNeeded(
         videoURL: URL?,
         attachmentImage: UIImage?,
+        fileAttachment: PendingFileAttachment?,
         eagerUploadKey: String?,
         replyTarget: AnyMessage?,
         messageWriter: any OutgoingMessageWriterProtocol
     ) async throws -> String? {
-        if let videoURL {
+        if let fileAttachment {
+            defer { try? FileManager.default.removeItem(at: fileAttachment.url) }
+            return try await messageWriter.sendFile(
+                at: fileAttachment.url,
+                filename: fileAttachment.filename,
+                mimeType: fileAttachment.mimeType,
+                replyToMessageId: replyTarget?.messageId
+            )
+        } else if let videoURL {
             isSendingPhoto = true
             return try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.messageId)
         } else if attachmentImage != nil {

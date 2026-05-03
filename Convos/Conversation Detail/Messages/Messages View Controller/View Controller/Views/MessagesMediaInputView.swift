@@ -4,6 +4,7 @@ struct MessagesMediaButtonsView: View {
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
     let onVoiceMemoTap: () -> Void
+    let onFilePickerTap: () -> Void
     let onConvosAction: () -> Void
     var isSideConvoDisabled: Bool = false
 
@@ -49,6 +50,19 @@ struct MessagesMediaButtonsView: View {
             .accessibilityIdentifier("voice-memo-button")
 
             Button {
+                onFilePickerTap()
+            } label: {
+                Image(systemName: "document.fill")
+                    .font(.system(size: 18.0, weight: .medium))
+                    .foregroundStyle(Color.colorTextPrimary)
+                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Attach file")
+            .accessibilityIdentifier("file-picker-button")
+
+            Button {
                 onConvosAction()
             } label: {
                 Image("convosOrangeIcon")
@@ -84,6 +98,7 @@ struct MessagesMediaButtonsView: View {
         isPhotoPickerPresented: $isPhotoPickerPresented,
         isCameraPresented: $isCameraPresented,
         onVoiceMemoTap: {},
+        onFilePickerTap: {},
         onConvosAction: {}
     )
     .padding()

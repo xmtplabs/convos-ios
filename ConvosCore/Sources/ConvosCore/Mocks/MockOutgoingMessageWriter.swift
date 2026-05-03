@@ -50,6 +50,10 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         return UUID().uuidString
     }
 
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String {
+        return UUID().uuidString
+    }
+
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         try await send(text: text)
     }

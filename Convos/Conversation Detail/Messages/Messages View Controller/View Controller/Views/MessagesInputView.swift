@@ -19,6 +19,7 @@ struct MessagesInputView: View {
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
+    var pendingFileAttachment: PendingFileAttachment?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForProfileSetup: Bool
@@ -30,10 +31,12 @@ struct MessagesInputView: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     var onClearLinkPreview: (() -> Void)?
+    var onClearFile: (() -> Void)?
 
     private let attachmentPreviewSize: CGFloat = 80.0
     @State private var isPoofing: Bool = false
     @State private var isPoofingInvite: Bool = false
+    @State private var isPoofingFile: Bool = false
 
     static var defaultHeight: CGFloat {
         32.0
@@ -58,7 +61,10 @@ struct MessagesInputView: View {
     }
 
     private var hasAttachments: Bool {
-        selectedAttachmentImage != nil || pendingInviteURL != nil || composerLinkPreview != nil
+        selectedAttachmentImage != nil
+            || pendingInviteURL != nil
+            || composerLinkPreview != nil
+            || pendingFileAttachment != nil
     }
 
     private var avatarButton: some View {
@@ -158,12 +164,59 @@ struct MessagesInputView: View {
                 if let composerLinkPreview {
                     linkPreviewAttachment(preview: composerLinkPreview)
                 }
+                if let pendingFileAttachment {
+                    fileAttachmentPreview(file: pendingFileAttachment)
+                }
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .padding(.bottom, DesignConstants.Spacing.step2x)
         }
         .scrollClipDisabled()
         .padding(.horizontal, -DesignConstants.Spacing.step2x)
+    }
+
+    @ViewBuilder
+    private func fileAttachmentPreview(file: PendingFileAttachment) -> some View {
+        ZStack(alignment: .topTrailing) {
+            FileAttachmentRow(
+                filename: file.filename,
+                mimeType: file.mimeType,
+                fileSize: file.fileSize
+            )
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .frame(maxWidth: 240.0)
+            .background(.colorFillSubtle)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(isPoofingFile ? 1.3 : 1.0)
+            .blur(radius: isPoofingFile ? 12.0 : 0.0)
+            .opacity(isPoofingFile ? 0.0 : 1.0)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("file-attachment-preview")
+
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    isPoofingFile = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    onClearFile?()
+                    isPoofingFile = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10.0, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20.0, height: 20.0)
+                    .background(.black)
+                    .clipShape(.circle)
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
+            }
+            .opacity(isPoofingFile ? 0.0 : 1.0)
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step2x)
+            .accessibilityLabel("Remove file attachment")
+            .accessibilityIdentifier("remove-file-attachment-button")
+        }
     }
 
     @ViewBuilder

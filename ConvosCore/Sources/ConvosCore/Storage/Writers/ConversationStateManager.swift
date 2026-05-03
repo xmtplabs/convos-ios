@@ -235,6 +235,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
     }
 
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
+    }
+
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         try await stateMachine.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
     }
