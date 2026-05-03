@@ -356,6 +356,12 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 .glassEffectID("media", in: namespace)
                 .glassEffectTransition(.matchedGeometry)
             } else {
+                let hasSideConvo: Bool = pendingInviteURL != nil
+                let hasMedia: Bool = !pendingMediaAttachments.isEmpty
+                let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
+                let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
+                let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
+                let sideConvoDisabled: Bool = hasSideConvo || hasMedia
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
@@ -370,9 +376,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         }
                         onConvosAction()
                     },
-                    isMediaCapacityFull: pendingMediaAttachments.count >= maxPendingMediaAttachments,
-                    isVoiceMemoDisabled: !pendingMediaAttachments.isEmpty,
-                    isSideConvoDisabled: pendingInviteURL != nil
+                    isMediaCapacityFull: mediaButtonsDisabled,
+                    isVoiceMemoDisabled: voiceMemoDisabled,
+                    isSideConvoDisabled: sideConvoDisabled
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)

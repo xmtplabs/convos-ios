@@ -10,9 +10,9 @@ Let the user stage up to **8** photos / videos / files at once (any mix), in an 
 
 ## Rules
 
-- **Max 1 side convo** per send. The side-convo button is disabled while one is staged.
+- **Max 1 side convo** per send. Side convos and media attachments are mutually exclusive: staging a side convo disables the photo, camera, file, and voice memo buttons; staging any media disables the side convo button. (Side convo cards visually overlap awkwardly with media tiles, and the resulting send would be a confusing mix of "invite + carousel" semantics — easier to keep them as distinct send modes.)
 - **Max 8 photos + videos + files combined** per send. Reaching 8 disables the photo, camera, and file buttons.
-- **Voice memo stays as its own one-off thing.** Recording takes over the input bar today; that doesn't change. Voice memos do not count toward the 8 and cannot coexist with other staged attachments.
+- **Voice memo stays as its own one-off thing.** Recording takes over the input bar today; that doesn't change. Voice memos do not count toward the 8 and cannot coexist with other staged attachments or with a side convo.
 - **Send order = the order attachments appear in the bar.** Text always sends last.
 - **Pickers respect remaining capacity.** If 2 photos are staged, the photos picker offers `maxSelectionCount: 6` and the file picker truncates the selection to 6 (with a notification if more were picked).
 
