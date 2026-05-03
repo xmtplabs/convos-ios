@@ -1322,7 +1322,12 @@ extension ConversationViewModel {
             }
             return true
         } catch {
-            for unsent in attachments[nextIndex...] {
+            // Include the failed attachment (at nextIndex - 1) in cleanup so its eager
+            // upload tracking key gets cancelled. The .file branch's inner do/catch
+            // already deletes its own temp; calling cleanupAttachment on it again is a
+            // benign no-op.
+            let failedAndUnsentStart: Int = max(0, nextIndex - 1)
+            for unsent in attachments[failedAndUnsentStart...] {
                 cleanupAttachment(unsent)
             }
             throw error

@@ -61,7 +61,7 @@ The current `currentEagerUploadKey` singleton becomes per-photo state inside `Pe
 ## UI changes
 
 - **`MessagesInputView.attachmentPreviewArea`** iterates over `pendingMediaAttachments` (one preview card per item) instead of branching on three optional fields. Each card has the existing poof-to-dismiss pattern and removes by `id` from the array. Side convo and link preview cards continue to render at fixed positions.
-- **`MessagesMediaButtonsView`** — photo, camera, and file buttons disabled when `mediaCount == 8`. Side convo button disabled when a side convo is staged. Voice memo button disabled when any media attachments are staged, per the coexistence rule above.
+- **`MessagesMediaButtonsView`** — photo, camera, and file buttons disabled when `mediaCount == 8` **or when a side convo is staged**. Side convo button disabled when a side convo is staged **or when any media attachments are staged**. Voice memo button disabled when any media attachments are staged or when a side convo is staged, per the coexistence rules above.
 - **PhotosPicker** — pass `maxSelectionCount: 8 - mediaCount`.
 - **`.fileImporter`** — enable `allowsMultipleSelection: true`. The callback truncates the picked URLs to remaining capacity and shows a brief alert when truncation happens.
 
