@@ -426,18 +426,24 @@ final class ConversationOnboardingCoordinator {
     ///   - didChangeProfile: Whether the profile was actually changed
     ///   - isSavingAsProfile: Whether the user is saving this as their profile
     func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
-        let profileSettings = profileSettingsViewModel.profileSettings
-        guard state == .settingUpProfile, profileSettings.isDefault else { return }
-
-        profileSettingsViewModel.editingDisplayName = displayName
-        profileSettingsViewModel.profileImage = profileImage
+        // We deliberately only gate on `state == .settingUpProfile` here. Once the
+        // setup flow is active, the user is explicitly replacing their profile, so
+        // checking `profileSettings.isDefault` would block legitimate retries after a
+        // failed save (the first attempt mutates editingDisplayName and flips
+        // isDefault to false even though persistence didn't land).
+        guard state == .settingUpProfile else { return }
         QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
 
         let conversationId = currentConversationId
         Task { [weak self] in
+            guard let self else { return }
+            // Mutating inside the Task means a failed save leaves the previous
+            // editing state intact for the SwiftUI binding to repaint, and the next
+            // tap re-enters with whatever the user just typed.
+            self.profileSettingsViewModel.editingDisplayName = displayName
+            self.profileSettingsViewModel.profileImage = profileImage
             do {
-                try await self?.profileSettingsViewModel.saveAndAwait()
-                guard let self else { return }
+                try await self.profileSettingsViewModel.saveAndAwait()
                 if let conversationId {
                     self.setHasSetProfile(true, for: conversationId)
                 }
