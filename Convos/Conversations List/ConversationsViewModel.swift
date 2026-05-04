@@ -29,13 +29,13 @@ final class ConversationsViewModel {
     private var updateSelectionTask: Task<Void, Never>?
 
     func updateSelectionState() {
-        let conversation = selectedConversation
-        let previousViewModelId = selectedConversationViewModel?.conversation.id
+        let conversation: Conversation? = selectedConversation
+        let previousViewModelId: String? = selectedConversationViewModel?.conversation.id
 
         if let conversation = conversation {
             if selectedConversationViewModel?.conversation.id != conversation.id {
                 updateSelectionTask?.cancel()
-                let viewModel = ConversationViewModel.createSync(
+                let viewModel: ConversationViewModel = ConversationViewModel.createSync(
                     conversation: conversation,
                     session: session,
                     metricsDelegate: navState.metricsDelegate

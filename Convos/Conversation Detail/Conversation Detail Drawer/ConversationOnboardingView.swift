@@ -1,4 +1,5 @@
 import ConvosCore
+import NavigationMetrics
 import SwiftUI
 
 /// A view that displays the appropriate onboarding content based on the coordinator's state
@@ -9,6 +10,15 @@ struct ConversationOnboardingView: View {
     let onTapSetupProfile: () -> Void
     let onUseProfile: (Profile, UIImage?) -> Void
     let onPresentProfileSettings: () -> Void
+    var setupProfileNavState: SetupProfileNavigatorImpl?
+    var setupProfileNavigator: (any SetupProfileNavigator)?
+    var inviteAcceptedNavState: InviteAcceptedNavigatorImpl?
+    var inviteAcceptedNavigator: (any InviteAcceptedNavigator)?
+    var requestPushNotificationsNavState: RequestPushNotificationsNavigatorImpl?
+    var requestPushNotificationsNavigator: (any RequestPushNotificationsNavigator)?
+    var onAppearSetupProfile: () -> Void = {}
+    var onAppearInviteAccepted: () -> Void = {}
+    var onAppearRequestPushNotifications: () -> Void = {}
 
     private var permissionState: NotificationPermissionState? {
         switch coordinator.state {
@@ -28,6 +38,15 @@ struct ConversationOnboardingView: View {
             // Show "Invite accepted" message if waiting for invite
             if coordinator.isWaitingForInviteAcceptance {
                 InviteAcceptedView()
+                    .onAppear {
+                        inviteAcceptedNavState?.markScreenAppeared()
+                        onAppearInviteAccepted()
+                    }
+                    .onDisappear {
+                        let durationSecs: Float = inviteAcceptedNavState?.screenAppearAt
+                            .map { Float(Date().timeIntervalSince($0)) } ?? 0
+                        inviteAcceptedNavigator?.closed(context: ScreenContext(durationSecs: durationSecs))
+                    }
             }
 
             // Show the current onboarding state
@@ -40,6 +59,15 @@ struct ConversationOnboardingView: View {
                     onTapSetupProfile()
                 }
                 .transition(.blurReplace)
+                .onAppear {
+                    setupProfileNavState?.markScreenAppeared()
+                    onAppearSetupProfile()
+                }
+                .onDisappear {
+                    let durationSecs: Float = setupProfileNavState?.screenAppearAt
+                        .map { Float(Date().timeIntervalSince($0)) } ?? 0
+                    setupProfileNavigator?.closed(context: ScreenContext(durationSecs: durationSecs))
+                }
 
             case .savedProfileSuccess:
                 SetupProfileSuccessView()
@@ -63,6 +91,15 @@ struct ConversationOnboardingView: View {
                     )
                     .transition(.blurReplace)
                     .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .onAppear {
+                        requestPushNotificationsNavState?.markScreenAppeared()
+                        onAppearRequestPushNotifications()
+                    }
+                    .onDisappear {
+                        let durationSecs: Float = requestPushNotificationsNavState?.screenAppearAt
+                            .map { Float(Date().timeIntervalSince($0)) } ?? 0
+                        requestPushNotificationsNavigator?.closed(context: ScreenContext(durationSecs: durationSecs))
+                    }
                 } else {
                     EmptyView()
                 }

@@ -17,6 +17,7 @@ final class ConversationNavigatorImpl: @preconcurrency ConversationNavigator {
     var presentingProcessingPowerInfo: Bool = false
     var presentingFullConvoInfo: Bool = false
     var presentingAssistantInfo: Bool = false
+    var presentingBackwardsSecrecyInfo: Bool = false
 
     @ObservationIgnored
     private(set) var screenAppearAt: Date?
@@ -83,6 +84,16 @@ final class ConversationNavigatorImpl: @preconcurrency ConversationNavigator {
 
     func present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs) {
         presentingExplodedInviteInfo = true
+    }
+
+    func present(setupProfile: SetupProfileNavigatorArgs) {}
+
+    func present(inviteAccepted: InviteAcceptedNavigatorArgs) {}
+
+    func present(requestPushNotifications: RequestPushNotificationsNavigatorArgs) {}
+
+    func present(backwardsSecrecyInfo: BackwardsSecrecyInfoNavigatorArgs) {
+        presentingBackwardsSecrecyInfo = true
     }
 
     func closed(context: ScreenContext) {

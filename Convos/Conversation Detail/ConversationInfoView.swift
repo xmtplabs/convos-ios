@@ -118,7 +118,9 @@ struct ConversationInfoView: View {
                 members: viewModel.conversation.members,
                 profileSheetContent: { member in
                     AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: .shared))
-                }
+                },
+                navState: viewModel.assistantFilesLinksNavState,
+                navigator: viewModel.assistantFilesLinksNavigator
             )
         } label: {
             FeatureRowItem(
@@ -133,6 +135,11 @@ struct ConversationInfoView: View {
             }
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            viewModel.conversationInfoNavigator.navigateTo(
+                filesAndLinks: AssistantFilesLinksNavigatorArgs(conversationId: viewModel.conversation.id)
+            )
+        })
         .accessibilityIdentifier("files-links-row")
     }
 

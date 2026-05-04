@@ -439,6 +439,34 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     var conversationInfoNavigator: any ConversationInfoNavigator
     @ObservationIgnored
+    var setupProfileNavState: SetupProfileNavigatorImpl
+    @ObservationIgnored
+    var setupProfileNavigator: any SetupProfileNavigator
+    @ObservationIgnored
+    var inviteAcceptedNavState: InviteAcceptedNavigatorImpl
+    @ObservationIgnored
+    var inviteAcceptedNavigator: any InviteAcceptedNavigator
+    @ObservationIgnored
+    var requestPushNotificationsNavState: RequestPushNotificationsNavigatorImpl
+    @ObservationIgnored
+    var requestPushNotificationsNavigator: any RequestPushNotificationsNavigator
+    @ObservationIgnored
+    var assistantFilesLinksNavState: AssistantFilesLinksNavigatorImpl
+    @ObservationIgnored
+    var assistantFilesLinksNavigator: any AssistantFilesLinksNavigator
+    @ObservationIgnored
+    var lockedConvoInfoNavState: LockedConvoInfoNavigatorImpl
+    @ObservationIgnored
+    var lockedConvoInfoNavigator: any LockedConvoInfoNavigator
+    @ObservationIgnored
+    var lockConvoConfirmationNavState: LockConvoConfirmationNavigatorImpl
+    @ObservationIgnored
+    var lockConvoConfirmationNavigator: any LockConvoConfirmationNavigator
+    @ObservationIgnored
+    var backwardsSecrecyInfoNavState: BackwardsSecrecyInfoNavigatorImpl
+    @ObservationIgnored
+    var backwardsSecrecyInfoNavigator: any BackwardsSecrecyInfoNavigator
+    @ObservationIgnored
     let metricsDelegate: CollectorDelegate
 
     var presentingConversationSettings: Bool {
@@ -644,6 +672,27 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         let infoNavState = ConversationInfoNavigatorImpl()
         self.conversationInfoNavState = infoNavState
         self.conversationInfoNavigator = ConversationInfoCollector(instance: infoNavState, delegate: metricsDelegate)
+        let setupProfileNavState = SetupProfileNavigatorImpl()
+        self.setupProfileNavState = setupProfileNavState
+        self.setupProfileNavigator = SetupProfileCollector(instance: setupProfileNavState, delegate: metricsDelegate)
+        let inviteAcceptedNavState = InviteAcceptedNavigatorImpl()
+        self.inviteAcceptedNavState = inviteAcceptedNavState
+        self.inviteAcceptedNavigator = InviteAcceptedCollector(instance: inviteAcceptedNavState, delegate: metricsDelegate)
+        let requestPushNotificationsNavState = RequestPushNotificationsNavigatorImpl()
+        self.requestPushNotificationsNavState = requestPushNotificationsNavState
+        self.requestPushNotificationsNavigator = RequestPushNotificationsCollector(instance: requestPushNotificationsNavState, delegate: metricsDelegate)
+        let assistantFilesLinksNavState = AssistantFilesLinksNavigatorImpl()
+        self.assistantFilesLinksNavState = assistantFilesLinksNavState
+        self.assistantFilesLinksNavigator = AssistantFilesLinksCollector(instance: assistantFilesLinksNavState, delegate: metricsDelegate)
+        let lockedConvoInfoNavState = LockedConvoInfoNavigatorImpl()
+        self.lockedConvoInfoNavState = lockedConvoInfoNavState
+        self.lockedConvoInfoNavigator = LockedConvoInfoCollector(instance: lockedConvoInfoNavState, delegate: metricsDelegate)
+        let lockConvoConfirmationNavState = LockConvoConfirmationNavigatorImpl()
+        self.lockConvoConfirmationNavState = lockConvoConfirmationNavState
+        self.lockConvoConfirmationNavigator = LockConvoConfirmationCollector(instance: lockConvoConfirmationNavState, delegate: metricsDelegate)
+        let backwardsSecrecyInfoNavState = BackwardsSecrecyInfoNavigatorImpl()
+        self.backwardsSecrecyInfoNavState = backwardsSecrecyInfoNavState
+        self.backwardsSecrecyInfoNavigator = BackwardsSecrecyInfoCollector(instance: backwardsSecrecyInfoNavState, delegate: metricsDelegate)
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -737,6 +786,27 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         let infoNavState = ConversationInfoNavigatorImpl()
         self.conversationInfoNavState = infoNavState
         self.conversationInfoNavigator = ConversationInfoCollector(instance: infoNavState, delegate: metricsDelegate)
+        let setupProfileNavState = SetupProfileNavigatorImpl()
+        self.setupProfileNavState = setupProfileNavState
+        self.setupProfileNavigator = SetupProfileCollector(instance: setupProfileNavState, delegate: metricsDelegate)
+        let inviteAcceptedNavState = InviteAcceptedNavigatorImpl()
+        self.inviteAcceptedNavState = inviteAcceptedNavState
+        self.inviteAcceptedNavigator = InviteAcceptedCollector(instance: inviteAcceptedNavState, delegate: metricsDelegate)
+        let requestPushNotificationsNavState = RequestPushNotificationsNavigatorImpl()
+        self.requestPushNotificationsNavState = requestPushNotificationsNavState
+        self.requestPushNotificationsNavigator = RequestPushNotificationsCollector(instance: requestPushNotificationsNavState, delegate: metricsDelegate)
+        let assistantFilesLinksNavState = AssistantFilesLinksNavigatorImpl()
+        self.assistantFilesLinksNavState = assistantFilesLinksNavState
+        self.assistantFilesLinksNavigator = AssistantFilesLinksCollector(instance: assistantFilesLinksNavState, delegate: metricsDelegate)
+        let lockedConvoInfoNavState = LockedConvoInfoNavigatorImpl()
+        self.lockedConvoInfoNavState = lockedConvoInfoNavState
+        self.lockedConvoInfoNavigator = LockedConvoInfoCollector(instance: lockedConvoInfoNavState, delegate: metricsDelegate)
+        let lockConvoConfirmationNavState = LockConvoConfirmationNavigatorImpl()
+        self.lockConvoConfirmationNavState = lockConvoConfirmationNavState
+        self.lockConvoConfirmationNavigator = LockConvoConfirmationCollector(instance: lockConvoConfirmationNavState, delegate: metricsDelegate)
+        let backwardsSecrecyInfoNavState = BackwardsSecrecyInfoNavigatorImpl()
+        self.backwardsSecrecyInfoNavState = backwardsSecrecyInfoNavState
+        self.backwardsSecrecyInfoNavigator = BackwardsSecrecyInfoCollector(instance: backwardsSecrecyInfoNavState, delegate: metricsDelegate)
 
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository

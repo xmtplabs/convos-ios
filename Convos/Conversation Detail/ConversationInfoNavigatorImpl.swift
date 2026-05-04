@@ -28,6 +28,8 @@ final class ConversationInfoNavigatorImpl: @preconcurrency ConversationInfoNavig
 
     func navigateTo(membersList: MembersListNavigatorArgs) {}
 
+    func navigateTo(filesAndLinks: AssistantFilesLinksNavigatorArgs) {}
+
     func closed(context: ScreenContext) {
         screenAppearAt = nil
     }

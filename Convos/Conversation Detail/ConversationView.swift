@@ -204,7 +204,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                     viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                                 },
                                 onUseProfile: viewModel.onUseProfile(_:_:),
-                                onPresentProfileSettings: viewModel.onProfileSettings
+                                onPresentProfileSettings: viewModel.onProfileSettings,
+                                setupProfileNavState: viewModel.setupProfileNavState,
+                                setupProfileNavigator: viewModel.setupProfileNavigator,
+                                inviteAcceptedNavState: viewModel.inviteAcceptedNavState,
+                                inviteAcceptedNavigator: viewModel.inviteAcceptedNavigator,
+                                requestPushNotificationsNavState: viewModel.requestPushNotificationsNavState,
+                                requestPushNotificationsNavigator: viewModel.requestPushNotificationsNavigator,
+                                onAppearSetupProfile: {
+                                    viewModel.navigator.present(setupProfile: SetupProfileNavigatorArgs())
+                                },
+                                onAppearInviteAccepted: {
+                                    viewModel.navigator.present(inviteAccepted: InviteAcceptedNavigatorArgs())
+                                },
+                                onAppearRequestPushNotifications: {
+                                    viewModel.navigator.present(requestPushNotifications: RequestPushNotificationsNavigatorArgs())
+                                }
                             )
                             .transition(.blurReplace)
                         }
@@ -447,6 +462,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.navState.presentingLockedConvoInfo = false
                 }
             )
+            .onAppear { viewModel.lockedConvoInfoNavState.markScreenAppeared() }
+            .onDisappear {
+                let durationSecs: Float = viewModel.lockedConvoInfoNavState.screenAppearAt
+                    .map { Float(Date().timeIntervalSince($0)) } ?? 0
+                viewModel.lockedConvoInfoNavigator.closed(context: ScreenContext(durationSecs: durationSecs))
+            }
         }
         .selfSizingSheet(isPresented: $viewModel.navState.presentingFullConvoInfo) {
             FullConvoInfoView(onDismiss: {
@@ -467,6 +488,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 PhotosInfoSheet()
             }
         )
+        .selfSizingSheet(isPresented: $viewModel.navState.presentingBackwardsSecrecyInfo) {
+            BackwardsSecrecyInfoView()
+                .onAppear { viewModel.backwardsSecrecyInfoNavState.markScreenAppeared() }
+                .onDisappear {
+                    let durationSecs: Float = viewModel.backwardsSecrecyInfoNavState.screenAppearAt
+                        .map { Float(Date().timeIntervalSince($0)) } ?? 0
+                    viewModel.backwardsSecrecyInfoNavigator.closed(context: ScreenContext(durationSecs: durationSecs))
+                }
+        }
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
