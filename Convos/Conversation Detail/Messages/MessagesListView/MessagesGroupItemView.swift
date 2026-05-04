@@ -775,6 +775,29 @@ private struct AttachmentPlaceholder: View {
             if attachment.width == nil {
                 onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
             }
+        } else if let cachedThumb = await ImageCache.shared.imageAsync(for: cacheKey) {
+            // Thumbnail was cached at staging time by the eager video pipeline.
+            // Render it so the bubble has content while compression / upload
+            // run in the background.
+            loadedImage = cachedThumb
+            isLoading = false
+            isLoadingVideo = true
+            videoLoadFailed = false
+            if attachment.width == nil {
+                onDimensionsLoaded(Int(cachedThumb.size.width), Int(cachedThumb.size.height))
+            }
+        }
+
+        // If the message points to a local file that isn't on disk yet (eager
+        // pipeline still preparing it) and we already have a thumbnail loaded,
+        // skip the video-URL resolution. The message will refresh once
+        // publishAttachment updates it with the remote asset URL.
+        if loadedImage != nil, attachment.key.hasPrefix("file://") {
+            let path = String(attachment.key.dropFirst("file://".count))
+            if !FileManager.default.fileExists(atPath: path) {
+                isLoadingVideo = false
+                return
+            }
         }
 
         do {
