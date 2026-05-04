@@ -2,6 +2,10 @@ import Combine
 import ConvosCore
 import SwiftUI
 
+enum ProfileSettingsError: Error {
+    case notBound
+}
+
 @MainActor
 @Observable
 class ProfileSettingsViewModel {
@@ -60,29 +64,30 @@ class ProfileSettingsViewModel {
     }
 
     func save() {
+        Task { try? await saveAndAwait() }
+    }
+
+    /// Awaitable variant for callers that need to advance UI state only after persistence
+    /// succeeds (e.g. the onboarding coordinator, which gates `hasSetProfile` and the
+    /// `.savedProfileSuccess` transition on a confirmed write).
+    func saveAndAwait() async throws {
         guard let writer else {
-            Log.error("ProfileSettingsViewModel.save called before bind")
-            return
+            Log.error("ProfileSettingsViewModel.saveAndAwait called before bind")
+            throw ProfileSettingsError.notBound
         }
         let trimmedName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName: String? = trimmedName.isEmpty ? nil : trimmedName
         let imageData = profileImage?.jpegData(compressionQuality: 1.0)
         let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
         let isDefault = profileSettings.isDefault
-        Task {
-            do {
-                try await writer.save(
-                    name: resolvedName,
-                    imageData: imageData,
-                    imageAssetIdentifier: assetIdentifier,
-                    metadata: nil
-                )
-                if !isDefault {
-                    ConversationOnboardingCoordinator.markProfileEditorShown()
-                }
-            } catch {
-                Log.error("Failed saving profile settings: \(error.localizedDescription)")
-            }
+        try await writer.save(
+            name: resolvedName,
+            imageData: imageData,
+            imageAssetIdentifier: assetIdentifier,
+            metadata: nil
+        )
+        if !isDefault {
+            ConversationOnboardingCoordinator.markProfileEditorShown()
         }
     }
 

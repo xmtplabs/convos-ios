@@ -40,7 +40,6 @@ final class AppSettingsViewModel {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
-        resetLocalState()
         Task { await runDeletion(onComplete: onComplete) }
     }
 
@@ -77,6 +76,10 @@ final class AppSettingsViewModel {
             for try await progress in session.deleteAllInboxesWithProgress() {
                 deletionProgress = progress
             }
+            // Wipe local UI state only after the on-disk deletion succeeded — otherwise
+            // a failure mid-stream would leave settings appearing reset while the
+            // underlying inboxes are still on device.
+            resetLocalState()
             isDeleting = false
             onComplete()
         } catch {

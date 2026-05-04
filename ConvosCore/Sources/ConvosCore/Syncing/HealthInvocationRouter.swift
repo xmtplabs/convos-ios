@@ -97,6 +97,14 @@ actor HealthInvocationRouter {
                 }
             } else {
                 Log.warning("HealthInvocationRouter: success result with unparseable typeIdentifier in \(actionName) — observer not applied.")
+                result = ConnectionInvocationResult(
+                    invocationId: invocation.invocationId,
+                    kind: .health,
+                    actionName: actionName,
+                    status: .executionFailed,
+                    result: result.result,
+                    errorMessage: "Subscription stored but observer registration failed: unparseable typeIdentifier"
+                )
             }
         }
 

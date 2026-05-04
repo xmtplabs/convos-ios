@@ -136,6 +136,10 @@ final class ConversationOnboardingCoordinator {
     private static let hasShownProfileEditorKey: String = "hasShownProfileEditor"
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
     private static let hasSetProfilePrefix: String = "hasSetProfileForConversation_"
+    /// Prior name of `hasSetProfilePrefix` from the Quickname era. Read-only fallback
+    /// during the user's first launch on the renamed flow so users who already completed
+    /// setup before the rename don't get a redundant profile prompt.
+    private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
@@ -147,7 +151,7 @@ final class ConversationOnboardingCoordinator {
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) {
+        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
@@ -165,7 +169,19 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func hasSetProfile(for conversationId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: Self.hasSetProfilePrefix + conversationId)
+        let defaults = UserDefaults.standard
+        let key = Self.hasSetProfilePrefix + conversationId
+        if defaults.bool(forKey: key) { return true }
+        // Lazy migration: if the user completed setup under the legacy Quickname key,
+        // promote it to the new key on first read so subsequent calls hit the fast path
+        // and a single-key reset (e.g. account deletion) clears it cleanly.
+        let legacyKey = Self.legacyHasSetQuicknamePrefix + conversationId
+        if defaults.bool(forKey: legacyKey) {
+            defaults.set(true, forKey: key)
+            defaults.removeObject(forKey: legacyKey)
+            return true
+        }
+        return false
     }
 
     private func setHasSetProfile(_ value: Bool, for conversationId: String) {
@@ -415,10 +431,25 @@ final class ConversationOnboardingCoordinator {
 
         profileSettingsViewModel.editingDisplayName = displayName
         profileSettingsViewModel.profileImage = profileImage
-        profileSettingsViewModel.save()
         QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
-        state = .savedProfileSuccess
-        handleStateChange()
+
+        let conversationId = currentConversationId
+        Task { [weak self] in
+            do {
+                try await self?.profileSettingsViewModel.saveAndAwait()
+                guard let self else { return }
+                if let conversationId {
+                    self.setHasSetProfile(true, for: conversationId)
+                }
+                self.state = .savedProfileSuccess
+                self.handleStateChange()
+            } catch {
+                Log.error("Failed saving onboarding profile: \(error.localizedDescription)")
+                // Stay in `.settingUpProfile` so the user can retry; emit a QA event so
+                // the failure path is observable.
+                QAEvent.emit(.onboarding, "profile_save_failed", ["error": error.localizedDescription])
+            }
+        }
     }
 
     /// Request notification permission from the user

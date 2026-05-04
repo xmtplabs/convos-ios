@@ -545,11 +545,20 @@ extension Array where Element == DBMessage {
         currentInboxId: String,
         memberProfileCache: MemberProfileCache
     ) -> MessageContent? {
-        guard let update = dbMessage.update,
-              let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId) else {
+        guard let update = dbMessage.update else {
             Log.error("Update message type is missing update object")
             return nil
         }
+        // Fall back to a synthesized member when the initiator's profile isn't cached
+        // (e.g. they left before this update was decoded). Mirrors the placeholder used
+        // for `removedMembers` below so the update still renders rather than being
+        // silently dropped — the inboxId is enough for the view to show a generic actor.
+        let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId)
+            ?? ConversationMember(
+                profile: .empty(inboxId: update.initiatedByInboxId),
+                role: .member,
+                isCurrentUser: !currentInboxId.isEmpty && update.initiatedByInboxId == currentInboxId
+            )
         let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
         let removedMembers = update.removedInboxIds.map { inboxId in
             memberProfileCache.member(for: inboxId)
