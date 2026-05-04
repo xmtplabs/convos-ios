@@ -328,6 +328,20 @@ The two patterns that consume nearly all of these errors:
 
 - **Build arrays and dicts with `var` + `append`, not conditional `+` chains.**
 
+### Before you edit a SwiftUI view body
+
+The 100ms threshold is a cliff, not a slope — chains routinely sit at 80–95ms and a single new modifier tips them over. Treat appending to an existing body as the dangerous operation. Before you add a modifier, count what's already there. If **any** of these are true, extract first, then add:
+
+- The chain already has **≥ 4 `.onChange` modifiers**, or **≥ 6 chained modifiers total**.
+- The body uses **inline arithmetic, `max`/`min`, or method calls inside a modifier argument** (e.g. `maxSelectionCount: max(1, a - b.count)`). Hoist to a typed computed property of the exact return type the modifier expects.
+- A **`.sheet` / `.fullScreenCover` / `.alert` / `.popover` content closure** contains more than a single view constructor — anything with its own closures (`onImageCaptured:`, `onVideoCaptured:`) goes into a `@ViewBuilder` computed property.
+- An **`.onChange` closure body is more than 3 lines** or contains a `for`/`while`/`Task { ... }` block — extract to a `private func handleXChanged(...)` method and call it from the closure.
+- The body uses **`Task { for item in items { ... } }`** inline inside a modifier closure — extract the whole closure body.
+
+Counting takes a few seconds and is much cheaper than diagnosing a CI archive failure after the fact. The local simulator build often passes at 95ms; the CI archive trips at 107ms — you cannot rely on local builds to catch this.
+
+When extracting, name the helpers descriptively (`photoPickerMaxSelectionCount: Int`, `cameraPickerCover: some View`, `handleSelectedPhotosChanged(to:)`) so the call site at the modifier reads cleanly.
+
 ### When you hit a type-check timeout
 
 Fix the expression. Do not bump the threshold and do not `// swiftlint:disable` past it.
