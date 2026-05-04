@@ -49,7 +49,7 @@ public protocol VideoCompressionServiceProtocol: Sendable {
 }
 
 public final class VideoCompressionService: VideoCompressionServiceProtocol, Sendable {
-    public static let maxFileSizeBytes: Int64 = 25 * 1024 * 1024
+    public static let maxFileSizeBytes: Int64 = 50 * 1024 * 1024
     private static let thumbnailMaxDimension: CGFloat = 400
 
     public init() {}
@@ -76,7 +76,7 @@ public final class VideoCompressionService: VideoCompressionServiceProtocol, Sen
 
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPresetMediumQuality
+            presetName: AVAssetExportPresetHEVC1920x1080
         ) else {
             throw VideoCompressionError.exportSessionCreationFailed
         }
