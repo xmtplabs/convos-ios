@@ -971,7 +971,10 @@ extension ConversationViewModel {
     }
 
     func addVideoAttachment(url: URL) {
-        guard canStageMoreMedia else { return }
+        guard canStageMoreMedia else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
         let attachment = PendingVideoAttachment(url: url)
         let attachmentId = attachment.id
         pendingMediaAttachments.append(.video(attachment))
