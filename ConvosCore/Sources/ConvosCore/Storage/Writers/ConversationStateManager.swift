@@ -223,6 +223,18 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendEagerPhoto(trackingKey: trackingKey)
     }
 
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        try await stateMachine.startEagerVideoUpload(at: fileURL)
+    }
+
+    public func sendEagerVideo(trackingKey: String) async throws {
+        try await stateMachine.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await stateMachine.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     public func cancelEagerUpload(trackingKey: String) async {
         await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
     }
@@ -233,6 +245,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String?) async throws -> String {
         try await stateMachine.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
+    }
+
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
     }
 
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {

@@ -9,8 +9,7 @@ struct MessagesInputView: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
-    @Binding var selectedAttachmentImage: UIImage?
-    var isVideoAttachment: Bool = false
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
@@ -30,9 +29,10 @@ struct MessagesInputView: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     var onClearLinkPreview: (() -> Void)?
+    var onClearMediaAttachment: ((UUID) -> Void)?
 
     private let attachmentPreviewSize: CGFloat = 80.0
-    @State private var isPoofing: Bool = false
+    @State private var poofingAttachmentIds: Set<UUID> = []
     @State private var isPoofingInvite: Bool = false
 
     static var defaultHeight: CGFloat {
@@ -58,7 +58,9 @@ struct MessagesInputView: View {
     }
 
     private var hasAttachments: Bool {
-        selectedAttachmentImage != nil || pendingInviteURL != nil || composerLinkPreview != nil
+        !pendingMediaAttachments.isEmpty
+            || pendingInviteURL != nil
+            || composerLinkPreview != nil
     }
 
     private var avatarButton: some View {
@@ -149,8 +151,8 @@ struct MessagesInputView: View {
     private var attachmentPreviewArea: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                if let image = selectedAttachmentImage {
-                    attachmentPreview(image: image)
+                ForEach(pendingMediaAttachments) { attachment in
+                    mediaAttachmentPreview(attachment)
                 }
                 if let pendingInviteURL {
                     inviteAttachmentPreview(url: pendingInviteURL)
@@ -167,53 +169,116 @@ struct MessagesInputView: View {
     }
 
     @ViewBuilder
-    private func attachmentPreview(image: UIImage) -> some View {
-        ZStack(alignment: .topTrailing) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
-                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-                .scaleEffect(isPoofing ? 1.3 : 1.0)
-                .blur(radius: isPoofing ? 12.0 : 0.0)
-                .opacity(isPoofing ? 0.0 : 1.0)
-                .accessibilityLabel(isVideoAttachment ? "Video attachment preview" : "Attachment preview")
-                .accessibilityIdentifier("attachment-preview-image")
-                .overlay(alignment: .bottomLeading) {
-                    if isVideoAttachment {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 16.0, weight: .bold))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                            .padding(.bottom, DesignConstants.Spacing.step2x)
-                            .padding(.leading, DesignConstants.Spacing.step2x)
-                            .accessibilityHidden(true)
-                    }
-                }
-
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    isPoofing = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    selectedAttachmentImage = nil
-                    isPoofing = false
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10.0, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 20.0, height: 20.0)
-                    .background(.black)
-                    .clipShape(.circle)
-                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
-            }
-            .opacity(isPoofing ? 0.0 : 1.0)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.trailing, DesignConstants.Spacing.step2x)
-            .accessibilityLabel("Remove attachment")
-            .accessibilityIdentifier("remove-attachment-button")
+    private func mediaAttachmentPreview(_ attachment: PendingMediaAttachment) -> some View {
+        switch attachment {
+        case .photo(let photo):
+            photoVideoPreview(image: photo.image, isVideo: false, attachmentId: attachment.id)
+        case .video(let video):
+            photoVideoPreview(image: video.thumbnail, isVideo: true, attachmentId: attachment.id)
+        case .file(let file):
+            filePreview(file: file)
         }
+    }
+
+    @ViewBuilder
+    private func photoVideoPreview(image: UIImage?, isVideo: Bool, attachmentId: UUID) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(attachmentId)
+        let scale: CGFloat = isPoof ? 1.3 : 1.0
+        let blur: CGFloat = isPoof ? 12.0 : 0.0
+        let opacity: Double = isPoof ? 0.0 : 1.0
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Color.colorFillSubtle
+                }
+            }
+            .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(scale)
+            .blur(radius: blur)
+            .opacity(opacity)
+            .accessibilityLabel(isVideo ? "Video attachment preview" : "Attachment preview")
+            .accessibilityIdentifier("attachment-preview-image")
+            .overlay(alignment: .bottomLeading) {
+                if isVideo {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 16.0, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                        .padding(.bottom, DesignConstants.Spacing.step2x)
+                        .padding(.leading, DesignConstants.Spacing.step2x)
+                        .accessibilityHidden(true)
+                }
+            }
+
+            removeAttachmentButton(
+                attachmentId: attachmentId,
+                label: "Remove attachment",
+                identifier: "remove-attachment-button"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func filePreview(file: PendingFileAttachment) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(file.id)
+        let scale: CGFloat = isPoof ? 1.3 : 1.0
+        let blur: CGFloat = isPoof ? 12.0 : 0.0
+        let opacity: Double = isPoof ? 0.0 : 1.0
+        ZStack(alignment: .topTrailing) {
+            FileAttachmentRow(
+                filename: file.filename,
+                mimeType: file.mimeType,
+                fileSize: file.fileSize
+            )
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .frame(maxWidth: 240.0)
+            .background(.colorFillSubtle)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(scale)
+            .blur(radius: blur)
+            .opacity(opacity)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("file-attachment-preview")
+
+            removeAttachmentButton(
+                attachmentId: file.id,
+                label: "Remove file attachment",
+                identifier: "remove-file-attachment-button"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func removeAttachmentButton(attachmentId: UUID, label: String, identifier: String) -> some View {
+        let isPoof: Bool = poofingAttachmentIds.contains(attachmentId)
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                _ = poofingAttachmentIds.insert(attachmentId)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                onClearMediaAttachment?(attachmentId)
+                poofingAttachmentIds.remove(attachmentId)
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 10.0, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20.0, height: 20.0)
+                .background(.black)
+                .clipShape(.circle)
+                .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
+        }
+        .opacity(isPoof ? 0.0 : 1.0)
+        .padding(.top, DesignConstants.Spacing.step2x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder
@@ -563,7 +628,6 @@ private struct ComposerSideConvoCard: View {
     @Previewable @State var messageText: String = ""
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
-    @Previewable @State var selectedAttachmentImage: UIImage?
     @Previewable @State var pendingInviteURLPreview: String? = "https://convos.xyz/invite/test-code"
     @Previewable @State var animateAvatarForProfileSetup: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
@@ -586,7 +650,6 @@ private struct ComposerSideConvoCard: View {
             displayName: $displayName,
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
-            selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
             pendingInviteConvoName: .constant(""),
             pendingInviteImage: .constant(nil),

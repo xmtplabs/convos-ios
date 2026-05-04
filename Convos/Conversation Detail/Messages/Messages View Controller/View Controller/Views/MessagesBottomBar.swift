@@ -2,9 +2,39 @@ import ConvosCore
 import ConvosCoreiOS
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum MessagesViewInputFocus: Hashable {
     case message, displayName, conversationName, voiceMemoRecording, sideConvoName
+}
+
+private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
+
+private struct FilePickerModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    @Binding var showTooLargeAlert: Bool
+    @Binding var showTruncatedAlert: Bool
+    let onResult: (Result<[URL], Error>) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(
+                isPresented: $isPresented,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true,
+                onCompletion: onResult
+            )
+            .alert("File too large", isPresented: $showTooLargeAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Files must be 20 MB or smaller.")
+            }
+            .alert("Some files weren't added", isPresented: $showTruncatedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("You can attach up to \(maxPendingMediaAttachments) photos, videos, and files in one message.")
+            }
+    }
 }
 
 struct MessagesBottomBar<BottomBarContent: View>: View {
@@ -12,8 +42,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
-    @Binding var selectedAttachmentImage: UIImage?
-    var isVideoAttachment: Bool = false
+    var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
@@ -33,8 +62,11 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
+    let onClearMediaAttachment: (UUID) -> Void
     let onDisplayNameEndedEditing: () -> Void
+    let onPhotoSelected: (UIImage) -> Void
     let onVideoSelected: (URL) -> Void
+    let onFileSelected: (URL, String, String, Int) -> Void
     let onProfileSettings: () -> Void
     let onVoiceMemoTap: () -> Void
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
@@ -52,7 +84,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var isMessageInputFocused: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var isFilePickerPresented: Bool = false
+    @State private var showFileTooLargeAlert: Bool = false
+    @State private var showFileTruncatedAlert: Bool = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
@@ -62,62 +97,61 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         onboardingCoordinator.state == .settingUpProfile ? "Add your name" : "Your name"
     }
 
+    var body: some View {
+        bodyContent
+            .modifier(filePickerModifier)
+    }
+
     @ViewBuilder
-    private var bottomStack: some View {
+    private var bodyContent: some View {
         VStack(spacing: 0) {
             bottomBarContent()
             VoiceMemoKeyboardFocusKeeper(
                 focusState: $focusState,
                 text: $voiceMemoKeyboardKeeperText
             )
-            inputGlassContainer
-        }
-    }
-
-    @ViewBuilder
-    private var inputGlassContainer: some View {
-        GlassEffectContainer {
-            ZStack {
-                if !isExpanded {
-                    collapsedInputView
-                }
-
-                if isExpanded {
-                    expandedQuickEditView
+            GlassEffectContainer {
+                ZStack {
+                    if isExpanded {
+                        expandedQuickEditView
+                    } else {
+                        collapsedInputView
+                    }
                 }
             }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.top, DesignConstants.Spacing.step2x)
-        .padding(.bottom, DesignConstants.Spacing.step4x)
-    }
-
-    var body: some View {
-        bottomStack
-            .background(HeightReader())
-            .onPreferenceChange(HeightPreferenceKey.self) { height in
-                onBaseHeightChanged(height)
-            }
-            .onChange(of: focusCoordinator.currentFocus) { _, newValue in
-                handleFocusChanged(newValue)
-            }
-            .onChange(of: messageText) { _, _ in
-                handleMessageTextChanged()
-            }
-            .onChange(of: isVoiceMemoActive) { wasActive, isActive in
-                guard wasActive, !isActive else { return }
-                restoreVoiceMemoFocusIfNeeded()
-            }
-            .onChange(of: isPhotoPickerPresented) { _, newValue in
-                handlePhotoPickerPresentedChanged(newValue)
-            }
-            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .any(of: [.images, .videos]))
-            .onChange(of: selectedPhoto) { _, newValue in
-                Task { await handleSelectedPhotoChanged(newValue) }
-            }
-            .fullScreenCover(isPresented: $isCameraPresented) {
-                cameraPicker
-            }
+        .background(HeightReader())
+        .onPreferenceChange(HeightPreferenceKey.self) { height in
+            onBaseHeightChanged(height)
+        }
+        .onChange(of: focusCoordinator.currentFocus) { _, newValue in
+            handleFocusChanged(newValue)
+        }
+        .onChange(of: messageText) { _, _ in
+            handleMessageTextChanged()
+        }
+        .onChange(of: isVoiceMemoActive) { wasActive, isActive in
+            guard wasActive, !isActive else { return }
+            restoreVoiceMemoFocusIfNeeded()
+        }
+        .onChange(of: isPhotoPickerPresented) { _, newValue in
+            handlePhotoPickerPresentedChanged(newValue)
+        }
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $selectedPhotos,
+            maxSelectionCount: max(1, maxPendingMediaAttachments - pendingMediaAttachments.count),
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: selectedPhotos) { _, newValue in
+            handleSelectedPhotosChanged(newValue)
+        }
+        .fullScreenCover(isPresented: $isCameraPresented) {
+            cameraPicker
+        }
     }
 
     private func handleFocusChanged(_ newValue: MessagesViewInputFocus?) {
@@ -149,29 +183,29 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         }
     }
 
-    @MainActor
-    private func handleSelectedPhotoChanged(_ newValue: PhotosPickerItem?) async {
-        guard let newValue else { return }
-        if let videoFile = try? await newValue.loadTransferable(type: VideoFile.self) {
-            onVideoSelected(videoFile.url)
-            selectedPhoto = nil
-            didSelectPhotoThisSession = true
-            isPhotoPickerPresented = false
-            focusCoordinator.moveFocus(to: .message)
-        } else if let data = try? await newValue.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data) {
-            selectedAttachmentImage = image
-            selectedPhoto = nil
-            didSelectPhotoThisSession = true
-            isPhotoPickerPresented = false
-            focusCoordinator.moveFocus(to: .message)
+    private func handleSelectedPhotosChanged(_ newValue: [PhotosPickerItem]) {
+        guard !newValue.isEmpty else { return }
+        let items = newValue
+        selectedPhotos = []
+        didSelectPhotoThisSession = true
+        isPhotoPickerPresented = false
+        focusCoordinator.moveFocus(to: .message)
+        Task {
+            for item in items {
+                if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
+                    await MainActor.run { onVideoSelected(videoFile.url) }
+                } else if let data = try? await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) {
+                    await MainActor.run { onPhotoSelected(image) }
+                }
+            }
         }
     }
 
     private var cameraPicker: some View {
         CameraPickerView(
             onImageCaptured: { image in
-                selectedAttachmentImage = image
+                onPhotoSelected(image)
                 isCameraPresented = false
                 focusCoordinator.moveFocus(to: .message)
             },
@@ -182,6 +216,67 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             }
         )
         .ignoresSafeArea()
+    }
+
+    private var filePickerModifier: FilePickerModifier {
+        FilePickerModifier(
+            isPresented: $isFilePickerPresented,
+            showTooLargeAlert: $showFileTooLargeAlert,
+            showTruncatedAlert: $showFileTruncatedAlert,
+            onResult: handleFileImporterResult
+        )
+    }
+
+    private func handleFileImporterResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            let remaining = maxPendingMediaAttachments - pendingMediaAttachments.count
+            guard remaining > 0 else { return }
+            let toStage = Array(urls.prefix(remaining))
+            if urls.count > toStage.count {
+                showFileTruncatedAlert = true
+            }
+            for url in toStage {
+                stageFile(at: url)
+            }
+        case .failure(let error):
+            Log.error("File picker error: \(error)")
+        }
+    }
+
+    private func stageFile(at sourceURL: URL) {
+        let didStartAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: sourceURL.path)
+        let fileSize = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        guard fileSize > 0 else {
+            Log.error("File picker: failed to read file size for \(sourceURL.lastPathComponent)")
+            return
+        }
+        guard fileSize <= maxFileAttachmentSizeBytes else {
+            showFileTooLargeAlert = true
+            return
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-\(sourceURL.lastPathComponent)")
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+        } catch {
+            Log.error("Failed to copy picked file to temp: \(error)")
+            return
+        }
+
+        let mimeType = UTType(filenameExtension: sourceURL.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+
+        onFileSelected(tempURL, sourceURL.lastPathComponent, mimeType, fileSize)
+        focusCoordinator.moveFocus(to: .message)
     }
 
     private var isVoiceMemoActive: Bool {
@@ -280,10 +375,19 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 .glassEffectID("media", in: namespace)
                 .glassEffectTransition(.matchedGeometry)
             } else {
+                let hasSideConvo: Bool = pendingInviteURL != nil
+                let hasMedia: Bool = !pendingMediaAttachments.isEmpty
+                let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
+                let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
+                let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
+                let sideConvoDisabled: Bool = hasSideConvo || hasMedia
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
                     onVoiceMemoTap: startVoiceMemoRecording,
+                    onFilePickerTap: {
+                        isFilePickerPresented = true
+                    },
                     onConvosAction: {
                         guard pendingInviteURL == nil else { return }
                         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
@@ -291,7 +395,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         }
                         onConvosAction()
                     },
-                    isSideConvoDisabled: pendingInviteURL != nil,
+                    isMediaCapacityFull: mediaButtonsDisabled,
+                    isVoiceMemoDisabled: voiceMemoDisabled,
+                    isSideConvoDisabled: sideConvoDisabled,
                     onDebugAttachmentTap: onDebugAttachmentTap
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
@@ -308,8 +414,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 displayName: $displayName,
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
-                selectedAttachmentImage: $selectedAttachmentImage,
-                isVideoAttachment: isVideoAttachment,
+                pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
                 pendingInviteEmoji: pendingInviteEmoji,
@@ -327,7 +432,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
-                onClearLinkPreview: onClearLinkPreview
+                onClearLinkPreview: onClearLinkPreview,
+                onClearMediaAttachment: onClearMediaAttachment
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -378,7 +484,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Previewable @State var profile: Profile = .mock()
     @Previewable @State var profileName: String = ""
     @Previewable @State var messageText: String = ""
-    @Previewable @State var selectedAttachmentImage: UIImage?
     @Previewable @State var pendingInviteURLPreview: String?
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
@@ -432,7 +537,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             profile: profile,
             displayName: $profileName,
             messageText: $messageText,
-            selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
             pendingInviteConvoName: .constant(""),
             pendingInviteImage: .constant(nil),
@@ -449,10 +553,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil },
             onClearLinkPreview: {},
+            onClearMediaAttachment: { _ in },
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },
+            onPhotoSelected: { _ in },
             onVideoSelected: { _ in },
+            onFileSelected: { _, _, _, _ in },
             onProfileSettings: {},
             onVoiceMemoTap: {},
             voiceMemoRecorder: VoiceMemoRecorder(),

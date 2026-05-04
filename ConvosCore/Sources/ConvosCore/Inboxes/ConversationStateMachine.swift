@@ -267,6 +267,21 @@ public actor ConversationStateMachine {
         try await writer.sendEagerPhoto(trackingKey: trackingKey)
     }
 
+    func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerVideoUpload(at: fileURL)
+    }
+
+    func sendEagerVideo(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     func cancelEagerUpload(trackingKey: String) async {
         guard let writer = cachedMessageWriter else { return }
         await writer.cancelEagerUpload(trackingKey: trackingKey)
@@ -280,6 +295,11 @@ public actor ConversationStateMachine {
     func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String? = nil) async throws -> String {
         let writer = try await getOrCreateMessageWriter()
         return try await writer.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
+    }
+
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
     }
 
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {

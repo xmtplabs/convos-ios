@@ -39,6 +39,20 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         sentMessageSubject.send(mockURL)
     }
 
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        UUID().uuidString
+    }
+
+    public func sendEagerVideo(trackingKey: String) async throws {
+        sentImageCount += 1
+        let mockURL = "https://example.com/videos/mock_video_\(sentImageCount).mp4"
+        sentMessageSubject.send(mockURL)
+    }
+
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await sendEagerVideo(trackingKey: trackingKey)
+    }
+
     public func cancelEagerUpload(trackingKey: String) async {}
 
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
@@ -47,6 +61,10 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
     }
 
     public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String {
+        return UUID().uuidString
+    }
+
+    public func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String?) async throws -> String {
         return UUID().uuidString
     }
 

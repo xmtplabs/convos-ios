@@ -177,9 +177,9 @@ struct VideoMessageTests {
 
     // MARK: - VideoCompressionService
 
-    @Test("VideoCompressionService max file size is 25MB")
+    @Test("VideoCompressionService max file size is 50MB")
     func testMaxFileSize() {
-        #expect(VideoCompressionService.maxFileSizeBytes == 25 * 1024 * 1024)
+        #expect(VideoCompressionService.maxFileSizeBytes == 50 * 1024 * 1024)
     }
 
     @Test("loadVideoDimensions throws for a non-video URL")

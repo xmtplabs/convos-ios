@@ -5,14 +5,14 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Match the libxmtp tag in Package.swift `revision:` pins. Both -dev and -nightly tags are recognized so Renovate can parse the current pin in either format and propose updates.",
+      "description": "Match the libxmtp tag in Package.swift `revision:` pins. Recognizes both -dev and -nightly tags as currentValue; allowedVersions in the package rule restricts update candidates to nightly only.",
       "managerFilePatterns": ["/Package\\.swift$/"],
       "matchStrings": [
         "url:\\s*\"https://github\\.com/xmtp/libxmtp\\.git\"[\\s\\S]*?revision:\\s*\"(?<currentValue>ios-[^\"]+)\""
       ],
       "datasourceTemplate": "git-tags",
       "depNameTemplate": "https://github.com/xmtp/libxmtp",
-      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(nightly|dev)\\.(?<build>[\\w.]+)$"
+      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?:dev|nightly)\\.(?<build>\\d{8}\\.[a-f0-9]+|[a-f0-9]+)$"
     },
     {
       "customType": "regex",
@@ -23,7 +23,7 @@
       ],
       "datasourceTemplate": "git-tags",
       "depNameTemplate": "https://github.com/xmtp/libxmtp",
-      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(nightly|dev)\\.(?<build>[\\w.]+)$"
+      "versioningTemplate": "regex:^ios-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?:dev|nightly)\\.(?<build>\\d{8}\\.[a-f0-9]+|[a-f0-9]+)$"
     }
   ],
   "packageRules": [
@@ -32,9 +32,9 @@
       "groupName": "libxmtp",
       "branchName": "renovate/libxmtp",
       "prConcurrentLimit": 1,
+      "prCreation": "immediate",
       "rebaseWhen": "behind-base-branch",
-      "schedule": ["after 7am and before 9am every weekday"],
-      "timezone": "UTC",
+      "allowedVersions": "/^ios-\\d+\\.\\d+\\.\\d+-nightly\\.\\d{8}\\.[a-f0-9]+$/",
       "commitMessageTopic": "libxmtp",
       "commitMessageExtra": "to {{newValue}}",
       "prTitle": "chore(deps): update libxmtp to {{newValue}}"
