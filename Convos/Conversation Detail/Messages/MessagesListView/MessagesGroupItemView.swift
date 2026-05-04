@@ -773,13 +773,16 @@ private struct AttachmentPlaceholder: View {
         }
     }
 
-    // Returns false if the in-flight local file never showed up (timeout or
-    // task cancellation). Returns true when the file is on disk or the key
-    // doesn't point to a local file at all.
-    private func waitForLocalVideoFileIfNeeded() async -> Bool {
-        guard attachment.key.hasPrefix("file://") else { return true }
+    private enum LocalVideoWaitResult {
+        case ready
+        case timedOut
+        case cancelled
+    }
+
+    private func waitForLocalVideoFileIfNeeded() async -> LocalVideoWaitResult {
+        guard attachment.key.hasPrefix("file://") else { return .ready }
         let path = String(attachment.key.dropFirst("file://".count))
-        if FileManager.default.fileExists(atPath: path) { return true }
+        if FileManager.default.fileExists(atPath: path) { return .ready }
         isLoadingVideo = true
         let deadline = Date().addingTimeInterval(60)
         while !FileManager.default.fileExists(atPath: path),
@@ -787,7 +790,9 @@ private struct AttachmentPlaceholder: View {
               Date() < deadline {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
-        return FileManager.default.fileExists(atPath: path) && !Task.isCancelled
+        if FileManager.default.fileExists(atPath: path) { return .ready }
+        if Task.isCancelled { return .cancelled }
+        return .timedOut
     }
 
     private func loadVideoAttachment() async {
@@ -814,8 +819,17 @@ private struct AttachmentPlaceholder: View {
             }
         }
 
-        if !(await waitForLocalVideoFileIfNeeded()) {
+        switch await waitForLocalVideoFileIfNeeded() {
+        case .ready:
+            break
+        case .cancelled:
             isLoadingVideo = false
+            return
+        case .timedOut:
+            isLoading = false
+            isLoadingVideo = false
+            videoLoadFailed = true
+            Log.error("Timed out waiting for local video file: \(attachment.key)")
             return
         }
 

@@ -655,6 +655,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 filename: state.filename
             )
 
+            // Publish prepared + compressed URL into the shared state BEFORE the
+            // upload await so that a cancelEagerUpload mid-upload can find and
+            // delete the encrypted file, the compressed file, and the
+            // DBPendingPhotoUpload row instead of orphaning them.
+            if var s = eagerVideoUploads[trackingKey] {
+                s.prepared = prepared
+                s.compressedFileURL = compressed.fileURL
+                eagerVideoUploads[trackingKey] = s
+            }
+
             let pendingUpload = DBPendingPhotoUpload(
                 id: prepared.taskId,
                 clientMessageId: state.clientMessageId,
@@ -672,12 +682,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 contentType: "application/octet-stream",
                 taskId: prepared.taskId
             )
-
-            if var s = eagerVideoUploads[trackingKey] {
-                s.prepared = prepared
-                s.compressedFileURL = compressed.fileURL
-                eagerVideoUploads[trackingKey] = s
-            }
 
             let result = await backgroundUploadManager.waitForCompletion(taskId: prepared.taskId)
 
