@@ -690,29 +690,39 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     state: .failed,
                     errorMessage: result.error?.localizedDescription
                 )
-                if var s = eagerVideoUploads[trackingKey] {
-                    s.processingError = result.error
-                    let cont = s.waitingContinuation
-                    s.waitingContinuation = nil
-                    eagerVideoUploads[trackingKey] = s
-                    let error: Error = result.error ?? PhotoAttachmentError.uploadFailed("Eager video upload failed")
-                    cont?.resume(throwing: error)
-                    try? await markMessageFailed(clientMessageId: s.clientMessageId)
-                }
-                await markPhotoFailed(trackingKey: trackingKey)
+                let uploadError: Error = result.error ?? PhotoAttachmentError.uploadFailed("Eager video upload failed")
+                await failEagerVideoPipeline(trackingKey: trackingKey, error: uploadError)
             }
         } catch {
-            if var state = eagerVideoUploads[trackingKey] {
-                state.processingError = error
-                let cont = state.waitingContinuation
-                state.waitingContinuation = nil
-                eagerVideoUploads[trackingKey] = state
-                cont?.resume(throwing: error)
-                try? await markMessageFailed(clientMessageId: state.clientMessageId)
-            }
-            await markPhotoFailed(trackingKey: trackingKey)
+            await failEagerVideoPipeline(trackingKey: trackingKey, error: error)
             Log.error("Eager video pipeline failed: \(error)")
         }
+    }
+
+    private func failEagerVideoPipeline(trackingKey: String, error: Error) async {
+        guard var state = eagerVideoUploads[trackingKey] else {
+            await markPhotoFailed(trackingKey: trackingKey)
+            return
+        }
+        state.processingError = error
+        let cont = state.waitingContinuation
+        state.waitingContinuation = nil
+        eagerVideoUploads[trackingKey] = state
+        cont?.resume(throwing: error)
+        try? await markMessageFailed(clientMessageId: state.clientMessageId)
+        await markPhotoFailed(trackingKey: trackingKey)
+
+        // Reclaim disk + drop the dict entry so failures don't pile up. If
+        // processEagerVideo is going to consume the continuation it has
+        // already received the error and won't read these.
+        if let prepared = state.prepared {
+            try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
+        }
+        if let compressedFileURL = state.compressedFileURL {
+            try? FileManager.default.removeItem(at: compressedFileURL)
+        }
+        try? FileManager.default.removeItem(at: state.originalURL)
+        eagerVideoUploads.removeValue(forKey: trackingKey)
     }
 
     func sendEagerVideo(trackingKey: String) async throws {

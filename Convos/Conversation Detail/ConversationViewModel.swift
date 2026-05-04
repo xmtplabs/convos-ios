@@ -1391,15 +1391,28 @@ extension ConversationViewModel {
         // Reuse the eager pipeline started at staging time, falling back to a
         // fresh start if Send happened before the tracking key was written back.
         let trackingKey: String
+        let isFreshKey: Bool
         if let existing = video.eagerUploadKey {
             trackingKey = existing
+            isFreshKey = false
         } else {
             trackingKey = try await messageWriter.startEagerVideoUpload(at: video.url)
+            isFreshKey = true
         }
-        if let replyToMessageId {
-            try await messageWriter.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
-        } else {
-            try await messageWriter.sendEagerVideo(trackingKey: trackingKey)
+        do {
+            if let replyToMessageId {
+                try await messageWriter.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
+            } else {
+                try await messageWriter.sendEagerVideo(trackingKey: trackingKey)
+            }
+        } catch {
+            // The freshly-obtained key isn't on the PendingVideoAttachment yet,
+            // so cleanupAttachment in the outer catch wouldn't know to cancel
+            // it. Cancel directly so the pipeline doesn't orphan resources.
+            if isFreshKey {
+                await messageWriter.cancelEagerUpload(trackingKey: trackingKey)
+            }
+            throw error
         }
     }
 
