@@ -91,8 +91,7 @@ struct PinnedConversationsSection: View {
 #Preview {
     @Previewable @State var conversationPendingDeletion: Conversation?
     @Previewable @State var conversationPendingExplosion: Conversation?
-    let convos = ConvosClient.mock()
-    let viewModel = ConversationsViewModel(session: convos.session)
+    let viewModel = ConversationsViewModel.mock
 
     PinnedConversationsSection(
         pinnedConversations: [

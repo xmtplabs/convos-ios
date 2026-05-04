@@ -1,17 +1,18 @@
 import ConvosCore
+import NavigationMetrics
 import SwiftUI
 
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
+    @Bindable var navState: ConversationsNavigatorImpl
+    let navigator: any ConversationsNavigator
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
 
     @Namespace private var namespace: Namespace.ID
-    @State private var presentingAppSettings: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
-    @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
 
     var focusCoordinator: FocusCoordinator {
@@ -38,9 +39,17 @@ struct ConversationsView: View {
 
     var emptyConversationsView: some View {
         ConversationsListEmptyCTA(
-            onStartConvo: viewModel.onStartConvo,
-            onJoinConvo: viewModel.onJoinConvo
+            onStartConvo: onStartConvo,
+            onJoinConvo: onJoinConvo
         )
+    }
+
+    private func onStartConvo() {
+        navigator.present(newConversation: NewConversationNavigatorArgs(mode: .create))
+    }
+
+    private func onJoinConvo() {
+        navigator.present(newConversation: NewConversationNavigatorArgs(mode: .scanner))
     }
 
     var filteredEmptyStateView: some View {
@@ -57,18 +66,18 @@ struct ConversationsView: View {
         ConversationsViewRepresentable(
             pinnedConversations: viewModel.pinnedConversations,
             unpinnedConversations: viewModel.unpinnedConversations,
-            selectedConversationId: viewModel.selectedConversationId,
+            selectedConversationId: navState.selectedConversationId,
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
             hasCreatedMoreThanOneConvo: viewModel.hasCreatedMoreThanOneConvo,
             onSelectConversation: { conversation in
-                viewModel.selectedConversationId = conversation.id
+                navigator.navigateTo(conversation: ConversationNavigatorArgs(conversationId: conversation.id))
             },
             onConfirmedDeleteConversation: { conversation in
                 viewModel.leave(conversation: conversation)
             },
             onExplodeConversation: { conversation in
-                conversationPendingExplosion = conversation
+                navigator.present(explodeConfirmation: ExplodeConfirmationNavigatorArgs(conversationId: conversation.id))
             },
             onToggleMute: { conversation in
                 viewModel.toggleMute(conversation: conversation)
@@ -79,8 +88,8 @@ struct ConversationsView: View {
             onTogglePin: { conversation in
                 viewModel.togglePin(conversation: conversation)
             },
-            onStartConvo: viewModel.onStartConvo,
-            onJoinConvo: viewModel.onJoinConvo,
+            onStartConvo: onStartConvo,
+            onJoinConvo: onJoinConvo,
             onShowAllFilter: { viewModel.activeFilter = .all }
         )
         .ignoresSafeArea(edges: [.top, .bottom])
@@ -149,7 +158,7 @@ struct ConversationsView: View {
     private var sidebarToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             ConvosToolbarButton(padding: false) {
-                presentingAppSettings = true
+                navigator.present(appSettings: AppSettingsNavigatorArgs())
             }
             .accessibilityLabel("Convos settings")
             .accessibilityIdentifier("app-settings-button")
@@ -171,7 +180,7 @@ struct ConversationsView: View {
 
         ToolbarItem(placement: .bottomBar) {
             Button("Scan", systemImage: "viewfinder") {
-                viewModel.onJoinConvo()
+                onJoinConvo()
             }
             .accessibilityLabel("Scan to join a conversation")
             .accessibilityIdentifier("scan-button")
@@ -180,7 +189,7 @@ struct ConversationsView: View {
 
         ToolbarItem(placement: .bottomBar) {
             Button("Compose", systemImage: "square.and.pencil") {
-                viewModel.onStartConvo()
+                onStartConvo()
             }
             .accessibilityLabel("Start a new conversation")
             .accessibilityIdentifier("compose-button")
@@ -228,6 +237,7 @@ struct ConversationsView: View {
                 }
             }
             .onAppear {
+                viewModel.updateSelectionState()
                 if viewModel.selectedConversationViewModel != nil {
                     preferredColumn = .detail
                 }
@@ -243,17 +253,20 @@ struct ConversationsView: View {
             .onDisappear {
                 viewModel.onDisappear()
             }
+            .onChange(of: navState.selectedConversationId) { _, _ in
+                viewModel.updateSelectionState()
+            }
             .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
                 preferredColumn = isNil ? .sidebar : .detail
             }
             .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
                 guard let newState, case .exploded = newState else { return }
-                viewModel.selectedConversationId = nil
+                navState.selectedConversationId = nil
                 preferredColumn = .sidebar
             }
             .onChange(of: preferredColumn) { _, newColumn in
                 if newColumn == .sidebar && horizontalSizeClass == .compact {
-                    viewModel.selectedConversationId = nil
+                    navState.selectedConversationId = nil
                 }
             }
         }
@@ -261,10 +274,9 @@ struct ConversationsView: View {
         .focusEffectDisabled()
         .memberContactOverride(resolver)
         .modifier(ConversationsSheetModifier(
-            presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
+            navState: navState,
             profileSettingsViewModel: profileSettingsViewModel,
-            conversationPendingExplosion: $conversationPendingExplosion,
             namespace: namespace
         ))
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -279,15 +291,14 @@ struct ConversationsView: View {
 }
 
 private struct ConversationsSheetModifier: ViewModifier {
-    @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
+    @Bindable var navState: ConversationsNavigatorImpl
     let profileSettingsViewModel: ProfileSettingsViewModel
-    @Binding var conversationPendingExplosion: Conversation?
     var namespace: Namespace.ID
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $presentingAppSettings) {
+            .sheet(isPresented: $navState.presentingAppSettings) {
                 AppSettingsView(
                     viewModel: viewModel.appSettingsViewModel,
                     profileSettingsViewModel: profileSettingsViewModel,
@@ -299,7 +310,7 @@ private struct ConversationsSheetModifier: ViewModifier {
                 )
                 .interactiveDismissDisabled(viewModel.appSettingsViewModel.isDeleting)
             }
-            .sheet(item: $viewModel.newConversationViewModel) { newConvoViewModel in
+            .sheet(item: $navState.newConversationViewModel) { newConvoViewModel in
                 NewConversationView(
                     viewModel: newConvoViewModel,
                     profileSettingsViewModel: profileSettingsViewModel
@@ -318,27 +329,27 @@ private struct ConversationsSheetModifier: ViewModifier {
                 )
                 .presentationDetents([.medium])
             }
-            .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
+            .selfSizingSheet(isPresented: $navState.presentingExplodeInfo) {
                 ExplodeInfoView()
             }
-            .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
+            .selfSizingSheet(isPresented: $navState.presentingPinLimitInfo) {
                 PinLimitInfoView()
             }
             .background {
                 Color.clear
-                    .fullScreenCover(item: $conversationPendingExplosion) { conversation in
+                    .fullScreenCover(item: $navState.conversationPendingExplosion) { conversation in
                         ExplodeConvoSheet(
                             isScheduled: conversation.scheduledExplosionDate != nil,
                             onSchedule: { date in
                                 viewModel.scheduleConversationExplosion(conversation, at: date)
-                                conversationPendingExplosion = nil
+                                navState.conversationPendingExplosion = nil
                             },
                             onExplodeNow: {
                                 viewModel.explodeConversation(conversation)
-                                conversationPendingExplosion = nil
+                                navState.conversationPendingExplosion = nil
                             },
                             onDismiss: {
-                                conversationPendingExplosion = nil
+                                navState.conversationPendingExplosion = nil
                             }
                         )
                         .presentationBackground(.clear)
@@ -373,16 +384,19 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     ConversationsView(
         viewModel: viewModel,
+        navState: viewModel.navState,
+        navigator: viewModel.navigator,
         profileSettingsViewModel: profileSettingsViewModel
     )
 }
 
 #Preview("Original") {
-    let convos = ConvosClient.mock()
-    let viewModel = ConversationsViewModel(session: convos.session)
+    let viewModel = ConversationsViewModel.mock
     let profileSettingsViewModel = ProfileSettingsViewModel.shared
     ConversationsView(
         viewModel: viewModel,
+        navState: viewModel.navState,
+        navigator: viewModel.navigator,
         profileSettingsViewModel: profileSettingsViewModel
     )
 }

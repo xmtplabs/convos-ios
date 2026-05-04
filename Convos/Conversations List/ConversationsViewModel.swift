@@ -1,6 +1,7 @@
 import Combine
 import ConvosCore
 import Foundation
+import NavigationMetrics
 import Observation
 import SwiftUI
 import UIKit
@@ -13,39 +14,21 @@ final class ConversationsViewModel {
 
     private(set) var focusCoordinator: FocusCoordinator
 
-    // MARK: - Selection State
+    // MARK: - Navigation
 
     @ObservationIgnored
-    private var _selectedConversationId: String? {
-        didSet {
-            updateSelectionState()
-        }
-    }
+    let navigator: any ConversationsNavigator
+    @ObservationIgnored
+    let navState: ConversationsNavigatorImpl
 
-    var selectedConversationId: Conversation.ID? {
-        get { _selectedConversationId }
-        set {
-            guard _selectedConversationId != newValue else { return }
-            _selectedConversationId = newValue
-        }
-    }
-
-    private(set) var selectedConversation: Conversation? {
-        get {
-            guard let id = _selectedConversationId else { return nil }
-            return conversations.first(where: { $0.id == id })
-        }
-        set {
-            selectedConversationId = newValue?.id
-        }
-    }
+    // MARK: - Selection State
 
     private(set) var selectedConversationViewModel: ConversationViewModel?
 
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
 
-    private func updateSelectionState() {
+    func updateSelectionState() {
         let conversation = selectedConversation
         let previousViewModelId = selectedConversationViewModel?.conversation.id
 
@@ -67,8 +50,8 @@ final class ConversationsViewModel {
             selectedConversationViewModel = nil
         }
 
-        if previousViewModelId != _selectedConversationId {
-            let userInfo: [AnyHashable: Any] = _selectedConversationId.map { ["conversationId": $0] } ?? [:]
+        if previousViewModelId != navState.selectedConversationId {
+            let userInfo: [AnyHashable: Any] = navState.selectedConversationId.map { ["conversationId": $0] } ?? [:]
             NotificationCenter.default.post(
                 name: .activeConversationChanged,
                 object: nil,
@@ -79,23 +62,10 @@ final class ConversationsViewModel {
         updateListVisibility()
     }
 
-    var pendingGrantRequest: PendingGrantRequest?
-
-    var newConversationViewModel: NewConversationViewModel? {
-        didSet {
-            oldValue?.cleanUpIfNeeded()
-            if newConversationViewModel == nil {
-                NotificationCenter.default.post(
-                    name: .activeConversationChanged,
-                    object: nil,
-                    userInfo: [:]
-                )
-            }
-            updateListVisibility()
-        }
+    private var selectedConversation: Conversation? {
+        guard let id = navState.selectedConversationId else { return nil }
+        return conversations.first(where: { $0.id == id })
     }
-    var presentingExplodeInfo: Bool = false
-    var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
     private(set) var hiddenConversationIds: Set<String> = []
@@ -199,9 +169,13 @@ final class ConversationsViewModel {
 
     init(
         session: any SessionManagerProtocol,
+        navigator: any ConversationsNavigator,
+        navState: ConversationsNavigatorImpl,
         horizontalSizeClass: UserInterfaceSizeClass? = nil
     ) {
         self.session = session
+        self.navigator = navigator
+        self.navState = navState
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
@@ -235,21 +209,24 @@ final class ConversationsViewModel {
 
     func onAppear() {
         isVisible = true
+        navState.markScreenAppeared()
         updateListVisibility()
     }
 
     func onDisappear() {
         isVisible = false
+        let durationSecs = navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+        navigator.closed(context: ScreenContext(durationSecs: durationSecs))
         updateListVisibility()
     }
 
     @ObservationIgnored
     private var isVisible: Bool = false
 
-    private func updateListVisibility() {
+    func updateListVisibility() {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
-            && newConversationViewModel == nil
+            && navState.newConversationViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -274,17 +251,20 @@ final class ConversationsViewModel {
 
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
-            join(from: inviteCode)
+            navigator.present(newConversation: NewConversationNavigatorArgs(
+                mode: .joinInvite,
+                inviteCode: inviteCode
+            ))
         case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
             guard conversations.contains(where: { $0.id == conversationId }) else {
                 Log.warning("Dropping connection grant deep link for unknown conversationId")
                 return
             }
-            _selectedConversationId = conversationId
-            pendingGrantRequest = PendingGrantRequest(
+            navigator.navigateTo(conversation: ConversationNavigatorArgs(conversationId: conversationId))
+            navigator.present(connectionGrant: ConnectionGrantNavigatorArgs(
                 serviceId: serviceId,
                 conversationId: conversationId
-            )
+            ))
         case .agentTemplate(templateId: let templateId):
             startConversation(withAgentTemplateId: templateId)
         }
@@ -311,9 +291,6 @@ final class ConversationsViewModel {
         )
     }
 
-    /// Opens a new conversation and, once it is ready, requests a fresh
-    /// instance of the given agent template into it. Entry point for the
-    /// `convos://template/<id>` deeplink.
     private func startConversation(withAgentTemplateId templateId: String) {
         newConversationViewModel = NewConversationViewModel(
             session: session,
@@ -322,7 +299,7 @@ final class ConversationsViewModel {
     }
 
     func deleteAllData() {
-        selectedConversation = nil
+        navState.selectedConversationId = nil
         appSettingsViewModel.deleteAllData {}
     }
 
@@ -336,7 +313,7 @@ final class ConversationsViewModel {
             conversations.remove(at: index)
         }
         if selectedConversation == conversation {
-            selectedConversation = nil
+            navState.selectedConversationId = nil
         }
 
         let conversationId = conversation.id
@@ -366,12 +343,12 @@ final class ConversationsViewModel {
                     // ConversationViewModel.leaveConvo for the same pattern.
                     hiddenConversationIds.insert(conversationId)
                     conversations.removeAll { $0.id == conversationId }
-                    if _selectedConversationId == conversationId {
-                        _selectedConversationId = nil
+                    if navState.selectedConversationId == conversationId {
+                        navState.selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
-                    if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
-                        newConversationViewModel = nil
+                    if navState.newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
+                        navState.newConversationViewModel = nil
                     }
                 }
             }
@@ -380,8 +357,9 @@ final class ConversationsViewModel {
             .publisher(for: .explosionNotificationTapped)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.selectedConversation = nil
-                self?.presentingExplodeInfo = true
+                guard let self else { return }
+                self.navState.selectedConversationId = nil
+                self.navigator.present(explodeInfo: ExplodeInfoNavigatorArgs())
             }
             .store(in: &cancellables)
 
@@ -407,9 +385,9 @@ final class ConversationsViewModel {
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
-                if let selectedId = _selectedConversationId,
+                if let selectedId = navState.selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
-                    selectedConversationId = nil
+                    navState.selectedConversationId = nil
                 }
 
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
@@ -425,7 +403,7 @@ final class ConversationsViewModel {
                 guard let self else { return }
                 if let conversation = self.selectedConversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
-                } else if let conversation = self.newConversationViewModel?.conversationViewModel?.conversation {
+                } else if let conversation = self.navState.newConversationViewModel?.conversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
                 }
             }
@@ -444,9 +422,9 @@ final class ConversationsViewModel {
             "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
         )
 
-        if let conversation = conversations.first(where: { $0.id == conversationId }) {
+        if conversations.contains(where: { $0.id == conversationId }) {
             Log.info("Found conversation, selecting it")
-            selectedConversation = conversation
+            navigator.navigateTo(conversation: ConversationNavigatorArgs(conversationId: conversationId))
         } else {
             Log.warning("Conversation \(conversationId) not found in current conversation list")
         }
@@ -496,7 +474,7 @@ final class ConversationsViewModel {
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
             } catch ConversationLocalStateWriterError.pinLimitReached {
                 await MainActor.run {
-                    self.presentingPinLimitInfo = true
+                    self.navigator.present(pinLimitInfo: PinLimitInfoNavigatorArgs())
                 }
             } catch {
                 Log.error("Failed toggling pin for conversation \(conversationId): \(error.localizedDescription)")
@@ -525,7 +503,7 @@ final class ConversationsViewModel {
 
         hiddenConversationIds.insert(conversationId)
         if selectedConversation == conversation {
-            selectedConversation = nil
+            navState.selectedConversationId = nil
         }
         conversations.removeAll { $0.id == conversationId }
 
@@ -592,12 +570,16 @@ final class ConversationsViewModel {
 extension ConversationsViewModel {
     static var mock: ConversationsViewModel {
         let client = ConvosClient.mock()
-        return .init(session: client.session)
+        let navState = ConversationsNavigatorImpl(session: client.session)
+        let navigator = ConversationsCollector(instance: navState, delegate: ConvosCollectorDelegate())
+        return .init(session: client.session, navigator: navigator, navState: navState)
     }
 
     static func preview(conversations: [Conversation]) -> ConversationsViewModel {
         let client = ConvosClient.mock()
-        let vm = ConversationsViewModel(session: client.session)
+        let navState = ConversationsNavigatorImpl(session: client.session)
+        let navigator = ConversationsCollector(instance: navState, delegate: ConvosCollectorDelegate())
+        let vm = ConversationsViewModel(session: client.session, navigator: navigator, navState: navState)
         vm.conversations = conversations
         return vm
     }
