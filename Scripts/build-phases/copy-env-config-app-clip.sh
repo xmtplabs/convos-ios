@@ -4,10 +4,10 @@ set -e
 # Part 1: Generate Secrets.swift for App Clip (Local and Dev builds)
 if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
     echo "🔧 $CONFIGURATION build detected - generating App Clip secrets from .env"
-    
+
     SECRETS_FILE="${SRCROOT}/ConvosAppClip/Config/Secrets.swift"
     mkdir -p "${SRCROOT}/ConvosAppClip/Config"
-    
+
     # Read Firebase debug token from .env
     FIREBASE_TOKEN=""
     CONVOS_API_BASE_URL=""
@@ -16,7 +16,7 @@ if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
 
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
-    
+
     if [ -n "$FIREBASE_TOKEN" ]; then
         echo "✅ Found Firebase debug token in .env"
     else

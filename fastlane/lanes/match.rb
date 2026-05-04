@@ -12,4 +12,18 @@ platform :ios do
       force_for_new_devices: true,
     )
   end
+
+  desc "Regenerate every profile type (adhoc + development) for new devices. Used by the daily sync-devices workflow."
+  lane :sync_devices do
+    setup_app_store_connect_api_key
+
+    %w[adhoc development].each do |type|
+      match(
+        type: type,
+        readonly: false,
+        skip_certificate_matching: true,
+        force_for_new_devices: true,
+      )
+    end
+  end
 end

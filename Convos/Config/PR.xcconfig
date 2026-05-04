@@ -43,8 +43,13 @@ KEYCHAIN_GROUP_IDENTIFIER = $(MAIN_BUNDLE_ID)
 APP_DISPLAY_NAME = Convos PR
 APNS_ENVIRONMENT = production
 
-// Reuse the Dev app icon so we don't have to maintain a separate asset.
-ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
+// Ad-hoc PR builds aren't App Store-signed; Apple's App Attest server
+// returns development assertions, so use the development env to match.
+APP_ATTEST_ENVIRONMENT = development
+
+// PR icon mirrors the Dev blue gradient with a "PR" badge so testers can
+// tell PR builds apart from TestFlight Dev on their home screen.
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-PR
 
 // Debuggable build settings (Dev parity).
 SWIFT_OPTIMIZATION_LEVEL = -Onone

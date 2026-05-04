@@ -18,10 +18,10 @@
 		7AD545902E4EA8BE00500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD545932E4EA8F300500ADF /* ConvosCore */; };
 		7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
+		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E2A888849D41387DB99FBFE5 /* QAAutomationServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */; };
-		7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -115,6 +115,7 @@
 
 /* Begin PBXFileReference section */
 		36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServer.swift; sourceTree = "<group>"; };
+		3B696FDE2FA9315B006BE4F3 /* GoogleService-Info.PR.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.PR.plist"; path = "Convos/Config/GoogleService-Info.PR.plist"; sourceTree = "<group>"; };
 		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
@@ -254,7 +255,7 @@
 				7A5579B22E7B4C1900882661 /* SwiftUIIntrospect in Frameworks */,
 				7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */,
 				7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */,
-							7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */,
+				7AE0C12PC120BCLIP0000002 /* ConvosCoreiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -344,6 +345,7 @@
 		D8A2B6882DA4BA4B00EF8577 = {
 			isa = PBXGroup;
 			children = (
+				3B696FDE2FA9315B006BE4F3 /* GoogleService-Info.PR.plist */,
 				4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */,
 				7AD5458D2E4EA89400500ADF /* ConvosCore */,
 				D8477AD42DCBA52F00E31E54 /* .env */,
@@ -472,7 +474,7 @@
 				7AD545932E4EA8F300500ADF /* ConvosCore */,
 				7A5579AF2E7B4C0800882661 /* DifferenceKit */,
 				7A5579B12E7B4C1900882661 /* SwiftUIIntrospect */,
-							7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */,
+				7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */,
 			);
 			productName = ConvosAppClip;
 			productReference = 7ADC0C6E2E2977800053978A /* ConvosAppClip.app */;
@@ -1785,8 +1787,8 @@
 				INFOPLIST_FILE = ConvosAppClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1833,8 +1835,8 @@
 				INFOPLIST_FILE = ConvosAppClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -2091,8 +2093,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -2140,8 +2142,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -2384,8 +2386,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -2488,8 +2490,8 @@
 				INFOPLIST_FILE = ConvosAppClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -2744,14 +2746,14 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = ConvosCore;
 		};
+		7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosCoreiOS;
+		};
 		D8084BA82DC9193A00E708B0 /* DifferenceKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */;
 			productName = DifferenceKit;
-		};
-		7AE0C12PC120BCLIP0000001 /* ConvosCoreiOS */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = ConvosCoreiOS;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
