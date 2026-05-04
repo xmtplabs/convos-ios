@@ -1,6 +1,7 @@
 import Combine
 import ConvosCore
 import ConvosInvites
+import NavigationMetrics
 import SwiftUI
 
 // MARK: - Error Types
@@ -158,12 +159,19 @@ class NewConversationViewModel: Identifiable {
 
     // MARK: - Init
 
+    let navState: NewConversationNavigatorImpl
+    let navigator: any NewConversationNavigator
+
     init(
         session: any SessionManagerProtocol,
-        mode: NewConversationMode
+        mode: NewConversationMode,
+        metricsDelegate: CollectorDelegate = CollectorDelegate()
     ) {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
+        let navState = NewConversationNavigatorImpl()
+        self.navState = navState
+        self.navigator = NewConversationCollector(instance: navState, delegate: metricsDelegate)
 
         if case .newConversationWithTemplate(let templateId) = mode {
             self.pendingAgentTemplateId = templateId
@@ -210,6 +218,7 @@ class NewConversationViewModel: Identifiable {
     internal init(
         session: any SessionManagerProtocol,
         messagingService: AnyMessagingService,
+        metricsDelegate: CollectorDelegate = CollectorDelegate(),
         existingConversationId: String? = nil,
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
@@ -217,6 +226,9 @@ class NewConversationViewModel: Identifiable {
     ) {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
+        let navState = NewConversationNavigatorImpl()
+        self.navState = navState
+        self.navigator = NewConversationCollector(instance: navState, delegate: metricsDelegate)
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false

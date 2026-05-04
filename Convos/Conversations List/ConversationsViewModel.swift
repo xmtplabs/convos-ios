@@ -37,7 +37,8 @@ final class ConversationsViewModel {
                 updateSelectionTask?.cancel()
                 let viewModel = ConversationViewModel.createSync(
                     conversation: conversation,
-                    session: session
+                    session: session,
+                    metricsDelegate: navState.metricsDelegate
                 )
                 selectedConversationViewModel = viewModel
                 markConversationAsRead(conversation)
@@ -570,15 +571,17 @@ final class ConversationsViewModel {
 extension ConversationsViewModel {
     static var mock: ConversationsViewModel {
         let client = ConvosClient.mock()
-        let navState = ConversationsNavigatorImpl(session: client.session)
-        let navigator = ConversationsCollector(instance: navState, delegate: ConvosCollectorDelegate())
+        let delegate = CollectorDelegate()
+        let navState = ConversationsNavigatorImpl(session: client.session, metricsDelegate: delegate)
+        let navigator = ConversationsCollector(instance: navState, delegate: delegate)
         return .init(session: client.session, navigator: navigator, navState: navState)
     }
 
     static func preview(conversations: [Conversation]) -> ConversationsViewModel {
         let client = ConvosClient.mock()
-        let navState = ConversationsNavigatorImpl(session: client.session)
-        let navigator = ConversationsCollector(instance: navState, delegate: ConvosCollectorDelegate())
+        let delegate = CollectorDelegate()
+        let navState = ConversationsNavigatorImpl(session: client.session, metricsDelegate: delegate)
+        let navigator = ConversationsCollector(instance: navState, delegate: delegate)
         let vm = ConversationsViewModel(session: client.session, navigator: navigator, navState: navState)
         vm.conversations = conversations
         return vm

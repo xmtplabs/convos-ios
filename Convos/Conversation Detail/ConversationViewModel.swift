@@ -3,6 +3,7 @@ import Combine
 import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
+import NavigationMetrics
 import Observation
 import SwiftUI
 import UIKit
@@ -429,8 +430,25 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private(set) var isSendingMedia: Bool = false
     var explodeState: ExplodeState = .ready
 
-    var presentingConversationSettings: Bool = false
-    var presentingProfileSettings: Bool = false
+    @ObservationIgnored
+    var navState: ConversationNavigatorImpl
+    @ObservationIgnored
+    var navigator: any ConversationNavigator
+    @ObservationIgnored
+    var conversationInfoNavState: ConversationInfoNavigatorImpl
+    @ObservationIgnored
+    var conversationInfoNavigator: any ConversationInfoNavigator
+    @ObservationIgnored
+    let metricsDelegate: CollectorDelegate
+
+    var presentingConversationSettings: Bool {
+        get { navState.presentingConversationSettings }
+        set { navState.presentingConversationSettings = newValue }
+    }
+    var presentingProfileSettings: Bool {
+        get { navState.presentingProfileSettings }
+        set { navState.presentingProfileSettings = newValue }
+    }
 
     /// The agent's most-recent unresolved `capability_request` for this conversation.
     /// When non-nil, `ConversationView` renders the picker card in the same slot the
@@ -443,15 +461,33 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
-    var presentingConversationForked: Bool = false
+    var presentingConversationForked: Bool {
+        get { navState.presentingConversationForked }
+        set { navState.presentingConversationForked = newValue }
+    }
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var replyingToMessage: AnyMessage?
-    var presentingShareView: Bool = false
-    var presentingRevealMediaInfoSheet: Bool = false
-    var presentingPhotosInfoSheet: Bool = false
-    var presentingAssistantConfirmation: Bool = false
-    var presentingExplodedInviteInfo: Bool = false
+    var presentingShareView: Bool {
+        get { navState.presentingShareView }
+        set { navState.presentingShareView = newValue }
+    }
+    var presentingRevealMediaInfoSheet: Bool {
+        get { navState.presentingRevealMediaInfoSheet }
+        set { navState.presentingRevealMediaInfoSheet = newValue }
+    }
+    var presentingPhotosInfoSheet: Bool {
+        get { navState.presentingPhotosInfoSheet }
+        set { navState.presentingPhotosInfoSheet = newValue }
+    }
+    var presentingAssistantConfirmation: Bool {
+        get { navState.presentingAssistantConfirmation }
+        set { navState.presentingAssistantConfirmation = newValue }
+    }
+    var presentingExplodedInviteInfo: Bool {
+        get { navState.presentingExplodedInviteInfo }
+        set { navState.presentingExplodedInviteInfo = newValue }
+    }
     var activeToast: IndicatorToastStyle?
 
     var assistantJoinForceErrorCode: Int?
@@ -509,7 +545,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     func onPhotoAttached() {
         guard !hasShownPhotosInfoSheet else { return }
         hasShownPhotosInfoSheet = true
-        presentingPhotosInfoSheet = true
+        navigator.present(photosInfo: PhotosInfoNavigatorArgs())
     }
 
     func onRequestAssistantJoin() {
@@ -518,7 +554,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             return
         }
         hasShownAssistantConfirmation = true
-        presentingAssistantConfirmation = true
+        navigator.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversation.id))
     }
 
     var shouldBlurPhotos: Bool {
@@ -575,13 +611,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     static func createSync(
         conversation: Conversation,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        metricsDelegate: CollectorDelegate = CollectorDelegate()
     ) -> ConversationViewModel {
         let messagingService = session.messagingServiceSync()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
-            messagingService: messagingService
+            messagingService: messagingService,
+            metricsDelegate: metricsDelegate
         )
     }
 
@@ -590,7 +628,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
-        applyGlobalDefaultsForNewConversation: Bool = false
+        applyGlobalDefaultsForNewConversation: Bool = false,
+        metricsDelegate: CollectorDelegate = CollectorDelegate()
     ) {
         let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
@@ -598,6 +637,13 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
+        self.metricsDelegate = metricsDelegate
+        let navState = ConversationNavigatorImpl()
+        self.navState = navState
+        self.navigator = ConversationCollector(instance: navState, delegate: metricsDelegate)
+        let infoNavState = ConversationInfoNavigatorImpl()
+        self.conversationInfoNavState = infoNavState
+        self.conversationInfoNavigator = ConversationInfoCollector(instance: infoNavState, delegate: metricsDelegate)
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -676,13 +722,21 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         messagingService: any MessagingServiceProtocol,
         conversationStateManager: any ConversationStateManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
-        applyGlobalDefaultsForNewConversation: Bool = false
+        applyGlobalDefaultsForNewConversation: Bool = false,
+        metricsDelegate: CollectorDelegate = CollectorDelegate()
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
+        self.metricsDelegate = metricsDelegate
+        let navState = ConversationNavigatorImpl()
+        self.navState = navState
+        self.navigator = ConversationCollector(instance: navState, delegate: metricsDelegate)
+        let infoNavState = ConversationInfoNavigatorImpl()
+        self.conversationInfoNavState = infoNavState
+        self.conversationInfoNavigator = ConversationInfoCollector(instance: infoNavState, delegate: metricsDelegate)
 
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
@@ -1476,7 +1530,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         if conversation.shouldShowQuickEdit {
             focusCoordinator.moveFocus(to: .conversationName)
         } else {
-            presentingConversationSettings = true
+            navigator.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversation.id))
         }
     }
 
@@ -1547,7 +1601,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
 extension ConversationViewModel {
     func onConversationSettings(focusCoordinator: FocusCoordinator) {
-        presentingConversationSettings = true
+        navigator.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversation.id))
         focusCoordinator.moveFocus(to: nil)
     }
 
@@ -2158,6 +2212,10 @@ extension ConversationViewModel {
             presentingProfileSettings = true
             return
         }
+        navigator.present(memberProfile: MemberProfileNavigatorArgs(
+            conversationId: conversation.id,
+            memberId: member.profile.inboxId
+        ))
         presentingProfileForMember = member
     }
 
@@ -2169,12 +2227,17 @@ extension ConversationViewModel {
 
     func onTapInvite(_ invite: MessageInvite) {
         if invite.isConversationExpired || invite.isInviteExpired {
-            presentingExplodedInviteInfo = true
+            navigator.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
             return
         }
+        navigator.present(newConversation: NewConversationNavigatorArgs(
+            mode: .joinInvite,
+            inviteCode: invite.inviteSlug
+        ))
         presentingNewConversationForInvite = NewConversationViewModel(
             session: session,
-            mode: .joinInvite(code: invite.inviteSlug)
+            mode: .joinInvite(code: invite.inviteSlug),
+            metricsDelegate: metricsDelegate
         )
     }
 
@@ -2197,7 +2260,7 @@ extension ConversationViewModel {
     }
 
     func onProfileSettings() {
-        presentingProfileSettings = true
+        navigator.present(myInfo: MyInfoNavigatorArgs())
     }
 
     func remove(member: ConversationMember) {
@@ -2599,6 +2662,10 @@ extension ConversationViewModel {
     }
 
     func onTapReactions(_ message: AnyMessage) {
+        navigator.present(reactions: ReactionsNavigatorArgs(
+            conversationId: conversation.id,
+            messageId: message.id
+        ))
         presentingReactionsForMessage = message
     }
 
@@ -2665,7 +2732,7 @@ extension ConversationViewModel {
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true
             hasShownRevealToast = true
-            presentingRevealMediaInfoSheet = true
+            navigator.present(revealMediaInfo: RevealMediaInfoNavigatorArgs())
         } else if !hasShownRevealToast {
             hasShownRevealToast = true
             showRevealSettingsToast()

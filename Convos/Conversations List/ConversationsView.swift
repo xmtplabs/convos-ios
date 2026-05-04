@@ -301,6 +301,8 @@ private struct ConversationsSheetModifier: ViewModifier {
             .sheet(isPresented: $navState.presentingAppSettings) {
                 AppSettingsView(
                     viewModel: viewModel.appSettingsViewModel,
+                    navState: navState.appSettingsNavState,
+                    navigator: navState.appSettingsNavigator,
                     profileSettingsViewModel: profileSettingsViewModel,
                     session: viewModel.session,
                     onDeleteAllData: viewModel.deleteAllData

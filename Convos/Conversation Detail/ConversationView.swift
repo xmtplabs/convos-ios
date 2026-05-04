@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import NavigationMetrics
 import SwiftUI
 
 struct ConversationView<MessagesBottomBar: View>: View {
@@ -14,10 +15,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTextFieldEnabled: Bool
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
-    @State private var showingLockedInfo: Bool = false
-    @State private var showingProcessingPowerInfo: Bool = false
-    @State private var showingFullInfo: Bool = false
-    @State private var showingAssistantsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
@@ -112,21 +109,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
-            onPhotoSelected: viewModel.addPhotoAttachment(_:),
-            onVideoSelected: viewModel.addVideoAttachment(url:),
-            onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
-            onAboutAssistants: { showingAssistantsInfo = true },
-            onAgentOutOfCredits: { showingProcessingPowerInfo = true },
-            onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
+            onVideoSelected: viewModel.onVideoSelected(_:),
+            onFileSelected: viewModel.onFileSelected(url:filename:mimeType:fileSize:),
+            onAboutAssistants: { viewModel.navigator.present(assistantInfo: AssistantInfoNavigatorArgs()) },
+            onAgentOutOfCredits: { viewModel.navigator.present(processingPowerInfo: ProcessingPowerInfoNavigatorArgs()) },
+            onTapUpdateMember: { member in
+                viewModel.navigator.present(memberProfile: MemberProfileNavigatorArgs(
+                    conversationId: viewModel.conversation.id,
+                    memberId: member.profile.inboxId
+                ))
+                viewModel.presentingProfileForMember = member
+            },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
             onCopyInviteLink: { viewModel.copyInviteLink() },
             onConvoCode: {
                 if viewModel.isFull {
-                    showingFullInfo = true
+                    viewModel.navigator.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
                 } else {
-                    viewModel.presentingShareView = true
+                    viewModel.navigator.present(shareInvite: ShareInviteNavigatorArgs(conversationId: viewModel.conversation.id))
                 }
             },
             onInviteAssistant: { viewModel.onRequestAssistantJoin() },
@@ -231,7 +233,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var lockedInfoButton: some View {
         Button {
-            showingLockedInfo = true
+            viewModel.navigator.present(lockedConvoInfo: LockedConvoInfoNavigatorArgs(conversationId: viewModel.conversation.id))
         } label: {
             Image(systemName: "lock.fill")
                 .foregroundStyle(.colorTextSecondary)
@@ -249,9 +251,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isEnabled: messagesTopBarTrailingItemEnabled,
             onConvoCode: {
                 if viewModel.isFull {
-                    showingFullInfo = true
+                    viewModel.navigator.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
                 } else {
-                    viewModel.presentingShareView = true
+                    viewModel.navigator.present(shareInvite: ShareInviteNavigatorArgs(conversationId: viewModel.conversation.id))
                 }
             },
             onCopyLink: {
@@ -346,21 +348,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .onAppear { viewModel.onConversationAppeared() }
+        .onAppear {
+            viewModel.onConversationAppeared()
+            viewModel.navState.markScreenAppeared()
+        }
         .task {
-            // Refresh credits on conversation appearance so the
-            // LowBalanceBanner above reflects current backend state. TTL-
-            // debounced; safe to fire on every nav.
             await CreditsServices.shared.refresh()
-            // Future: once the agent runtime burns credits per turn via
-            // /v2/credits/consume (convos-assistants follow-up), hook into
-            // the XMTP message-arrival publisher here to refresh credits
-            // immediately after an agent reply lands — the highest-value
-            // freshness trigger we have without push notifications.
         }
         .onDisappear {
             focusCoordinator.dismissStuffSearchIfNeeded()
             viewModel.onConversationDisappeared()
+            let durationSecs = viewModel.navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+            viewModel.navigator.closed(context: ScreenContext(durationSecs: durationSecs))
         }
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {
@@ -417,11 +416,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
             .padding(.top, 20)
         }
-        .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
+        .selfSizingSheet(isPresented: $viewModel.navState.presentingProcessingPowerInfo) {
             AssistantProcessingPowerInfoView()
                 .padding(.top, 20)
         }
-        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
+        .selfSizingSheet(isPresented: $viewModel.navState.presentingAssistantInfo) {
             AssistantsInfoView()
                 .padding(.top, 20)
         }
@@ -436,22 +435,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
             ReadByDrawerView(members: group.readByMembers)
         }
-        .selfSizingSheet(isPresented: $showingLockedInfo) {
+        .selfSizingSheet(isPresented: $viewModel.navState.presentingLockedConvoInfo) {
             LockedConvoInfoView(
                 isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
                 isLocked: viewModel.isLocked,
                 onLock: {
                     viewModel.toggleLock()
-                    showingLockedInfo = false
+                    viewModel.navState.presentingLockedConvoInfo = false
                 },
                 onDismiss: {
-                    showingLockedInfo = false
+                    viewModel.navState.presentingLockedConvoInfo = false
                 }
             )
         }
-        .selfSizingSheet(isPresented: $showingFullInfo) {
+        .selfSizingSheet(isPresented: $viewModel.navState.presentingFullConvoInfo) {
             FullConvoInfoView(onDismiss: {
-                showingFullInfo = false
+                viewModel.navState.presentingFullConvoInfo = false
             })
         }
         .selfSizingSheet(

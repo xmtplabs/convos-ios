@@ -21,10 +21,25 @@ final class ConversationsNavigatorImpl: @preconcurrency ConversationsNavigator {
     @ObservationIgnored
     private(set) var screenAppearAt: Date?
 
+    @ObservationIgnored
     private let session: any SessionManagerProtocol
+    @ObservationIgnored
+    let metricsDelegate: CollectorDelegate
 
-    init(session: any SessionManagerProtocol) {
+    @ObservationIgnored
+    let appSettingsNavState: AppSettingsNavigatorImpl
+    @ObservationIgnored
+    let appSettingsNavigator: any AppSettingsNavigator
+
+    init(session: any SessionManagerProtocol, metricsDelegate: CollectorDelegate) {
         self.session = session
+        self.metricsDelegate = metricsDelegate
+        let appSettingsImpl = AppSettingsNavigatorImpl()
+        self.appSettingsNavState = appSettingsImpl
+        self.appSettingsNavigator = AppSettingsCollector(
+            instance: appSettingsImpl,
+            delegate: metricsDelegate
+        )
     }
 
     func markScreenAppeared() {
@@ -48,7 +63,11 @@ final class ConversationsNavigatorImpl: @preconcurrency ConversationsNavigator {
         case .scanner: .scanner
         case .joinInvite: .joinInvite(code: args.inviteCode ?? "")
         }
-        newConversationViewModel = NewConversationViewModel(session: session, mode: mode)
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: mode,
+            metricsDelegate: metricsDelegate
+        )
     }
 
     func present(explodeConfirmation args: ExplodeConfirmationNavigatorArgs) {

@@ -2,7 +2,7 @@ import ConvosCore
 import Foundation
 import NavigationMetrics
 
-final class ConvosCollectorDelegate: CollectorDelegate {
+final class LoggingCollectorDelegate: CollectorDelegate {
     override func navigatedTo(source: String, target: String) {
         Log.info("nav: \(source) -> \(target)")
     }
