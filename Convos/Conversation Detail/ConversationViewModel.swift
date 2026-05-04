@@ -1308,6 +1308,7 @@ extension ConversationViewModel {
                     try await sendStagedPhoto(photo, replyToMessageId: attachmentReplyId, messageWriter: messageWriter)
                 case .video(let video):
                     _ = try await messageWriter.sendVideo(at: video.url, replyToMessageId: attachmentReplyId)
+                    try? FileManager.default.removeItem(at: video.url)
                 case .file(let file):
                     _ = try await messageWriter.sendFile(
                         at: file.url,
