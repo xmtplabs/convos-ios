@@ -5,6 +5,39 @@ import Testing
 
 @Suite("ContactsWriter Tests", .serialized)
 struct ContactsWriterTests {
+    /// Inserts a minimal `conversation` row so a contact can FK against it.
+    /// `contact.addedViaConversationId` references `conversation(id)`; tests
+    /// that exercise non-nil `addedViaConversationId` need the parent row to
+    /// exist first.
+    private static func seedMinimalConversation(_ db: Database, id: String) throws {
+        let creatorInboxId = "creator-\(id)"
+        try DBMember(inboxId: creatorInboxId).save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: id,
+            inviteTag: "tag-\(id)",
+            creatorId: creatorInboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAssistant: false
+        ).insert(db)
+    }
+
     @Test("upsertContact preserves addedAt and addedViaConversationId on subsequent calls")
     func testIdempotentUpsertPreservesIdentityColumns() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -13,6 +46,11 @@ struct ContactsWriterTests {
         let inboxId = "inbox-1"
         let originalConversation = "conv-original"
         let later = "conv-later"
+
+        try await dbManager.dbWriter.write { db in
+            try Self.seedMinimalConversation(db, id: originalConversation)
+            try Self.seedMinimalConversation(db, id: later)
+        }
 
         try await writer.upsertContact(
             inboxId: inboxId,
