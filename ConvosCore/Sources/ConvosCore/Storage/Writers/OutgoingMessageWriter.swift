@@ -69,6 +69,7 @@ enum OutgoingMessageWriterError: Error, CustomStringConvertible {
     case conversationNotFound(conversationId: String)
     case eagerUploadNotFound
     case parentMessageNotFound
+    case eagerUploadCancelled
 
     var description: String {
         switch self {
@@ -78,6 +79,8 @@ enum OutgoingMessageWriterError: Error, CustomStringConvertible {
             return "Eager upload not found"
         case .parentMessageNotFound:
             return "Parent message not found"
+        case .eagerUploadCancelled:
+            return "Eager upload was cancelled"
         }
     }
 }
@@ -514,7 +517,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             await markPhotoFailed(trackingKey: trackingKey)
             eagerUploads.removeValue(forKey: trackingKey)
-        } else if let state = eagerVideoUploads[trackingKey] {
+        } else if var state = eagerVideoUploads[trackingKey] {
             Log.debug("Cancelling eager video upload for: \(trackingKey)")
 
             if let prepared = state.prepared {
@@ -530,7 +533,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             PhotoUploadProgressTracker.shared.clear(key: trackingKey)
 
             await markPhotoFailed(trackingKey: trackingKey)
+
+            let waitingContinuation = state.waitingContinuation
+            state.waitingContinuation = nil
             eagerVideoUploads.removeValue(forKey: trackingKey)
+            waitingContinuation?.resume(throwing: OutgoingMessageWriterError.eagerUploadCancelled)
         }
     }
 

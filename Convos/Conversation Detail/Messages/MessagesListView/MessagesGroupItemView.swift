@@ -754,6 +754,15 @@ private struct AttachmentPlaceholder: View {
     }
 
     private func loadAttachment() async {
+        // Reset all per-attachment state so a re-fire from .task(id:) on a
+        // changed key (e.g. file:// → https:// once the upload publishes)
+        // doesn't show stale visuals or hold onto the previous AVPlayer.
+        inlinePlayer?.pause()
+        inlinePlayer = nil
+        isPlaying = false
+        loadedImage = nil
+        isLoadingVideo = false
+        videoLoadFailed = false
         isLoading = true
         loadError = nil
 
@@ -762,6 +771,23 @@ private struct AttachmentPlaceholder: View {
         } else {
             await loadPhotoAttachment()
         }
+    }
+
+    // Returns false if the in-flight local file never showed up (timeout or
+    // task cancellation). Returns true when the file is on disk or the key
+    // doesn't point to a local file at all.
+    private func waitForLocalVideoFileIfNeeded() async -> Bool {
+        guard attachment.key.hasPrefix("file://") else { return true }
+        let path = String(attachment.key.dropFirst("file://".count))
+        if FileManager.default.fileExists(atPath: path) { return true }
+        isLoadingVideo = true
+        let deadline = Date().addingTimeInterval(60)
+        while !FileManager.default.fileExists(atPath: path),
+              !Task.isCancelled,
+              Date() < deadline {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return FileManager.default.fileExists(atPath: path) && !Task.isCancelled
     }
 
     private func loadVideoAttachment() async {
@@ -788,16 +814,9 @@ private struct AttachmentPlaceholder: View {
             }
         }
 
-        // If the message points to a local file that isn't on disk yet (eager
-        // pipeline still preparing it) and we already have a thumbnail loaded,
-        // skip the video-URL resolution. The message will refresh once
-        // publishAttachment updates it with the remote asset URL.
-        if loadedImage != nil, attachment.key.hasPrefix("file://") {
-            let path = String(attachment.key.dropFirst("file://".count))
-            if !FileManager.default.fileExists(atPath: path) {
-                isLoadingVideo = false
-                return
-            }
+        if !(await waitForLocalVideoFileIfNeeded()) {
+            isLoadingVideo = false
+            return
         }
 
         do {

@@ -1371,15 +1371,28 @@ extension ConversationViewModel {
         // a fresh start if the upload hadn't kicked off yet (race: user staged + sent
         // before the eager-upload task had a chance to write back the tracking key).
         let trackingKey: String
+        let isFreshKey: Bool
         if let existing = photo.eagerUploadKey {
             trackingKey = existing
+            isFreshKey = false
         } else {
             trackingKey = try await messageWriter.startEagerUpload(image: photo.image)
+            isFreshKey = true
         }
-        if let replyToMessageId {
-            try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
-        } else {
-            try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+        do {
+            if let replyToMessageId {
+                try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
+            } else {
+                try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+            }
+        } catch {
+            // The freshly-obtained key isn't on the PendingPhotoAttachment yet,
+            // so cleanupAttachment in the outer catch wouldn't know to cancel
+            // it. Cancel directly so the pipeline doesn't orphan resources.
+            if isFreshKey {
+                await messageWriter.cancelEagerUpload(trackingKey: trackingKey)
+            }
+            throw error
         }
     }
 
