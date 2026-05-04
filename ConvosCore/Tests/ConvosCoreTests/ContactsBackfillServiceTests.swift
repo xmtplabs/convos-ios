@@ -84,7 +84,7 @@ struct ContactsBackfillServiceTests {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let selfInboxId = "self-inbox"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
 
             try Self.seedConversation(
@@ -114,12 +114,12 @@ struct ContactsBackfillServiceTests {
         )
         try await backfill.backfillIfNeeded()
 
-        let inboxIds: Set<String> = try dbManager.dbReader.read { db in
+        let inboxIds: Set<String> = try await dbManager.dbReader.read { db in
             Set(try DBContact.fetchAll(db).map(\.inboxId))
         }
         #expect(inboxIds == Set(["alice"]))
 
-        let markers: [String] = try dbManager.dbReader.read { db in
+        let markers: [String] = try await dbManager.dbReader.read { db in
             try DBConversationContactsSync.fetchAll(db).map(\.conversationId)
         }
         #expect(markers == ["acted"])
@@ -139,7 +139,7 @@ struct ContactsBackfillServiceTests {
         )
         try await backfill.backfillIfNeeded()
 
-        let count = try dbManager.dbReader.read { db in
+        let count = try await dbManager.dbReader.read { db in
             try DBContact.fetchCount(db)
         }
         #expect(count == 0)

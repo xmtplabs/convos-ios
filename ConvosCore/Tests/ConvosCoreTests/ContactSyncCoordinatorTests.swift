@@ -69,7 +69,7 @@ struct ContactSyncCoordinatorTests {
         let selfInboxId = "self-inbox"
         let conversationId = "conv-1"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -89,7 +89,7 @@ struct ContactSyncCoordinatorTests {
         )
         try await coordinator.syncContacts(for: conversationId, force: false)
 
-        let contacts: [DBContact] = try dbManager.dbReader.read { db in
+        let contacts: [DBContact] = try await dbManager.dbReader.read { db in
             try DBContact.fetchAll(db)
         }
         #expect(Set(contacts.map(\.inboxId)) == Set(["alice", "bob"]))
@@ -98,7 +98,7 @@ struct ContactSyncCoordinatorTests {
         #expect(alice?.avatarURL == "https://example.com/a.png")
         #expect(alice?.addedViaConversationId == conversationId)
 
-        let marker = try dbManager.dbReader.read { db in
+        let marker = try await dbManager.dbReader.read { db in
             try DBConversationContactsSync.fetchOne(db, key: conversationId)
         }
         #expect(marker != nil)
@@ -110,7 +110,7 @@ struct ContactSyncCoordinatorTests {
         let selfInboxId = "self-inbox"
         let conversationId = "conv-1"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -126,7 +126,7 @@ struct ContactSyncCoordinatorTests {
         )
         try await coordinator.syncContacts(for: conversationId, force: false)
 
-        let firstAddedAt = try dbManager.dbReader.read { db in
+        let firstAddedAt = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: "alice")?.addedAt
         }
 
@@ -134,7 +134,7 @@ struct ContactSyncCoordinatorTests {
 
         try await coordinator.syncContacts(for: conversationId, force: false)
 
-        let secondAddedAt = try dbManager.dbReader.read { db in
+        let secondAddedAt = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: "alice")?.addedAt
         }
         #expect(firstAddedAt == secondAddedAt)
@@ -146,7 +146,7 @@ struct ContactSyncCoordinatorTests {
         let selfInboxId = "self-inbox"
         let conversationId = "conv-1"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -162,7 +162,7 @@ struct ContactSyncCoordinatorTests {
         )
         try await coordinator.syncContacts(for: conversationId, force: true)
 
-        let contacts: [DBContact] = try dbManager.dbReader.read { db in
+        let contacts: [DBContact] = try await dbManager.dbReader.read { db in
             try DBContact.fetchAll(db)
         }
         #expect(contacts.isEmpty)
@@ -174,7 +174,7 @@ struct ContactSyncCoordinatorTests {
         let selfInboxId = "self-inbox"
         let conversationId = "conv-1"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -191,7 +191,7 @@ struct ContactSyncCoordinatorTests {
         try await coordinator.syncContacts(for: conversationId, force: false)
 
         // Add a new member after the initial sync.
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBMember(inboxId: "carol").save(db, onConflict: .ignore)
             try DBConversationMember(
                 conversationId: conversationId,
@@ -205,7 +205,7 @@ struct ContactSyncCoordinatorTests {
 
         try await coordinator.syncContacts(for: conversationId, force: true)
 
-        let contactIds: Set<String> = try dbManager.dbReader.read { db in
+        let contactIds: Set<String> = try await dbManager.dbReader.read { db in
             Set(try DBContact.fetchAll(db).map(\.inboxId))
         }
         #expect(contactIds == Set(["alice", "carol"]))
@@ -217,7 +217,7 @@ struct ContactSyncCoordinatorTests {
         let selfInboxId = "self-inbox"
         let conversationId = "conv-1"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -233,7 +233,7 @@ struct ContactSyncCoordinatorTests {
         )
         try await coordinator.syncContacts(for: conversationId, force: false)
 
-        let inboxIds: [String] = try dbManager.dbReader.read { db in
+        let inboxIds: [String] = try await dbManager.dbReader.read { db in
             try DBContact.fetchAll(db).map(\.inboxId)
         }
         #expect(!inboxIds.contains(selfInboxId))
@@ -245,7 +245,7 @@ struct ContactSyncCoordinatorTests {
         let selfInboxId = "self-inbox"
         let conversationId = "conv-1"
 
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -274,7 +274,7 @@ struct ContactSyncCoordinatorTests {
         // a member. This mirrors the race we saw in the field where the
         // first-message hook fires before the StreamProcessor commits the
         // peer's `conversation_members` row.
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
             try Self.seedConversation(
                 db: db,
@@ -293,13 +293,13 @@ struct ContactSyncCoordinatorTests {
         // No contacts and no marker — we deliberately deferred so the next
         // outbound message gets another chance.
         #expect(try coordinator.hasSyncedContacts(for: conversationId) == false)
-        let count = try dbManager.dbReader.read { db in
+        let count = try await dbManager.dbReader.read { db in
             try DBContact.fetchCount(db)
         }
         #expect(count == 0)
 
         // Peer arrives.
-        try dbManager.dbWriter.write { db in
+        try await dbManager.dbWriter.write { db in
             try DBMember(inboxId: "alice").save(db, onConflict: .ignore)
             try DBConversationMember(
                 conversationId: conversationId,
@@ -315,7 +315,7 @@ struct ContactSyncCoordinatorTests {
         // and writes the marker.
         try await coordinator.syncContacts(for: conversationId, force: false)
         #expect(try coordinator.hasSyncedContacts(for: conversationId) == true)
-        let inboxIds: Set<String> = try dbManager.dbReader.read { db in
+        let inboxIds: Set<String> = try await dbManager.dbReader.read { db in
             Set(try DBContact.fetchAll(db).map(\.inboxId))
         }
         #expect(inboxIds == Set(["alice"]))

@@ -20,7 +20,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "First", profileUpdatedAt: Date(timeIntervalSince1970: 100))
         )
 
-        let firstAddedAt = try dbManager.dbReader.read { db in
+        let firstAddedAt = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)?.addedAt
         }
 
@@ -34,7 +34,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "Second", profileUpdatedAt: Date(timeIntervalSince1970: 200))
         )
 
-        let after = try dbManager.dbReader.read { db in
+        let after = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)
         }
 
@@ -61,7 +61,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "Older", profileUpdatedAt: Date(timeIntervalSince1970: 100))
         )
 
-        var contact = try dbManager.dbReader.read { db in
+        var contact = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)
         }
         #expect(contact?.displayName == "Latest")
@@ -72,7 +72,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "Newest", profileUpdatedAt: Date(timeIntervalSince1970: 300))
         )
 
-        contact = try dbManager.dbReader.read { db in
+        contact = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)
         }
         #expect(contact?.displayName == "Newest")
@@ -88,7 +88,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "Ghost")
         )
 
-        let count = try dbManager.dbReader.read { db in
+        let count = try await dbManager.dbReader.read { db in
             try DBContact.fetchCount(db)
         }
         #expect(count == 0)
@@ -118,7 +118,7 @@ struct ContactsWriterTests {
             )
         }
 
-        let contact = try dbManager.dbReader.read { db in
+        let contact = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)
         }
         #expect(contact?.displayName == "Mickey")
@@ -139,7 +139,7 @@ struct ContactsWriterTests {
             )
         }
 
-        let count = try dbManager.dbReader.read { db in
+        let count = try await dbManager.dbReader.read { db in
             try DBContact.fetchCount(db)
         }
         #expect(count == 0)
@@ -168,7 +168,7 @@ struct ContactsWriterTests {
             )
         }
 
-        let contact = try dbManager.dbReader.read { db in
+        let contact = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)
         }
         #expect(contact?.displayName == "Newer")
@@ -196,7 +196,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "Renamed", profileUpdatedAt: Date(timeIntervalSince1970: 200))
         )
 
-        let contact = try dbManager.dbReader.read { db in
+        let contact = try await dbManager.dbReader.read { db in
             try DBContact.fetchOne(db, key: inboxId)
         }
         #expect(contact?.displayName == "Renamed")
