@@ -15,6 +15,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
+        PostHogConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
         leftConversationObserver = NotificationCenter.default.addObserver(

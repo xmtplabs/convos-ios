@@ -49,6 +49,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = ""
     static let GATEWAY_URL: String = ""
     static let SENTRY_DSN: String = ""
+    static let POSTHOG_API_KEY: String = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
     static let GIT_COMMIT_SHA: String = ""
     static let AGENT_DEBUG_JWKS: String = ""
@@ -150,6 +151,7 @@ ENV_BACKEND_URL=""
 ENV_XMTP_HOST=""
 ENV_GATEWAY_URL=""
 ENV_SENTRY_DSN=""
+ENV_POSTHOG_API_KEY=""
 ENV_FIREBASE_DEBUG_TOKEN=""
 ENV_AGENT_DEBUG_JWKS=""
 ENV_HAS_BACKEND_URL=false
@@ -173,6 +175,9 @@ if [ -f ".env" ]; then
     fi
     if grep -v '^#' ".env" | grep -q '^SENTRY_DSN='; then
         ENV_SENTRY_DSN=$(grep -v '^#' ".env" | grep '^SENTRY_DSN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
+    fi
+    if grep -v '^#' ".env" | grep -q '^POSTHOG_API_KEY='; then
+        ENV_POSTHOG_API_KEY=$(grep -v '^#' ".env" | grep '^POSTHOG_API_KEY=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
     fi
     if grep -v '^#' ".env" | grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN='; then
         ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
@@ -270,6 +275,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = "$(swift_escape "$FINAL_XMTP_HOST")"
     static let GATEWAY_URL: String = "$(swift_escape "$FINAL_GATEWAY_URL")"
     static let SENTRY_DSN: String = "$(swift_escape "$ENV_SENTRY_DSN")"
+    static let POSTHOG_API_KEY: String = "$(swift_escape "$ENV_POSTHOG_API_KEY")"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = "$(swift_escape "$ENV_FIREBASE_DEBUG_TOKEN")"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = "$(swift_escape "$ENV_AGENT_DEBUG_JWKS")"
@@ -290,6 +296,7 @@ if [ -f ".env" ]; then
         [[ "$key" == "XMTP_CUSTOM_HOST" ]] && continue
         [[ "$key" == "GATEWAY_URL" ]] && continue
         [[ "$key" == "SENTRY_DSN" ]] && continue
+        [[ "$key" == "POSTHOG_API_KEY" ]] && continue
         [[ "$key" == "FIREBASE_APP_CHECK_DEBUG_TOKEN" ]] && continue
         [[ "$key" == "GIT_COMMIT_SHA" ]] && continue
         [[ "$key" == "AGENT_DEBUG_JWKS" ]] && continue

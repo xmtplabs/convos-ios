@@ -11,7 +11,7 @@ struct ConvosApp: App {
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
 
     private let convos: ConvosClient
-    let metricsDelegate: LoggingCollectorDelegate
+    let metricsDelegate: PostHogCollector
     let conversationsNavState: ConversationsNavigatorImpl
     let conversationsNavigator: ConversationsCollector
     let conversationsViewModel: ConversationsViewModel
@@ -95,7 +95,7 @@ struct ConvosApp: App {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
-        let metricsDelegate = LoggingCollectorDelegate()
+        let metricsDelegate = PostHogCollector()
         let navState = ConversationsNavigatorImpl(session: convos.session, metricsDelegate: metricsDelegate)
         let navigator = ConversationsCollector(instance: navState, delegate: metricsDelegate)
         self.metricsDelegate = metricsDelegate
