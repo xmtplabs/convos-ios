@@ -1062,6 +1062,15 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             sentMessageSubject.send(json)
             markPhotoPublished(trackingKey: trackingKey)
 
+            // For media we still have on disk locally (trackingKey is the
+            // file:// URL of the local cached copy), publish the mapping so
+            // the renderer can play from disk without re-downloading.
+            if let trackingURL = URL(string: trackingKey),
+               trackingURL.isFileURL,
+               FileManager.default.fileExists(atPath: trackingURL.path) {
+                await OutgoingMediaLocalCache.shared.register(trackingURL, for: json)
+            }
+
             return messageId
         } catch {
             tracker.setStage(.failed, for: trackingKey)

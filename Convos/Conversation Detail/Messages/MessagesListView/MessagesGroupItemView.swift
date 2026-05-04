@@ -924,6 +924,10 @@ private struct AttachmentPlaceholder: View {
             try data.write(to: tempURL)
             return tempURL
         }
+        if let local = await OutgoingMediaLocalCache.shared.url(for: key),
+           FileManager.default.fileExists(atPath: local.path) {
+            return local
+        }
         if let cached = await VideoURLCache.shared.url(for: key) {
             return cached
         }
