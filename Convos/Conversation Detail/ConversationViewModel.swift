@@ -394,7 +394,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         pendingMediaAttachments.isEmpty
     }
 
-    private(set) var isSendingPhoto: Bool = false
+    private(set) var isSendingMedia: Bool = false
     var explodeState: ExplodeState = .ready
 
     var presentingConversationSettings: Bool = false
@@ -1194,7 +1194,7 @@ extension ConversationViewModel {
                 Log.error("Error sending message: \(error)")
             }
 
-            isSendingPhoto = false
+            isSendingMedia = false
         }
     }
 
@@ -1291,7 +1291,7 @@ extension ConversationViewModel {
         messageWriter: any OutgoingMessageWriterProtocol
     ) async throws -> Bool {
         guard !attachments.isEmpty else { return false }
-        isSendingPhoto = true
+        isSendingMedia = true
 
         var consumedReply = false
         var nextIndex: Int = 0
@@ -1305,27 +1305,21 @@ extension ConversationViewModel {
                 case .video(let video):
                     _ = try await messageWriter.sendVideo(at: video.url, replyToMessageId: attachmentReplyId)
                 case .file(let file):
-                    do {
-                        _ = try await messageWriter.sendFile(
-                            at: file.url,
-                            filename: file.filename,
-                            mimeType: file.mimeType,
-                            replyToMessageId: attachmentReplyId
-                        )
-                        try? FileManager.default.removeItem(at: file.url)
-                    } catch {
-                        try? FileManager.default.removeItem(at: file.url)
-                        throw error
-                    }
+                    _ = try await messageWriter.sendFile(
+                        at: file.url,
+                        filename: file.filename,
+                        mimeType: file.mimeType,
+                        replyToMessageId: attachmentReplyId
+                    )
+                    try? FileManager.default.removeItem(at: file.url)
                 }
                 consumedReply = true
             }
             return true
         } catch {
-            // Include the failed attachment (at nextIndex - 1) in cleanup so its eager
-            // upload tracking key gets cancelled. The .file branch's inner do/catch
-            // already deletes its own temp; calling cleanupAttachment on it again is a
-            // benign no-op.
+            // Include the failed attachment (at nextIndex - 1) so its eager upload
+            // tracking key gets cancelled / its temp file gets deleted alongside the
+            // unsent rest.
             let failedAndUnsentStart: Int = max(0, nextIndex - 1)
             for unsent in attachments[failedAndUnsentStart...] {
                 cleanupAttachment(unsent)

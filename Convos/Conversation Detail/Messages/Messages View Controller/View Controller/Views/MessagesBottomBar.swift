@@ -110,12 +110,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             )
             GlassEffectContainer {
                 ZStack {
-                    if !isExpanded {
-                        collapsedInputView
-                    }
-
                     if isExpanded {
                         expandedQuickEditView
+                    } else {
+                        collapsedInputView
                     }
                 }
             }
