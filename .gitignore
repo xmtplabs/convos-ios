@@ -147,6 +147,9 @@ qa/cxdb/qa.sqlite-shm
 .mote-preview.html
 .pi/convos.json
 
+# Generated Swift package mirror produced by Scripts/build-phases/build-navigation-metrics.sh
+/NavigationMetrics/
+
 # Runtime artifacts
 .claude/scheduled_tasks.lock
 

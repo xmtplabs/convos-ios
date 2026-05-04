@@ -168,6 +168,18 @@ fi
 echo "✅ All dependencies are properly installed"
 
 ################################################################################
+# Generate NavigationMetrics Swift package from convos-shared                  #
+################################################################################
+
+# This must run before Xcode resolves Swift packages so the generated
+# Package.swift exists at the path referenced from ConvosCore/Package.swift.
+REPO_ROOT="$(cd "${DIRNAME}/.." && pwd)"
+if [ -f "${REPO_ROOT}/Scripts/build-phases/build-navigation-metrics.sh" ]; then
+    info "Building convos-shared NavigationMetrics Swift package..."
+    "${REPO_ROOT}/Scripts/build-phases/build-navigation-metrics.sh"
+fi
+
+################################################################################
 # convos-task PATH + alias                                                     #
 ################################################################################
 
