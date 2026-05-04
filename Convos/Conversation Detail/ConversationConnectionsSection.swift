@@ -97,13 +97,21 @@ final class ConversationConnectionsViewModel {
         deviceConnections[index] = DeviceConnection(kind: kind, isEnabled: newValue)
 
         Task {
+            // Read the store-side state once at the top so we can decide whether to emit
+            // a grant/revoke event only when the persisted state actually changes. Without
+            // this, rapid toggling fires redundant connection_event messages even when
+            // every store write is a no-op (e.g. tap-on then tap-off before either Task
+            // runs).
+            let wasEnabled = await enablementStore.isEnabled(kind: kind, capability: .read, conversationId: conversationId)
             for capability in ConnectionCapability.allCases {
                 await enablementStore.setEnabled(newValue, kind: kind, capability: capability, conversationId: conversationId)
             }
-            if newValue {
-                try? await connectionEventWriter.sendGranted(providerId: "device.\(kind.rawValue)", in: conversationId)
-            } else {
-                try? await connectionEventWriter.sendRevoked(providerId: "device.\(kind.rawValue)", in: conversationId)
+            if newValue != wasEnabled {
+                if newValue {
+                    try? await connectionEventWriter.sendGranted(providerId: "device.\(kind.rawValue)", in: conversationId)
+                } else {
+                    try? await connectionEventWriter.sendRevoked(providerId: "device.\(kind.rawValue)", in: conversationId)
+                }
             }
             await MainActor.run {
                 refreshDeviceConnections()
