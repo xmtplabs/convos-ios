@@ -502,7 +502,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     func cancelEagerUpload(trackingKey: String) async {
-        if let state = eagerUploads[trackingKey] {
+        if var state = eagerUploads[trackingKey] {
             Log.debug("Cancelling eager upload for: \(trackingKey)")
 
             await backgroundUploadManager.cancelUpload(taskId: state.prepared.taskId)
@@ -516,7 +516,14 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             PhotoUploadProgressTracker.shared.clear(key: trackingKey)
 
             await markPhotoFailed(trackingKey: trackingKey)
+
+            // Resume any awaiter inside `processEagerPhoto`'s continuation before
+            // tearing down the entry — otherwise Swift's CheckedContinuation runtime
+            // traps on the leak. Mirrors the video path below.
+            let waitingContinuation = state.waitingContinuation
+            state.waitingContinuation = nil
             eagerUploads.removeValue(forKey: trackingKey)
+            waitingContinuation?.resume(throwing: OutgoingMessageWriterError.eagerUploadCancelled)
         } else if var state = eagerVideoUploads[trackingKey] {
             Log.debug("Cancelling eager video upload for: \(trackingKey)")
 
