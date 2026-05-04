@@ -1044,6 +1044,7 @@ extension ConversationViewModel {
         case .video(let video):
             videoThumbnailTasks[video.id]?.cancel()
             videoThumbnailTasks.removeValue(forKey: video.id)
+            try? FileManager.default.removeItem(at: video.url)
         case .file(let file):
             try? FileManager.default.removeItem(at: file.url)
         }
