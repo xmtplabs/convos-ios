@@ -109,13 +109,15 @@ struct AppSettingsView: View {
                     profileSettingsViewModel: profileSettingsViewModel,
                     showsCancelButton: false,
                     showsProfile: false,
-                    showsUseQuicknameButton: false,
-                    canEditQuickname: true
+                    showsUseProfileButton: false,
+                    canEditProfile: true
                 ) { _ in }
             } label: {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
+        } footer: {
+            Text("Private unless you choose to share")
         }
     }
 

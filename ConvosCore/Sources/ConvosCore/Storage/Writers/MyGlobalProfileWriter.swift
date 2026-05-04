@@ -4,7 +4,7 @@ import GRDB
 
 /// Writes the local user's global profile (`DBMyProfile`). Local-only; does
 /// not publish to any group.
-public protocol MyGlobalProfileWriterProtocol {
+public protocol MyGlobalProfileWriterProtocol: Sendable {
     func save(name: String?, imageData: Data?, imageAssetIdentifier: String?, metadata: ProfileMetadata?) async throws
     func update(name: String?) async throws
     func update(imageData: Data?, imageAssetIdentifier: String?) async throws
@@ -12,7 +12,7 @@ public protocol MyGlobalProfileWriterProtocol {
     func delete() async throws
 }
 
-final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol {
+final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol, @unchecked Sendable {
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
