@@ -672,7 +672,7 @@ private struct AttachmentPlaceholder: View {
             inlinePlayer?.pause()
             isPlaying = false
         }
-        .task {
+        .task(id: attachment.key) {
             await loadAttachment()
         }
     }
