@@ -12,14 +12,31 @@ final class ConversationConnectionsViewModel {
         var id: String { kind.rawValue }
     }
 
-    private(set) var connections: [CloudConnection] = []
-    private(set) var grantedConnectionIds: Set<String> = []
+    struct CloudRow: Identifiable, Hashable {
+        let serviceId: String
+        let info: CloudConnectionServiceInfo
+        /// `nil` when the user has no global `CloudConnection` for this service —
+        /// toggling on must run OAuth before it can grant anything.
+        let active: CloudConnection?
+        let isGrantedForConversation: Bool
+
+        var id: String { serviceId }
+        var isOn: Bool { active != nil && isGrantedForConversation }
+    }
+
+    private(set) var cloudRows: [CloudRow] = []
     private(set) var deviceConnections: [DeviceConnection] = ConnectionKind.allCases
         .filter(SupportedConnections.isSupported)
         .sorted { $0.displayName < $1.displayName }
         .map { DeviceConnection(kind: $0, isEnabled: false) }
+    private(set) var isConnecting: Bool = false
+    private(set) var error: Error?
+
+    private var connections: [CloudConnection] = []
+    private var grantedConnectionIds: Set<String> = []
 
     private let conversationId: String
+    private let cloudConnectionManager: any CloudConnectionManagerProtocol
     private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
     private let grantWriter: any CloudConnectionGrantWriterProtocol
     private let connectionEventWriter: any ConnectionEventWriterProtocol
@@ -29,12 +46,14 @@ final class ConversationConnectionsViewModel {
 
     init(
         conversationId: String,
+        cloudConnectionManager: any CloudConnectionManagerProtocol,
         cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
         grantWriter: any CloudConnectionGrantWriterProtocol,
         connectionEventWriter: any ConnectionEventWriterProtocol,
         enablementStore: any EnablementStore
     ) {
         self.conversationId = conversationId
+        self.cloudConnectionManager = cloudConnectionManager
         self.cloudConnectionRepository = cloudConnectionRepository
         self.grantWriter = grantWriter
         self.connectionEventWriter = connectionEventWriter
@@ -44,29 +63,31 @@ final class ConversationConnectionsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] connections in
                 self?.connections = connections.filter { $0.provider == .composio }
+                self?.rebuildCloudRows()
             }
 
         grantsCancellable = cloudConnectionRepository.grantsPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] grants in
                 self?.grantedConnectionIds = Set(grants.map(\.connectionId))
+                self?.rebuildCloudRows()
             }
 
+        rebuildCloudRows()
         refreshDeviceConnections()
     }
 
-    func toggleGrant(for connectionId: String) {
-        let isGranted = grantedConnectionIds.contains(connectionId)
-        Task {
-            do {
-                if isGranted {
-                    try await grantWriter.revokeGrant(connectionId: connectionId, from: conversationId)
-                } else {
-                    try await grantWriter.grantConnection(connectionId, to: conversationId)
-                }
-            } catch {
-                Log.error("Failed to toggle connection grant: \(error.localizedDescription)")
+    func toggleCloud(_ row: CloudRow) {
+        guard !isConnecting else { return }
+        let providerId = ProviderID(rawValue: "composio.\(row.serviceId)")
+        if let active = row.active {
+            if row.isGrantedForConversation {
+                revokeGrant(connectionId: active.id, providerId: providerId)
+            } else {
+                grant(connectionId: active.id, providerId: providerId)
             }
+        } else {
+            connectAndGrant(serviceId: row.serviceId, providerId: providerId)
         }
     }
 
@@ -92,6 +113,77 @@ final class ConversationConnectionsViewModel {
 
     var hasConnections: Bool {
         true
+    }
+
+    private func grant(connectionId: String, providerId: ProviderID) {
+        Task {
+            do {
+                try await grantWriter.grantConnection(connectionId, to: conversationId)
+                try? await connectionEventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            } catch {
+                Log.error("Failed to grant connection: \(error.localizedDescription)")
+                self.error = error
+            }
+        }
+    }
+
+    private func revokeGrant(connectionId: String, providerId: ProviderID) {
+        Task {
+            do {
+                try await grantWriter.revokeGrant(connectionId: connectionId, from: conversationId)
+                try? await connectionEventWriter.sendRevoked(providerId: providerId.rawValue, in: conversationId)
+            } catch {
+                Log.error("Failed to revoke connection grant: \(error.localizedDescription)")
+                self.error = error
+            }
+        }
+    }
+
+    /// First-link path: run the OAuth flow, then immediately grant the resulting
+    /// connection for this conversation so the user's intent ("turn it on for
+    /// this convo") completes in one tap. Mirrors what the App Settings list
+    /// would do followed by the conversation-info toggle, just chained.
+    private func connectAndGrant(serviceId: String, providerId: ProviderID) {
+        isConnecting = true
+        error = nil
+        Task {
+            do {
+                let connection = try await cloudConnectionManager.connect(serviceId: serviceId)
+                try await grantWriter.grantConnection(connection.id, to: conversationId)
+                try? await connectionEventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            } catch let oauthError as OAuthError {
+                if case .cancelled = oauthError {
+                } else {
+                    self.error = oauthError
+                }
+            } catch {
+                Log.error("Failed to connect and grant \(serviceId): \(error.localizedDescription)")
+                self.error = error
+            }
+            isConnecting = false
+        }
+    }
+
+    private func rebuildCloudRows() {
+        let activeByServiceId: [String: CloudConnection] = Dictionary(
+            connections.map { ($0.serviceId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let granted = grantedConnectionIds
+
+        cloudRows = CloudConnectionServiceCatalog.all
+            .filter { SupportedConnections.isSupported(cloudServiceId: $0.id) }
+            .map { service in
+                let active = activeByServiceId[service.id]
+                let isGranted = active.map { granted.contains($0.id) } ?? false
+                return CloudRow(
+                    serviceId: service.id,
+                    info: service,
+                    active: active,
+                    isGrantedForConversation: isGranted
+                )
+            }
+            .sorted { $0.info.displayName.localizedCaseInsensitiveCompare($1.info.displayName) == .orderedAscending }
     }
 
     private func refreshDeviceConnections() {
@@ -137,21 +229,21 @@ struct ConversationConnectionsSection: View {
                 }
             }
 
-            ForEach(viewModel.connections.filter { SupportedConnections.isSupported(cloudServiceId: $0.serviceId) }) { connection in
-                let info = CloudConnectionServiceCatalog.info(for: connection.serviceId)
+            ForEach(viewModel.cloudRows) { row in
                 FeatureRowItem(
                     imageName: nil,
-                    symbolName: info?.iconSystemName ?? "link",
-                    title: CloudConnectionServiceCatalog.displayName(for: connection.serviceId, fallback: connection.serviceName),
-                    subtitle: "Share with this conversation",
+                    symbolName: row.info.iconSystemName,
+                    title: row.info.displayName,
+                    subtitle: row.info.subtitle,
                     iconBackgroundColor: .colorFillMinimal,
                     iconForegroundColor: .colorTextPrimary
                 ) {
                     Toggle("", isOn: Binding(
-                        get: { viewModel.grantedConnectionIds.contains(connection.id) },
-                        set: { _ in viewModel.toggleGrant(for: connection.id) }
+                        get: { row.isOn },
+                        set: { _ in viewModel.toggleCloud(row) }
                     ))
                     .labelsHidden()
+                    .disabled(viewModel.isConnecting)
                 }
             }
         } header: {

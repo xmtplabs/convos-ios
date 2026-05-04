@@ -39,10 +39,17 @@ public enum CapabilityProviderBootstrap {
     /// new ones, refresh existing ones (so `linkedSnapshot` reflects the latest status),
     /// and unregister anything that disappeared.
     ///
+    /// `seedServiceIds` lets the host declare a set of services that should always be
+    /// represented in the registry — services without an active `CloudConnection` get a
+    /// `linked: false` placeholder so the picker can still surface them as candidates
+    /// (e.g., for a `connectAndApprove` flow). Active connections always win over their
+    /// placeholders.
+    ///
     /// Call this after every cloud-side state change: a fresh `connect`, a `disconnect`,
     /// a `refreshConnections` that observed a status flip.
     public static func syncCloudProviders(
         connections: [CloudConnection],
+        seedServiceIds: Set<String> = [],
         registry: any CapabilityProviderRegistry
     ) async {
         // Compute the desired set of provider ids from the current connections list.
@@ -51,6 +58,7 @@ public enum CapabilityProviderBootstrap {
         // (last wins, matching the registry's existing semantics) and warn so the
         // collision is visible until provider id disambiguation lands.
         var seenIds: Set<ProviderID> = []
+        var seenServiceIds: Set<String> = []
         var desiredProviders: [(ProviderID, CloudCapabilityProvider)] = []
         for connection in connections {
             guard let provider = CloudCapabilityProvider.from(connection) else { continue }
@@ -59,7 +67,15 @@ public enum CapabilityProviderBootstrap {
                 desiredProviders.removeAll { $0.0 == provider.id }
             }
             desiredProviders.append((provider.id, provider))
+            seenServiceIds.insert(connection.serviceId)
         }
+
+        for serviceId in seedServiceIds where !seenServiceIds.contains(serviceId) {
+            guard let placeholder = CloudCapabilityProvider.placeholder(serviceId: serviceId) else { continue }
+            guard seenIds.insert(placeholder.id).inserted else { continue }
+            desiredProviders.append((placeholder.id, placeholder))
+        }
+
         let desiredIds = seenIds
 
         // Drop everything currently registered under the `composio.` namespace that isn't

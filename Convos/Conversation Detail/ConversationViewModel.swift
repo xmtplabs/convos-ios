@@ -960,9 +960,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 availableActions: availableActions
             )
             if status == .approved {
+                let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
                 await Self.persistApprovedDeviceCapabilities(
-                    providerIds: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
+                    providerIds: sortedIds,
                     capability: request.capability,
+                    conversationId: conversationId,
+                    session: session
+                )
+                await Self.persistApprovedCloudCapabilities(
+                    providerIds: sortedIds,
                     conversationId: conversationId,
                     session: session
                 )
@@ -1055,6 +1061,38 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
 
+    /// For each approved `composio.<service>` provider, ensure a per-conversation
+    /// `CloudConnectionGrant` exists against the matching active `CloudConnection` and
+    /// emit a `connection_event granted` if the grant is newly created. Skips providers
+    /// whose CloudConnection isn't active locally — those would have been created by the
+    /// caller (e.g. picker → connectCloudProvider) and the publisher snapshot taken here
+    /// races against that path; if we miss it the next sync corrects state.
+    private static func persistApprovedCloudCapabilities(
+        providerIds: [ProviderID],
+        conversationId: String,
+        session: any SessionManagerProtocol
+    ) async {
+        let messagingService = session.messagingService()
+        let grantWriter = messagingService.connectionGrantWriter()
+        let eventWriter = messagingService.connectionEventWriter()
+        let repository = session.cloudConnectionRepository()
+        let activeConnections = (try? await repository.connections()) ?? []
+        let existingGrants = (try? await repository.grants(for: conversationId)) ?? []
+        let existingGrantedConnectionIds = Set(existingGrants.map(\.connectionId))
+
+        for providerId in providerIds {
+            guard let serviceId = providerId.cloudServiceId else { continue }
+            guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else { continue }
+            guard !existingGrantedConnectionIds.contains(connection.id) else { continue }
+            do {
+                try await grantWriter.grantConnection(connection.id, to: conversationId)
+                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            } catch {
+                Log.error("Failed to persist cloud grant for \(providerId.rawValue): \(error.localizedDescription)")
+            }
+        }
+    }
+
     private static func capabilityActionParameter(
         from parameter: ActionParameter
     ) -> CapabilityRequestResult.Parameter {
@@ -1097,19 +1135,26 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
 
-    /// User tapped a Connect row. For `device.<kind>` providers we route into the
-    /// matching iOS permission prompt via the session's `DeviceConnectionAuthorizer`,
-    /// then re-register the provider so the registry reflects the new linked state.
-    /// On success we treat the connect tap itself as the user's approval — they came
-    /// to this card from a `capability_request`, just granted permission, and would
-    /// otherwise have to tap Approve again on the same card. If the OS prompt was
-    /// declined we recompute the picker so the user can pick a different provider
-    /// or deny. Cloud (`composio.*`) providers are not yet wired here.
+    /// User tapped a Connect row. Routes to the matching path for the provider's
+    /// kind: device providers go through `DeviceConnectionAuthorizer` for the iOS
+    /// permission prompt, cloud providers run OAuth via `CloudConnectionManager`.
+    /// On success either path treats the connect tap itself as the user's approval —
+    /// they came to this card from a `capability_request`, just granted access, and
+    /// would otherwise have to tap Approve again on the same card. On cancel/decline
+    /// the picker recomputes so the user can pick a different provider or deny.
     func onCapabilityConnect(providerId: ProviderID) {
-        guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else {
-            Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
+        if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
+            connectDeviceProvider(kind: kind, providerId: providerId)
             return
         }
+        if let serviceId = providerId.cloudServiceId {
+            connectCloudProvider(serviceId: serviceId, providerId: providerId)
+            return
+        }
+        Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
+    }
+
+    private func connectDeviceProvider(kind: ConnectionKind, providerId: ProviderID) {
         guard let request = pendingCapabilityPickerLayout?.request else { return }
         let conversationId = conversation.id
         let session = self.session
@@ -1152,6 +1197,35 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 } else {
                     self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
                 }
+            }
+        }
+    }
+
+    private func connectCloudProvider(serviceId: String, providerId: ProviderID) {
+        guard let request = pendingCapabilityPickerLayout?.request else { return }
+        let conversationId = conversation.id
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { [weak self] in
+            do {
+                _ = try await manager.connect(serviceId: serviceId)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    // The cloud-connection observer in SessionManager will register the
+                    // newly-linked provider; approving here is safe even if that hasn't
+                    // ticked yet because the resolver only stores the providerId.
+                    self.approveCapabilityRequest(request, providerIds: [providerId], conversationId: conversationId)
+                }
+            } catch let oauthError as OAuthError {
+                if case .cancelled = oauthError {
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                    }
+                } else {
+                    Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
+                }
+            } catch {
+                Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
             }
         }
     }
@@ -1943,6 +2017,10 @@ extension ConversationViewModel {
         return value
     }
 
+    var verifiedAssistantName: String? {
+        conversation.members.first(where: \.isVerifiedAssistant)?.displayName
+    }
+
     func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {
         session.assistantFilesLinksRepository(for: conversation.id)
     }
@@ -1950,17 +2028,11 @@ extension ConversationViewModel {
     func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
         ConversationConnectionsViewModel(
             conversationId: conversation.id,
+            cloudConnectionManager: session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme),
             cloudConnectionRepository: session.cloudConnectionRepository(),
             grantWriter: messagingService.connectionGrantWriter(),
             connectionEventWriter: messagingService.connectionEventWriter(),
             enablementStore: session.connectionEnablementStore()
-        )
-    }
-
-    func makeCapabilityResolutionsViewModel() -> ConversationCapabilityResolutionsViewModel {
-        ConversationCapabilityResolutionsViewModel(
-            conversationId: conversation.id,
-            session: session
         )
     }
 

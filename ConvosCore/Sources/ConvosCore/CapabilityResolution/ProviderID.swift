@@ -25,3 +25,14 @@ public struct ProviderID: Hashable, Sendable, Codable, CustomStringConvertible {
 
     public var description: String { rawValue }
 }
+
+public extension ProviderID {
+    /// Inverse of `CloudCapabilityProvider`'s `composio.<serviceId>` convention.
+    /// Returns `nil` for any id that doesn't follow that prefix (device.* providers,
+    /// unknown shapes).
+    var cloudServiceId: String? {
+        let prefix = "composio."
+        guard rawValue.hasPrefix(prefix) else { return nil }
+        return String(rawValue.dropFirst(prefix.count))
+    }
+}

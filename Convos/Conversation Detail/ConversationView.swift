@@ -162,6 +162,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         } else if let layout = viewModel.pendingCapabilityPickerLayout {
                             CapabilityPickerCardView(
                                 layout: layout,
+                                assistantName: viewModel.verifiedAssistantName,
                                 onApprove: { providerIds in
                                     viewModel.onCapabilityApprove(providerIds: providerIds)
                                 },

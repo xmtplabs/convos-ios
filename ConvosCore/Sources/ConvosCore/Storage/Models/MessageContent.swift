@@ -18,14 +18,31 @@ public struct ConnectionEventSummary: Hashable, Codable, Sendable {
         case error
     }
 
+    /// Marker for an actor placeholder the renderer needs to resolve from
+    /// conversation context. `text` carries an actor-less phrase ("has access to
+    /// calendar data", "read last 24 hours of health data"); the renderer
+    /// prepends the resolved name. `nil` means no actor is expected — render the
+    /// `text` verbatim.
+    public enum Actor: String, Hashable, Codable, Sendable {
+        /// The conversation's verified assistant member. Used for grant/revoke
+        /// events where the actor is the agent gaining or losing access, not the
+        /// underlying message's sender (which is the user granting).
+        case verifiedAssistant = "verified_assistant"
+        /// The sender of the underlying message — resolved by the renderer via
+        /// `msg.sender`.
+        case messageSender = "message_sender"
+    }
+
     public let text: String
     public let outcome: Outcome
     public let icon: Icon
+    public let actor: Actor?
 
-    public init(text: String, outcome: Outcome, icon: Icon) {
+    public init(text: String, outcome: Outcome, icon: Icon, actor: Actor? = nil) {
         self.text = text
         self.outcome = outcome
         self.icon = icon
+        self.actor = actor
     }
 }
 

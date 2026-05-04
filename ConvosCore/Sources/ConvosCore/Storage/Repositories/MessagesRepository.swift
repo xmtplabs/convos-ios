@@ -15,12 +15,20 @@ public struct MemberProfileInfo: Sendable {
     public let conversationId: String
     public let name: String?
     public let avatar: String?
+    public let isVerifiedAssistant: Bool
 
-    public init(inboxId: String, conversationId: String, name: String?, avatar: String?) {
+    public init(
+        inboxId: String,
+        conversationId: String,
+        name: String?,
+        avatar: String?,
+        isVerifiedAssistant: Bool = false
+    ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
+        self.isVerifiedAssistant = isVerifiedAssistant
     }
 }
 
@@ -402,7 +410,8 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 inboxId: row.inboxId,
                 conversationId: conversationId,
                 name: row.name,
-                avatar: row.avatar
+                avatar: row.avatar,
+                isVerifiedAssistant: row.agentVerification.isConvosAssistant
             )
         }
         return result

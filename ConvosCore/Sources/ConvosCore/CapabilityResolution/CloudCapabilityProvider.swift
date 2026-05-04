@@ -71,22 +71,64 @@ public extension CloudCapabilityProvider {
         "gmail": [.read, .writeCreate],
     ]
 
+    /// User-facing display name per service. Used when constructing a placeholder
+    /// provider before a `CloudConnection` exists — once a connection lands, the
+    /// `serviceName` from the connection takes over (see `from(_:)`).
+    static let serviceDisplayNames: [String: String] = [
+        "google_calendar": "Google Calendar",
+        "microsoft_outlook": "Microsoft Outlook",
+        "google_drive": "Google Drive",
+        "google_contacts": "Google Contacts",
+        "strava": "Strava",
+        "fitbit": "Fitbit",
+        "spotify": "Spotify",
+        "google_tasks": "Google Tasks",
+        "todoist": "Todoist",
+        "gmail": "Gmail",
+    ]
+
     /// Build a provider from a `CloudConnection`, or `nil` if its `serviceId` isn't in
     /// the subject map (in which case it's not surfaced to agents).
+    ///
+    /// Display name resolution: prefer the canonical-id lookup (`serviceDisplayNames`)
+    /// so we don't surface stale or mis-cased values that older rows may carry from
+    /// before the naming normalisation landed (e.g. `"Googlecalendar"`). Falls through
+    /// to the connection's own `serviceName` only when the canonical map has no entry.
     static func from(_ connection: CloudConnection) -> CloudCapabilityProvider? {
         guard let subject = serviceSubjectMap[connection.serviceId] else { return nil }
         let capabilities = serviceCapabilitiesMap[connection.serviceId] ?? [.read]
+        let displayName = serviceDisplayNames[connection.serviceId]
+            ?? CloudConnectionServiceNaming.displayName(for: connection.serviceName, fallbackFrom: connection.serviceId)
         return CloudCapabilityProvider(
             id: ProviderID(rawValue: "composio.\(connection.serviceId)"),
             serviceId: connection.serviceId,
             subject: subject,
-            displayName: connection.serviceName,
+            displayName: displayName,
             // Picker view supplies its own icon from `CloudConnectionServiceCatalog`;
             // the manifest carries an SF Symbol so a non-iOS reader has something to
             // render. "link" is the universal fallback.
             iconName: "link",
             capabilities: capabilities,
             linked: connection.status == .active
+        )
+    }
+
+    /// Build an unlinked placeholder for a known service. Used to seed the registry
+    /// at session start so agents can target a cloud provider via `preferredProviders`
+    /// even before the user has run OAuth — the picker then offers a connect-and-approve
+    /// path that triggers OAuth on tap.
+    static func placeholder(serviceId: String) -> CloudCapabilityProvider? {
+        guard let subject = serviceSubjectMap[serviceId] else { return nil }
+        let capabilities = serviceCapabilitiesMap[serviceId] ?? [.read]
+        let displayName = serviceDisplayNames[serviceId] ?? serviceId
+        return CloudCapabilityProvider(
+            id: ProviderID(rawValue: "composio.\(serviceId)"),
+            serviceId: serviceId,
+            subject: subject,
+            displayName: displayName,
+            iconName: "link",
+            capabilities: capabilities,
+            linked: false
         )
     }
 }

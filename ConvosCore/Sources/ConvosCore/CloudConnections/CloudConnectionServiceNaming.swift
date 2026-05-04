@@ -23,9 +23,12 @@ public enum CloudConnectionServiceNaming {
     }
 
     /// Convert a Composio toolkit slug received from the backend back to the
-    /// canonical service name. Falls back to the slug if no mapping exists.
+    /// canonical service name. Match is case-insensitive so a previously-stored
+    /// (mis-capitalised) value like `"Googlecalendar"` round-trips correctly.
+    /// Falls back to the slug if no mapping exists.
     public static func canonicalService(fromComposioSlug slug: String) -> String {
-        if let canonical = canonicalToComposioSlug.first(where: { $0.value == slug })?.key {
+        let lower = slug.lowercased()
+        if let canonical = canonicalToComposioSlug.first(where: { $0.value == lower })?.key {
             return canonical
         }
         return slug
@@ -35,9 +38,17 @@ public enum CloudConnectionServiceNaming {
     /// something user-readable. `google_calendar` → `Google Calendar`. The
     /// optional `fallbackFrom` is used when `serviceName` is empty (e.g. a
     /// server response with no name field) — pass the canonical id.
+    ///
+    /// The server sometimes sends the Composio toolkit slug (e.g.
+    /// `googlecalendar`) instead of the canonical underscore form. Without
+    /// translating back, the title-caser would produce `Googlecalendar` because
+    /// it has no word boundary to split on. Round-tripping through
+    /// `canonicalService(fromComposioSlug:)` recovers the canonical form so the
+    /// underscore split works.
     public static func displayName(for serviceName: String, fallbackFrom serviceId: String = "") -> String {
-        let base = serviceName.isEmpty ? serviceId : serviceName
-        return base
+        let raw = serviceName.isEmpty ? serviceId : serviceName
+        let canonical = canonicalService(fromComposioSlug: raw)
+        return canonical
             .replacingOccurrences(of: "_", with: " ")
             .split(separator: " ")
             .map { $0.prefix(1).uppercased() + $0.dropFirst() }

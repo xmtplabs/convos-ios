@@ -219,22 +219,18 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func connectionGrantRequestBubble(request: CloudConnectionGrantRequest) -> some View {
-        if FeatureFlags.shared.isCloudConnectionsEnabled {
-            CloudConnectionGrantRequestCardView(
-                request: request,
-                conversationId: conversationId,
-                sender: message.sender
-            )
-            .messageGesture(
-                message: message,
-                bubbleStyle: bubbleType,
-                onReply: onReply,
-                onToggleReaction: onToggleReaction
-            )
-            .padding(.trailing, trailingPadding)
-        } else {
-            EmptyView()
-        }
+        CloudConnectionGrantRequestCardView(
+            request: request,
+            conversationId: conversationId,
+            sender: message.sender
+        )
+        .messageGesture(
+            message: message,
+            bubbleStyle: bubbleType,
+            onReply: onReply,
+            onToggleReaction: onToggleReaction
+        )
+        .padding(.trailing, trailingPadding)
     }
 
     @ViewBuilder

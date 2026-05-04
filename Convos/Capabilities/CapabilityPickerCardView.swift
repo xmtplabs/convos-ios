@@ -11,6 +11,7 @@ import SwiftUI
 /// without booting an XMTP client or a GRDB resolver.
 struct CapabilityPickerCardView: View {
     let layout: CapabilityPickerLayout
+    let assistantName: String?
     let onApprove: (Set<ProviderID>) -> Void
     let onDeny: () -> Void
     let onConnect: (ProviderID) -> Void
@@ -19,11 +20,13 @@ struct CapabilityPickerCardView: View {
 
     init(
         layout: CapabilityPickerLayout,
+        assistantName: String? = nil,
         onApprove: @escaping (Set<ProviderID>) -> Void,
         onDeny: @escaping () -> Void,
         onConnect: @escaping (ProviderID) -> Void
     ) {
         self.layout = layout
+        self.assistantName = assistantName
         self.onApprove = onApprove
         self.onDeny = onDeny
         self.onConnect = onConnect
@@ -190,7 +193,8 @@ struct CapabilityPickerCardView: View {
 
     private var headerTitle: String {
         let action = verbDisplayPhrase
-        return "Assistant wants to \(action) your \(headerNoun)"
+        let actor = assistantName ?? "Assistant"
+        return "\(actor) wants to \(action) your \(headerNoun)"
     }
 
     private var headerNoun: String {

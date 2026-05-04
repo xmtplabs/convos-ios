@@ -51,6 +51,7 @@ enum Secrets {
     static let SENTRY_DSN: String = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
     static let GIT_COMMIT_SHA: String = ""
+    static let AGENT_DEBUG_JWKS: String = ""
 }
 
 MINIMAL_EOF
@@ -150,6 +151,7 @@ ENV_XMTP_HOST=""
 ENV_GATEWAY_URL=""
 ENV_SENTRY_DSN=""
 ENV_FIREBASE_DEBUG_TOKEN=""
+ENV_AGENT_DEBUG_JWKS=""
 ENV_HAS_BACKEND_URL=false
 ENV_HAS_XMTP_HOST=false
 ENV_HAS_GATEWAY_URL=false
@@ -174,6 +176,12 @@ if [ -f ".env" ]; then
     fi
     if grep -v '^#' ".env" | grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN='; then
         ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' -e 's/[[:space:]]*#.*$//' || true)
+    fi
+    # AGENT_DEBUG_JWKS holds JSON with embedded double quotes — strip surrounding
+    # single quotes only, leave double quotes intact. swift_escape handles escaping
+    # when emitting the Swift source.
+    if grep -v '^#' ".env" | grep -q '^AGENT_DEBUG_JWKS='; then
+        ENV_AGENT_DEBUG_JWKS=$(grep -v '^#' ".env" | grep '^AGENT_DEBUG_JWKS=' | tail -n1 | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
     fi
 fi
 
@@ -264,6 +272,7 @@ enum Secrets {
     static let SENTRY_DSN: String = "$(swift_escape "$ENV_SENTRY_DSN")"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = "$(swift_escape "$ENV_FIREBASE_DEBUG_TOKEN")"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
+    static let AGENT_DEBUG_JWKS: String = "$(swift_escape "$ENV_AGENT_DEBUG_JWKS")"
 EOF
 
 # Check if .env file exists and add any additional secrets from it
@@ -283,6 +292,7 @@ if [ -f ".env" ]; then
         [[ "$key" == "SENTRY_DSN" ]] && continue
         [[ "$key" == "FIREBASE_APP_CHECK_DEBUG_TOKEN" ]] && continue
         [[ "$key" == "GIT_COMMIT_SHA" ]] && continue
+        [[ "$key" == "AGENT_DEBUG_JWKS" ]] && continue
 
         # Validate Swift identifier
         if ! is_valid_swift_identifier "$key"; then

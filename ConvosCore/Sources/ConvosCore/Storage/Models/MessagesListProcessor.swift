@@ -67,6 +67,24 @@ public final class MessagesListProcessor: Sendable {
         }
         trackedMemberCount = max(0, trackedMemberCount)
 
+        // Resolve the verified-assistant displayName once for the whole pass.
+        // Used by `connection_event` summaries whose `actor` field is
+        // `.verifiedAssistant` — the formatter doesn't have conversation context,
+        // so the real name is filled in here. Prefer `memberProfiles` (carries
+        // verification state for every member) over iterating messages, since
+        // some agent-authored content types (`capabilityRequest`) are filtered
+        // out at the repo layer and never appear in `messages`.
+        var verifiedAssistantName: String? = memberProfiles.values
+            .first(where: \.isVerifiedAssistant)?
+            .name
+            .flatMap { $0.isEmpty ? nil : $0 }
+        if verifiedAssistantName == nil {
+            for msg in messages where msg.sender.isVerifiedAssistant {
+                verifiedAssistantName = msg.sender.displayName
+                break
+            }
+        }
+
         var items: [MessagesListItemType] = []
         items.reserveCapacity(messageCount)
 
@@ -147,7 +165,12 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                items.append(.connectionEvent(id: msg.messageId, summary: eventSummary, origin: msg.origin))
+                let resolvedSummary = resolvingActor(
+                    in: eventSummary,
+                    sender: msg.sender,
+                    verifiedAssistantName: verifiedAssistantName
+                )
+                items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
             }
@@ -163,7 +186,12 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                items.append(.connectionEvent(id: msg.messageId, summary: resultSummary, origin: msg.origin))
+                let resolvedSummary = resolvingActor(
+                    in: resultSummary,
+                    sender: msg.sender,
+                    verifiedAssistantName: verifiedAssistantName
+                )
+                items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
             }
@@ -185,13 +213,12 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let actor = msg.sender.isCurrentUser ? "You" : msg.sender.profile.displayName
-                let summaryWithActor = ConnectionEventSummary(
-                    text: "\(actor) \(payloadSummary.text)",
-                    outcome: payloadSummary.outcome,
-                    icon: payloadSummary.icon
+                let resolvedSummary = resolvingActor(
+                    in: payloadSummary,
+                    sender: msg.sender,
+                    verifiedAssistantName: verifiedAssistantName
                 )
-                items.append(.connectionEvent(id: msg.messageId, summary: summaryWithActor, origin: msg.origin))
+                items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
             }
@@ -410,5 +437,33 @@ public final class MessagesListProcessor: Sendable {
         }
 
         items.append(.messages(group))
+    }
+
+    /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
+    /// actor-less phrase. Resolves `.verifiedAssistant` from the conversation's
+    /// verified assistant member (falling back to "Assistant"), and `.messageSender`
+    /// from the underlying message's sender. Returns the summary unchanged if its
+    /// `actor` is `nil` (no actor expected) or if the text was already rendered by
+    /// older versions of this code (legacy DB rows).
+    private static func resolvingActor(
+        in summary: ConnectionEventSummary,
+        sender: ConversationMember,
+        verifiedAssistantName: String?
+    ) -> ConnectionEventSummary {
+        guard let actor = summary.actor else { return summary }
+        let actorName: String
+        switch actor {
+        case .verifiedAssistant:
+            actorName = verifiedAssistantName ?? "Assistant"
+        case .messageSender:
+            actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
+        }
+        guard !actorName.isEmpty else { return summary }
+        return ConnectionEventSummary(
+            text: "\(actorName) \(summary.text)",
+            outcome: summary.outcome,
+            icon: summary.icon,
+            actor: summary.actor
+        )
     }
 }

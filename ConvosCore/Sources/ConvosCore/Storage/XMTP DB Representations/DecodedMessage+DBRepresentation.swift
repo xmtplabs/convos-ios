@@ -622,9 +622,10 @@ extension XMTPiOS.DecodedMessage {
         guard let payload = content as? ConnectionPayload else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
-        // Sender display name is resolved at processor time, so the stored summary
-        // intentionally omits the actor — the processor prepends it before render.
-        let summary = ConnectionMessageSummaryFormatter.payloadSummary(payload, senderName: nil)
+        // Sender display name is resolved at processor time — the formatter sets
+        // `actor: .messageSender` so the processor knows to prepend the underlying
+        // message's sender before rendering.
+        let summary = ConnectionMessageSummaryFormatter.payloadSummary(payload)
         guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }

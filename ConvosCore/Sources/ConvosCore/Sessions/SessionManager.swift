@@ -28,6 +28,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
 
     /// Tracks the user's current screen context. Used by
@@ -159,6 +160,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
@@ -721,14 +723,41 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
-    /// Registers the default device-provider catalog into the registry so the picker
-    /// has something to render when a `capability_request` arrives. The `linkedByUser`
-    /// closure is a stub that always returns false — the main app refreshes provider
-    /// link state via `register(_:)` when iOS-framework authorization changes.
+    /// Registers the default device-provider catalog and starts observing cloud
+    /// connections. Device providers report their live OS-authorization state via
+    /// the shared `DeviceConnectionAuthorizer`, so the manifest reflects current
+    /// permissions on every launch (including kinds the user previously authorized
+    /// in another session). Cloud providers are synced reactively from the
+    /// `CloudConnection` table — every status flip rebuilds the registry's
+    /// `composio.*` entries.
     private func bootstrapCapabilityProviders() async {
+        let registry = capabilityProviderRegistry()
+        let authorizer = deviceConnectionAuthorizer()
+        let supportedDeviceSpecs = DeviceCapabilityProvider.defaultSpecs.filter {
+            SupportedConnections.isSupported($0.kind)
+        }
         await CapabilityProviderBootstrap.registerDeviceProviders(
-            registry: capabilityProviderRegistry(),
-            linkedByUser: { _ in { false } }
+            specs: supportedDeviceSpecs,
+            registry: registry,
+            linkedByUser: { kind in
+                { await authorizer.currentAuthorization(for: kind).canDeliverData }
+            }
         )
+
+        cloudConnectionsCancellable?.cancel()
+        let publisher = cloudConnectionRepository().connectionsPublisher()
+        let seedServiceIds = SupportedConnections.supportedCloudServiceIds
+        // GRDB's `.immediate` scheduler requires subscription on the main thread.
+        await MainActor.run {
+            self.cloudConnectionsCancellable = publisher.sink { connections in
+                Task { [registry] in
+                    await CapabilityProviderBootstrap.syncCloudProviders(
+                        connections: connections,
+                        seedServiceIds: seedServiceIds,
+                        registry: registry
+                    )
+                }
+            }
+        }
     }
 }

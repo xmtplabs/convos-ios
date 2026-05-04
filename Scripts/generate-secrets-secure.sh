@@ -70,6 +70,7 @@ enum Secrets {
     static let SENTRY_DSN: String = "$ESCAPED_SENTRY_DSN"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
     static let GIT_COMMIT_SHA: String = "$ESCAPED_GIT_SHA"
+    static let AGENT_DEBUG_JWKS: String = ""
 }
 EOF
 

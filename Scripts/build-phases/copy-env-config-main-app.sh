@@ -127,18 +127,27 @@ elif [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Dev" ]; then
     # Read Firebase debug token from .env
     FIREBASE_TOKEN=""
     CONVOS_API_BASE_URL=""
+    AGENT_DEBUG_JWKS=""
     if [ -f "${SRCROOT}/.env" ]; then
         FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+
+        AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
     fi
-    
+
     if [ -n "$FIREBASE_TOKEN" ]; then
         echo "✅ Found Firebase debug token in .env"
     else
         echo "⚠️  No Firebase debug token in .env - you may need to register tokens manually"
     fi
-    
+
+    if [ -n "$AGENT_DEBUG_JWKS" ]; then
+        echo "✅ Found AGENT_DEBUG_JWKS in .env (DEBUG attestation override active)"
+    fi
+
+    ESCAPED_AGENT_DEBUG_JWKS=$(swift_escape "$AGENT_DEBUG_JWKS")
+
     # Generate Secrets.swift for Dev
     cat > "$SECRETS_FILE" << EOF
 import Foundation
@@ -158,6 +167,7 @@ enum Secrets {
     static let SENTRY_DSN = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
+    static let AGENT_DEBUG_JWKS: String = "$ESCAPED_AGENT_DEBUG_JWKS"
 }
 
 // swiftlint:enable all
