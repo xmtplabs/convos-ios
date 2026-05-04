@@ -104,6 +104,40 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
 
     @ViewBuilder
     private var bodyContent: some View {
+        bodyStack
+            .background(HeightReader())
+            .onPreferenceChange(HeightPreferenceKey.self) { height in
+                onBaseHeightChanged(height)
+            }
+            .onChange(of: focusCoordinator.currentFocus) { _, newValue in
+                handleFocusChanged(to: newValue)
+            }
+            .onChange(of: messageText) { _, _ in
+                handleMessageTextChanged()
+            }
+            .onChange(of: isVoiceMemoActive) { wasActive, isActive in
+                guard wasActive, !isActive else { return }
+                restoreVoiceMemoFocusIfNeeded()
+            }
+            .onChange(of: isPhotoPickerPresented) { _, newValue in
+                handlePhotoPickerPresentationChanged(to: newValue)
+            }
+            .photosPicker(
+                isPresented: $isPhotoPickerPresented,
+                selection: $selectedPhotos,
+                maxSelectionCount: photoPickerMaxSelectionCount,
+                matching: .any(of: [.images, .videos])
+            )
+            .onChange(of: selectedPhotos) { _, newValue in
+                handleSelectedPhotosChanged(to: newValue)
+            }
+            .fullScreenCover(isPresented: $isCameraPresented) {
+                cameraPickerCover
+            }
+    }
+
+    @ViewBuilder
+    private var bodyStack: some View {
         VStack(spacing: 0) {
             bottomBarContent()
             VoiceMemoKeyboardFocusKeeper(
@@ -123,38 +157,30 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.bottom, DesignConstants.Spacing.step4x)
         }
-        .background(HeightReader())
-        .onPreferenceChange(HeightPreferenceKey.self) { height in
-            onBaseHeightChanged(height)
-        }
-        .onChange(of: focusCoordinator.currentFocus) { _, newValue in
-            handleFocusChanged(newValue)
-        }
-        .onChange(of: messageText) { _, _ in
-            handleMessageTextChanged()
-        }
-        .onChange(of: isVoiceMemoActive) { wasActive, isActive in
-            guard wasActive, !isActive else { return }
-            restoreVoiceMemoFocusIfNeeded()
-        }
-        .onChange(of: isPhotoPickerPresented) { _, newValue in
-            handlePhotoPickerPresentedChanged(newValue)
-        }
-        .photosPicker(
-            isPresented: $isPhotoPickerPresented,
-            selection: $selectedPhotos,
-            maxSelectionCount: max(1, maxPendingMediaAttachments - pendingMediaAttachments.count),
-            matching: .any(of: [.images, .videos])
-        )
-        .onChange(of: selectedPhotos) { _, newValue in
-            handleSelectedPhotosChanged(newValue)
-        }
-        .fullScreenCover(isPresented: $isCameraPresented) {
-            cameraPicker
-        }
     }
 
-    private func handleFocusChanged(_ newValue: MessagesViewInputFocus?) {
+    private var photoPickerMaxSelectionCount: Int {
+        max(1, maxPendingMediaAttachments - pendingMediaAttachments.count)
+    }
+
+    @ViewBuilder
+    private var cameraPickerCover: some View {
+        CameraPickerView(
+            onImageCaptured: { image in
+                onPhotoSelected(image)
+                isCameraPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            },
+            onVideoCaptured: { url in
+                onVideoSelected(url)
+                isCameraPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            }
+        )
+        .ignoresSafeArea()
+    }
+
+    private func handleFocusChanged(to newValue: MessagesViewInputFocus?) {
         guard !isImagePickerPresented else { return }
         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
             isExpanded = newValue == .displayName
@@ -171,19 +197,17 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         }
     }
 
-    private func handlePhotoPickerPresentedChanged(_ newValue: Bool) {
+    private func handlePhotoPickerPresentationChanged(to newValue: Bool) {
         if newValue {
             previousFocus = focusCoordinator.currentFocus
             didSelectPhotoThisSession = false
             focusState = nil
-        } else {
-            if !didSelectPhotoThisSession, let previousFocus {
-                focusCoordinator.moveFocus(to: previousFocus)
-            }
+        } else if !didSelectPhotoThisSession, let previousFocus {
+            focusCoordinator.moveFocus(to: previousFocus)
         }
     }
 
-    private func handleSelectedPhotosChanged(_ newValue: [PhotosPickerItem]) {
+    private func handleSelectedPhotosChanged(to newValue: [PhotosPickerItem]) {
         guard !newValue.isEmpty else { return }
         let items = newValue
         selectedPhotos = []
@@ -200,22 +224,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 }
             }
         }
-    }
-
-    private var cameraPicker: some View {
-        CameraPickerView(
-            onImageCaptured: { image in
-                onPhotoSelected(image)
-                isCameraPresented = false
-                focusCoordinator.moveFocus(to: .message)
-            },
-            onVideoCaptured: { url in
-                onVideoSelected(url)
-                isCameraPresented = false
-                focusCoordinator.moveFocus(to: .message)
-            }
-        )
-        .ignoresSafeArea()
     }
 
     private var filePickerModifier: FilePickerModifier {
