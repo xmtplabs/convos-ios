@@ -55,11 +55,13 @@ struct PendingVideoAttachment: Identifiable, Equatable {
     let id: UUID
     let url: URL
     var thumbnail: UIImage?
+    var eagerUploadKey: String?
 
-    init(id: UUID = UUID(), url: URL, thumbnail: UIImage? = nil) {
+    init(id: UUID = UUID(), url: URL, thumbnail: UIImage? = nil, eagerUploadKey: String? = nil) {
         self.id = id
         self.url = url
         self.thumbnail = thumbnail
+        self.eagerUploadKey = eagerUploadKey
     }
 
     static func == (lhs: PendingVideoAttachment, rhs: PendingVideoAttachment) -> Bool {
@@ -997,6 +999,27 @@ extension ConversationViewModel {
                 Log.error("Failed to generate video thumbnail: \(error)")
             }
         }
+
+        let messageWriter = cachedMessageWriter
+        Task { [weak self] in
+            do {
+                let trackingKey = try await messageWriter.startEagerVideoUpload(at: url)
+                await MainActor.run {
+                    guard let self else { return }
+                    guard let index = self.pendingMediaAttachments.firstIndex(where: { $0.id == attachmentId }),
+                          case .video(var video) = self.pendingMediaAttachments[index] else {
+                        // User removed the attachment before the eager upload tracking
+                        // key was written back. Cancel the in-flight pipeline.
+                        Task { await messageWriter.cancelEagerUpload(trackingKey: trackingKey) }
+                        return
+                    }
+                    video.eagerUploadKey = trackingKey
+                    self.pendingMediaAttachments[index] = .video(video)
+                }
+            } catch {
+                Log.error("Error starting eager video upload: \(error)")
+            }
+        }
         onPhotoAttached()
     }
 
@@ -1044,7 +1067,14 @@ extension ConversationViewModel {
         case .video(let video):
             videoThumbnailTasks[video.id]?.cancel()
             videoThumbnailTasks.removeValue(forKey: video.id)
-            try? FileManager.default.removeItem(at: video.url)
+            if let trackingKey = video.eagerUploadKey {
+                let messageWriter = cachedMessageWriter
+                Task { await messageWriter.cancelEagerUpload(trackingKey: trackingKey) }
+            } else {
+                // Pipeline hadn't returned a tracking key yet; the source temp is
+                // still ours to clean up.
+                try? FileManager.default.removeItem(at: video.url)
+            }
         case .file(let file):
             try? FileManager.default.removeItem(at: file.url)
         }
@@ -1307,8 +1337,7 @@ extension ConversationViewModel {
                 case .photo(let photo):
                     try await sendStagedPhoto(photo, replyToMessageId: attachmentReplyId, messageWriter: messageWriter)
                 case .video(let video):
-                    _ = try await messageWriter.sendVideo(at: video.url, replyToMessageId: attachmentReplyId)
-                    try? FileManager.default.removeItem(at: video.url)
+                    try await sendStagedVideo(video, replyToMessageId: attachmentReplyId, messageWriter: messageWriter)
                 case .file(let file):
                     _ = try await messageWriter.sendFile(
                         at: file.url,
@@ -1351,6 +1380,26 @@ extension ConversationViewModel {
             try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
         } else {
             try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+        }
+    }
+
+    private func sendStagedVideo(
+        _ video: PendingVideoAttachment,
+        replyToMessageId: String?,
+        messageWriter: any OutgoingMessageWriterProtocol
+    ) async throws {
+        // Reuse the eager pipeline started at staging time, falling back to a
+        // fresh start if Send happened before the tracking key was written back.
+        let trackingKey: String
+        if let existing = video.eagerUploadKey {
+            trackingKey = existing
+        } else {
+            trackingKey = try await messageWriter.startEagerVideoUpload(at: video.url)
+        }
+        if let replyToMessageId {
+            try await messageWriter.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: replyToMessageId)
+        } else {
+            try await messageWriter.sendEagerVideo(trackingKey: trackingKey)
         }
     }
 

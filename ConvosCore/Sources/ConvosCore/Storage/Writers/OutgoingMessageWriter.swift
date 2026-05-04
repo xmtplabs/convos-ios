@@ -21,7 +21,21 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// Waits for upload to complete if still in progress, then sends via XMTP.
     func sendEagerPhoto(trackingKey: String) async throws
 
-    /// Cancel an eager upload that was started but not sent.
+    /// Start the compress-encrypt-upload pipeline for a video eagerly (before user
+    /// taps Send). Returns a tracking key usable with `sendEagerVideo` /
+    /// `sendEagerVideoReply` / `cancelEagerUpload`. The thumbnail and dimensions
+    /// are captured synchronously so the bubble can render immediately on Send;
+    /// compression and upload run in the background.
+    func startEagerVideoUpload(at fileURL: URL) async throws -> String
+
+    /// Send a video that was already started with `startEagerVideoUpload`.
+    /// Waits for the background pipeline to finish if still in progress.
+    func sendEagerVideo(trackingKey: String) async throws
+
+    /// Send a video reply that was already started with `startEagerVideoUpload`.
+    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws
+
+    /// Cancel an eager upload (photo or video) that was started but not sent.
     func cancelEagerUpload(trackingKey: String) async
 
     // MARK: - Replies
@@ -124,12 +138,34 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let trackingKey: String
     }
 
+    private struct EagerVideoUploadState {
+        let clientMessageId: String
+        let originalURL: URL
+        let localCacheURL: URL
+        let filename: String
+        let thumbnailData: Data
+        let width: Int
+        let height: Int
+        let duration: Double
+        var prepared: PreparedBackgroundUpload?
+        var compressedFileURL: URL?
+        var processingCompleted: Bool = false
+        var processingError: Error?
+        var waitingContinuation: CheckedContinuation<Void, Error>?
+        var replyContext: ReplyContext?
+    }
+
+    private struct QueuedEagerVideo {
+        let trackingKey: String
+    }
+
     private enum QueuedMessage {
         case text(QueuedTextMessage)
         case photo(QueuedPhotoMessage)
         case video(QueuedVideoMessage)
         case audio(QueuedAudioMessage)
         case eagerPhoto(QueuedEagerPhoto)
+        case eagerVideo(QueuedEagerVideo)
     }
 
     private let sessionStateManager: any SessionStateManagerProtocol
@@ -143,6 +179,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private var messageQueue: [QueuedMessage] = []
     private var isProcessingQueue: Bool = false
     private var eagerUploads: [String: EagerUploadState] = [:]
+    private var eagerVideoUploads: [String: EagerVideoUploadState] = [:]
     private var publishedPhotoKeys: Set<String> = []
     private var pendingTexts: [QueuedTextMessage] = []
 
@@ -462,22 +499,318 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     func cancelEagerUpload(trackingKey: String) async {
-        guard let state = eagerUploads[trackingKey] else { return }
+        if let state = eagerUploads[trackingKey] {
+            Log.debug("Cancelling eager upload for: \(trackingKey)")
 
-        Log.debug("Cancelling eager upload for: \(trackingKey)")
+            await backgroundUploadManager.cancelUpload(taskId: state.prepared.taskId)
 
-        await backgroundUploadManager.cancelUpload(taskId: state.prepared.taskId)
+            try? await pendingUploadWriter.delete(taskId: state.prepared.taskId)
+            try? FileManager.default.removeItem(at: state.prepared.encryptedFileURL)
 
-        try? await pendingUploadWriter.delete(taskId: state.prepared.taskId)
-        try? FileManager.default.removeItem(at: state.prepared.encryptedFileURL)
+            // Note: No need to delete from DBMessage - the message was never saved to the database
+            // (that only happens in sendEagerPhoto when user taps Send)
 
-        // Note: No need to delete from DBMessage - the message was never saved to the database
-        // (that only happens in sendEagerPhoto when user taps Send)
+            PhotoUploadProgressTracker.shared.clear(key: trackingKey)
 
-        PhotoUploadProgressTracker.shared.clear(key: trackingKey)
+            await markPhotoFailed(trackingKey: trackingKey)
+            eagerUploads.removeValue(forKey: trackingKey)
+        } else if let state = eagerVideoUploads[trackingKey] {
+            Log.debug("Cancelling eager video upload for: \(trackingKey)")
 
-        await markPhotoFailed(trackingKey: trackingKey)
-        eagerUploads.removeValue(forKey: trackingKey)
+            if let prepared = state.prepared {
+                await backgroundUploadManager.cancelUpload(taskId: prepared.taskId)
+                try? await pendingUploadWriter.delete(taskId: prepared.taskId)
+                try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
+            }
+            if let compressedFileURL = state.compressedFileURL {
+                try? FileManager.default.removeItem(at: compressedFileURL)
+            }
+            try? FileManager.default.removeItem(at: state.originalURL)
+
+            PhotoUploadProgressTracker.shared.clear(key: trackingKey)
+
+            await markPhotoFailed(trackingKey: trackingKey)
+            eagerVideoUploads.removeValue(forKey: trackingKey)
+        }
+    }
+
+    // MARK: - Eager Video Upload
+
+    func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        let clientMessageId = UUID().uuidString
+        let filename = "video_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).mp4"
+        let localCacheURL = try photoService.localCacheURL(for: filename)
+        let trackingKey = localCacheURL.absoluteString
+
+        Log.debug("Starting eager video upload for: \(trackingKey)")
+
+        // Probe dimensions and generate thumbnail synchronously so the bubble
+        // has content to render the moment the user taps Send. Compression and
+        // upload run in the background.
+        let asset = AVURLAsset(url: fileURL)
+        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw VideoCompressionError.invalidAsset
+        }
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let transform = try await videoTrack.load(.preferredTransform)
+        let transformedSize = naturalSize.applying(transform)
+        let width: Int = Int(abs(transformedSize.width))
+        let height: Int = Int(abs(transformedSize.height))
+        let durationCMTime = try await asset.load(.duration)
+        let duration: Double = CMTimeGetSeconds(durationCMTime)
+
+        let compressionService = VideoCompressionService()
+        let thumbnailData = try await compressionService.generateThumbnail(for: asset)
+
+        if let thumbnailImage = ImageType(data: thumbnailData) {
+            ImageCacheContainer.shared.cacheImage(thumbnailImage, for: trackingKey, storageTier: .persistent)
+        }
+
+        PhotoUploadProgressTracker.shared.setStage(.preparing, for: trackingKey)
+
+        let state = EagerVideoUploadState(
+            clientMessageId: clientMessageId,
+            originalURL: fileURL,
+            localCacheURL: localCacheURL,
+            filename: filename,
+            thumbnailData: thumbnailData,
+            width: width,
+            height: height,
+            duration: duration
+        )
+        eagerVideoUploads[trackingKey] = state
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.runEagerVideoPipeline(trackingKey: trackingKey)
+        }
+
+        return trackingKey
+    }
+
+    private func runEagerVideoPipeline(trackingKey: String) async {
+        let tracker = PhotoUploadProgressTracker.shared
+        do {
+            guard let state = eagerVideoUploads[trackingKey] else { return }
+
+            let compressionService = VideoCompressionService()
+            let compressed = try await compressionService.compressVideo(at: state.originalURL)
+
+            // Mirror the compressed file into the local cache so the renderer can
+            // resolve the message's attachment URL once Send happens.
+            try FileManager.default.createDirectory(
+                at: state.localCacheURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? FileManager.default.removeItem(at: state.localCacheURL)
+            try FileManager.default.copyItem(at: compressed.fileURL, to: state.localCacheURL)
+
+            try await attachmentLocalStateWriter.saveWithDimensions(
+                attachmentKey: trackingKey,
+                conversationId: conversationId,
+                width: state.width,
+                height: state.height,
+                mimeType: "video/mp4"
+            )
+            try? await attachmentLocalStateWriter.saveDuration(state.duration, for: trackingKey)
+
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            let fileData = try Data(contentsOf: compressed.fileURL)
+            let attachment = Attachment(
+                filename: state.filename,
+                mimeType: "video/mp4",
+                data: fileData
+            )
+            let encrypted = try RemoteAttachment.encodeEncrypted(
+                content: attachment,
+                codec: AttachmentCodec()
+            )
+            let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
+                filename: state.filename,
+                contentType: "application/octet-stream"
+            )
+            guard let uploadURL = URL(string: presignedURLs.uploadURL) else {
+                throw PhotoAttachmentError.invalidURL
+            }
+
+            let taskId = UUID().uuidString
+            let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+
+            let prepared = PreparedBackgroundUpload(
+                taskId: taskId,
+                encryptedFileURL: encryptedFileURL,
+                presignedUploadURL: uploadURL,
+                assetURL: presignedURLs.assetURL,
+                encryptionSecret: encrypted.secret,
+                encryptionSalt: encrypted.salt,
+                encryptionNonce: encrypted.nonce,
+                contentDigest: encrypted.digest,
+                filename: state.filename
+            )
+
+            let pendingUpload = DBPendingPhotoUpload(
+                id: prepared.taskId,
+                clientMessageId: state.clientMessageId,
+                conversationId: conversationId,
+                localCacheURL: trackingKey,
+                state: .uploading
+            )
+            try await pendingUploadWriter.create(pendingUpload)
+
+            tracker.setProgress(stage: .uploading, percentage: 0, for: trackingKey)
+
+            try await backgroundUploadManager.startUpload(
+                fileURL: prepared.encryptedFileURL,
+                uploadURL: prepared.presignedUploadURL,
+                contentType: "application/octet-stream",
+                taskId: prepared.taskId
+            )
+
+            if var s = eagerVideoUploads[trackingKey] {
+                s.prepared = prepared
+                s.compressedFileURL = compressed.fileURL
+                eagerVideoUploads[trackingKey] = s
+            }
+
+            let result = await backgroundUploadManager.waitForCompletion(taskId: prepared.taskId)
+
+            if result.success {
+                try? await pendingUploadWriter.updateState(taskId: prepared.taskId, state: .sending, errorMessage: nil)
+                if var s = eagerVideoUploads[trackingKey] {
+                    s.processingCompleted = true
+                    let cont = s.waitingContinuation
+                    s.waitingContinuation = nil
+                    eagerVideoUploads[trackingKey] = s
+                    cont?.resume()
+                }
+            } else {
+                tracker.setStage(.failed, for: trackingKey)
+                try? await pendingUploadWriter.updateState(
+                    taskId: prepared.taskId,
+                    state: .failed,
+                    errorMessage: result.error?.localizedDescription
+                )
+                if var s = eagerVideoUploads[trackingKey] {
+                    s.processingError = result.error
+                    let cont = s.waitingContinuation
+                    s.waitingContinuation = nil
+                    eagerVideoUploads[trackingKey] = s
+                    let error: Error = result.error ?? PhotoAttachmentError.uploadFailed("Eager video upload failed")
+                    cont?.resume(throwing: error)
+                    try? await markMessageFailed(clientMessageId: s.clientMessageId)
+                }
+                await markPhotoFailed(trackingKey: trackingKey)
+            }
+        } catch {
+            if var state = eagerVideoUploads[trackingKey] {
+                state.processingError = error
+                let cont = state.waitingContinuation
+                state.waitingContinuation = nil
+                eagerVideoUploads[trackingKey] = state
+                cont?.resume(throwing: error)
+                try? await markMessageFailed(clientMessageId: state.clientMessageId)
+            }
+            await markPhotoFailed(trackingKey: trackingKey)
+            Log.error("Eager video pipeline failed: \(error)")
+        }
+    }
+
+    func sendEagerVideo(trackingKey: String) async throws {
+        guard let state = eagerVideoUploads[trackingKey] else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+
+        // saveWithDimensions is idempotent — call it here too in case Send
+        // happened before the pipeline got far enough to write it.
+        try await attachmentLocalStateWriter.saveWithDimensions(
+            attachmentKey: trackingKey,
+            conversationId: conversationId,
+            width: state.width,
+            height: state.height,
+            mimeType: "video/mp4"
+        )
+        try? await attachmentLocalStateWriter.saveDuration(state.duration, for: trackingKey)
+
+        try await savePhotoToDatabase(
+            clientMessageId: state.clientMessageId,
+            localCacheURL: state.localCacheURL,
+            replyContext: state.replyContext
+        )
+
+        messageQueue.append(.eagerVideo(QueuedEagerVideo(trackingKey: trackingKey)))
+        startProcessingIfNeeded()
+    }
+
+    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let replyContext = try await resolveReplyContext(parentClientMessageId: parentClientMessageId)
+        guard var state = eagerVideoUploads[trackingKey] else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+        state.replyContext = replyContext
+        eagerVideoUploads[trackingKey] = state
+        try await sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    private func processEagerVideo(trackingKey: String) async throws {
+        guard var state = eagerVideoUploads[trackingKey] else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+
+        if !state.processingCompleted && state.processingError == nil {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                state.waitingContinuation = continuation
+                eagerVideoUploads[trackingKey] = state
+            }
+            guard let updated = eagerVideoUploads[trackingKey] else {
+                throw OutgoingMessageWriterError.eagerUploadNotFound
+            }
+            state = updated
+        }
+
+        if let error = state.processingError {
+            throw error
+        }
+
+        guard let prepared = state.prepared else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+
+        PhotoUploadProgressTracker.shared.setStage(.publishing, for: trackingKey)
+
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        let storedAttachment = StoredRemoteAttachment(
+            url: prepared.assetURL,
+            contentDigest: prepared.contentDigest,
+            secret: prepared.encryptionSecret,
+            salt: prepared.encryptionSalt,
+            nonce: prepared.encryptionNonce,
+            filename: state.filename,
+            mimeType: "video/mp4",
+            mediaWidth: state.width,
+            mediaHeight: state.height,
+            mediaDuration: state.duration,
+            thumbnailDataBase64: state.thumbnailData.base64EncodedString()
+        )
+
+        let thumbnailImage: ImageType? = ImageType(data: state.thumbnailData)
+
+        _ = try await publishAttachment(
+            storedAttachment: storedAttachment,
+            clientMessageId: state.clientMessageId,
+            trackingKey: trackingKey,
+            thumbnailImage: thumbnailImage,
+            inboxReady: inboxReady,
+            replyContext: state.replyContext,
+            mediaType: "video"
+        )
+
+        try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
+        if let compressedFileURL = state.compressedFileURL {
+            try? FileManager.default.removeItem(at: compressedFileURL)
+        }
+        try? FileManager.default.removeItem(at: state.originalURL)
+        eagerVideoUploads.removeValue(forKey: trackingKey)
     }
 
     // MARK: - File Attachment Upload (shared by video, voice memo, and future types)
@@ -829,6 +1162,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     try await publishAudio(queued)
                 case .eagerPhoto(let queued):
                     try await processEagerPhoto(trackingKey: queued.trackingKey)
+                case .eagerVideo(let queued):
+                    try await processEagerVideo(trackingKey: queued.trackingKey)
                 }
             } catch {
                 switch message {
@@ -839,6 +1174,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 case .audio(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
                 case .eagerPhoto(let queued):
+                    await markPhotoFailed(trackingKey: queued.trackingKey)
+                case .eagerVideo(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
                 case .text:
                     break

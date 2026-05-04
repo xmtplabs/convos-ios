@@ -267,6 +267,21 @@ public actor ConversationStateMachine {
         try await writer.sendEagerPhoto(trackingKey: trackingKey)
     }
 
+    func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerVideoUpload(at: fileURL)
+    }
+
+    func sendEagerVideo(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     func cancelEagerUpload(trackingKey: String) async {
         guard let writer = cachedMessageWriter else { return }
         await writer.cancelEagerUpload(trackingKey: trackingKey)

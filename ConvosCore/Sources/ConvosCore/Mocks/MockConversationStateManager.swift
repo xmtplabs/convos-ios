@@ -100,6 +100,9 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
     }
 
     public func sendEagerPhoto(trackingKey: String) async throws {}
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String { UUID().uuidString }
+    public func sendEagerVideo(trackingKey: String) async throws {}
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func cancelEagerUpload(trackingKey: String) async {}
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String { UUID().uuidString }
     public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String { UUID().uuidString }

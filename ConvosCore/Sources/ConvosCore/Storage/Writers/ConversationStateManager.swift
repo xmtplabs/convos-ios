@@ -223,6 +223,18 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendEagerPhoto(trackingKey: trackingKey)
     }
 
+    public func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        try await stateMachine.startEagerVideoUpload(at: fileURL)
+    }
+
+    public func sendEagerVideo(trackingKey: String) async throws {
+        try await stateMachine.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    public func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await stateMachine.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     public func cancelEagerUpload(trackingKey: String) async {
         await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
     }
