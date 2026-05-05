@@ -1011,6 +1011,25 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             // and deny — so we keep going on a resolver-side error and let the agent
             // see the user's intent. Local persistence failure is logged and surfaced
             // separately if it ever needs UI surfacing; it must not strand the agent.
+            //
+            // Snapshot the resolver's current providerIds for this (subject, verb,
+            // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
+            // is what the cloud persist path uses to decide whether to fire a
+            // connection_event — fan-in semantics are per-(provider, verb), so a
+            // second verb approval on a provider already granted at the connection
+            // level still needs its own group-update line.
+            let previouslyApproved: Set<ProviderID>
+            if status == .approved {
+                previouslyApproved = await resolver.resolution(
+                    subject: request.subject,
+                    capability: request.capability,
+                    conversationId: conversationId
+                )
+            } else {
+                previouslyApproved = []
+            }
+            let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
+
             do {
                 switch status {
                 case .approved:
@@ -1053,6 +1072,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 )
                 await Self.persistApprovedCloudCapabilities(
                     providerIds: sortedIds,
+                    newlyApprovedProviderIds: newlyApprovedProviderIds,
                     capability: request.capability,
                     conversationId: conversationId,
                     session: session
@@ -1155,6 +1175,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// races against that path; if we miss it the next sync corrects state.
     private static func persistApprovedCloudCapabilities(
         providerIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
         capability: ConnectionCapability,
         conversationId: String,
         session: any SessionManagerProtocol
@@ -1170,17 +1191,31 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         for providerId in providerIds {
             guard let serviceId = providerId.cloudServiceId else { continue }
             guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else { continue }
-            guard !existingGrantedConnectionIds.contains(connection.id) else { continue }
-            do {
-                try await grantWriter.grantConnection(connection.id, to: conversationId)
-                try? await eventWriter.sendGranted(
-                    providerId: providerId.rawValue,
-                    capability: capability,
-                    in: conversationId
-                )
-            } catch {
-                Log.error("Failed to persist cloud grant for \(providerId.rawValue): \(error.localizedDescription)")
+
+            // The grant row is connection-level (composio.<service>) and
+            // capability-agnostic, so only write it the first time the
+            // provider gets approved on this conversation. Subsequent verb
+            // approvals on the same provider must skip the grant write —
+            // otherwise grantConnection fails because the row already exists
+            // — but they still need to fire their own connection_event.
+            if !existingGrantedConnectionIds.contains(connection.id) {
+                do {
+                    try await grantWriter.grantConnection(connection.id, to: conversationId)
+                } catch {
+                    Log.error("Failed to persist cloud grant for \(providerId.rawValue): \(error.localizedDescription)")
+                    continue
+                }
             }
+
+            // Fan-in is per-(providerId, verb): if the resolver already had
+            // this providerId for this verb (re-approval after deny, picker
+            // shown twice), don't echo a duplicate group-update message.
+            guard newlyApprovedProviderIds.contains(providerId) else { continue }
+            try? await eventWriter.sendGranted(
+                providerId: providerId.rawValue,
+                capability: capability,
+                in: conversationId
+            )
         }
     }
 
