@@ -1,6 +1,9 @@
 import ConvosConnections
 import Foundation
+import os
 @preconcurrency import XMTPiOS
+
+private let logger = Logger(subsystem: "org.convos.connections.xmtp", category: "InvocationListener")
 
 /// Routes incoming XMTP messages carrying `ConnectionInvocation` content into the
 /// package's `ConnectionsManager`.
@@ -58,7 +61,13 @@ public final class XMTPInvocationListener: @unchecked Sendable {
                 status: .executionFailed,
                 errorMessage: "unsupported schema version \(invocation.schemaVersion)"
             )
-            try? await delivery.deliver(result, to: conversationId)
+            do {
+                try await delivery.deliver(result, to: conversationId)
+            } catch {
+                // The synthetic reply is the only signal the agent gets that we rejected
+                // the invocation — silent drop here strands the agent waiting forever.
+                logger.error("Failed to deliver schema-version-rejected result for \(invocation.invocationId, privacy: .public) in \(conversationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
             return
         }
 

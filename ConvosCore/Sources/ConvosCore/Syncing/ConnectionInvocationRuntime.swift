@@ -53,6 +53,25 @@ actor ConnectionInvocationRuntime {
         if let router = lazyHealthRouter,
            let invocation = decodeInvocation(message: message),
            HealthInvocationRouter.intercepts(invocation) {
+            // Apply the same schema-version gate XMTPInvocationListener applies on the
+            // generic path. Without it, a health invocation with a future schemaVersion
+            // would skip the version check and reach the manager / observer routine,
+            // which expects a known shape.
+            if invocation.schemaVersion > ConnectionInvocation.currentSchemaVersion {
+                let result = ConnectionInvocationResult(
+                    invocationId: invocation.invocationId,
+                    kind: invocation.kind,
+                    actionName: invocation.action.name,
+                    status: .executionFailed,
+                    errorMessage: "unsupported schema version \(invocation.schemaVersion)"
+                )
+                do {
+                    try await delivery.deliver(result, to: conversationId)
+                } catch {
+                    Log.error("Failed to deliver schema-version-rejected health result: \(error.localizedDescription)")
+                }
+                return
+            }
             await router.route(
                 invocation: invocation,
                 conversationId: conversationId,

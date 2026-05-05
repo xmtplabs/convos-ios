@@ -267,6 +267,11 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
 
         private static func coerceInt(_ argument: ArgumentValue) -> Any? {
             if case .int(let value) = argument { return NSNumber(value: value) }
+            // Mirror coerceBool's tolerance for the inverse case: HomeKit characteristics
+            // like HMCharacteristicTypeTargetLockMechanismState are int-shaped on the wire
+            // (0 / 1) but agents commonly send `.bool` for them. Without this, those
+            // invocations fail format coercion and surface as "could not coerce" errors.
+            if case .bool(let value) = argument { return NSNumber(value: value ? 1 : 0) }
             if case .double(let value) = argument {
                 // `Int(exactly:)` rejects non-finite values and any Double that doesn't
                 // round-trip exactly to Int — including the off-by-one from
