@@ -3,6 +3,27 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
+/// Holds the contacts-backfill `StateObserverHandle` behind a lock. The handle is stored
+/// via `setHandle` from `scheduleContactsBackfill` during `MessagingService` init and
+/// cancelled/cleared from `SessionStateMachine.observeState` (any thread) or `deinit`,
+private final class ContactsBackfillObserverStorage: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var handle: StateObserverHandle?
+
+    func setHandle(_ newHandle: StateObserverHandle?) {
+        lock.lock()
+        defer { lock.unlock() }
+        handle = newHandle
+    }
+
+    func cancelAndClear() {
+        lock.lock()
+        defer { lock.unlock() }
+        handle?.cancel()
+        handle = nil
+    }
+}
+
 /// Service for managing XMTP messaging for a single inbox
 ///
 /// MessagingService coordinates all messaging operations for one inbox identity,
@@ -12,7 +33,9 @@ import GRDB
 /// The service handles authorization, streaming, and push notification registration.
 ///
 /// @unchecked Sendable: All stored properties are immutable references (`let`) to Sendable
-/// protocol types. The `cancellables` Set is only modified during init and deinit.
+/// protocol types, except `cancellables` (only modified during init and deinit). The
+/// contacts-backfill observer handle lives in `contactsBackfillObserverStorage` (`setHandle`
+/// / `cancelAndClear`), which is `let` while synchronizing its interior with a lock.
 /// Methods create new instances rather than sharing mutable state.
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
@@ -29,7 +52,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
-    private var contactsBackfillObserver: StateObserverHandle?
+    private let contactsBackfillObserverStorage: ContactsBackfillObserverStorage = ContactsBackfillObserverStorage()
 
     // swiftlint:disable:next function_parameter_count
     static func authorizedMessagingService(
@@ -101,11 +124,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             )
         )
         let stateMachine = sessionStateManager
-        let handle = stateMachine.observeState { [weak self] state in
+        let storage = contactsBackfillObserverStorage
+        let handle = stateMachine.observeState { [storage] state in
             guard case .ready = state else { return }
-            // Snap the observer off after the first ready event.
-            self?.contactsBackfillObserver?.cancel()
-            self?.contactsBackfillObserver = nil
+            storage.cancelAndClear()
             Task.detached(priority: .background) {
                 do {
                     try await backfill.backfillIfNeeded()
@@ -114,7 +136,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                 }
             }
         }
-        self.contactsBackfillObserver = handle
+        storage.setHandle(handle)
     }
 
     /// Constructs a MessagingService that represents the failed-keychain-read
@@ -144,7 +166,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     deinit {
         cancellables.removeAll()
-        contactsBackfillObserver?.cancel()
+        contactsBackfillObserverStorage.cancelAndClear()
     }
 
     // MARK: State
