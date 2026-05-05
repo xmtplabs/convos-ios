@@ -38,11 +38,14 @@ jobs:
     name: Build & upload to Firebase App Distribution
     runs-on: warp-macos-latest-arm64-12x
     timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
     env:
-      # Bump together when Xcode upgrades; the hash and cache key are derived
-      # from `nix store add /Applications/Xcode_NN.N.app`.
+      # Bump both together when Xcode upgrades; the hash is from
+      # `nix store add /Applications/Xcode_NN.N.app`.
+      XCODE_APP_PATH: /Applications/Xcode_26.3.app
       XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
-      XCODE_CACHE_KEY: xcode-nix-store-zst-x9hdz5mfp44i9b05sswp271jdv68r8vx
     steps:
       - uses: actions/checkout@v6
 
@@ -60,53 +63,11 @@ jobs:
           nix_conf: |
             experimental-features = nix-command flakes
 
-      # zstd over gzip: multithreaded decompression on Apple Silicon ~5x faster.
-      - name: Restore pinned Xcode from cache
-        id: xcode-cache
-        uses: WarpBuilds/cache/restore@v1
+      - name: Pin Xcode into /nix/store
+        uses: xmtplabs/xmtp-cache-apple@v1
         with:
-          path: ~/xcode-store.nar.zst
-          key: ${{ env.XCODE_CACHE_KEY }}
-
-      - name: Import cached Xcode into Nix store
-        if: steps.xcode-cache.outputs.cache-hit == 'true'
-        run: |
-          if nix path-info "$XCODE_NIX_PATH" >/dev/null 2>&1; then
-            echo "Already in store — skipping import"
-          else
-            echo "Importing cached NAR…"
-            zstd -d -T0 -c ~/xcode-store.nar.zst | nix-store --import
-          fi
-
-      - name: Pin system Xcode into the Nix store
-        env:
-          XCODE_APP_PATH: /Applications/Xcode_26.3.app
-        run: |
-          if nix path-info "$XCODE_NIX_PATH" >/dev/null 2>&1; then
-            echo "Xcode already in store at $XCODE_NIX_PATH — skipping import"
-          else
-            echo "Importing $XCODE_APP_PATH (slow on first run)…"
-            STORE_PATH=$(nix store add --name Xcode.app "$XCODE_APP_PATH")
-            echo "Pinned at: $STORE_PATH"
-            if [ "$STORE_PATH" != "$XCODE_NIX_PATH" ]; then
-              echo "::warning::Resulting store path $STORE_PATH does not match the pinned XCODE_NIX_PATH; update the workflow."
-            fi
-          fi
-
-      - name: Export pinned Xcode for cache save
-        if: steps.xcode-cache.outputs.cache-hit != 'true'
-        run: |
-          # -19 is highest standard zstd level; -T0 = all cores.
-          nix-store --export "$XCODE_NIX_PATH" | zstd -T0 -19 > ~/xcode-store.nar.zst
-          ls -lh ~/xcode-store.nar.zst
-
-      # Save now so cache lands even if later steps fail.
-      - name: Save pinned Xcode to cache
-        if: steps.xcode-cache.outputs.cache-hit != 'true'
-        uses: WarpBuilds/cache/save@v1
-        with:
-          path: ~/xcode-store.nar.zst
-          key: ${{ env.XCODE_CACHE_KEY }}
+          xcode-path: ${{ env.XCODE_APP_PATH }}
+          xcode-nix-path: ${{ env.XCODE_NIX_PATH }}
 
       # Action installs cachix + substituter; push happens manually after
       # the build so we can exclude Xcode's closure (EULA + 11 GiB).
