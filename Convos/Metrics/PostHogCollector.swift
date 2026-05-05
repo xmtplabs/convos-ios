@@ -27,4 +27,24 @@ final class PostHogCollector: CollectorDelegate {
             "duration_secs": context.durationSecs,
         ])
     }
+
+    override func identify(userId: String) {
+        Log.info("identifying as= \(userId)")
+        PostHogSDK.shared.identify(userId)
+    }
+
+    override func updateUserProperties(properties: [String: Any?]) {
+        Log.info("updating user props= \(properties)")
+        PostHogSDK.shared.setPersonProperties(
+            userPropertiesToSet: properties.compactMapValues { $0 }
+        )
+    }
+
+    override func sendEvent(name: String, properties: [String: Any?]) {
+        Log.info("sending event=\(name), \(properties)")
+        PostHogSDK.shared.capture(
+            name,
+            properties: properties.compactMapValues { $0 }
+        )
+    }
 }

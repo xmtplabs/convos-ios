@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
 # Builds the convos-shared metrics gradle project, which generates the
-# NavigationMetrics Swift package, and mirrors it to a stable location
+# ConvosMetrics Swift package, and mirrors it to a stable location
 # under the repo root so SPM can reference it via a fixed path.
 #
 # Gradle output (volatile, cleared by `gradle clean`):
 #   convos-shared/metrics/descriptors/build/generated/ksp/main/resources/swift/
 #
 # Stable mirror (consumed by ConvosCore/Package.swift):
-#   NavigationMetrics/
+#   ConvosMetrics/
 #     Package.swift
-#     Sources/NavigationMetrics/*.swift
+#     Sources/ConvosMetrics/*.swift
 
 set -e
 set -o pipefail
@@ -24,7 +24,7 @@ fi
 SUBMODULE_DIR="${REPO_ROOT}/convos-shared"
 METRICS_DIR="${SUBMODULE_DIR}/metrics"
 GRADLE_OUTPUT="${METRICS_DIR}/descriptors/build/generated/ksp/main/resources/swift"
-DEST_DIR="${REPO_ROOT}/NavigationMetrics"
+DEST_DIR="${REPO_ROOT}/ConvosMetrics"
 
 if [ ! -f "${METRICS_DIR}/settings.gradle.kts" ]; then
     echo "convos-shared submodule not initialized; running git submodule update --init"
@@ -43,10 +43,10 @@ if [ ! -f "${GRADLE_OUTPUT}/Package.swift" ]; then
     exit 1
 fi
 
-mkdir -p "${DEST_DIR}/Sources/NavigationMetrics"
+mkdir -p "${DEST_DIR}/Sources/ConvosMetrics"
 rsync -a --delete \
     "${GRADLE_OUTPUT}/Package.swift" \
     "${DEST_DIR}/Package.swift"
 rsync -a --delete \
-    "${GRADLE_OUTPUT}/Sources/NavigationMetrics/" \
-    "${DEST_DIR}/Sources/NavigationMetrics/"
+    "${GRADLE_OUTPUT}/Sources/ConvosMetrics/" \
+    "${DEST_DIR}/Sources/ConvosMetrics/"
