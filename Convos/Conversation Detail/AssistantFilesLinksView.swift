@@ -140,7 +140,8 @@ struct AttachmentPreviewPresentation: Identifiable {
 
 struct AssistantFilesLinksView: View {
     let conversationId: String
-    @State private var viewModel: AssistantFilesLinksViewModel
+    let repository: AssistantFilesLinksRepository
+    @State private var viewModel: AssistantFilesLinksViewModel = .init()
     @State private var presentingPreview: AttachmentPreviewPresentation?
     private let members: [ConversationMember]
     private let usesInlineHeader: Bool
@@ -160,7 +161,7 @@ struct AssistantFilesLinksView: View {
         navigator: (any AssistantFilesLinksNavigator)? = nil
     ) {
         self.conversationId = conversationId
-        _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
+        self.repository = repository
         self.members = members
         self.usesInlineHeader = usesInlineHeader
         self.profileSheetContent = profileSheetContent

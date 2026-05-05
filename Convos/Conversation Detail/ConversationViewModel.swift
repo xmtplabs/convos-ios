@@ -561,7 +561,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     static func resetUserDefaults() {
-        let defaults = UserDefaults.standard
+        let defaults: UserDefaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
         defaults.removeObject(forKey: hasShownAssistantConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
