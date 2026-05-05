@@ -145,7 +145,10 @@ class TestFixtures {
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
-                TypingIndicatorCodec()
+                TypingIndicatorCodec(),
+                FocusModeControlCodec(),
+                StreamingTextCodec(),
+                StreamingClearCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory

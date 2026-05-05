@@ -256,6 +256,30 @@ extension XMTPiOS.Conversation: MessageSender {
         )
     }
 
+    public func sendFocusModeControl(_ control: FocusModeControl) async throws {
+        let codec = FocusModeControlCodec()
+        try await send(
+            content: control,
+            options: .init(contentType: codec.contentType)
+        )
+    }
+
+    public func sendStreamingText(_ payload: StreamingText) async throws {
+        let codec = StreamingTextCodec()
+        try await send(
+            content: payload,
+            options: .init(contentType: codec.contentType)
+        )
+    }
+
+    public func sendStreamingClear(_ payload: StreamingClear) async throws {
+        let codec = StreamingClearCodec()
+        try await send(
+            content: payload,
+            options: .init(contentType: codec.contentType)
+        )
+    }
+
     public func prepare(text: String) async throws -> String {
         return try await prepareMessage(content: text)
     }

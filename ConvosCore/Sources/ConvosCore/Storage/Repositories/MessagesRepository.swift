@@ -518,6 +518,8 @@ extension Array where Element == DBMessage {
                     } else {
                         messageContent = .text("")
                     }
+                case .focusModeControl, .streamingText, .streamingClear:
+                    return nil
                 }
 
                 let message = Message(
@@ -579,7 +581,8 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest,
+             .focusModeControl, .streamingText, .streamingClear:
             return nil
         }
 
@@ -616,7 +619,8 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text(sourceDBMessage.text ?? "")
             }
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest,
+             .focusModeControl, .streamingText, .streamingClear:
             parentContent = .text("[Update]")
         }
 

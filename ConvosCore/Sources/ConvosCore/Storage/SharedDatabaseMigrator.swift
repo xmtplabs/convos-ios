@@ -95,6 +95,39 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("createFocusSessions") { db in
+            try db.create(table: "focusSession") { t in
+                t.column("sessionId", .text).notNull().primaryKey()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("focusedInboxId", .text)
+                t.column("state", .text).notNull()
+                t.column("startedAt", .datetime).notNull()
+                t.column("stoppedAt", .datetime)
+            }
+
+            try db.create(table: "liveBubble") { t in
+                t.column("sessionId", .text).notNull()
+                    .references("focusSession", onDelete: .cascade)
+                t.column("senderInboxId", .text).notNull()
+                t.column("text", .text).notNull().defaults(to: "")
+                t.column("revision", .integer).notNull().defaults(to: 0)
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["sessionId", "senderInboxId"])
+            }
+
+            try db.create(
+                index: "focusSession_conversationId",
+                on: "focusSession",
+                columns: ["conversationId"]
+            )
+            try db.create(
+                index: "liveBubble_sessionId",
+                on: "liveBubble",
+                columns: ["sessionId"]
+            )
+        }
+
         return migrator
     }
 

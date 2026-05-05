@@ -73,6 +73,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
     private let consentStates: [ConsentState] = [.allowed, .unknown]
+    private let focusSessionWriter: any FocusSessionWriterProtocol
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
 
@@ -106,6 +107,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             identityStore: identityStore,
             databaseWriter: databaseWriter
         )
+        self.focusSessionWriter = FocusSessionWriter(databaseWriter: databaseWriter)
     }
 
     // MARK: - Public Interface
@@ -233,6 +235,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if await processFocusModeMessage(message, conversationId: conversation.id) {
+                        return
+                    }
+
                     if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
@@ -336,6 +342,57 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         onTypingIndicator?(conversationId, message.senderInboxId, content.isTyping)
         return true
+    }
+
+    private func processFocusModeMessage(
+        _ message: DecodedMessage,
+        conversationId: String
+    ) async -> Bool {
+        guard let contentType = try? message.encodedContent.type else { return false }
+
+        if contentType.authorityID == ContentTypeFocusModeControl.authorityID
+            && contentType.typeID == ContentTypeFocusModeControl.typeID {
+            guard let control = try? FocusModeControlCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode FocusModeControl from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyFocusModeControl(control, conversationId: conversationId)
+            } catch {
+                Log.warning("Failed applying FocusModeControl: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        if contentType.authorityID == ContentTypeStreamingText.authorityID
+            && contentType.typeID == ContentTypeStreamingText.typeID {
+            guard let payload = try? StreamingTextCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode StreamingText from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyStreamingText(payload)
+            } catch {
+                Log.warning("Failed applying StreamingText: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        if contentType.authorityID == ContentTypeStreamingClear.authorityID
+            && contentType.typeID == ContentTypeStreamingClear.typeID {
+            guard let payload = try? StreamingClearCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode StreamingClear from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyStreamingClear(payload)
+            } catch {
+                Log.warning("Failed applying StreamingClear: \(error.localizedDescription)")
+            }
+            return true
+        }
+
+        return false
     }
 
     private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {

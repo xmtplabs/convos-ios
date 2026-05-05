@@ -20,6 +20,17 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeReadReceipt.authorityID
             && contentType.typeID == ContentTypeReadReceipt.typeID
     }
+
+    var isFocusEphemeral: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        let isFocusControl = contentType.authorityID == ContentTypeFocusModeControl.authorityID
+            && contentType.typeID == ContentTypeFocusModeControl.typeID
+        let isStreamingText = contentType.authorityID == ContentTypeStreamingText.authorityID
+            && contentType.typeID == ContentTypeStreamingText.typeID
+        let isStreamingClear = contentType.authorityID == ContentTypeStreamingClear.authorityID
+            && contentType.typeID == ContentTypeStreamingClear.typeID
+        return isFocusControl || isStreamingText || isStreamingClear
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -634,7 +645,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         var marksConversationAsUnread = false
         let myInboxId = currentInboxId
         for message in messages {
-            guard !message.isProfileMessage, !message.isTypingIndicator else { continue }
+            // Focus-ephemeral messages are skipped during catch-up. The streaming
+            // snapshot model means a stale FocusModeControl/StreamingText on
+            // reconnect would only paint UI for ~600ms before the next live
+            // keystroke supersedes it; for the prototype that's not worth wiring
+            // FocusSessionWriter through here. See plan §6 rule 7 (60s orphan).
+            guard !message.isProfileMessage, !message.isTypingIndicator, !message.isFocusEphemeral else { continue }
             if message.isReadReceipt {
                 await storeReadReceipt(message, conversationId: conversation.id)
                 continue

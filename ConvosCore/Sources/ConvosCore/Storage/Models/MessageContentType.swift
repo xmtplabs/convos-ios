@@ -7,10 +7,14 @@ public enum MessageContentType: String, Codable, Sendable {
     case linkPreview // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
     case assistantJoinRequest // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
     case connectionGrantRequest // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case focusModeControl // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case streamingText // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case streamingClear // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
 
     var marksConversationAsUnread: Bool {
         switch self {
-        case .update, .assistantJoinRequest, .connectionGrantRequest:
+        case .update, .assistantJoinRequest, .connectionGrantRequest,
+             .focusModeControl, .streamingText, .streamingClear:
             false
         default:
             true
