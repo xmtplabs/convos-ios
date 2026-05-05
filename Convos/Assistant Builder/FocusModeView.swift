@@ -33,6 +33,7 @@ struct FocusModeView: View {
 
     @ViewBuilder
     private var topRegion: some View {
+        let endSessionDebugAction = { viewModel.debugEndFocusSession() }
         LiveBubble(
             text: viewModel.focusedMemberLiveText,
             style: .focusedMember,
@@ -40,6 +41,9 @@ struct FocusModeView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .matchedGeometryEffect(id: "focused-bubble", in: focusNamespace)
+        // Long-press the assistant bubble to end the session manually
+        // — debug affordance until a real assistant emits .stop on its own.
+        .onLongPressGesture(minimumDuration: 1.5, perform: endSessionDebugAction)
     }
 
     @ViewBuilder

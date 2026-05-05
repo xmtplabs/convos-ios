@@ -37,14 +37,26 @@ struct AssistantBuilderView: View {
 
     @ViewBuilder
     private var canvas: some View {
-        switch viewModel.phase {
-        case .bootstrap:
-            placeholderCanvas
-        case .focus:
-            FocusModeView(viewModel: viewModel)
-        case .stopped:
-            stoppedPlaceholder
+        Group {
+            switch viewModel.phase {
+            case .bootstrap:
+                placeholderCanvas
+                    .transition(.opacity)
+            case .focus:
+                FocusModeView(viewModel: viewModel)
+                    .transition(.opacity)
+            case .stopped:
+                if viewModel.didTransitionToConversation {
+                    fullConversationCanvas
+                        .transition(.opacity.combined(with: .scale(scale: 1.02)))
+                } else {
+                    sessionEndedCanvas
+                        .transition(.opacity)
+                }
+            }
         }
+        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: viewModel.phase)
+        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: viewModel.didTransitionToConversation)
     }
 
     @ViewBuilder
@@ -64,13 +76,44 @@ struct AssistantBuilderView: View {
     }
 
     @ViewBuilder
-    private var stoppedPlaceholder: some View {
+    private var sessionEndedCanvas: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            Text("Session ended")
+            // Top region keeps the focused member's final phrase frozen so the
+            // user has context for what they're about to chat about.
+            LiveBubble(
+                text: viewModel.focusedMemberLiveText.isEmpty
+                    ? "Your assistant is ready."
+                    : viewModel.focusedMemberLiveText,
+                style: .focusedMember,
+                tailCorner: .topTrailing
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            let startChattingAction = { viewModel.startChattingTapped() }
+            Button(action: startChattingAction) {
+                Text("Start chatting")
+                    .frame(maxWidth: .infinity)
+            }
+            .convosButtonStyle(.rounded(fullWidth: true))
+            .frame(maxHeight: 80)
+            .accessibilityIdentifier("start-chatting-button")
+        }
+        .padding(DesignConstants.Spacing.step3x)
+    }
+
+    @ViewBuilder
+    private var fullConversationCanvas: some View {
+        // Real ConversationView wiring lands separately. For the prototype
+        // we show a confirmation state that the transition fired.
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.system(size: 48, weight: .semibold))
+                .foregroundStyle(.colorTextPrimary)
+            Text("Conversation started")
                 .font(.system(.title2, weight: .bold))
                 .foregroundStyle(.colorTextPrimary)
-            Text("Tap to start chatting (placeholder)")
-                .font(.subheadline)
+            Text("(ConversationView would render here)")
+                .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

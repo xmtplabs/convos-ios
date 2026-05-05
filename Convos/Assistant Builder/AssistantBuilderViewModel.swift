@@ -23,6 +23,10 @@ final class AssistantBuilderViewModel: Identifiable {
     private(set) var focusSession: DBFocusSession?
     private(set) var liveBubbles: [DBLiveBubble] = []
 
+    /// Flips true when the user taps "Start chatting" on the session-ended
+    /// canvas. Drives the final crossfade into the standard ConversationView.
+    private(set) var didTransitionToConversation: Bool = false
+
     /// Two-way bound from `LiveBubbleEditor`. Each set fans out to the
     /// streaming publisher (debounced) so peers see the snapshot.
     var draftText: String = "" {
@@ -116,6 +120,33 @@ final class AssistantBuilderViewModel: Identifiable {
     func handleReturnPressed() {
         publisher?.clear()
         draftText = ""
+    }
+
+    /// User tapped "Start chatting" on the session-ended canvas. Triggers
+    /// the final transition into the standard ConversationView.
+    func startChattingTapped() {
+        didTransitionToConversation = true
+    }
+
+    /// Debug helper for the prototype: locally end the focus session by
+    /// sending FocusModeControl(.stop). In production this would be sent
+    /// by the assistant when it decides it has enough information.
+    func debugEndFocusSession() {
+        guard let conversationId,
+              let messagingService,
+              let focusSession else { return }
+        let payload = FocusModeControl(
+            state: .stop,
+            focusedInboxId: nil,
+            sessionId: focusSession.sessionId
+        )
+        Task {
+            do {
+                try await messagingService.sendFocusModeControl(payload, for: conversationId)
+            } catch {
+                Log.error("Failed sending FocusModeControl(.stop): \(error.localizedDescription)")
+            }
+        }
     }
 
     private var currentInboxId: String {
