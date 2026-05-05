@@ -94,6 +94,8 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+
+    var assistantBuilderViewModel: AssistantBuilderViewModel?
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -293,6 +295,10 @@ final class ConversationsViewModel {
             session: session,
             mode: .scanner
         )
+    }
+
+    func onStartAssistantBuilder() {
+        assistantBuilderViewModel = AssistantBuilderViewModel(session: session)
     }
 
     private func join(from inviteCode: String) {
