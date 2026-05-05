@@ -119,9 +119,35 @@ into a new GRDB table (see §4.2).
 public struct FocusModeControl: Codable, Sendable {
     public enum State: String, Codable, Sendable { case start, stop }
     public let state: State
-    public let focusedInboxId: String?   // required when .start, nil on .stop
+    public let focusedInboxId: String?   // see "Pending focus" below
     public let sessionId: String         // groups the start/stop pair
 }
+```
+
+**Pending focus.** `focusedInboxId` is **always optional**, including on
+`.start`. Two valid `.start` shapes:
+
+- `.start` with `focusedInboxId: nil` — the session is open, but no member is
+  focused yet. Used when the user kicks off the builder before the assistant
+  has joined the group. The view-model renders a "waiting" state in the top
+  region (placeholder bubble) until the focus is set.
+- `.start` with `focusedInboxId: <id>` — the session is open and focused on
+  that member. Sent either as the first `.start` (when the assistant is
+  already present), or as a *follow-up* `.start` (re-broadcast with the same
+  `sessionId`) once a target member has joined.
+
+The receiver applies any `.start` with the same `sessionId` as an upsert: the
+latest non-nil `focusedInboxId` wins. There is no separate `.promote` state —
+a re-broadcast `.start` carrying the now-known id is sufficient.
+
+**Auto-promotion is a view-model concern, not a writer concern.** The writer
+is a pure state machine that applies whatever it receives. The
+`AssistantBuilderViewModel` owns the policy: when it observes that a session
+is `started` with `focusedInboxId == nil` AND a non-self member joins the
+group, it sends a follow-up `.start` with the new member's inbox id and the
+same `sessionId`.
+
+```swift
 
 // StreamingTextCodec
 public struct StreamingText: Codable, Sendable {
@@ -166,7 +192,7 @@ New table `DBFocusSession`:
 |---|---|---|
 | `sessionId` | text PK | from FocusModeControl |
 | `conversationId` | text indexed | FK to DBConversation |
-| `focusedInboxId` | text | who's in the spotlight |
+| `focusedInboxId` | text? | nil = "started, awaiting member" (see §4.1) |
 | `state` | text enum | `started` / `stopped` |
 | `startedAt` | date | |
 | `stoppedAt` | date? | nil while live |
@@ -186,12 +212,19 @@ Migration in `SharedDatabaseMigrator.swift`. Both tables are app-scoped; no
 shared database concerns since this is a UI-only feature.
 
 **Apply rules:**
+- On `FocusModeControl(.start)`:
+  - If no row for `sessionId` exists, insert with `state = started`,
+    `focusedInboxId = payload.focusedInboxId` (which may be nil).
+  - If a row exists, update `state = started` and **only overwrite
+    `focusedInboxId` if the payload's value is non-nil** — this preserves a
+    previously-set focus if a stale `.start(nil)` arrives late.
+- On `FocusModeControl(.stop)`: leave `DBLiveBubble` rows in place but mark the
+  session `stopped`. Views key off session state.
 - On `StreamingText`: upsert if `revision > existing.revision`, else drop.
+  Drop entirely if the session is `stopped` or no session row exists.
 - On `StreamingClear`: only blank the row if `revision > existing.revision`.
   Schedule a 600ms delay before clearing locally so the receiver sees the final
   text. The clear is wall-clock-driven; no separate "clear-pending" flag needed.
-- On `FocusModeControl(.stop)`: leave `DBLiveBubble` rows in place but mark the
-  session `stopped`. Views key off session state.
 
 ### 4.3 Writers / Repositories
 
