@@ -41,6 +41,7 @@ final class ConversationConnectionsViewModel {
     private let grantWriter: any CloudConnectionGrantWriterProtocol
     private let connectionEventWriter: any ConnectionEventWriterProtocol
     private let enablementStore: any EnablementStore
+    private let capabilityResolver: any CapabilityResolver
     private var connectionsCancellable: AnyCancellable?
     private var grantsCancellable: AnyCancellable?
 
@@ -50,7 +51,8 @@ final class ConversationConnectionsViewModel {
         cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
         grantWriter: any CloudConnectionGrantWriterProtocol,
         connectionEventWriter: any ConnectionEventWriterProtocol,
-        enablementStore: any EnablementStore
+        enablementStore: any EnablementStore,
+        capabilityResolver: any CapabilityResolver
     ) {
         self.conversationId = conversationId
         self.cloudConnectionManager = cloudConnectionManager
@@ -58,6 +60,7 @@ final class ConversationConnectionsViewModel {
         self.grantWriter = grantWriter
         self.connectionEventWriter = connectionEventWriter
         self.enablementStore = enablementStore
+        self.capabilityResolver = capabilityResolver
 
         connectionsCancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
@@ -139,10 +142,50 @@ final class ConversationConnectionsViewModel {
         Task {
             do {
                 try await grantWriter.revokeGrant(connectionId: connectionId, from: conversationId)
+                // Drop this provider from every (subject, verb) row of the
+                // resolver scoped to this conversation. Without this, a
+                // follow-up capability_request for the same verb hits
+                // persistApprovedCloudCapabilities' idempotency gate (which
+                // compares against the resolver snapshot) and silently
+                // skips the connection_event — so the user sees the revoke
+                // line but no subsequent grant line.
+                await clearResolverEntriesForProvider(providerId)
                 try? await connectionEventWriter.sendRevoked(providerId: providerId.rawValue, in: conversationId)
             } catch {
                 Log.error("Failed to revoke connection grant: \(error.localizedDescription)")
                 self.error = error
+            }
+        }
+    }
+
+    private func clearResolverEntriesForProvider(_ providerId: ProviderID) async {
+        for subject in CapabilitySubject.allCases {
+            for capability in ConnectionCapability.allCases {
+                let current = await capabilityResolver.resolution(
+                    subject: subject,
+                    capability: capability,
+                    conversationId: conversationId
+                )
+                guard current.contains(providerId) else { continue }
+                let shrunk = current.subtracting([providerId])
+                do {
+                    if shrunk.isEmpty {
+                        try await capabilityResolver.clearResolution(
+                            subject: subject,
+                            capability: capability,
+                            conversationId: conversationId
+                        )
+                    } else {
+                        try await capabilityResolver.setResolution(
+                            shrunk,
+                            subject: subject,
+                            capability: capability,
+                            conversationId: conversationId
+                        )
+                    }
+                } catch {
+                    Log.warning("Failed to clear resolver entry for \(providerId.rawValue) (\(subject), \(capability)): \(error.localizedDescription)")
+                }
             }
         }
     }

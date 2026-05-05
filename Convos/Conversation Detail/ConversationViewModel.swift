@@ -2319,7 +2319,8 @@ extension ConversationViewModel {
             cloudConnectionRepository: session.cloudConnectionRepository(),
             grantWriter: messagingService.connectionGrantWriter(),
             connectionEventWriter: messagingService.connectionEventWriter(),
-            enablementStore: session.connectionEnablementStore()
+            enablementStore: session.connectionEnablementStore(),
+            capabilityResolver: session.capabilityResolver()
         )
     }
 
