@@ -189,3 +189,32 @@ struct HydratedAttachmentIsArtifactBundleTests {
         #expect(attachment.isArtifactBundle)
     }
 }
+
+@Suite("HydratedAttachment.inferredMimeType")
+struct HydratedAttachmentInferredMimeTypeTests {
+    @Test(".artifact maps to application/x-convos-artifact")
+    func artifactExtension() {
+        #expect(HydratedAttachment.inferredMimeType(forFilename: "paris.artifact") == "application/x-convos-artifact")
+    }
+
+    @Test("uppercase .ARTIFACT also maps")
+    func artifactExtensionUppercase() {
+        #expect(HydratedAttachment.inferredMimeType(forFilename: "DIMSUM.ARTIFACT") == "application/x-convos-artifact")
+    }
+
+    @Test("known extensions resolve via UTType")
+    func knownExtensionViaUTType() {
+        #expect(HydratedAttachment.inferredMimeType(forFilename: "photo.jpg") == "image/jpeg")
+        #expect(HydratedAttachment.inferredMimeType(forFilename: "doc.pdf") == "application/pdf")
+    }
+
+    @Test("nil filename returns nil")
+    func nilFilename() {
+        #expect(HydratedAttachment.inferredMimeType(forFilename: nil) == nil)
+    }
+
+    @Test("filename without extension returns nil")
+    func filenameWithoutExtension() {
+        #expect(HydratedAttachment.inferredMimeType(forFilename: "noext") == nil)
+    }
+}

@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-import UniformTypeIdentifiers
 
 public struct ConversationMessagesResult: Sendable {
     public let conversationId: String
@@ -951,9 +950,8 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         } else {
             filename = name
         }
-        if mimeType == nil, let ext = filename.flatMap({ ($0 as NSString).pathExtension.lowercased() }),
-           !ext.isEmpty, let utType = UTType(filenameExtension: ext) {
-            mimeType = utType.preferredMIMEType
+        if mimeType == nil {
+            mimeType = HydratedAttachment.inferredMimeType(forFilename: filename)
         }
     }
 

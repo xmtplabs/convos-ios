@@ -306,7 +306,7 @@ struct MessagesGroupItemView: View {
                 style: bubbleType,
                 isOutgoing: message.sender.isCurrentUser
             )
-            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+            .padding(.trailing, DesignConstants.Spacing.step4x)
             .messageGesture(
                 message: message,
                 bubbleStyle: bubbleType,

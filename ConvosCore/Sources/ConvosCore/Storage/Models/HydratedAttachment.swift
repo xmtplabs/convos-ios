@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 public enum MediaType: String, Codable, Sendable {
     case image
@@ -96,6 +97,16 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
     public var thumbnailData: Data? {
         guard let thumbnailDataBase64 else { return nil }
         return Data(base64Encoded: thumbnailDataBase64)
+    }
+
+    public static func inferredMimeType(forFilename filename: String?) -> String? {
+        guard let filename else { return nil }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty else { return nil }
+        if ext == "artifact" {
+            return "application/x-convos-artifact"
+        }
+        return UTType(filenameExtension: ext)?.preferredMIMEType
     }
 
     public init(

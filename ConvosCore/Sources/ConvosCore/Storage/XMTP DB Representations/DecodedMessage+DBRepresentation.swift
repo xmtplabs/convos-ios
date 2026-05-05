@@ -1,7 +1,6 @@
 import ConvosAppData
 import Foundation
 import GRDB
-import UniformTypeIdentifiers
 import XMTPiOS
 
 extension Character {
@@ -288,11 +287,7 @@ extension XMTPiOS.DecodedMessage {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         let storedAttachments = remoteAttachments.map { attachment in
-            let inferredMimeType: String? = attachment.filename.flatMap { filename in
-                let ext = (filename as NSString).pathExtension.lowercased()
-                guard !ext.isEmpty else { return nil }
-                return UTType(filenameExtension: ext)?.preferredMIMEType
-            }
+            let inferredMimeType: String? = HydratedAttachment.inferredMimeType(forFilename: attachment.filename)
             let stored = StoredRemoteAttachment(
                 url: attachment.url,
                 contentDigest: attachment.contentDigest,
@@ -320,11 +315,7 @@ extension XMTPiOS.DecodedMessage {
         guard let remoteAttachment = content as? RemoteAttachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
-        let inferredMimeType: String? = remoteAttachment.filename.flatMap { filename in
-            let ext = (filename as NSString).pathExtension.lowercased()
-            guard !ext.isEmpty else { return nil }
-            return UTType(filenameExtension: ext)?.preferredMIMEType
-        }
+        let inferredMimeType: String? = HydratedAttachment.inferredMimeType(forFilename: remoteAttachment.filename)
         let stored = StoredRemoteAttachment(
             url: remoteAttachment.url,
             contentDigest: remoteAttachment.contentDigest,
