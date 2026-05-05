@@ -20,6 +20,12 @@ public protocol DeviceInfoProviding: Sendable {
 
     /// Returns the current OS string (e.g., "ios", "macos").
     var osString: String { get }
+
+    /// Human-readable device name (e.g., the user's iPhone name) used in
+    /// backup metadata for discovery. Unlike `deviceIdentifier`, this is
+    /// presented to the user in restore prompts so it should be legible,
+    /// not an opaque UUID.
+    var deviceName: String { get }
 }
 
 // MARK: - Shared Instance Access
@@ -76,6 +82,11 @@ public enum DeviceInfo {
     /// Convenience accessor for `DeviceInfo.shared.osString`
     public static var osString: String {
         shared.osString
+    }
+
+    /// Convenience accessor for `DeviceInfo.shared.deviceName`.
+    public static var deviceName: String {
+        shared.deviceName
     }
 
     /// Resets the configuration state. Only for use in tests.

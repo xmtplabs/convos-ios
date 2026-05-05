@@ -7,7 +7,7 @@ import Testing
 /// so state doesn't leak between tests or into the real app-group.
 @Suite("LegacyDataWipe", .serialized)
 struct LegacyDataWipeTests {
-    // Keychain access group is only used for legacy delete attempts,
+    // Keychain access group is only used for legacy v1/v2 delete attempts,
     // which return errSecItemNotFound in the test simulator keychain and
     // never contribute to the gate — safe to pass a dummy value.
     private let legacyAccessGroup = "group.org.convos.tests.legacy-wipe"
@@ -18,7 +18,6 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -33,21 +32,102 @@ struct LegacyDataWipeTests {
 
         // Drop a "legacy" file to prove the wipe didn't run — if it had,
         // this file would be deleted.
-        let grdb = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
+        let grdb = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
         try Data("would-have-been-wiped".utf8).write(to: grdb)
-
-        // Drop a UserDefaults marker that should also survive a no-op pass.
-        fixture.standardDefaults.set("token", forKey: "lastRegisteredDevicePushToken_dev1")
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
 
         #expect(FileManager.default.fileExists(atPath: grdb.path))
-        #expect(fixture.standardDefaults.string(forKey: "lastRegisteredDevicePushToken_dev1") == "token")
+    }
+
+    @Test("Compatible legacy generation 'v1-single-inbox' is treated as current — no wipe, marker forwarded")
+    func compatibleGenerationIsNotWiped() throws {
+        let fixture = try TempFixture()
+        // Two populations land here:
+        //   1. Users who shipped the (now-reverted) v1-single-inbox build.
+        //   2. Users whose marker was forwarded to v1-single-inbox by the
+        //      broken build 800 wipe (which deleted xmtp-*.db3 but left
+        //      convos-single-inbox.sqlite intact).
+        // Neither should re-trigger a wipe — that would compound the damage.
+        fixture.defaults.set("v1-single-inbox", forKey: "convos.schemaGeneration")
+        let activeXmtp = fixture.databasesDirectory
+            .appendingPathComponent("xmtp-grpc.dev.xmtp.network-abc123.db3")
+        try Data("active-xmtp-db".utf8).write(to: activeXmtp)
+        let activeGRDB = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite")
+        try Data("active-grdb".utf8).write(to: activeGRDB)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(FileManager.default.fileExists(atPath: activeXmtp.path))
+        #expect(FileManager.default.fileExists(atPath: activeGRDB.path))
+        #expect(
+            fixture.defaults.string(forKey: "convos.schemaGeneration")
+            == LegacyDataWipe.currentGeneration
+        )
+    }
+
+    @Test("isCompatibleGeneration recognises current and known-prior canonical names")
+    func isCompatibleGenerationMatchesAcceptedNames() {
+        #expect(LegacyDataWipe.isCompatibleGeneration(LegacyDataWipe.currentGeneration))
+        #expect(LegacyDataWipe.isCompatibleGeneration("v1-single-inbox"))
+        #expect(!LegacyDataWipe.isCompatibleGeneration("single-inbox-v0"))
+        #expect(!LegacyDataWipe.isCompatibleGeneration("totally-unknown"))
+    }
+
+    @Test("Wipe targets convos-single-inbox.sqlite GRDB sidecars too")
+    func wipeRemovesSingleInboxGRDB() throws {
+        let fixture = try TempFixture()
+        // Force a wipe path: stale generation, with the new GRDB filename
+        // present alongside the obsolete one. Build 800 only wiped the
+        // obsolete name, orphaning the active GRDB; this locks the fix.
+        fixture.defaults.set("single-inbox-v0", forKey: "convos.schemaGeneration")
+        let obsoleteGRDB = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
+        try Data("obsolete".utf8).write(to: obsoleteGRDB)
+        let singleInboxGRDB = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite")
+        try Data("single-inbox".utf8).write(to: singleInboxGRDB)
+        let singleInboxWAL = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite-wal")
+        try Data("wal".utf8).write(to: singleInboxWAL)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: obsoleteGRDB.path))
+        #expect(!FileManager.default.fileExists(atPath: singleInboxGRDB.path))
+        #expect(!FileManager.default.fileExists(atPath: singleInboxWAL.path))
+        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
+    }
+
+    @Test("Cold install with only convos-single-inbox.sqlite triggers wipe")
+    func singleInboxGRDBAloneTriggersWipe() throws {
+        let fixture = try TempFixture()
+        // No marker, but the new GRDB is present. detectLegacyArtifacts must
+        // see it so a stranded install doesn't silently keep the broken state.
+        let singleInboxGRDB = fixture.databasesDirectory
+            .appendingPathComponent("convos-single-inbox.sqlite")
+        try Data("orphan".utf8).write(to: singleInboxGRDB)
+
+        LegacyDataWipe.runIfNeeded(
+            defaults: fixture.defaults,
+            databasesDirectory: fixture.databasesDirectory,
+            legacyKeychainAccessGroup: legacyAccessGroup
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: singleInboxGRDB.path))
+        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
     }
 
     @Test("Upgrade: legacy artifacts removed + marker set")
@@ -64,7 +144,6 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -96,7 +175,6 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -106,56 +184,6 @@ struct LegacyDataWipeTests {
             #expect(!FileManager.default.fileExists(atPath: url.path), "\(filename) should be gone")
         }
         #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
-    }
-
-    @Test("Active GRDB filename (convos-single-inbox.sqlite) is swept on a generation bump")
-    func activeGRDBFilenameWiped() throws {
-        let fixture = try TempFixture()
-        fixture.defaults.set("single-inbox-v2", forKey: "convos.schemaGeneration")
-
-        let active = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
-        let activeShm = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite-shm")
-        let activeWal = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite-wal")
-        try Data("active".utf8).write(to: active)
-        try Data("shm".utf8).write(to: activeShm)
-        try Data("wal".utf8).write(to: activeWal)
-
-        LegacyDataWipe.runIfNeeded(
-            defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
-            databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup
-        )
-
-        #expect(!FileManager.default.fileExists(atPath: active.path))
-        #expect(!FileManager.default.fileExists(atPath: activeShm.path))
-        #expect(!FileManager.default.fileExists(atPath: activeWal.path))
-        #expect(fixture.defaults.string(forKey: "convos.schemaGeneration") == LegacyDataWipe.currentGeneration)
-    }
-
-    @Test("Standard-defaults markers are wiped on a generation bump")
-    func userDefaultsMarkersWiped() throws {
-        let fixture = try TempFixture()
-        fixture.defaults.set("single-inbox-v2", forKey: "convos.schemaGeneration")
-
-        // Per-device push markers (prefix-matched) and the IDFV fallback (exact-matched).
-        fixture.standardDefaults.set(true, forKey: "hasRegisteredDevice_device-A")
-        fixture.standardDefaults.set("token-A", forKey: "lastRegisteredDevicePushToken_device-A")
-        fixture.standardDefaults.set("uuid", forKey: "convos_fallback_device_id")
-        // Unrelated keys must survive.
-        fixture.standardDefaults.set("keep", forKey: "unrelated_user_pref")
-
-        LegacyDataWipe.runIfNeeded(
-            defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
-            databasesDirectory: fixture.databasesDirectory,
-            legacyKeychainAccessGroup: legacyAccessGroup
-        )
-
-        #expect(fixture.standardDefaults.bool(forKey: "hasRegisteredDevice_device-A") == false)
-        #expect(fixture.standardDefaults.string(forKey: "lastRegisteredDevicePushToken_device-A") == nil)
-        #expect(fixture.standardDefaults.string(forKey: "convos_fallback_device_id") == nil)
-        #expect(fixture.standardDefaults.string(forKey: "unrelated_user_pref") == "keep")
     }
 
     @Test("Cold install but with legacy artifacts (no marker): still wipes + marks")
@@ -169,7 +197,6 @@ struct LegacyDataWipeTests {
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -185,7 +212,6 @@ struct LegacyDataWipeTests {
         // First run: fresh install, marker gets set.
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -193,12 +219,11 @@ struct LegacyDataWipeTests {
 
         // Drop a file after the first run — it should survive the second run
         // because the second run short-circuits on the current-generation marker.
-        let newFile = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
+        let newFile = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
         try Data("written-after-first-run".utf8).write(to: newFile)
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -213,12 +238,11 @@ struct LegacyDataWipeTests {
 
         // Pretend we're on an older generation.
         fixture.defaults.set("single-inbox-v0", forKey: "convos.schemaGeneration")
-        let grdb = fixture.databasesDirectory.appendingPathComponent("convos-single-inbox.sqlite")
+        let grdb = fixture.databasesDirectory.appendingPathComponent("convos.sqlite")
         try Data("stale".utf8).write(to: grdb)
 
         LegacyDataWipe.runIfNeeded(
             defaults: fixture.defaults,
-            standardDefaults: fixture.standardDefaults,
             databasesDirectory: fixture.databasesDirectory,
             legacyKeychainAccessGroup: legacyAccessGroup
         )
@@ -233,9 +257,7 @@ struct LegacyDataWipeTests {
 private final class TempFixture {
     let databasesDirectory: URL
     let defaults: UserDefaults
-    let standardDefaults: UserDefaults
     private let defaultsSuite: String
-    private let standardDefaultsSuite: String
 
     init() throws {
         let base = FileManager.default.temporaryDirectory
@@ -243,23 +265,16 @@ private final class TempFixture {
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         databasesDirectory = base
 
-        defaultsSuite = "convos.tests.app-group.\(UUID().uuidString)"
+        defaultsSuite = "convos.tests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: defaultsSuite) else {
             throw FixtureError.defaultsAllocationFailed
         }
         self.defaults = defaults
-
-        standardDefaultsSuite = "convos.tests.standard.\(UUID().uuidString)"
-        guard let standardDefaults = UserDefaults(suiteName: standardDefaultsSuite) else {
-            throw FixtureError.defaultsAllocationFailed
-        }
-        self.standardDefaults = standardDefaults
     }
 
     deinit {
         try? FileManager.default.removeItem(at: databasesDirectory)
         defaults.removePersistentDomain(forName: defaultsSuite)
-        standardDefaults.removePersistentDomain(forName: standardDefaultsSuite)
     }
 }
 

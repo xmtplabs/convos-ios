@@ -384,7 +384,7 @@ struct ImageValidationTests {
     }
 }
 
-@Suite("Rich Link Metadata Fallback", .serialized)
+@Suite("Rich Link Metadata Fallback")
 struct RichLinkMetadataFallbackTests {
     @Test("Provider is nil by default")
     func providerNilByDefault() {

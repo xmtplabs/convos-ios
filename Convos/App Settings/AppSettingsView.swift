@@ -34,9 +34,24 @@ struct AppSettingsView: View {
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
+    let backupCoordinator: BackupCoordinator?
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
+
+    init(
+        viewModel: AppSettingsViewModel,
+        profileSettingsViewModel: ProfileSettingsViewModel,
+        session: any SessionManagerProtocol,
+        onDeleteAllData: @escaping () -> Void,
+        backupCoordinator: BackupCoordinator? = nil
+    ) {
+        self.viewModel = viewModel
+        self.profileSettingsViewModel = profileSettingsViewModel
+        self.session = session
+        self.onDeleteAllData = onDeleteAllData
+        self.backupCoordinator = backupCoordinator
+    }
 
     @ViewBuilder
     private var connectionsSection: some View {
@@ -63,6 +78,7 @@ struct AppSettingsView: View {
                 assistantsSection
                 connectionsSection
                 customizeSection
+                backupRestoreSection
                 linksSection
                 deleteSection
             }
@@ -180,6 +196,36 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
+    private var backupRestoreSection: some View {
+        if let backupCoordinator {
+            let onRestore: (AvailableBackup) -> Void = { available in
+                backupCoordinator.beginRestore(available)
+            }
+            let onEraseICloudBackupKey: @MainActor () async -> Bool = {
+                await backupCoordinator.eraseICloudBackupKey()
+            }
+            Section {
+                NavigationLink {
+                    BackupRestoreSettingsView(
+                        viewModel: backupCoordinator.viewModel,
+                        onRestore: onRestore,
+                        onEraseICloudBackupKey: onEraseICloudBackupKey
+                    )
+                } label: {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text("Backup & Restore")
+                            .foregroundStyle(.colorTextPrimary)
+                        Spacer()
+                    }
+                }
+                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                .accessibilityIdentifier("backup-restore-row")
+            }
+            .listRowSeparatorTint(.colorBorderSubtle)
+        }
+    }
+
+    @ViewBuilder
     private var linksSection: some View {
         Section {
             securedByXMTPRow
@@ -239,7 +285,11 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var debugRow: some View {
         NavigationLink {
-            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+            DebugExportView(
+                environment: ConfigManager.shared.currentEnvironment,
+                session: session,
+                backupCoordinator: backupCoordinator
+            )
         } label: {
             Text("Debug")
         }

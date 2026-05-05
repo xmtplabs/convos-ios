@@ -43,161 +43,8 @@ struct DebugViewSection: View {
     @State private var showingAssistantsInfoSheet: Bool = false
     @State private var showingSafariTestSheet: Bool = false
 
-    var body: some View {
-        Group {
-            featuresSection
-
-            pushNotificationsSection
-
-            Section("Debug") {
-                HStack {
-                    Text("Bundle ID")
-                    Spacer()
-                    Text(Bundle.main.bundleIdentifier ?? "Unknown")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Version")
-                    Spacer()
-                    Text(Bundle.appVersion)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Environment")
-                    Spacer()
-                    Text(ConfigManager.shared.currentEnvironment.name.capitalized)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                HStack {
-                    Text("Log storage")
-                    Spacer()
-                    if let info = logStorageInfo {
-                        Text(info.formattedTotalSize)
-                            .foregroundStyle(.colorTextSecondary)
-                    } else {
-                        ProgressView()
-                    }
-                }
-            }
-
-            Section("Sentry Testing") {
-                Button {
-                    testSentryMessage()
-                } label: {
-                    Text("Send Test Message")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryError()
-                } label: {
-                    Text("Send Test Error")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryException()
-                } label: {
-                    Text("Send Test Exception")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    testSentryWithBreadcrumbs()
-                } label: {
-                    Text("Send Event with Breadcrumbs")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-
-            Section("Pending Invites") {
-                NavigationLink {
-                    PendingInviteDebugView(session: session)
-                } label: {
-                    Text("View Pending Invites")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                NavigationLink {
-                    OrphanedInboxDebugView(session: session)
-                } label: {
-                    Text("View Orphaned Inboxes")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-
-            Section("Asset Renewal") {
-                NavigationLink {
-                    DebugAssetRenewalView(session: session)
-                } label: {
-                    Text("View Renewable Assets")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-
-                Button {
-                    Task { await renewAssetsNow() }
-                } label: {
-                    HStack {
-                        Text("Renew Assets Now")
-                            .foregroundStyle(.colorTextPrimary)
-                        Spacer()
-                        if isRenewingAssets { ProgressView() }
-                    }
-                }
-                .disabled(isRenewingAssets)
-            }
-
-            Section("Sheets") {
-                Button {
-                    presentingPhotosInfoSheet = true
-                } label: {
-                    Text("Show Photos Info Sheet")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-            .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
-                PhotosInfoSheet()
-            }
-
-            Section {
-                Button {
-                    Task { await registerDeviceAgain() }
-                } label: {
-                    Text("Register Device Again")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    resetOnboarding()
-                } label: {
-                    Text("Reset Onboarding")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                Button {
-                    resetAllSettings()
-                } label: {
-                    Text("Reset All Settings")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-        }
-        .task {
-            await refreshNotificationStatus()
-            logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
-        }
-        .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { message in
-            Text(message)
-        }
-    }
-
-    // MARK: - Body subviews
-    //
-    // Extracted from `body` so the section list stays under the project's
-    // 100ms warn-long-function-bodies budget. The two heaviest sections
-    // (Features with its inline closure-bound buttons and sheets, and Push
-    // Notifications with its HStack/VStack/ScrollView/Button nesting plus
-    // ternaries) tipped the type-checker over when inline.
-
+    // Extracted to a computed property so the body's inferred type
+    // stays under the project's 100ms warn-long-function-bodies budget.
     @ViewBuilder
     private var featuresSection: some View {
         Section("Features") {
@@ -226,8 +73,6 @@ struct DebugViewSection: View {
 
     @ViewBuilder
     private var pushNotificationsSection: some View {
-        let authorizedText: String = notificationAuthGranted ? "Yes" : "No"
-        let requestNowOpacity: Double = notificationAuthGranted ? 0.5 : 1.0
         Section(header: Text("Push Notifications")) {
             HStack {
                 Text("Auth Status")
@@ -238,7 +83,7 @@ struct DebugViewSection: View {
             HStack {
                 Text("Authorized")
                 Spacer()
-                Text(authorizedText)
+                Text(notificationAuthGranted ? "Yes" : "No")
                     .foregroundStyle(.colorTextSecondary)
             }
             VStack(alignment: .leading, spacing: 6) {
@@ -272,8 +117,174 @@ struct DebugViewSection: View {
                     Task { await requestNotificationsNow() }
                 }
                 .disabled(notificationAuthGranted)
-                .opacity(requestNowOpacity)
+                .opacity(notificationAuthGranted ? 0.5 : 1.0)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var debugInfoSection: some View {
+        Section("Debug") {
+            HStack {
+                Text("Bundle ID")
+                Spacer()
+                Text(Bundle.main.bundleIdentifier ?? "Unknown")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Version")
+                Spacer()
+                Text(Bundle.appVersion)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Environment")
+                Spacer()
+                Text(ConfigManager.shared.currentEnvironment.name.capitalized)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Log storage")
+                Spacer()
+                if let info = logStorageInfo {
+                    Text(info.formattedTotalSize)
+                        .foregroundStyle(.colorTextSecondary)
+                } else {
+                    ProgressView()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sentryTestingSection: some View {
+        Section("Sentry Testing") {
+            Button {
+                testSentryMessage()
+            } label: {
+                Text("Send Test Message")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryError()
+            } label: {
+                Text("Send Test Error")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryException()
+            } label: {
+                Text("Send Test Exception")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                testSentryWithBreadcrumbs()
+            } label: {
+                Text("Send Event with Breadcrumbs")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pendingInvitesSection: some View {
+        Section("Pending Invites") {
+            NavigationLink {
+                PendingInviteDebugView(session: session)
+            } label: {
+                Text("View Pending Invites")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            NavigationLink {
+                OrphanedInboxDebugView(session: session)
+            } label: {
+                Text("View Orphaned Inboxes")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var assetRenewalSection: some View {
+        Section("Asset Renewal") {
+            NavigationLink {
+                DebugAssetRenewalView(session: session)
+            } label: {
+                Text("View Renewable Assets")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                Task { await renewAssetsNow() }
+            } label: {
+                HStack {
+                    Text("Renew Assets Now")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    if isRenewingAssets { ProgressView() }
+                }
+            }
+            .disabled(isRenewingAssets)
+        }
+    }
+
+    @ViewBuilder
+    private var sheetsSection: some View {
+        Section("Sheets") {
+            Button {
+                presentingPhotosInfoSheet = true
+            } label: {
+                Text("Show Photos Info Sheet")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+        .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+            PhotosInfoSheet()
+        }
+    }
+
+    @ViewBuilder
+    private var resetActionsSection: some View {
+        Section {
+            Button {
+                Task { await registerDeviceAgain() }
+            } label: {
+                Text("Register Device Again")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                resetOnboarding()
+            } label: {
+                Text("Reset Onboarding")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            Button {
+                resetAllSettings()
+            } label: {
+                Text("Reset All Settings")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    var body: some View {
+        Group {
+            featuresSection
+            pushNotificationsSection
+            debugInfoSection
+            sentryTestingSection
+            pendingInvitesSection
+            assetRenewalSection
+            sheetsSection
+            resetActionsSection
+        }
+        .task {
+            await refreshNotificationStatus()
+            logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
+        }
+        .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
         }
     }
 }

@@ -20,6 +20,20 @@ final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
         try SharedDatabaseMigrator.shared.migrate(database: dbPool)
     }
 
+    func replaceDatabase(with backupPath: URL) throws {
+        // `DatabaseQueue(path:)` silently creates an empty file at a
+        // non-existent path, which would mask a missing-source bug by
+        // wiping the mock instead of throwing. Mirror what the real
+        // implementation does in spirit and refuse to "restore from
+        // nothing".
+        guard FileManager.default.fileExists(atPath: backupPath.path) else {
+            throw MockDatabaseManagerError.backupSourceMissing(backupPath.path)
+        }
+        let backupQueue = try DatabaseQueue(path: backupPath.path)
+        try backupQueue.backup(to: dbPool)
+        try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+    }
+
     private init(migrate: Bool = true) {
         do {
             dbPool = try DatabaseQueue(named: "MockDatabase")
@@ -46,5 +60,16 @@ final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
     /// Private init for creating test instances with custom database
     private init(dbPool: DatabaseQueue) {
         self.dbPool = dbPool
+    }
+}
+
+enum MockDatabaseManagerError: Error, CustomStringConvertible {
+    case backupSourceMissing(String)
+
+    var description: String {
+        switch self {
+        case .backupSourceMissing(let path):
+            return "MockDatabaseManager.replaceDatabase: backup source does not exist at \(path)"
+        }
     }
 }

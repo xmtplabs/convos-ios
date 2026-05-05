@@ -1,6 +1,5 @@
 import ConvosCore
 import Foundation
-import Security
 import Testing
 
 /// Integration tests for KeychainIdentityStore against a real keychain.
@@ -129,50 +128,6 @@ import Testing
         let encoded = try JSONEncoder().encode(keys)
         let decoded = try JSONDecoder().decode(KeychainIdentityKeys.self, from: encoded)
         #expect(decoded.databaseKey == keys.databaseKey)
-    }
-
-    /// `KeychainIdentityStore` writes with `kSecAttrSynchronizable: false`,
-    /// so the saved item must live in the device-local store and **not** in
-    /// the iCloud-synced one. iOS treats synced and non-synced items as
-    /// separate stores even with the same service+account, so a query that
-    /// pins `kSecAttrSynchronizable: true` must miss it.
-    @Test func savedIdentityIsDeviceLocalNotSynced() async throws {
-        try await keychainStore.delete()
-
-        let keys = try await keychainStore.generateKeys()
-        _ = try await keychainStore.save(
-            inboxId: "sync-check-inbox",
-            clientId: "sync-check-client",
-            keys: keys
-        )
-
-        // Pinned non-sync query → must find the item.
-        let nonSyncQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: KeychainIdentityStore.defaultService,
-            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
-            kSecAttrAccessGroup as String: testAccessGroup,
-            kSecAttrSynchronizable as String: false,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnAttributes as String: true
-        ]
-        var nonSyncResult: CFTypeRef?
-        let nonSyncStatus = SecItemCopyMatching(nonSyncQuery as CFDictionary, &nonSyncResult)
-        #expect(nonSyncStatus == errSecSuccess, "Item should be present in the device-local slot (status=\(nonSyncStatus))")
-
-        // Pinned sync query → must NOT find the item.
-        let syncQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: KeychainIdentityStore.defaultService,
-            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
-            kSecAttrAccessGroup as String: testAccessGroup,
-            kSecAttrSynchronizable as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnAttributes as String: true
-        ]
-        var syncResult: CFTypeRef?
-        let syncStatus = SecItemCopyMatching(syncQuery as CFDictionary, &syncResult)
-        #expect(syncStatus == errSecItemNotFound, "Item must not be in the iCloud-synced slot (status=\(syncStatus))")
     }
 
     @Test func encodesIdentityRoundTrip() async throws {

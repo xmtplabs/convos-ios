@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import ConvosCore
+import DeviceKit
 import Foundation
 import UIKit
 
@@ -10,9 +11,18 @@ import UIKit
 @MainActor
 public final class IOSDeviceInfo: DeviceInfoProviding, @unchecked Sendable {
     private let _identifierForVendor: String?
+    private let _deviceName: String
 
     public init() {
         _identifierForVendor = UIDevice.current.identifierForVendor?.uuidString
+        // `UIDevice.current.name` returns only the generic word ("iPhone")
+        // unless the app holds the user-assigned-device-name entitlement,
+        // which Apple gates behind a special request. DeviceKit reads the
+        // hardware model identifier via `uname()` (not gated) and maps it
+        // to a marketing name like "iPhone 15 Pro". `safeDescription`
+        // falls back gracefully for unknown future models. On the
+        // simulator it returns e.g. "Simulator (iPhone 17 Pro)".
+        _deviceName = Device.current.safeDescription
     }
 
     /// Returns the device's identifier for vendor (IDFV).
@@ -49,6 +59,13 @@ public final class IOSDeviceInfo: DeviceInfoProviding, @unchecked Sendable {
         #else
         return "ios"
         #endif
+    }
+
+    /// Marketing-style device name resolved at init via DeviceKit
+    /// (e.g. "iPhone 15 Pro"). See `init` for why we don't use
+    /// `UIDevice.current.name`.
+    public nonisolated var deviceName: String {
+        _deviceName
     }
 }
 #endif

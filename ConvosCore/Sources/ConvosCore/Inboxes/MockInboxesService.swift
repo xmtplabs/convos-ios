@@ -177,4 +177,10 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func connectionRepository() -> any ConnectionRepositoryProtocol {
         MockConnectionRepository()
     }
+
+    // MARK: - Restore lifecycle
+
+    public func setRestoreBootstrapDecision(_ decision: RestoreBootstrapDecision) {
+        // No-op in the mock — nothing to gate.
+    }
 }
