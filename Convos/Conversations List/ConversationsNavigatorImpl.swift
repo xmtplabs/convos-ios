@@ -1,6 +1,6 @@
 import ConvosCore
+import ConvosMetrics
 import Foundation
-import NavigationMetrics
 import Observation
 import SwiftUI
 

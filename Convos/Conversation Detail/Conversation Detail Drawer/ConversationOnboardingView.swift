@@ -1,5 +1,5 @@
 import ConvosCore
-import NavigationMetrics
+import ConvosMetrics
 import SwiftUI
 
 /// A view that displays the appropriate onboarding content based on the coordinator's state

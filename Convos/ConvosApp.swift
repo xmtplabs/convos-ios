@@ -1,6 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
-import NavigationMetrics
+import ConvosMetrics
 import SwiftUI
 import UserNotifications
 import XMTPiOS

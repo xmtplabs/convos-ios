@@ -1,5 +1,5 @@
+import ConvosMetrics
 import Foundation
-import NavigationMetrics
 import Observation
 
 @MainActor

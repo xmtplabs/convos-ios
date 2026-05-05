@@ -572,7 +572,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = D8A2B6A42DA4BA4C00EF8577 /* Build configuration list for PBXNativeTarget "Convos" */;
 			buildPhases = (
-				7A4E61A02F0001A100000001 /* Build NavigationMetrics */,
+				7A4E61A02F0001A100000001 /* Build ConvosMetrics */,
 				DAFC98F62E37C4E700991094 /* Copy Environment Config */,
 				D8A2B68D2DA4BA4B00EF8577 /* Sources */,
 				D8A2B68E2DA4BA4B00EF8577 /* Frameworks */,
@@ -819,7 +819,7 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/Scripts/build-phases/copy-env-config-notification-service.sh\"\n";
 		};
-		7A4E61A02F0001A100000001 /* Build NavigationMetrics */ = {
+		7A4E61A02F0001A100000001 /* Build ConvosMetrics */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -829,7 +829,7 @@
 			);
 			inputPaths = (
 			);
-			name = "Build NavigationMetrics";
+			name = "Build ConvosMetrics";
 			outputFileListPaths = (
 			);
 			outputPaths = (

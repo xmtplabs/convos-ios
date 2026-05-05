@@ -3,7 +3,7 @@ import Combine
 import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
-import NavigationMetrics
+import ConvosMetrics
 import Observation
 import SwiftUI
 import UIKit

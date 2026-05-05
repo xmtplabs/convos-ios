@@ -1,5 +1,5 @@
 import ConvosCore
-import NavigationMetrics
+import ConvosMetrics
 import SwiftUI
 
 struct ConvosToolbarButton: View {

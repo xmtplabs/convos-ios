@@ -1,7 +1,7 @@
 import Combine
 import ConvosCore
 import ConvosInvites
-import NavigationMetrics
+import ConvosMetrics
 import SwiftUI
 
 // MARK: - Error Types

@@ -1,6 +1,6 @@
 import Combine
 import ConvosCore
-import NavigationMetrics
+import ConvosMetrics
 import SwiftUI
 import UniformTypeIdentifiers
 

@@ -39,7 +39,7 @@ let package = Package(
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
         .package(path: "../ConvosConnections"),
-        .package(path: "../NavigationMetrics"),
+        .package(path: "../ConvosMetrics"),
     ],
     targets: [
         .target(
@@ -58,7 +58,7 @@ let package = Package(
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
                 .product(name: "ConvosConnections", package: "ConvosConnections"),
-                .product(name: "NavigationMetrics", package: "NavigationMetrics"),
+                .product(name: "ConvosMetrics", package: "ConvosMetrics"),
                 .target(name: "ConvosConnectionsXMTP"),
             ],
             swiftSettings: [
