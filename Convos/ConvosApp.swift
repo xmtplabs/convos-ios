@@ -56,7 +56,18 @@ struct ConvosApp: App {
             }
         }
 
-        let agentKeyset = AgentKeyset(endpointURL: AgentKeyset.endpointURL(for: environment))
+        #if DEBUG
+        let debugFallbackKey = DebugAgentKeysetOverride.parse(jwksJSON: Secrets.AGENT_DEBUG_JWKS)
+        if let debugFallbackKey {
+            Log.info("[AgentKeyset] DEBUG fallback key loaded from .env: kid=\(debugFallbackKey.kid)")
+        }
+        #else
+        let debugFallbackKey: AgentKeysetEntry? = nil
+        #endif
+        let agentKeyset = AgentKeyset(
+            endpointURL: AgentKeyset.endpointURL(for: environment),
+            fallbackKey: debugFallbackKey
+        )
         AgentKeysetStore.instance.configure(agentKeyset)
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
