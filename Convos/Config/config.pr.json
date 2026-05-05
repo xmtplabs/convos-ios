@@ -9,5 +9,6 @@
     "dev.convos.org",
     "app-dev.convos.org"
   ],
-  "appUrlScheme": "convos-pr"
+  "appUrlScheme": "convos-pr",
+  "firebaseConfig": "GoogleService-Info.PR"
 }

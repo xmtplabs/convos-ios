@@ -118,12 +118,12 @@ FOOTER_EOF
 # Part 1b: Generate Secrets.swift for Dev builds (read Firebase token from .env)
 elif [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Dev" ]; then
     echo "🔧 Dev build detected - generating secrets from .env"
-    
+
     SECRETS_FILE="${SRCROOT}/Convos/Config/Secrets.swift"
-    
+
     # Create directory if needed
     mkdir -p "${SRCROOT}/Convos/Config"
-    
+
     # Read Firebase debug token from .env
     FIREBASE_TOKEN=""
     CONVOS_API_BASE_URL=""

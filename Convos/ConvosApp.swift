@@ -44,7 +44,11 @@ struct ConvosApp: App {
         case .tests:
             Log.info("Running in test environment, skipping Firebase config...")
         default:
-            if let url = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
+            let configManager = ConfigManager.shared
+            let overrideURL: URL? = configManager.firebaseConfigOverride.flatMap {
+                Bundle.main.url(forResource: $0, withExtension: "plist")
+            }
+            if let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL {
                 let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
                 FirebaseHelperCore.configure(with: url, debugToken: debugToken)
             } else {

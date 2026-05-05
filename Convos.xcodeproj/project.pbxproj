@@ -115,6 +115,7 @@
 
 /* Begin PBXFileReference section */
 		36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServer.swift; sourceTree = "<group>"; };
+		3B696FDE2FA9315B006BE4F3 /* GoogleService-Info.PR.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.PR.plist"; path = "Convos/Config/GoogleService-Info.PR.plist"; sourceTree = "<group>"; };
 		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
@@ -344,6 +345,7 @@
 		D8A2B6882DA4BA4B00EF8577 = {
 			isa = PBXGroup;
 			children = (
+				3B696FDE2FA9315B006BE4F3 /* GoogleService-Info.PR.plist */,
 				4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */,
 				7AD5458D2E4EA89400500ADF /* ConvosCore */,
 				D8477AD42DCBA52F00E31E54 /* .env */,
@@ -1785,8 +1787,8 @@
 				INFOPLIST_FILE = ConvosAppClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1833,8 +1835,8 @@
 				INFOPLIST_FILE = ConvosAppClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -2091,8 +2093,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -2140,8 +2142,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -2384,8 +2386,8 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -2488,8 +2490,8 @@
 				INFOPLIST_FILE = ConvosAppClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "To set your profile photo from your library.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

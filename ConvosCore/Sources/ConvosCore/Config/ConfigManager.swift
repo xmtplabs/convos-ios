@@ -178,6 +178,19 @@ public final class ConfigManager: @unchecked Sendable {
         config["backendUrl"] as? String
     }
 
+    /// Optional Firebase plist resource name override from config.json.
+    /// Lets a build configuration point at a Firebase iOS app whose bundle id
+    /// matches the build's actual bundle id, even when the runtime
+    /// `environment` is shared with another build (e.g. PR uses the dev
+    /// backend but needs its own GoogleService-Info plist).
+    public var firebaseConfigOverride: String? {
+        guard let name = config["firebaseConfig"] as? String,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return name
+    }
+
     public var bundleIdentifier: String {
         guard let id = config["bundleId"] as? String else {
             fatalError("Missing 'bundleId' in config.json")

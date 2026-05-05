@@ -64,6 +64,14 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         return normalizedMimeType == "text/markdown" || normalizedMimeType == "text/x-markdown"
     }
 
+    public var isHTMLFile: Bool {
+        if let ext = filenameExtension, ["html", "htm"].contains(ext) {
+            return true
+        }
+        guard let mimeType else { return false }
+        return mimeType.lowercased() == "text/html"
+    }
+
     public var mediaType: MediaType {
         guard let mimeType else { return .image }
         if mimeType.hasPrefix("image/") { return .image }

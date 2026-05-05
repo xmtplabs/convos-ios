@@ -37,7 +37,15 @@ jobs:
   firebase_pr:
     name: Build & upload to Firebase App Distribution
     runs-on: warp-macos-latest-arm64-12x
-    timeout-minutes: 45
+    timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Bump both together when Xcode upgrades; the hash is from
+      # `nix store add /Applications/Xcode_NN.N.app`.
+      XCODE_APP_PATH: /Applications/Xcode_26.3.app
+      XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
     steps:
       - uses: actions/checkout@v6
 
@@ -50,76 +58,28 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: nixbuild/nix-quick-install-action@v33
         with:
-          extra_nix_config: |
+          nix_conf: |
             experimental-features = nix-command flakes
 
-      # NAR export goes through the daemon, no sudo. Split restore/save so the
-      # cache saves immediately after pinning, not on job teardown.
-      - name: Restore pinned Xcode from cache
-        id: xcode-cache
-        uses: actions/cache/restore@v4
+      - name: Pin Xcode into /nix/store
+        uses: xmtplabs/xmtp-cache-apple@v1
         with:
-          path: ~/xcode-store.nar.gz
-          key: xcode-nix-store-x9hdz5mfp44i9b05sswp271jdv68r8vx
+          xcode-path: ${{ env.XCODE_APP_PATH }}
+          xcode-nix-path: ${{ env.XCODE_NIX_PATH }}
 
-      - name: Import cached Xcode into Nix store
-        if: steps.xcode-cache.outputs.cache-hit == 'true'
-        env:
-          XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
-        run: |
-          if nix path-info "$XCODE_NIX_PATH" >/dev/null 2>&1; then
-            echo "Already in store — skipping import"
-          else
-            echo "Importing cached NAR…"
-            gunzip -c ~/xcode-store.nar.gz | nix-store --import
-          fi
-
-      # Skip rehash if path is already in the store (cache import or warm VM).
-      # Update XCODE_NIX_PATH on Xcode bumps.
-      - name: Pin system Xcode into the Nix store
-        env:
-          XCODE_APP_PATH: /Applications/Xcode_26.3.app
-          XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
-        run: |
-          if nix path-info "$XCODE_NIX_PATH" >/dev/null 2>&1; then
-            echo "Xcode already in store at $XCODE_NIX_PATH — skipping import"
-          else
-            echo "Importing $XCODE_APP_PATH (slow on first run)…"
-            STORE_PATH=$(nix store add --name Xcode.app "$XCODE_APP_PATH")
-            echo "Pinned at: $STORE_PATH"
-            if [ "$STORE_PATH" != "$XCODE_NIX_PATH" ]; then
-              echo "::warning::Resulting store path $STORE_PATH does not match the pinned XCODE_NIX_PATH; update the workflow."
-            fi
-          fi
-
-      - name: Export pinned Xcode for cache save
-        if: steps.xcode-cache.outputs.cache-hit != 'true'
-        env:
-          XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
-        run: |
-          echo "Exporting $XCODE_NIX_PATH for cache…"
-          nix-store --export "$XCODE_NIX_PATH" | gzip > ~/xcode-store.nar.gz
-          ls -lh ~/xcode-store.nar.gz
-
-      # Save immediately after export so the cache lands even if a later step
-      # (fastlane, Firebase upload) fails. Skipped on cache hit.
-      - name: Save pinned Xcode to cache
-        if: steps.xcode-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/xcode-store.nar.gz
-          key: xcode-nix-store-x9hdz5mfp44i9b05sswp271jdv68r8vx
-
+      # Action installs cachix + substituter; push happens manually after
+      # the build so we can exclude Xcode's closure (EULA + 11 GiB).
       - name: Set up xmtp Cachix cache
         uses: cachix/cachix-action@v15
         with:
           name: xmtp
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Backup guard: drop Xcode-shaped paths even if step order shifts.
-          # YAML-single-quoted so backslashes pass through to cachix's Haskell regex.
-          pushFilter: '(-Xcode\.app$|-xcode-)'
+          skipPush: true
+
+      - name: Snapshot pre-build store paths
+        run: nix path-info --all | sort > /tmp/store-paths-before
 
       - name: Enter dev shell
         uses: nicknovitski/nix-develop@v1
@@ -129,9 +89,7 @@ jobs:
       - name: Verify Xcode
         run: xcodebuild -version
 
-      # Generate Secrets.swift before xcodebuild runs so the file-synchronized
-      # group picks it up at planning time. PR builds talk to Dev backend via
-      # config.pr.json — no real secret values needed, env vars stay empty.
+      # PR builds reuse Dev backend (config.pr.json), so empty env is fine.
       - name: Generate Secrets.swift
         env:
           BUILD_CONFIGURATION: Dev
@@ -140,11 +98,10 @@ jobs:
       - name: Run fastlane firebase_pr
         env:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-          # CI uses the locally checked-out match repo (cloned via actions/checkout
-          # with CONVOS_CERTIFICATES_TOKEN). Local dev uses SSH (Matchfile default).
+          # CI uses local match checkout; local dev uses SSH (Matchfile default).
           MATCH_GIT_URL: ${{ github.workspace }}/convos-certificates
           FIREBASE_APP_ID_PR: ${{ vars.FIREBASE_APP_ID_PR }}
-          # JSON content is piped straight through; never written to disk on the runner.
+          # JSON piped through env, never on disk.
           FIREBASE_SERVICE_ACCOUNT_JSON_CONTENT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS || 'xmtp-internal' }}
           GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -159,3 +116,28 @@ jobs:
           path: build/Convos-PR.ipa
           if-no-files-found: warn
           retention-days: 14
+
+      # Push paths produced this job, minus Xcode and anything whose
+      # closure references it. Skipped on failure to avoid caching
+      # half-built derivations that would poison subsequent runs.
+      - name: Push new paths to xmtp Cachix
+        if: success()
+        run: |
+          set -e
+          new_paths=$(comm -13 \
+            /tmp/store-paths-before \
+            <(nix path-info --all | sort))
+          if [ -z "$new_paths" ]; then
+            echo "No new paths to push."
+            exit 0
+          fi
+          # Single DB query for the tainted set (Xcode + every path whose
+          # closure includes it), then set-difference against new paths.
+          tainted=$(nix-store --query --referrers-closure "$XCODE_NIX_PATH" | sort -u)
+          to_push=$(comm -23 <(echo "$new_paths" | sort -u) <(echo "$tainted"))
+          if [ -z "$to_push" ]; then
+            echo "Nothing to push after filtering."
+            exit 0
+          fi
+          echo "Pushing $(echo "$to_push" | wc -l | tr -d ' ') paths to xmtp cache"
+          echo "$to_push" | xargs cachix push xmtp

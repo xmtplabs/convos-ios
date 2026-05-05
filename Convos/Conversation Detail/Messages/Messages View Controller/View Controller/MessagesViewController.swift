@@ -899,6 +899,8 @@ extension MessagesViewController {
                 await MainActor.run {
                     if attachment.isMarkdownFile {
                         presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
+                    } else if attachment.isHTMLFile {
+                        presentHTMLPreview(fileURL: fileURL, filename: attachment.filename ?? "Web Page")
                     } else {
                         FileAttachmentQuickLookCoordinator.shared.present(fileURL: fileURL, from: self)
                     }
@@ -919,6 +921,20 @@ extension MessagesViewController {
 
     private func presentMarkdownPreview(fileURL: URL, filename: String) {
         let preview = MarkdownAttachmentPreviewSheet(
+            fileURL: fileURL,
+            filename: filename
+        )
+        let controller = UIHostingController(rootView: preview)
+        controller.modalPresentationStyle = .pageSheet
+        if let sheet = controller.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = false
+        }
+        present(controller, animated: true)
+    }
+
+    private func presentHTMLPreview(fileURL: URL, filename: String) {
+        let preview = HTMLAttachmentPreviewSheet(
             fileURL: fileURL,
             filename: filename
         )
