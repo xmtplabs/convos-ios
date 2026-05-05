@@ -169,9 +169,9 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 public final class MockConnectionEventWriter: ConnectionEventWriterProtocol, @unchecked Sendable {
     public init() {}
 
-    public func sendGranted(providerId: String, in conversationId: String) async throws {}
+    public func sendGranted(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws {}
 
-    public func sendRevoked(providerId: String, in conversationId: String) async throws {}
+    public func sendRevoked(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws {}
 }
 
 public final class MockCapabilityRequestResultWriter: CapabilityRequestResultWriterProtocol, @unchecked Sendable {

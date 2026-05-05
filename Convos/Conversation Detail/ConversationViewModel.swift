@@ -1053,6 +1053,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 )
                 await Self.persistApprovedCloudCapabilities(
                     providerIds: sortedIds,
+                    capability: request.capability,
                     conversationId: conversationId,
                     session: session
                 )
@@ -1136,11 +1137,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else { continue }
             let wasEnabled = await store.isEnabled(kind: kind, capability: capability, conversationId: conversationId)
             await store.setEnabled(true, kind: kind, capability: capability, conversationId: conversationId)
-            if capability == .read, !wasEnabled {
-                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
-            }
-            if capability.isWrite, !wasEnabled {
-                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            if !wasEnabled {
+                try? await eventWriter.sendGranted(
+                    providerId: providerId.rawValue,
+                    capability: capability,
+                    in: conversationId
+                )
             }
         }
     }
@@ -1153,6 +1155,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// races against that path; if we miss it the next sync corrects state.
     private static func persistApprovedCloudCapabilities(
         providerIds: [ProviderID],
+        capability: ConnectionCapability,
         conversationId: String,
         session: any SessionManagerProtocol
     ) async {
@@ -1170,7 +1173,11 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             guard !existingGrantedConnectionIds.contains(connection.id) else { continue }
             do {
                 try await grantWriter.grantConnection(connection.id, to: conversationId)
-                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+                try? await eventWriter.sendGranted(
+                    providerId: providerId.rawValue,
+                    capability: capability,
+                    in: conversationId
+                )
             } catch {
                 Log.error("Failed to persist cloud grant for \(providerId.rawValue): \(error.localizedDescription)")
             }

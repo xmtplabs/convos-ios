@@ -2,8 +2,18 @@ import ConvosConnections
 import Foundation
 
 public protocol ConnectionEventWriterProtocol: Sendable {
-    func sendGranted(providerId: String, in conversationId: String) async throws
-    func sendRevoked(providerId: String, in conversationId: String) async throws
+    func sendGranted(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws
+    func sendRevoked(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws
+}
+
+public extension ConnectionEventWriterProtocol {
+    func sendGranted(providerId: String, in conversationId: String) async throws {
+        try await sendGranted(providerId: providerId, capability: nil, in: conversationId)
+    }
+
+    func sendRevoked(providerId: String, in conversationId: String) async throws {
+        try await sendRevoked(providerId: providerId, capability: nil, in: conversationId)
+    }
 }
 
 public enum ConnectionEventWriterError: Error, LocalizedError {
@@ -24,15 +34,20 @@ final class ConnectionEventWriter: ConnectionEventWriterProtocol, Sendable {
         self.sessionStateManager = sessionStateManager
     }
 
-    func sendGranted(providerId: String, in conversationId: String) async throws {
-        try await sendEvent(.granted, providerId: providerId, in: conversationId)
+    func sendGranted(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws {
+        try await sendEvent(.granted, providerId: providerId, capability: capability, in: conversationId)
     }
 
-    func sendRevoked(providerId: String, in conversationId: String) async throws {
-        try await sendEvent(.revoked, providerId: providerId, in: conversationId)
+    func sendRevoked(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws {
+        try await sendEvent(.revoked, providerId: providerId, capability: capability, in: conversationId)
     }
 
-    private func sendEvent(_ action: ConnectionEvent.Action, providerId: String, in conversationId: String) async throws {
+    private func sendEvent(
+        _ action: ConnectionEvent.Action,
+        providerId: String,
+        capability: ConnectionCapability?,
+        in conversationId: String
+    ) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
 
@@ -40,7 +55,8 @@ final class ConnectionEventWriter: ConnectionEventWriterProtocol, Sendable {
             throw ConnectionEventWriterError.conversationNotFound(conversationId: conversationId)
         }
 
-        let encoded = try ConnectionEventCodec().encode(content: .init(providerId: providerId, action: action))
+        let event = ConnectionEvent(providerId: providerId, action: action, capability: capability)
+        let encoded = try ConnectionEventCodec().encode(content: event)
         try await conversation.send(encodedContent: encoded)
     }
 }
