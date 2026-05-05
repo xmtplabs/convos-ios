@@ -895,6 +895,21 @@ extension MessagesViewController {
     private func openFileAttachment(_ attachment: HydratedAttachment) {
         Task {
             do {
+                if attachment.isArtifactBundle {
+                    if let bundle = try? await ArtifactBundleStore.shared.bundle(
+                        for: attachment.key,
+                        filename: attachment.filename
+                    ) {
+                        await MainActor.run {
+                            presentHTMLPreview(
+                                fileURL: bundle.artifactHTMLURL,
+                                filename: bundle.manifest.title
+                            )
+                        }
+                        return
+                    }
+                }
+
                 let fileURL = try await loadFileForPreview(attachment)
                 await MainActor.run {
                     if attachment.isMarkdownFile {

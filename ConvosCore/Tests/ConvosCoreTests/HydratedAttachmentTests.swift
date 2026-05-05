@@ -134,3 +134,58 @@ struct HydratedAttachmentIsHTMLFileTests {
         #expect(attachment.isHTMLFile)
     }
 }
+
+@Suite("HydratedAttachment.isArtifactBundle")
+struct HydratedAttachmentIsArtifactBundleTests {
+    @Test("detects .artifact extension")
+    func artifactExtension() {
+        let attachment = HydratedAttachment(key: "test", filename: "paris.artifact")
+        #expect(attachment.isArtifactBundle)
+    }
+
+    @Test("detects .artifact extension case-insensitively")
+    func artifactExtensionUppercase() {
+        let attachment = HydratedAttachment(key: "test", filename: "DIMSUM.ARTIFACT")
+        #expect(attachment.isArtifactBundle)
+    }
+
+    @Test("detects application/x-convos-artifact mime type")
+    func convosArtifactMime() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/x-convos-artifact", filename: "file")
+        #expect(attachment.isArtifactBundle)
+    }
+
+    @Test("detects mime type case-insensitively")
+    func convosArtifactMimeCaseInsensitive() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "Application/X-Convos-Artifact", filename: "file")
+        #expect(attachment.isArtifactBundle)
+    }
+
+    @Test("returns false for plain HTML and zip")
+    func nonArtifact() {
+        let html = HydratedAttachment(key: "test", filename: "page.html")
+        let zip = HydratedAttachment(key: "test", filename: "archive.zip")
+        let pdf = HydratedAttachment(key: "test", filename: "doc.pdf")
+        #expect(!html.isArtifactBundle)
+        #expect(!zip.isArtifactBundle)
+        #expect(!pdf.isArtifactBundle)
+    }
+
+    @Test("returns false for nil filename and nil mime type")
+    func nilFilenameAndMime() {
+        let attachment = HydratedAttachment(key: "test")
+        #expect(!attachment.isArtifactBundle)
+    }
+
+    @Test("mime type detection works without filename extension")
+    func mimeWithoutExtension() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/x-convos-artifact", filename: "bundle")
+        #expect(attachment.isArtifactBundle)
+    }
+
+    @Test("extension takes priority even with wrong mime type")
+    func extensionOverridesMime() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/octet-stream", filename: "tents.artifact")
+        #expect(attachment.isArtifactBundle)
+    }
+}

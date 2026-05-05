@@ -299,6 +299,22 @@ struct MessagesGroupItemView: View {
                 onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
+        } else if attachment.isArtifactBundle {
+            let artifactTapAction: () -> Void = { onOpenFile?(attachment) }
+            ArtifactBubble(
+                attachment: attachment,
+                style: bubbleType,
+                isOutgoing: message.sender.isCurrentUser
+            )
+            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: artifactTapAction,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .id(message.messageId)
         } else if attachment.mediaType == .file {
             let fileTapAction: () -> Void = { onOpenFile?(attachment) }
             FileAttachmentBubble(
