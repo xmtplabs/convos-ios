@@ -284,7 +284,23 @@ Reuses internals where possible:
 - Same `ConversationPresenter` shell so the right-pane behavior is consistent.
 - Same `ConversationIndicator` at the top, but with `placeholderName: "New assistant"`.
   The "+" toolbar item maps to `viewModel.onAddParticipant()` (same as
-  NewConversationView's flow).
+  NewConversationView's flow), and is **hidden** while a focus session is live
+  (it should only appear in the `bootstrap` and `stopped` states).
+
+**Indicator behavior across the three states:**
+
+| State | Indicator subtitle | Tap-to-edit / "+" |
+|---|---|---|
+| `bootstrap` | `"Customize"` (default) | enabled (user can edit name/image, add member) |
+| `focus(session)` | `""` (hidden) | **disabled** (capsule is non-interactive — no expand, no settings, no add member) |
+| `stopped(...)` | `"Customize"` (default) | enabled (back to standard ConversationView behavior) |
+
+The disabled treatment is implemented by passing an empty subtitle and
+no-oping the `onConversationInfoTapped` / `onConversationInfoLongPressed`
+callbacks while in focus mode, plus an `.allowsHitTesting(false)` on the
+indicator capsule. Visually the capsule still renders the conversation name
++ avatar so the user knows what they're building, but it doesn't react to
+input — focus belongs entirely on the live bubbles.
 
 The body branches three ways:
 - `case bootstrap` → `CLIBootstrapSheet` (modal-on-top of the indicator + empty canvas).
