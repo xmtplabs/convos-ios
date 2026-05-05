@@ -306,4 +306,22 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         }
         try await sender.sendTypingIndicator(isTyping: isTyping)
     }
+
+    func sendFocusModeControl(_ control: FocusModeControl, for conversationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let sender = try await result.client.messageSender(for: conversationId) else { return }
+        try await sender.sendFocusModeControl(control)
+    }
+
+    func sendStreamingText(_ payload: StreamingText, for conversationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let sender = try await result.client.messageSender(for: conversationId) else { return }
+        try await sender.sendStreamingText(payload)
+    }
+
+    func sendStreamingClear(_ payload: StreamingClear, for conversationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let sender = try await result.client.messageSender(for: conversationId) else { return }
+        try await sender.sendStreamingClear(payload)
+    }
 }

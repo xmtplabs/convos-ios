@@ -18,6 +18,15 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
     public func sendReadReceipt() async throws {
     }
 
+    public func sendFocusModeControl(_ control: FocusModeControl) async throws {
+    }
+
+    public func sendStreamingText(_ payload: StreamingText) async throws {
+    }
+
+    public func sendStreamingClear(_ payload: StreamingClear) async throws {
+    }
+
     public func prepare(text: String) async throws -> String {
         let messageId = UUID().uuidString
         preparedMessages.append(messageId)

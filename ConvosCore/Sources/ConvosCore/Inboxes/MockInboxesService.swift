@@ -87,6 +87,10 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockConversationRepository()
     }
 
+    public func focusSessionRepository(for conversationId: String) -> any FocusSessionRepositoryProtocol {
+        MockFocusSessionRepository()
+    }
+
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
         MockMessagesRepository(conversationId: conversationId)
     }

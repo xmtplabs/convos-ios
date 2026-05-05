@@ -35,6 +35,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
+    func focusSessionRepository(for conversationId: String) -> any FocusSessionRepositoryProtocol
+
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
     func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol

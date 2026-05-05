@@ -58,4 +58,8 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
+
+    func sendFocusModeControl(_ control: FocusModeControl, for conversationId: String) async throws
+    func sendStreamingText(_ payload: StreamingText, for conversationId: String) async throws
+    func sendStreamingClear(_ payload: StreamingClear, for conversationId: String) async throws
 }

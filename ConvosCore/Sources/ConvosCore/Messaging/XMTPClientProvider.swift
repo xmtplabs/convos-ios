@@ -6,6 +6,9 @@ public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func sendTypingIndicator(isTyping: Bool) async throws
     func sendReadReceipt() async throws
+    func sendFocusModeControl(_ control: FocusModeControl) async throws
+    func sendStreamingText(_ payload: StreamingText) async throws
+    func sendStreamingClear(_ payload: StreamingClear) async throws
     func prepare(text: String) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String

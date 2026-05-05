@@ -481,6 +481,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.fetchInviteCodeStatus(code)
     }
 
+    public func focusSessionRepository(for conversationId: String) -> any FocusSessionRepositoryProtocol {
+        FocusSessionRepository(databaseReader: databaseReader)
+    }
+
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         ConversationRepository(
             conversationId: conversationId,

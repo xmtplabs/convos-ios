@@ -152,4 +152,13 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
     }
+
+    public func sendFocusModeControl(_ control: FocusModeControl, for conversationId: String) async throws {
+    }
+
+    public func sendStreamingText(_ payload: StreamingText, for conversationId: String) async throws {
+    }
+
+    public func sendStreamingClear(_ payload: StreamingClear, for conversationId: String) async throws {
+    }
 }
