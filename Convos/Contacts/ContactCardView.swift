@@ -51,7 +51,8 @@ struct ContactCardView: View {
     }
 
     private var monogram: String {
-        guard let first = contact.resolvedDisplayName.first else { return "?" }
+        let trimmed = contact.resolvedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else { return "?" }
         return String(first).uppercased()
     }
 }
