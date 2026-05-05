@@ -17,8 +17,13 @@ decides it has enough information, it ends Focus Mode and the screen transitions
 into a normal `ConversationView` for ongoing chat.
 
 Visually the prototype borrows Honk's "two-bubble live-typing canvas" pattern but
-uses Convos design tokens (colors, bubble shape with the existing `.tailed` mask)
-and our existing `MessagesBottomBar` composer chrome.
+uses Convos design tokens (colors, bubble shape with the existing `.tailed` mask).
+The composer is **not** the existing `MessagesBottomBar` — that view exists for
+the standard messages list, where the input lives below the chat history. In
+focus mode the user types directly *into the bubble*, so we build a new
+`LiveBubbleEditor` component (see §5.5) and a new `FocusMediaBar` for the
+icon row that sits beneath it (camera / photos / voice / trash, planned but
+not in this PR).
 
 ## 2. Goals & Non-Goals
 
@@ -415,9 +420,12 @@ re-focuses the editor.
 
 **Media bar (planned, not in this PR):** Honk shows a row of icons (keyboard
 toggle, sparkle, camera, photos, mic, HONK, trash) directly under the user's
-bubble and above the keyboard. We will eventually lift `MessagesMediaButtonsView`
-into this slot and add a trash-can affordance that fires `StreamingClear`. For
-the prototype only the bubble + keyboard + return-to-clear behavior is wired.
+bubble and above the keyboard. This is a **new component** (`FocusMediaBar`),
+not a lift of `MessagesMediaButtonsView` — that view is shaped around the
+standard composer's needs (multi-attachment staging, recording state) which
+don't apply here. The new bar will share *icons* (we can pull the SF Symbol
+names) but is otherwise independent. For the prototype only the bubble +
+keyboard + return-to-clear behavior is wired.
 
 ### 5.6 End-of-session transition
 
@@ -538,8 +546,9 @@ Edited:
 ## 11. Out-of-Scope Cleanups (capture for later)
 
 - The Honk-style media row at the bottom of the focus canvas (camera, photos,
-  voice, trash). Once Focus Mode is solid, lift `MessagesMediaButtonsView` and
-  add a trash-can affordance that fires `StreamingClear`.
+  voice, trash). Once Focus Mode is solid, build a new `FocusMediaBar`
+  component (not a lift of `MessagesMediaButtonsView`) with a trash-can
+  affordance that fires `StreamingClear`.
 - "Rapid honk"-style attention-grab gesture inside focus mode.
 - Theming per-conversation (Honk gives each chat its own color). Convos already
   has per-conversation accent — wire it into `LiveBubble.background`.
