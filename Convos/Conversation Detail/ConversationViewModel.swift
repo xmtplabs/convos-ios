@@ -468,6 +468,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var backwardsSecrecyInfoNavigator: any BackwardsSecrecyInfoNavigator
     @ObservationIgnored
     let metricsDelegate: CollectorDelegate
+    @ObservationIgnored
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(delegate: metricsDelegate)
 
     var presentingConversationSettings: Bool {
         get { navState.presentingConversationSettings }
@@ -1902,6 +1904,14 @@ extension ConversationViewModel {
 
         guard hasText || hasMedia || hasInvite || hasLinkPreview else { return }
 
+        let metricStartedAt: Date = Date()
+        let metricMemberCount: Int = conversation.members.count
+        let metricHasAssistant: Bool = conversation.hasAgent
+        var metricAttachmentCount: Int = 0
+        if selectedAttachmentImage != nil { metricAttachmentCount += 1 }
+        if selectedVideoURL != nil { metricAttachmentCount += 1 }
+        if pendingFileAttachment != nil { metricAttachmentCount += 1 }
+
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
         let prevMediaAttachments = pendingMediaAttachments
@@ -1940,6 +1950,7 @@ extension ConversationViewModel {
             let inviteURL = sideConvoResult.inviteURL
             let pendingInviteMessageId = sideConvoResult.pendingMessageId
 
+            var sendSucceeded: Bool = false
             do {
                 // Send each media attachment as its own message, in bar order.
                 // The first attachment carries the reply target (if any); subsequent
@@ -1960,11 +1971,43 @@ extension ConversationViewModel {
                     replyTarget: trailingReplyTarget,
                     messageWriter: messageWriter
                 )
+                sendSucceeded = true
             } catch {
                 Log.error("Error sending message: \(error)")
             }
 
             isSendingMedia = false
+
+            recordSentMessageMetric(
+                startedAt: metricStartedAt,
+                memberCount: metricMemberCount,
+                attachmentCount: metricAttachmentCount,
+                hasText: hasText,
+                hasAssistant: metricHasAssistant,
+                isSuccess: sendSucceeded
+            )
+        }
+    }
+
+    private func recordSentMessageMetric(
+        startedAt: Date,
+        memberCount: Int,
+        attachmentCount: Int,
+        hasText: Bool,
+        hasAssistant: Bool,
+        isSuccess: Bool
+    ) {
+        let sendingTime: Float = Float(Date().timeIntervalSince(startedAt))
+        let metrics: CoreMetrics = coreMetrics
+        Task {
+            await metrics.actions.sentMessage(
+                sendingTime: sendingTime,
+                memberCount: memberCount,
+                attachmentCount: attachmentCount,
+                hasText: hasText,
+                hasAssistant: hasAssistant,
+                isSuccess: isSuccess
+            )
         }
     }
 
