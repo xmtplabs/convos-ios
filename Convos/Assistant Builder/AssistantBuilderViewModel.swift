@@ -21,6 +21,15 @@ final class AssistantBuilderViewModel: Identifiable {
     private(set) var invite: Invite?
     private(set) var conversation: Conversation?
     private(set) var focusSession: DBFocusSession?
+    private(set) var liveBubbles: [DBLiveBubble] = []
+
+    /// Local-only draft. Wired to the streaming publisher in checkpoint #6.
+    var draftText: String = ""
+
+    /// True briefly after a non-self member's live text empties out, so the
+    /// region layout can give that member's "final phrase" a moment of focus
+    /// before snapping back to user-only. Wired in checkpoint #6.
+    private(set) var othersRecentlyStopped: Bool = false
 
     /// Stable session id for the focus mode lifecycle of this builder instance.
     /// Sent on every FocusModeControl so receivers can correlate start/stop pairs.
@@ -65,6 +74,41 @@ final class AssistantBuilderViewModel: Identifiable {
         guard let invite, !invite.urlSlug.isEmpty else { return false }
         UIPasteboard.general.string = invite.urlSlug
         return true
+    }
+
+    // MARK: - Live bubble derivations
+
+    var focusedMemberLiveText: String {
+        guard let focusedInboxId = focusSession?.focusedInboxId else { return "" }
+        return liveBubbles.first(where: { $0.senderInboxId == focusedInboxId })?.text ?? ""
+    }
+
+    var othersLiveText: String {
+        let myInboxId = currentInboxId
+        let focusedInboxId = focusSession?.focusedInboxId
+        return liveBubbles
+            .filter { $0.senderInboxId != myInboxId && $0.senderInboxId != focusedInboxId }
+            .map(\.text)
+            .first(where: { !$0.isEmpty }) ?? ""
+    }
+
+    var othersAreTyping: Bool {
+        !othersLiveText.isEmpty
+    }
+
+    /// Stub for checkpoint #5; checkpoint #6 will fire the streaming clear and
+    /// reset draftText after the receiver delay.
+    func handleReturnPressed() {
+        draftText = ""
+    }
+
+    private var currentInboxId: String {
+        switch messagingService?.state {
+        case .authorized(let inboxId):
+            return inboxId
+        default:
+            return ""
+        }
     }
 
     // MARK: - Bootstrap

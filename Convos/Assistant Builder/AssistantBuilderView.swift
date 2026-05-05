@@ -41,7 +41,7 @@ struct AssistantBuilderView: View {
         case .bootstrap:
             placeholderCanvas
         case .focus:
-            focusModePlaceholder
+            FocusModeView(viewModel: viewModel)
         case .stopped:
             stoppedPlaceholder
         }
@@ -59,24 +59,6 @@ struct AssistantBuilderView: View {
             Text("Setting up your conversation…")
                 .font(.system(.subheadline))
                 .foregroundStyle(.colorTextSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var focusModePlaceholder: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
-            Image(systemName: "person.wave.2.fill")
-                .font(.system(size: 48, weight: .semibold))
-                .foregroundStyle(.colorTextPrimary)
-            Text("Focus mode active")
-                .font(.system(.title2, weight: .bold))
-                .foregroundStyle(.colorTextPrimary)
-            if let focusedInboxId = viewModel.focusSession?.focusedInboxId {
-                Text("Focused on: \(focusedInboxId.prefix(8))…")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.colorTextSecondary)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
