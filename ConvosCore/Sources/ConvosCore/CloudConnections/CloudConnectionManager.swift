@@ -124,34 +124,11 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
             )
         }
 
-        // Post a ConnectionEvent.revoked group-update message in each affected
-        // conversation so the chat reflects the app-level disconnect, and clear
-        // the provider from every CapabilityResolution so the gate stops
-        // honoring previously-approved verbs even if the agent retries. Both
-        // are best-effort — failures here are logged but never block the
-        // local delete below.
-        if let providerId = serviceId.map({ ProviderID(rawValue: "composio.\($0)") }) {
-            if let eventWriter = eventWriterProvider() {
-                for conversationId in uniqueConversationIds {
-                    do {
-                        try await eventWriter.sendRevoked(
-                            providerId: providerId.rawValue,
-                            capability: nil,
-                            in: conversationId
-                        )
-                    } catch {
-                        Log.warning("[CloudConnections] failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
-                    }
-                }
-            }
-            if let resolver = resolverProvider() {
-                do {
-                    try await resolver.removeProviderFromAllResolutions(providerId)
-                } catch {
-                    Log.warning("[CloudConnections] failed to clear capability resolutions for \(providerId.rawValue): \(error.localizedDescription)")
-                }
-            }
-        }
+        await postRevocationSideEffects(
+            connectionId: connectionId,
+            serviceId: serviceId,
+            conversationIds: uniqueConversationIds
+        )
 
         // Idempotent: GRDB's deleteOne returns false when the row is already
         // gone (it doesn't throw). Two concurrent disconnects of the same
@@ -184,19 +161,27 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         // `Date()` as their creation timestamp.
         let serverIds = Set(responses.map { $0.connectionId })
 
-        // Before deleting orphaned connections, republish ProfileUpdate
-        // metadata for every conversation that referenced them — same
-        // rationale as disconnect(). Without this, the FK cascade deletes
-        // local DBCloudConnectionGrant rows but the XMTP group metadata still
-        // carries the revoked grants and the assistant keeps using them.
-        let orphanedGrants = try await databaseWriter.read { db in
-            let existingIds = Set(try DBCloudConnection.fetchAll(db).map { $0.id })
-            let toDelete = existingIds.subtracting(serverIds)
-            guard !toDelete.isEmpty else { return [DBCloudConnectionGrant]() }
-            return try DBCloudConnectionGrant
-                .filter(toDelete.contains(DBCloudConnectionGrant.Columns.connectionId))
+        // Before deleting orphaned connections, capture the (id, serviceId)
+        // pairs and the grants that referenced them. We need both to (a)
+        // republish ProfileUpdate metadata so XMTP group state matches the
+        // server-side revoke, and (b) post connection_event.revoked +
+        // clear capability resolutions for the same provider — symmetric
+        // with disconnect(). serviceId must be read before the FK cascade
+        // wipes the row.
+        let orphanedConnections: [(id: String, serviceId: String)] = try await databaseWriter.read { db in
+            try DBCloudConnection
                 .fetchAll(db)
+                .filter { !serverIds.contains($0.id) }
+                .map { ($0.id, $0.serviceId) }
         }
+        let orphanedConnectionIds = Set(orphanedConnections.map(\.id))
+        let orphanedGrants: [DBCloudConnectionGrant] = orphanedConnectionIds.isEmpty
+            ? []
+            : try await databaseWriter.read { db in
+                try DBCloudConnectionGrant
+                    .filter(orphanedConnectionIds.contains(DBCloudConnectionGrant.Columns.connectionId))
+                    .fetchAll(db)
+            }
 
         if !orphanedGrants.isEmpty {
             if let grantWriter = grantWriterProvider() {
@@ -218,6 +203,19 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                     "injected; metadata for the affected conversation(s) will remain stale until the next grant/revoke"
                 )
             }
+        }
+
+        for orphan in orphanedConnections {
+            let conversationIds = Array(Set(
+                orphanedGrants
+                    .filter { $0.connectionId == orphan.id }
+                    .map(\.conversationId)
+            ))
+            await postRevocationSideEffects(
+                connectionId: orphan.id,
+                serviceId: orphan.serviceId,
+                conversationIds: conversationIds
+            )
         }
 
         let connections: [CloudConnection] = try await databaseWriter.write { [self] db in
@@ -259,6 +257,40 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
 
     private func displayName(for serviceName: String, fallbackFrom serviceId: String) -> String {
         CloudConnectionServiceNaming.displayName(for: serviceName, fallbackFrom: serviceId)
+    }
+
+    /// Posts `connection_event.revoked` to every affected conversation and
+    /// clears the provider from every CapabilityResolution. Best-effort —
+    /// failures are logged but never propagate, matching the existing grant-
+    /// republish behavior. `serviceId == nil` is the "row already deleted"
+    /// race; we skip cleanup because there's no providerId to derive.
+    private func postRevocationSideEffects(
+        connectionId: String,
+        serviceId: String?,
+        conversationIds: [String]
+    ) async {
+        guard let serviceId else { return }
+        let providerId = ProviderID(rawValue: "composio.\(serviceId)")
+        if let eventWriter = eventWriterProvider() {
+            for conversationId in conversationIds {
+                do {
+                    try await eventWriter.sendRevoked(
+                        providerId: providerId.rawValue,
+                        capability: nil,
+                        in: conversationId
+                    )
+                } catch {
+                    Log.warning("[CloudConnections] failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                }
+            }
+        }
+        if let resolver = resolverProvider() {
+            do {
+                try await resolver.removeProviderFromAllResolutions(providerId)
+            } catch {
+                Log.warning("[CloudConnections] failed to clear capability resolutions for \(providerId.rawValue): \(error.localizedDescription)")
+            }
+        }
     }
 }
 

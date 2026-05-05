@@ -174,6 +174,68 @@ struct ConnectionManagerTests {
         #expect(grantCount == 1)
     }
 
+    @Test("refreshConnections posts revoked event and clears resolver for orphaned connections")
+    func refreshOrphanedConnectionsClearsState() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+        let eventWriter = RecordingEventWriter()
+        let resolver = RecordingResolver()
+
+        let manager = makeManager(
+            fixtures: fixtures,
+            apiClient: apiClient,
+            grantWriter: grantWriter,
+            eventWriter: eventWriter,
+            resolver: resolver
+        )
+
+        let staleId = "conn-stale"
+        let keepId = "conn-keep"
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConversation(id: "convo-a").insert(db)
+            try makeDBConversation(id: "convo-b").insert(db)
+            try makeDBConnection(id: staleId, serviceId: "google_calendar").insert(db)
+            try makeDBConnection(id: keepId, serviceId: "google_calendar").insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: staleId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedAt: Date()
+            ).insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: staleId,
+                conversationId: "convo-b",
+                serviceId: "google_calendar",
+                grantedAt: Date()
+            ).insert(db)
+            // Grant on a kept connection — must not trigger any revoke side-effects.
+            try DBCloudConnectionGrant(
+                connectionId: keepId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedAt: Date()
+            ).insert(db)
+        }
+
+        apiClient.stubbedConnections = [
+            makeConnectionResponse(connectionId: keepId, serviceId: "google_calendar")
+        ]
+
+        _ = try await manager.refreshConnections()
+
+        let revokedEvents = await eventWriter.revokedEvents()
+        #expect(revokedEvents.count == 2, "Each conversation that referenced the orphan must get a revoked event")
+        #expect(Set(revokedEvents.map(\.conversationId)) == ["convo-a", "convo-b"])
+        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.google_calendar" })
+        #expect(revokedEvents.allSatisfy { $0.capability == nil })
+
+        let cleared = await resolver.removedProviders()
+        #expect(cleared == [ProviderID(rawValue: "composio.google_calendar")],
+                "Resolver must be cleared exactly once per orphaned provider")
+    }
+
     // MARK: - H7: disconnect() republishes metadata
 
     @Test("disconnect republishes metadata for every conversation that referenced the connection")
