@@ -78,9 +78,12 @@ actor HealthInvocationRouter {
         }
 
         // Apply the observer change before delivering the result so the agent never sees
-        // success while the iOS-level observer is mis-armed. If apply fails, downgrade the
-        // status so the agent can retry rather than assume the subscription is live.
+        // success while the iOS-level observer is in the wrong state. If apply fails,
+        // downgrade the status so the agent can retry rather than assume the subscription
+        // is live (or assume the deregistration completed).
         if result.status == .success {
+            let storeAction = isSubscribe ? "stored" : "deleted"
+            let observerAction = isSubscribe ? "registration" : "deregistration"
             if let typeIdentifier = Self.parsedTypeIdentifier(from: invocation) {
                 do {
                     try await routine.applyForType(typeIdentifier)
@@ -92,7 +95,7 @@ actor HealthInvocationRouter {
                         actionName: actionName,
                         status: .executionFailed,
                         result: result.result,
-                        errorMessage: "Subscription stored but observer registration failed: \(error.localizedDescription)"
+                        errorMessage: "Subscription \(storeAction) but observer \(observerAction) failed: \(error.localizedDescription)"
                     )
                 }
             } else {
@@ -103,7 +106,7 @@ actor HealthInvocationRouter {
                     actionName: actionName,
                     status: .executionFailed,
                     result: result.result,
-                    errorMessage: "Subscription stored but observer registration failed: unparseable typeIdentifier"
+                    errorMessage: "Subscription \(storeAction) but observer \(observerAction) failed: unparseable typeIdentifier"
                 )
             }
         }

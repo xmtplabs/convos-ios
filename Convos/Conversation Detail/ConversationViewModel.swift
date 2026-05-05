@@ -837,6 +837,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     // Discard if a newer request arrived while we were computing —
                     // otherwise an out-of-order completion can stomp the latest UI.
                     guard self.latestObservedCapabilityRequest == request else { return }
+                    // Also discard if the user already approved/denied this exact request
+                    // locally between when this Task was spawned and now. The early-return
+                    // on re-emission at the top of `sink` doesn't update
+                    // `latestObservedCapabilityRequest`, so the staleness check above can't
+                    // see that the user already answered.
+                    guard !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else { return }
                     self.pendingCapabilityPickerLayout = layout
                 }
             }

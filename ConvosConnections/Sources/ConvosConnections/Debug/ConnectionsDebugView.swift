@@ -205,6 +205,10 @@ private final class DebugModel {
         await manager.setEnabled(enabled, kind: kind, conversationId: conversationId)
         if enabled {
             try? await manager.startSource(kind: kind)
+        } else if await manager.enabledConversationIds(for: kind).isEmpty {
+            // No conversation still wants this kind — stop the data source so it
+            // stops emitting payloads downstream filters would just drop.
+            await manager.stopSource(kind: kind)
         }
         await refresh()
     }
