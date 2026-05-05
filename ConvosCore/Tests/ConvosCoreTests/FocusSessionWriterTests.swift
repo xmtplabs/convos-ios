@@ -201,7 +201,7 @@ struct FocusSessionWriterTests {
         #expect(stored == nil)
     }
 
-    @Test("StreamingClear blanks the bubble when revision is newer")
+    @Test("StreamingClear blanks the bubble after the receiver delay")
     func testStreamingClearBlanks() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         try await dbManager.dbWriter.write { db in
@@ -216,6 +216,8 @@ struct FocusSessionWriterTests {
         try await writer.applyStreamingText(
             .init(sessionId: "session-clear", senderInboxId: "user-1", revision: 1, text: "draft")
         )
+        // Receiver delays the clear by ~600ms so the final phrase stays readable.
+        // Awaiting applyStreamingClear blocks until after the delay completes.
         try await writer.applyStreamingClear(
             .init(sessionId: "session-clear", senderInboxId: "user-1", revision: 2)
         )
@@ -227,6 +229,41 @@ struct FocusSessionWriterTests {
         }
         #expect(stored?.text == "")
         #expect(stored?.revision == 2)
+    }
+
+    @Test("StreamingClear is dropped if a newer StreamingText arrives during the receiver delay")
+    func testStreamingClearDroppedByConcurrentNewerText() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try await dbManager.dbWriter.write { db in
+            try makeDBConversation(id: "conv-1").insert(db)
+        }
+        let writer = FocusSessionWriter(databaseWriter: dbManager.dbWriter)
+
+        try await writer.applyFocusModeControl(
+            .init(state: .start, focusedInboxId: "agent-1", sessionId: "session-race"),
+            conversationId: "conv-1"
+        )
+        try await writer.applyStreamingText(
+            .init(sessionId: "session-race", senderInboxId: "user-1", revision: 1, text: "draft")
+        )
+
+        // Kick off the clear; while it sleeps, fire a newer streaming text.
+        async let clearTask: Void = writer.applyStreamingClear(
+            .init(sessionId: "session-race", senderInboxId: "user-1", revision: 2)
+        )
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        try await writer.applyStreamingText(
+            .init(sessionId: "session-race", senderInboxId: "user-1", revision: 3, text: "kept!")
+        )
+        try await clearTask
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBLiveBubble
+                .filter(Column("sessionId") == "session-race" && Column("senderInboxId") == "user-1")
+                .fetchOne(db)
+        }
+        #expect(stored?.text == "kept!")
+        #expect(stored?.revision == 3)
     }
 
     @Test("Stop preserves existing live bubbles in place")

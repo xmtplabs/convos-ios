@@ -23,12 +23,18 @@ final class AssistantBuilderViewModel: Identifiable {
     private(set) var focusSession: DBFocusSession?
     private(set) var liveBubbles: [DBLiveBubble] = []
 
-    /// Local-only draft. Wired to the streaming publisher in checkpoint #6.
-    var draftText: String = ""
+    /// Two-way bound from `LiveBubbleEditor`. Each set fans out to the
+    /// streaming publisher (debounced) so peers see the snapshot.
+    var draftText: String = "" {
+        didSet {
+            guard draftText != oldValue else { return }
+            publisher?.publish(text: draftText)
+        }
+    }
 
     /// True briefly after a non-self member's live text empties out, so the
     /// region layout can give that member's "final phrase" a moment of focus
-    /// before snapping back to user-only. Wired in checkpoint #6.
+    /// before snapping back to user-only.
     private(set) var othersRecentlyStopped: Bool = false
 
     /// Stable session id for the focus mode lifecycle of this builder instance.
@@ -55,6 +61,15 @@ final class AssistantBuilderViewModel: Identifiable {
 
     @ObservationIgnored
     private var hasSentInitialFocusStart: Bool = false
+
+    @ObservationIgnored
+    private var publisher: FocusSessionPublisher?
+
+    @ObservationIgnored
+    private var lastOtherTextWasNonEmpty: Bool = false
+
+    @ObservationIgnored
+    private var othersRecentlyStoppedTimer: Task<Void, Never>?
 
     init(session: any SessionManagerProtocol) {
         self.session = session
@@ -96,9 +111,10 @@ final class AssistantBuilderViewModel: Identifiable {
         !othersLiveText.isEmpty
     }
 
-    /// Stub for checkpoint #5; checkpoint #6 will fire the streaming clear and
-    /// reset draftText after the receiver delay.
+    /// Send a StreamingClear so peers blank our bubble (after their 600ms
+    /// readability delay), and clear our local draft immediately.
     func handleReturnPressed() {
+        publisher?.clear()
         draftText = ""
     }
 
@@ -238,11 +254,62 @@ final class AssistantBuilderViewModel: Identifiable {
         switch session.state {
         case .started:
             phase = (session.focusedInboxId == nil) ? .bootstrap : .focus
+            ensurePublisherExists(for: session)
+            ensureLiveBubblesSubscription(for: session.sessionId)
             // Trigger possible promotion now that we have a session row to fill.
             handleConversationMembersChanged()
         case .stopped:
             phase = .stopped
         }
+    }
+
+    private func ensurePublisherExists(for session: DBFocusSession) {
+        guard publisher == nil,
+              let conversationId,
+              let messagingService else { return }
+        publisher = FocusSessionPublisher(
+            messagingService: messagingService,
+            conversationId: conversationId,
+            sessionId: session.sessionId,
+            senderInboxId: currentInboxId
+        )
+    }
+
+    private func ensureLiveBubblesSubscription(for sessionId: String) {
+        // Re-subscribe if the session id changed.
+        let alreadySubscribedKey = "liveBubbles:\(sessionId)"
+        guard activeBubbleSubscription != alreadySubscribedKey else { return }
+        activeBubbleSubscription = alreadySubscribedKey
+
+        guard let conversationId else { return }
+        let repo = session.focusSessionRepository(for: conversationId)
+        repo.liveBubblesPublisher(sessionId: sessionId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] bubbles in
+                self?.applyLiveBubbles(bubbles)
+            }
+            .store(in: &cancellables)
+    }
+
+    @ObservationIgnored
+    private var activeBubbleSubscription: String?
+
+    private func applyLiveBubbles(_ bubbles: [DBLiveBubble]) {
+        liveBubbles = bubbles
+        let othersHasText = !othersLiveText.isEmpty
+        if lastOtherTextWasNonEmpty && !othersHasText {
+            othersRecentlyStopped = true
+            othersRecentlyStoppedTimer?.cancel()
+            othersRecentlyStoppedTimer = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run { self?.othersRecentlyStopped = false }
+            }
+        } else if othersHasText {
+            othersRecentlyStopped = false
+            othersRecentlyStoppedTimer?.cancel()
+        }
+        lastOtherTextWasNonEmpty = othersHasText
     }
 
     // MARK: - Cleanup

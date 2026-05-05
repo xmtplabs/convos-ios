@@ -111,6 +111,11 @@ public final class FocusSessionWriter: FocusSessionWriterProtocol, Sendable {
         _ payload: StreamingClear,
         receivedAt: Date
     ) async throws {
+        // Sender-side clears must reach the receiver's bubble after a brief
+        // delay so the final phrase stays readable. We sleep on the receiver
+        // before writing the blank — if a newer StreamingText arrives in the
+        // meantime, the revision check will drop this clear write entirely.
+        try? await Task.sleep(nanoseconds: 600_000_000)
         try await databaseWriter.write { db in
             guard try Self.sessionIsActive(payload.sessionId, db: db) else { return }
             let existing = try DBLiveBubble
