@@ -46,7 +46,40 @@ and our existing `MessagesBottomBar` composer chrome.
   out of scope for the streaming path; only text + clear are wired.
 - Multi-assistant or multi-focus support. One focused member at a time.
 - Voice / call modes from Honk. Out of scope.
-- Production-quality animations, haptics, or sound design.
+- Haptics and sound design. (Animations are explicitly **in** scope — see
+  next section.)
+
+### Animation is in scope and load-bearing
+
+The whole prototype lives or dies on how the live-typing canvas *feels*. A
+working-but-flat implementation undersells the concept. So we treat animation
+as a first-class deliverable, not polish to add later. Concrete commitments:
+
+- **Region resizing** uses a single shared `withAnimation(.spring(response: 0.45, dampingFraction: 0.85))`
+  driven by the typing-state matrix in §5.4 — every transition between the
+  five rows of that table is animated. No hard cuts.
+- **Bubble appearance / disappearance** uses `matchedGeometryEffect` so the
+  same bubble morphs as it changes size and position, rather than fading one
+  out and another in.
+- **Streaming text** rides on SwiftUI's text-content-transition (`.contentTransition(.numericText())`
+  or `.contentTransition(.interpolate)` per character) so newly arrived
+  characters slide/blur in instead of popping.
+- **Clear** isn't an instant blank — it's a 600ms receiver-side delay, then a
+  dissolve transition on the bubble's text (`.transition(.opacity.combined(with: .scale(scale: 0.95)))`).
+- **Bootstrap → focus transition**: the CLI sheet doesn't just dismiss; the
+  invite-code card collapses into the empty user bubble while the assistant
+  bubble drops in from the top with a spring.
+- **Focus → standard chat transition**: at end-of-session, the bottom bubble
+  morphs into the "Start chatting" pill via `matchedGeometryEffect`, then on
+  tap the whole canvas crossfades into `ConversationView` while the
+  ConversationIndicator capsule rides through with `matchedGeometryEffect`.
+- **Performance budget:** all of the above must hit 60fps on an iPhone 13 mini.
+  If a transition can't be done in pure SwiftUI without dropping frames,
+  prefer a simpler animation over a janky one — but always animate.
+
+These commitments are reflected in checkpoint #5 (layout) and #8 (end
+transition) below — animations land alongside the layout work, not as a
+separate pass.
 
 ## 3. User Flow
 
