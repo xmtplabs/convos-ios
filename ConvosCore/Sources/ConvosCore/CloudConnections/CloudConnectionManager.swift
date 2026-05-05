@@ -13,19 +13,25 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     private let databaseWriter: any DatabaseWriter
     private let callbackURLScheme: String
     private let grantWriterProvider: @Sendable () -> (any CloudConnectionGrantWriterProtocol)?
+    private let eventWriterProvider: @Sendable () -> (any ConnectionEventWriterProtocol)?
+    private let resolverProvider: @Sendable () -> (any CapabilityResolver)?
 
     public init(
         apiClient: any ConvosAPIClientProtocol,
         oauthProvider: any OAuthSessionProvider,
         databaseWriter: any DatabaseWriter,
         callbackURLScheme: String,
-        grantWriterProvider: @escaping @Sendable () -> (any CloudConnectionGrantWriterProtocol)? = { nil }
+        grantWriterProvider: @escaping @Sendable () -> (any CloudConnectionGrantWriterProtocol)? = { nil },
+        eventWriterProvider: @escaping @Sendable () -> (any ConnectionEventWriterProtocol)? = { nil },
+        resolverProvider: @escaping @Sendable () -> (any CapabilityResolver)? = { nil }
     ) {
         self.apiClient = apiClient
         self.oauthProvider = oauthProvider
         self.databaseWriter = databaseWriter
         self.callbackURLScheme = callbackURLScheme
         self.grantWriterProvider = grantWriterProvider
+        self.eventWriterProvider = eventWriterProvider
+        self.resolverProvider = resolverProvider
     }
 
     public func connect(serviceId canonicalServiceId: String) async throws -> CloudConnection {
@@ -71,6 +77,13 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     public func disconnect(connectionId: String) async throws {
         try await apiClient.revokeCloudConnection(connectionId: connectionId)
 
+        // Read the connection's serviceId before any local mutation so we can
+        // derive the providerId for ConnectionEvent.revoked and the resolver
+        // cleanup even if the row is gone by the time we need it.
+        let serviceId = try await databaseWriter.read { db in
+            try DBCloudConnection.fetchOne(db, key: connectionId)?.serviceId
+        }
+
         // Collect conversations that currently reference this connection so we
         // can republish per-conversation metadata after the local rows are gone.
         // Without this, the ProfileUpdate metadata previously published to XMTP
@@ -109,6 +122,35 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                 "\(conversationCount) conversation(s) will remain stale until the next grant/revoke " +
                 "on the affected conversations"
             )
+        }
+
+        // Post a ConnectionEvent.revoked group-update message in each affected
+        // conversation so the chat reflects the app-level disconnect, and clear
+        // the provider from every CapabilityResolution so the gate stops
+        // honoring previously-approved verbs even if the agent retries. Both
+        // are best-effort — failures here are logged but never block the
+        // local delete below.
+        if let providerId = serviceId.map({ ProviderID(rawValue: "composio.\($0)") }) {
+            if let eventWriter = eventWriterProvider() {
+                for conversationId in uniqueConversationIds {
+                    do {
+                        try await eventWriter.sendRevoked(
+                            providerId: providerId.rawValue,
+                            capability: nil,
+                            in: conversationId
+                        )
+                    } catch {
+                        Log.warning("[CloudConnections] failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                    }
+                }
+            }
+            if let resolver = resolverProvider() {
+                do {
+                    try await resolver.removeProviderFromAllResolutions(providerId)
+                } catch {
+                    Log.warning("[CloudConnections] failed to clear capability resolutions for \(providerId.rawValue): \(error.localizedDescription)")
+                }
+            }
         }
 
         // Idempotent: GRDB's deleteOne returns false when the row is already
