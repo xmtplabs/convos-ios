@@ -66,7 +66,10 @@ public final class XMTPInvocationListener: @unchecked Sendable {
             } catch {
                 // The synthetic reply is the only signal the agent gets that we rejected
                 // the invocation — silent drop here strands the agent waiting forever.
-                logger.error("Failed to deliver schema-version-rejected result for \(invocation.invocationId, privacy: .public) in \(conversationId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                let invocationId = invocation.invocationId
+                logger.error(
+                    "Failed to deliver schema-version-rejected result for \(invocationId, privacy: .public) in \(conversationId, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
             }
             return
         }
