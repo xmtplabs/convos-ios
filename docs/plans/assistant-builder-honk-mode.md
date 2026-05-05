@@ -247,18 +247,21 @@ The body branches three ways:
 │   ConversationIndicator         │  ← reused, label "New assistant"
 ├─────────────────────────────────┤
 │                                 │
-│      ASSISTANT BUBBLE           │  ← top region
+│      ASSISTANT BUBBLE           │  ← top region (read-only)
 │      (focused member)           │
 │      tail: top-trailing         │
 │                                 │
 ├─────────────────────────────────┤
 │                                 │
-│      USER + OTHERS BUBBLE(S)    │  ← bottom region
-│      user: tail bottom-trailing │
+│      USER BUBBLE = TEXTFIELD    │  ← bottom region
+│      user: tail bottom-trailing │     (typing happens *in* the bubble)
 │      others: tail bottom-leading│
 │                                 │
 ├─────────────────────────────────┤
-│   keyboard / composer           │
+│   media bar (planned, not in    │
+│   this PR — see §5.5)           │
+├─────────────────────────────────┤
+│   system keyboard               │
 └─────────────────────────────────┘
 ```
 
@@ -281,33 +284,58 @@ that member. The transitions are animated (`withAnimation(.spring)`).
 with a configurable corner enum. Same `UnevenRoundedRectangle` mask trick; we
 just parameterize which corner gets the small radius.
 
+The user's own `LiveBubble` is **also the text input** (see §5.5) — there is
+no separate composer field. The bubble's content is a `TextField` /
+`TextEditor` styled to fill the bubble; the bubble's background is the user's
+accent color, the text is large and centered (Honk-style).
+
 **Other-members typing area:** when there's >1 non-focused member talking,
 stack their `ClusteredAvatarView` (existing component at
 `Convos/Shared Views/ClusteredAvatarView.swift`) in the bubble's leading inset
 as the typing-indicator avatar cluster.
 
-### 5.5 Composer wiring
+### 5.5 Composer wiring — typing into the bubble itself
 
-Reuse `MessagesBottomBar`. The text-change hook already exists at
-`MessagesBottomBar.swift:113-115`:
+**We do not reuse `MessagesBottomBar`.** Honk's defining UX is that the
+keyboard types directly into the giant message bubble — there's no separate
+input field. We mirror that.
+
+A new view `LiveBubbleEditor` wraps `LiveBubble` with a backing `TextField`
+(SwiftUI `TextField` with `.lineLimit(nil)` plus a large title font, axis
+`.vertical`) bound to a `String` on the focus view-model. The bubble's
+background is the user's accent color and the text is rendered white, large,
+centered — same look as the read-only `LiveBubble` so the two share a layout.
+
+The view-model wires:
 
 ```swift
-.onChange(of: messageText) { _, _ in
-    handleMessageTextChanged()
-}
+@FocusState private var isComposing: Bool
+@State private var draftText: String = ""
+
+LiveBubbleEditor(text: $draftText, isFocused: $isComposing)
+    .onChange(of: draftText) { _, newValue in
+        focusSessionPublisher.publish(text: newValue)
+    }
+    .onSubmit {
+        focusSessionPublisher.clear()
+        draftText = ""
+    }
 ```
 
-We add a parallel hook in the focus-mode-aware view-model: every keystroke
-calls `focusSessionPublisher.publish(text: messageText)`. The publisher
-debounces at ~50ms (collapse rapid keystrokes into a single send), bumps
-`revision`, and ships a `StreamingText`. On submit (return key, current
-`onSendMessage`), it ships a `StreamingClear` *and* clears `messageText`
-locally (no `DBMessage` is created in focus mode).
+Per-keystroke, `focusSessionPublisher.publish` debounces at ~50ms, bumps
+`revision`, and ships a `StreamingText`. On submit (return key), it ships a
+`StreamingClear` and clears `draftText` locally. Nothing is persisted as a
+`DBMessage` — there is no "send" in focus mode.
 
-**Important divergence from normal composer:** in focus mode, hitting send does
-*not* persist a text message. The "message" is the live bubble, and clearing
-is the equivalent of "I'm done with this thought." This is the rule the user
-called out: return acts as a clear, not as a send.
+`isComposing` is set `true` automatically whenever the focus session starts so
+the keyboard surfaces immediately. Tapping anywhere on the user's bubble
+re-focuses the editor.
+
+**Media bar (planned, not in this PR):** Honk shows a row of icons (keyboard
+toggle, sparkle, camera, photos, mic, HONK, trash) directly under the user's
+bubble and above the keyboard. We will eventually lift `MessagesMediaButtonsView`
+into this slot and add a trash-can affordance that fires `StreamingClear`. For
+the prototype only the bubble + keyboard + return-to-clear behavior is wired.
 
 ### 5.6 End-of-session transition
 
@@ -414,6 +442,7 @@ New:
 - `Convos/Assistant Builder/CLIBootstrapSheet.swift`
 - `Convos/Assistant Builder/FocusModeView.swift`
 - `Convos/Assistant Builder/LiveBubble.swift`
+- `Convos/Assistant Builder/LiveBubbleEditor.swift` (TextField-backed bubble for the user)
 - `Convos/Assistant Builder/FocusRegionLayout.swift`
 
 Edited:
