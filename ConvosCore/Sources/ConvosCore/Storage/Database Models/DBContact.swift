@@ -5,7 +5,10 @@ import GRDB
 /// (ADR-011). Stores a denormalized "global default profile" snapshot updated
 /// most-recent-wins as new profile data arrives for the contact.
 ///
-/// Step 1 ships without the `blockedAt` column — that is added in Step 2.
+/// `blockedAt` is non-nil if the local user has blocked this contact. Blocked
+/// contacts continue to appear in the browse list (so the user can find them
+/// to unblock); inbound conversation filtering and the picker use the column
+/// to gate behavior.
 struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identifiable {
     static let databaseTableName: String = "contact"
 
@@ -17,6 +20,7 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         static let avatarURL: Column = Column(CodingKeys.avatarURL)
         static let bio: Column = Column(CodingKeys.bio)
         static let profileUpdatedAt: Column = Column(CodingKeys.profileUpdatedAt)
+        static let blockedAt: Column = Column(CodingKeys.blockedAt)
     }
 
     var id: String { inboxId }
@@ -29,6 +33,7 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
     var avatarURL: String?
     var bio: String?
     var profileUpdatedAt: Date?
+    var blockedAt: Date?
 
     init(
         inboxId: String,
@@ -37,7 +42,8 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         displayName: String? = nil,
         avatarURL: String? = nil,
         bio: String? = nil,
-        profileUpdatedAt: Date? = nil
+        profileUpdatedAt: Date? = nil,
+        blockedAt: Date? = nil
     ) {
         self.inboxId = inboxId
         self.addedAt = addedAt
@@ -46,6 +52,7 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         self.avatarURL = avatarURL
         self.bio = bio
         self.profileUpdatedAt = profileUpdatedAt
+        self.blockedAt = blockedAt
     }
 }
 
@@ -63,7 +70,21 @@ extension DBContact {
             displayName: displayName,
             avatarURL: avatarURL,
             bio: bio,
-            profileUpdatedAt: profileUpdatedAt
+            profileUpdatedAt: profileUpdatedAt,
+            blockedAt: blockedAt
+        )
+    }
+
+    func with(blockedAt: Date?) -> DBContact {
+        DBContact(
+            inboxId: inboxId,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            bio: bio,
+            profileUpdatedAt: profileUpdatedAt,
+            blockedAt: blockedAt
         )
     }
 }

@@ -125,7 +125,7 @@ struct AppSettingsView: View {
     private var contactsSection: some View {
         Section {
             NavigationLink {
-                ContactsView(contactsRepository: session.messagingService().contactsRepository())
+                contactsViewDestination
             } label: {
                 contactsRowLabel
             }
@@ -133,6 +133,16 @@ struct AppSettingsView: View {
         } footer: {
             Text("People you've shared a conversation with. Stored only on this device.")
         }
+    }
+
+    @ViewBuilder
+    private var contactsViewDestination: some View {
+        let messagingService = session.messagingService()
+        ContactsView(
+            contactsRepository: messagingService.contactsRepository(),
+            contactsWriter: messagingService.contactsWriter(),
+            session: session
+        )
     }
 
     @ViewBuilder

@@ -44,6 +44,12 @@ fileprivate extension Database {
             .filter(!DBConversation.Columns.id.like("draft-%"))
             .filter(kinds.contains(DBConversation.Columns.kind))
             .filter(consent.contains(DBConversation.Columns.consent))
+            // Match the main-feed filter — held / quarantined rows don't
+            // contribute to the visible count until promoted.
+            .filter(
+                DBConversation.Columns.quarantinedAt == nil
+                || DBConversation.Columns.quarantineReleasedAt != nil
+            )
             .fetchCount(self)
     }
 }

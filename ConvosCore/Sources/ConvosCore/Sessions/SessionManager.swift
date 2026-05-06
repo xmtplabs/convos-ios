@@ -28,6 +28,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
     private var activeConversationObserver: NSObjectProtocol?
+    private var quarantineSweeperTask: Task<Void, Never>?
+    private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
 
     /// Tracks the user's current screen context. Used by
     /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
@@ -154,6 +156,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     deinit {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
+        quarantineSweeperTask?.cancel()
         assetRenewalTask?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
@@ -171,6 +174,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
+                self.runQuarantineSweep(reason: "foreground")
             }
         }
 
@@ -181,6 +185,54 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ) { [weak self] notification in
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
+        }
+
+        scheduleQuarantineSweeper()
+    }
+
+    /// Periodic sweeper that promotes quarantined conversations whose
+    /// senders have become contacts and deletes those past the TTL. Runs
+    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
+    /// while the process is alive. The foreground observer above also
+    /// triggers an extra sweep on every foreground entry.
+    private func scheduleQuarantineSweeper() {
+        let sweeper = QuarantineSweeper(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            contactsRepository: ContactsRepository(databaseReader: databaseReader)
+        )
+        cachedQuarantineSweeper = sweeper
+
+        quarantineSweeperTask?.cancel()
+        quarantineSweeperTask = Task { [weak self] in
+            // Initial sweep at launch.
+            await Self.invokeSweep(sweeper, reason: "launch")
+            // Hourly sweep while the process lives. Foreground entries also
+            // trigger an extra sweep via the foreground observer.
+            while !Task.isCancelled {
+                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
+                guard self != nil, !Task.isCancelled else { return }
+                await Self.invokeSweep(sweeper, reason: "interval")
+            }
+        }
+    }
+
+    private func runQuarantineSweep(reason: String) {
+        guard let sweeper = cachedQuarantineSweeper else { return }
+        Task.detached {
+            await Self.invokeSweep(sweeper, reason: reason)
+        }
+    }
+
+    private static func invokeSweep(
+        _ sweeper: any QuarantineSweeperProtocol,
+        reason: String
+    ) async {
+        do {
+            try await sweeper.sweep()
+        } catch {
+            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
         }
     }
 

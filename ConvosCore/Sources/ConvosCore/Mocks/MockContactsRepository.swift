@@ -21,6 +21,10 @@ public final class MockContactsRepository: ContactsRepositoryProtocol, @unchecke
         subject.value.contains { $0.inboxId == inboxId }
     }
 
+    public func isBlocked(inboxId: String) throws -> Bool {
+        subject.value.first { $0.inboxId == inboxId }?.isBlocked ?? false
+    }
+
     public func fetchContact(inboxId: String) throws -> Contact? {
         subject.value.first { $0.inboxId == inboxId }
     }
@@ -50,6 +54,10 @@ public final class MockContactsWriter: ContactsWriterProtocol, @unchecked Sendab
         inboxId: String,
         profile: ContactProfileSnapshot
     ) async throws {}
+
+    public func block(inboxId: String) async throws {}
+
+    public func unblock(inboxId: String) async throws {}
 }
 
 public final class MockContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked Sendable {

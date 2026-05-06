@@ -9,6 +9,11 @@ struct AddToConversationMenu: View {
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
     let onInviteAssistant: () -> Void
+    /// Optional. When set, the menu surfaces an "Add from Contacts" row
+    /// that opens the contacts picker scoped to the destination conversation.
+    /// Existing call sites that haven't opted in pass `nil` (the default) and
+    /// the row is hidden.
+    var onAddFromContacts: (() -> Void)?
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
     private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
@@ -41,6 +46,15 @@ struct AddToConversationMenu: View {
                 Image(systemName: "qrcode")
             }
             .accessibilityIdentifier("context-menu-convo-code")
+
+            if let onAddFromContacts {
+                Button(action: onAddFromContacts) {
+                    Text("Add from Contacts")
+                    Text("Pick from people you've talked to")
+                    Image(systemName: "person.crop.circle.badge.plus")
+                }
+                .accessibilityIdentifier("context-menu-add-from-contacts")
+            }
 
             if isAssistantEnabled {
                 Button(action: onInviteAssistant) {

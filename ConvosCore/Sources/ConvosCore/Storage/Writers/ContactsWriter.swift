@@ -40,6 +40,15 @@ public protocol ContactsWriterProtocol: Sendable {
         inboxId: String,
         profile: ContactProfileSnapshot
     ) async throws
+
+    /// Marks the contact as blocked. No-op if the inboxId has no contact row
+    /// (blocking does not auto-create contacts) or is already blocked. Repeat
+    /// calls leave the original `blockedAt` timestamp in place.
+    func block(inboxId: String) async throws
+
+    /// Clears the blocked flag on the contact. No-op if the inboxId has no
+    /// contact row or is already unblocked.
+    func unblock(inboxId: String) async throws
 }
 
 final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
@@ -77,6 +86,35 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             }
             let merged = Self.mergeProfile(into: existing, with: profile)
             try merged.save(db)
+        }
+    }
+
+    func block(inboxId: String) async throws {
+        try await databaseWriter.write { db in
+            guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
+                // Blocking is action-gated on an existing contact row. We
+                // never auto-create a contact just to flag it as blocked.
+                Log.debug("block(inboxId:) skipped, no contact row for \(inboxId)")
+                return
+            }
+            guard existing.blockedAt == nil else {
+                // Idempotent: leave the original blockedAt timestamp.
+                return
+            }
+            try existing.with(blockedAt: Date()).save(db)
+        }
+    }
+
+    func unblock(inboxId: String) async throws {
+        try await databaseWriter.write { db in
+            guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
+                Log.debug("unblock(inboxId:) skipped, no contact row for \(inboxId)")
+                return
+            }
+            guard existing.blockedAt != nil else {
+                return
+            }
+            try existing.with(blockedAt: nil).save(db)
         }
     }
 
