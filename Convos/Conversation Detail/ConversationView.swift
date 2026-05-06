@@ -123,6 +123,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
+            verifiedAssistantName: viewModel.verifiedAssistantName,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
                 if overscroll == 0 {

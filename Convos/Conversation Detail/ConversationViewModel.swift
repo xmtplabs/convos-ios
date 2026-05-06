@@ -2305,7 +2305,16 @@ extension ConversationViewModel {
     }
 
     var verifiedAssistantName: String? {
-        conversation.members.first(where: \.isVerifiedAssistant)?.displayName
+        // Prefer the verified-assistant member, but fall back to ANY agent
+        // member when verification flaps to false during attestation
+        // re-checks. `isAgent` is a static profile property that doesn't
+        // depend on the periodic attestation cycle, so the fallback keeps
+        // the displayed name stable even when `agentVerification`
+        // momentarily reports the agent as unverified.
+        if let verified = conversation.members.first(where: \.isVerifiedAssistant) {
+            return verified.displayName
+        }
+        return conversation.members.first(where: \.isAgent)?.displayName
     }
 
     func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {

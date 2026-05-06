@@ -31,6 +31,17 @@ struct MessagesListView: View {
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
     @State private var lastItemIndex: Int?
 
+    /// Stable verified-assistant display name derived from the conversation's
+    /// membership. Falls back through `isVerifiedAssistant` → `isAgent` so the
+    /// name doesn't flip to nil while attestation re-verification is in
+    /// progress.
+    private var verifiedAssistantName: String? {
+        if let verified = conversation.members.first(where: \.isVerifiedAssistant) {
+            return verified.displayName
+        }
+        return conversation.members.first(where: \.isAgent)?.displayName
+    }
+
     var body: some View {
         ScrollViewReader { _ in
             ScrollView {
@@ -125,8 +136,11 @@ struct MessagesListView: View {
             assistantPresentView(agent: agent, inviterName: inviterName)
 
         case let .connectionEvent(_, summary, _):
-            ConnectionEventSummaryView(summary: summary)
-                .padding(.vertical, DesignConstants.Spacing.step2x)
+            ConnectionEventSummaryView(
+                summary: summary,
+                verifiedAssistantName: verifiedAssistantName
+            )
+            .padding(.vertical, DesignConstants.Spacing.step2x)
 
         case .typingIndicator:
             EmptyView()

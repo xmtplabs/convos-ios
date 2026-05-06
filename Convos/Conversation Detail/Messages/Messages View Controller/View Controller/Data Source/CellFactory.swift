@@ -29,6 +29,11 @@ struct CellConfig {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
+    /// Live verified-assistant display name; consumed by
+    /// `ConnectionEventSummaryView` to prepend the actor on
+    /// `.verifiedAssistant`-actor summaries at render time. Sourced from
+    /// `ConversationViewModel.verifiedAssistantName`.
+    let verifiedAssistantName: String?
 }
 
 // swiftlint:disable force_cast

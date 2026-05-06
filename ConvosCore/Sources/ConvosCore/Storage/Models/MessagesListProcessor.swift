@@ -440,24 +440,27 @@ public final class MessagesListProcessor: Sendable {
     }
 
     /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
-    /// actor-less phrase. Resolves `.verifiedAssistant` from the conversation's
-    /// verified assistant member (falling back to "Assistant"), and `.messageSender`
-    /// from the underlying message's sender. Returns the summary unchanged if its
-    /// `actor` is `nil` (no actor expected) or if the text was already rendered by
-    /// older versions of this code (legacy DB rows).
+    /// actor-less phrase.
+    ///
+    /// - `.messageSender` is resolved here using the message's own sender
+    ///   snapshot. That snapshot is per-message and stable, so prepending at
+    ///   processing time is fine.
+    /// - `.verifiedAssistant` is **not** resolved here. The view layer reads a
+    ///   live verified-assistant name from the conversation's membership
+    ///   (which is plumbed through the SwiftUI tree) and prepends it at
+    ///   render time. Resolving here would couple the rendered text to the
+    ///   per-emission `agentVerification` snapshot in memberProfiles, which
+    ///   flaps during periodic attestation re-verification and produced a
+    ///   visible flicker between "Assistant" and the agent's profile name.
+    /// - `nil` actor (legacy summary or no actor expected) is returned
+    ///   unchanged.
     private static func resolvingActor(
         in summary: ConnectionEventSummary,
         sender: ConversationMember,
         verifiedAssistantName: String?
     ) -> ConnectionEventSummary {
-        guard let actor = summary.actor else { return summary }
-        let actorName: String
-        switch actor {
-        case .verifiedAssistant:
-            actorName = verifiedAssistantName ?? "Assistant"
-        case .messageSender:
-            actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
-        }
+        guard summary.actor == .messageSender else { return summary }
+        let actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
         guard !actorName.isEmpty else { return summary }
         return ConnectionEventSummary(
             text: "\(actorName) \(summary.text)",
