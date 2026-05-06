@@ -822,6 +822,9 @@ extension MessagingService {
         group: XMTPiOS.Group
     ) async {
         guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
+        // Use the message's authored timestamp, not wall-clock `Date()`.
+        // Mirrors the foreground `processProfileSnapshot` and the NSE update path.
+        let receivedAt = Date(timeIntervalSince1970: TimeInterval(message.sentAtNs) / 1_000_000_000)
 
         do {
             try await databaseWriter.write { db in
@@ -886,7 +889,7 @@ extension MessagingService {
                         inboxId: inboxId,
                         name: profile.name,
                         avatarURL: profile.avatar,
-                        receivedAt: Date()
+                        receivedAt: receivedAt
                     )
                 }
             }
