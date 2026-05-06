@@ -744,6 +744,7 @@ extension MessagingService {
         group: XMTPiOS.Group
     ) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
+        let receivedAt = Date(timeIntervalSince1970: TimeInterval(message.sentAtNs) / 1_000_000_000)
         let senderInboxId = message.senderInboxId
         guard !senderInboxId.isEmpty else { return }
 
@@ -806,7 +807,7 @@ extension MessagingService {
                     inboxId: senderInboxId,
                     name: profile.name,
                     avatarURL: profile.avatar,
-                    receivedAt: Date()
+                    receivedAt: receivedAt
                 )
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")

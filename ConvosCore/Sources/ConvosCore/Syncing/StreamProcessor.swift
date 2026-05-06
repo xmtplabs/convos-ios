@@ -363,6 +363,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             Log.warning("Failed to decode ProfileUpdate from message \(message.id)")
             return
         }
+        let receivedAt = Date(timeIntervalSince1970: TimeInterval(message.sentAtNs) / 1_000_000_000)
 
         let senderInboxId = message.senderInboxId
         guard !senderInboxId.isEmpty else {
@@ -430,7 +431,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     inboxId: senderInboxId,
                     name: profile.name,
                     avatarURL: profile.avatar,
-                    receivedAt: Date()
+                    receivedAt: receivedAt
                 )
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
