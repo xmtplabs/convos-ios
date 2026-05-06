@@ -71,20 +71,33 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             //   - member-added hook on a never-synced conversation: skip,
             //     so we honor the action-gated rule and don't pull
             //     strangers from a group the local user has not acted in.
+            //     Exception: if the local user is the *creator* of the
+            //     conversation, creating the group is itself the explicit
+            //     action — no need to wait for a first message.
             let alreadySynced = try DBConversationContactsSync
                 .filter(DBConversationContactsSync.Columns.conversationId == conversationId)
                 .fetchCount(db) > 0
 
+            let selfInboxId = try selfInboxIdProvider(db)
+
             if alreadySynced == false && force == true {
-                Log.debug("Skipping forced contacts sync for never-synced conversation \(conversationId)")
-                return
+                let creatorId = try DBConversation
+                    .filter(DBConversation.Columns.id == conversationId)
+                    .fetchOne(db)?.creatorId
+                let selfIsCreator: Bool = {
+                    guard let selfInboxId, let creatorId else { return false }
+                    return creatorId == selfInboxId
+                }()
+                guard selfIsCreator else {
+                    Log.debug("Skipping forced contacts sync for never-synced conversation \(conversationId) (local user is not the creator)")
+                    return
+                }
+                Log.debug("Forced contacts sync proceeding for never-synced conversation \(conversationId) (local user is the creator)")
             }
 
             if alreadySynced && force == false {
                 return
             }
-
-            let selfInboxId = try selfInboxIdProvider(db)
 
             let members = try DBConversationMember
                 .filter(DBConversationMember.Columns.conversationId == conversationId)
