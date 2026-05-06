@@ -1,6 +1,35 @@
 import Foundation
 import GRDB
 
+// MARK: - One-time migration
+//
+// MIGRATION CODE — TARGETED FOR REMOVAL.
+//
+// The contacts list shipped with this version. Installs that upgraded from
+// a prior version need their `contact` table seeded from the conversations
+// they have already acted in (the new feature would otherwise show an empty
+// list until the user re-sent a message in each existing conversation).
+// `ContactsBackfillService` is that one-time seeding job.
+//
+// Once every active install has run this once, the steady-state triggers
+// keep `contact` correct without any backfill:
+//   - first-outbound-message hook in `OutgoingMessageWriter`
+//   - addMembers hook in `ConversationMetadataWriter`
+//   - network-side member-commit hook in `ConversationWriter`
+//   - profile-sync hooks at every `DBMemberProfile` save site
+//
+// Deletion criteria: ~90 days after broad adoption (or whenever telemetry
+// shows >99% of active installs already have contacts populated). When you
+// delete:
+//   - this file
+//   - the `contactsBackfillService()` factory on `MessagingService` and the
+//     matching protocol method
+//   - `MessagingService.scheduleContactsBackfill()` and its call site in
+//     init
+//   - `ContactsBackfillServiceTests`
+//   - the `MockContactsBackfillService` mock
+//
+
 public protocol ContactsBackfillServiceProtocol: Sendable {
     /// One-time backfill that scans every conversation the local user has
     /// taken explicit action in (i.e. has at least one outbound message)

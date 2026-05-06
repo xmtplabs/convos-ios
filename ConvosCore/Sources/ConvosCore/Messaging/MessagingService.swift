@@ -3,27 +3,6 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
-/// Holds the contacts-backfill `StateObserverHandle` behind a lock. The handle is stored
-/// via `setHandle` from `scheduleContactsBackfill` during `MessagingService` init and
-/// cancelled/cleared from `SessionStateMachine.observeState` (any thread) or `deinit`,
-private final class ContactsBackfillObserverStorage: @unchecked Sendable {
-    private let lock: NSLock = NSLock()
-    private var handle: StateObserverHandle?
-
-    func setHandle(_ newHandle: StateObserverHandle?) {
-        lock.lock()
-        defer { lock.unlock() }
-        handle = newHandle
-    }
-
-    func cancelAndClear() {
-        lock.lock()
-        defer { lock.unlock() }
-        handle?.cancel()
-        handle = nil
-    }
-}
-
 /// Service for managing XMTP messaging for a single inbox
 ///
 /// MessagingService coordinates all messaging operations for one inbox identity,
@@ -32,11 +11,9 @@ private final class ContactsBackfillObserverStorage: @unchecked Sendable {
 /// provides factory methods for creating writers and repositories scoped to this inbox.
 /// The service handles authorization, streaming, and push notification registration.
 ///
-/// @unchecked Sendable: All stored properties are immutable references (`let`) to Sendable
-/// protocol types, except `cancellables` (only modified during init and deinit). The
-/// contacts-backfill observer handle lives in `contactsBackfillObserverStorage` (`setHandle`
-/// / `cancelAndClear`), which is `let` while synchronizing its interior with a lock.
-/// Methods create new instances rather than sharing mutable state.
+/// @unchecked Sendable: All stored properties are immutable references (`let`) to
+/// Sendable protocol types, except `cancellables` (only modified during init and
+/// deinit). Methods create new instances rather than sharing mutable state.
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
     let sessionStateManager: any SessionStateManagerProtocol
@@ -52,7 +29,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
-    private let contactsBackfillObserverStorage: ContactsBackfillObserverStorage = ContactsBackfillObserverStorage()
 
     // swiftlint:disable:next function_parameter_count
     static func authorizedMessagingService(
@@ -111,32 +87,49 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.scheduleContactsBackfill()
     }
 
-    /// Triggers the one-time contacts backfill the first time the session
-    /// reaches `.ready`. Idempotent across launches via the
-    /// `conversation_contacts_sync` marker; no-ops when the inbox singleton
-    /// has not yet been written.
+    /// Triggers the one-time contacts-list backfill the first time the
+    /// session reaches a usable state. Spawned as a detached background
+    /// Task that awaits `waitForInboxReadyResult` (resolves once per
+    /// service lifetime) and then runs the backfill. No observer pattern,
+    /// no fire-once flag, no synchronous-fire-at-registration trap — the
+    /// `await` only resumes once on the first ready, so re-emissions
+    /// (foreground transitions, etc.) cannot retrigger this flow.
+    ///
+    /// Idempotent across launches via the `conversation_contacts_sync`
+    /// marker. No-ops when the inbox singleton has not yet been written.
+    ///
+    /// MIGRATION CODE — TARGETED FOR REMOVAL.
+    /// The contacts list shipped with this version. For installs that
+    /// upgraded from a prior version, this backfill seeds `contact` from
+    /// each conversation the local user has already acted in. Once every
+    /// active install has run this once, the steady-state triggers
+    /// (first-message hook in `OutgoingMessageWriter`, member-added hooks
+    /// in `ConversationMetadataWriter`/`ConversationWriter`, profile-sync
+    /// hooks in `StreamProcessor`/etc.) keep `contact` correct without
+    /// any backfill. After ~90 days of broad adoption (or whenever
+    /// telemetry shows >99% of active installs already have contacts
+    /// populated), this method, `ContactsBackfillService`, the matching
+    /// factory on `MessagingServiceProtocol`, and the related tests can
+    /// all be deleted.
     private func scheduleContactsBackfill() {
-        let backfill: any ContactsBackfillServiceProtocol = ContactsBackfillService(
-            databaseReader: databaseReader,
-            coordinator: ContactSyncCoordinator(
-                databaseWriter: databaseWriter,
-                databaseReader: databaseReader
-            )
-        )
-        let stateMachine = sessionStateManager
-        let storage = contactsBackfillObserverStorage
-        let handle = stateMachine.observeState { [storage] state in
-            guard case .ready = state else { return }
-            storage.cancelAndClear()
-            Task.detached(priority: .background) {
-                do {
-                    try await backfill.backfillIfNeeded()
-                } catch {
-                    Log.error("ContactsBackfillService failed: \(error)")
-                }
+        let backfill = contactsBackfillService()
+        let stateManager = sessionStateManager
+        Task.detached(priority: .background) {
+            do {
+                _ = try await stateManager.waitForInboxReadyResult()
+                try await backfill.backfillIfNeeded()
+            } catch {
+                // `waitForInboxReadyResult` throws on `.error` rather than
+                // continuing to wait for an eventual `.ready`, so a transient
+                // session error during launch will skip backfill for this
+                // service lifetime. The marker query (`s.conversationId IS
+                // NULL`) ensures the next launch picks up any candidates
+                // that were missed; worst case the user sees a
+                // launch-late contacts list. Acceptable for a one-time
+                // migration.
+                Log.warning("ContactsBackfillService skipped this launch: \(error). Will retry on next launch.")
             }
         }
-        storage.setHandle(handle)
     }
 
     /// Constructs a MessagingService that represents the failed-keychain-read
@@ -166,7 +159,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     deinit {
         cancellables.removeAll()
-        contactsBackfillObserverStorage.cancelAndClear()
     }
 
     // MARK: State
