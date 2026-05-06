@@ -948,41 +948,7 @@ extension MessagesViewController {
     }
 
     private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
-        let filename = attachment.filename ?? "attachment"
-        let cache = FileAttachmentCache.shared
-
-        if let cached = await cache.cachedFileURL(for: attachment.key, filename: filename) {
-            return cached
-        }
-
-        if attachment.key.hasPrefix("file://") {
-            let path = String(attachment.key.dropFirst("file://".count))
-            let sourceURL = URL(fileURLWithPath: path)
-
-            if FileManager.default.fileExists(atPath: path) {
-                return try await cache.cacheFile(from: sourceURL, for: attachment.key, filename: filename)
-            }
-
-            let messageId = extractMessageId(from: sourceURL)
-            if let messageId {
-                let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
-                return try await cache.cacheFile(data: data, for: attachment.key, filename: filename)
-            }
-
-            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
-        }
-
-        let loader = RemoteAttachmentLoader()
-        let loaded = try await loader.loadAttachmentData(from: attachment.key)
-        return try await cache.cacheFile(data: loaded.data, for: attachment.key, filename: filename)
-    }
-
-    private func extractMessageId(from fileURL: URL) -> String? {
-        let filename = fileURL.lastPathComponent
-        guard let underscoreIndex = filename.firstIndex(of: "_") else { return nil }
-        let messageId = String(filename[filename.startIndex..<underscoreIndex])
-        guard !messageId.isEmpty else { return nil }
-        return messageId
+        try await FileAttachmentLoader.loadFile(for: attachment)
     }
 }
 

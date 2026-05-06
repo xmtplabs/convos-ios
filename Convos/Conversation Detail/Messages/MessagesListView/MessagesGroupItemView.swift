@@ -299,6 +299,25 @@ struct MessagesGroupItemView: View {
                 onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
+        } else if attachment.isHTMLFile {
+            let htmlTapAction: () -> Void = { onOpenFile?(attachment) }
+            let avatarTap: () -> Void = { onTapAvatar(message) }
+            let reactionsTap: () -> Void = { onTapReactions?(message) }
+            HTMLAttachmentBubble(
+                attachment: attachment,
+                profile: message.sender.profile,
+                reactions: message.reactions,
+                onTapAvatar: avatarTap,
+                onTapReactions: reactionsTap
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: htmlTapAction,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .id(message.messageId)
         } else if attachment.mediaType == .file {
             let fileTapAction: () -> Void = { onOpenFile?(attachment) }
             FileAttachmentBubble(
@@ -1076,7 +1095,7 @@ private struct MediaContainerInfo: View {
     }
 }
 
-private struct MediaContainerReax: View {
+struct MediaContainerReax: View {
     let reactions: [MessageReaction]
     let onTap: () -> Void
 

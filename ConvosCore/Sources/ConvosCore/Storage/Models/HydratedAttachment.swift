@@ -72,6 +72,10 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         return mimeType.lowercased() == "text/html"
     }
 
+    public var isFullBleed: Bool {
+        mediaType.isFullBleed || isHTMLFile
+    }
+
     public var mediaType: MediaType {
         guard let mimeType else { return .image }
         if mimeType.hasPrefix("image/") { return .image }
