@@ -44,12 +44,7 @@ struct HTMLAttachmentBubble: View {
     @ViewBuilder
     private var header: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            avatarButton
-            Text(profile.displayName)
-                .font(.footnote)
-                .foregroundStyle(.colorTextPrimary)
-                .lineLimit(1)
-                .accessibilityIdentifier("html-attachment-bubble-sender")
+            senderTapTarget
             Spacer()
             viewAffordance
         }
@@ -64,19 +59,28 @@ struct HTMLAttachmentBubble: View {
     }
 
     @ViewBuilder
-    private var avatarButton: some View {
+    private var senderTapTarget: some View {
         let tap: () -> Void = {
             onTapAvatar?()
         }
         Button(action: tap) {
-            ProfileAvatarView(
-                profile: profile,
-                profileImage: nil,
-                useSystemPlaceholder: false
-            )
-            .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ProfileAvatarView(
+                    profile: profile,
+                    profileImage: nil,
+                    useSystemPlaceholder: false
+                )
+                .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
+                Text(profile.displayName)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("html-attachment-bubble-sender")
+            }
         }
         .buttonStyle(.plain)
+        .background(GesturePassthroughBackground())
+        .accessibilityLabel("View \(profile.displayName)'s profile")
     }
 
     @ViewBuilder
@@ -154,7 +158,7 @@ struct HTMLAttachmentBubble: View {
     private enum Constant {
         static let renderWidth: CGFloat = 720.0
         static let headerHeight: CGFloat = 56.0
-        static let cellHeight: CGFloat = 780.0
+        static let cellHeight: CGFloat = 500.0
         static let fadeHeight: CGFloat = 68.0
         static let borderHeight: CGFloat = 1.0
     }

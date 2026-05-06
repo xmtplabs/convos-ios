@@ -927,7 +927,7 @@ extension MessagesViewController {
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
         if let sheet = controller.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            sheet.detents = [.large()]
             sheet.prefersGrabberVisible = false
         }
         present(controller, animated: true)
@@ -941,7 +941,7 @@ extension MessagesViewController {
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
         if let sheet = controller.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
+            sheet.detents = [.large()]
             sheet.prefersGrabberVisible = false
         }
         present(controller, animated: true)
