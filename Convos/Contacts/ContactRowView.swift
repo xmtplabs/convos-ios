@@ -1,4 +1,6 @@
 import ConvosCore
+import CryptoKit
+import Foundation
 import SwiftUI
 
 /// Compact row used in the alphabetical contact list. Step 1 ships with a
@@ -46,7 +48,12 @@ struct ContactAvatarPlaceholder: View {
     }
 
     private var backgroundColor: Color {
-        let hue = Double(abs(seed.hashValue) % 360) / 360.0
+        // SHA256 over the UTF-8 bytes is the same
+        // deterministic-hash pattern `EmojiSelector` already uses for
+        // identifier-derived UI placeholders.
+        let hash = SHA256.hash(data: Data(seed.utf8))
+        let firstByte = Array(hash)[0]
+        let hue = Double(firstByte) / 256.0
         return Color(hue: hue, saturation: 0.55, brightness: 0.7)
     }
 }
