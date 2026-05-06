@@ -140,7 +140,7 @@ struct ContactSyncCoordinatorTests {
         #expect(firstAddedAt == secondAddedAt)
     }
 
-    @Test("force-rerun on never-synced conversation does not pull members into contacts")
+    @Test("force-rerun on never-synced conversation skips when local user is not the creator")
     func testForceRerunSkipsNeverSyncedConversation() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let selfInboxId = "self-inbox"
@@ -151,8 +151,9 @@ struct ContactSyncCoordinatorTests {
             try Self.seedConversation(
                 db: db,
                 conversationId: conversationId,
-                creatorInboxId: selfInboxId,
-                memberInboxIds: [selfInboxId, "alice"]
+                // Creator is someone else — the local user was invited.
+                creatorInboxId: "other-inbox",
+                memberInboxIds: ["other-inbox", selfInboxId, "alice"]
             )
         }
 
@@ -165,7 +166,40 @@ struct ContactSyncCoordinatorTests {
         let contacts: [DBContact] = try await dbManager.dbReader.read { db in
             try DBContact.fetchAll(db)
         }
-        #expect(contacts.isEmpty)
+        #expect(contacts.isEmpty, "Action-gated rule must skip when local user is not the conversation creator")
+    }
+
+    @Test("force-rerun on never-synced conversation proceeds when local user is the creator")
+    func testForceRerunProceedsForCreator() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-1"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                // Local user created this group — bypass the action-gate.
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "alice", "bob"]
+            )
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContacts(for: conversationId, force: true)
+
+        let contactIds: Set<String> = try await dbManager.dbReader.read { db in
+            Set(try DBContact.fetchAll(db).map(\.inboxId))
+        }
+        #expect(contactIds == Set(["alice", "bob"]), "Self-as-creator should bypass the action-gate")
+
+        // Marker should also be written, so future first-message hooks
+        // are no-ops on this conversation.
+        #expect(try coordinator.hasSyncedContacts(for: conversationId) == true)
     }
 
     @Test("force-rerun on already-synced conversation pulls in newly added members")
