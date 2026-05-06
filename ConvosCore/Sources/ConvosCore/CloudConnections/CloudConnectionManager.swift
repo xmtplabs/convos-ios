@@ -280,16 +280,26 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                         in: conversationId
                     )
                 } catch {
-                    Log.warning("[CloudConnections] failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                    Log.warning("Failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
                 }
             }
+        } else if !conversationIds.isEmpty {
+            Log.warning(
+                "Revocation had no event writer injected; connection_event.revoked " +
+                "will not be posted to \(conversationIds.count) conversation(s) (connectionId=\(connectionId))"
+            )
         }
         if let resolver = resolverProvider() {
             do {
                 try await resolver.removeProviderFromAllResolutions(providerId)
             } catch {
-                Log.warning("[CloudConnections] failed to clear capability resolutions for \(providerId.rawValue): \(error.localizedDescription)")
+                Log.warning("Failed to clear capability resolutions for \(providerId.rawValue): \(error.localizedDescription)")
             }
+        } else {
+            Log.warning(
+                "Revocation had no capability resolver injected; resolutions for " +
+                "\(providerId.rawValue) will remain stale (connectionId=\(connectionId))"
+            )
         }
     }
 }

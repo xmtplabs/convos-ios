@@ -142,15 +142,15 @@ final class ConversationConnectionsViewModel {
         Task {
             do {
                 try await grantWriter.revokeGrant(connectionId: connectionId, from: conversationId)
-                // Drop this provider from every (subject, verb) row of the
-                // resolver scoped to this conversation. Without this, a
-                // follow-up capability_request for the same verb hits
-                // persistApprovedCloudCapabilities' idempotency gate (which
-                // compares against the resolver snapshot) and silently
-                // skips the connection_event — so the user sees the revoke
-                // line but no subsequent grant line.
-                await clearResolverEntriesForProvider(providerId)
+                // Order matches CloudConnectionManager.postRevocationSideEffects:
+                // post the user-visible group-update line first, then drop the
+                // provider from every (subject, verb) row scoped to this
+                // conversation. Resolver-cleanup is what unblocks
+                // persistApprovedCloudCapabilities' idempotency gate so a
+                // follow-up capability_request approval re-emits its own
+                // group-update line.
                 try? await connectionEventWriter.sendRevoked(providerId: providerId.rawValue, in: conversationId)
+                await clearResolverEntriesForProvider(providerId)
             } catch {
                 Log.error("Failed to revoke connection grant: \(error.localizedDescription)")
                 self.error = error
