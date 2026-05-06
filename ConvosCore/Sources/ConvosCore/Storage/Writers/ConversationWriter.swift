@@ -39,7 +39,8 @@ protocol ConversationWriterProtocol: Sendable {
     func storeWithLatestMessages(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String?
+        clientConversationId: String?,
+        quarantinedAt: Date?
     ) async throws -> DBConversation
     func createPlaceholderConversation(
         draftConversationId: String?,
@@ -62,7 +63,26 @@ extension ConversationWriterProtocol {
         conversation: XMTPiOS.Group,
         inboxId: String
     ) async throws -> DBConversation {
-        try await storeWithLatestMessages(conversation: conversation, inboxId: inboxId, clientConversationId: nil)
+        try await storeWithLatestMessages(
+            conversation: conversation,
+            inboxId: inboxId,
+            clientConversationId: nil,
+            quarantinedAt: nil
+        )
+    }
+
+    @discardableResult
+    func storeWithLatestMessages(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        clientConversationId: String?
+    ) async throws -> DBConversation {
+        try await storeWithLatestMessages(
+            conversation: conversation,
+            inboxId: inboxId,
+            clientConversationId: clientConversationId,
+            quarantinedAt: nil
+        )
     }
 }
 
@@ -119,13 +139,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     func storeWithLatestMessages(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        quarantinedAt: Date? = nil
     ) async throws -> DBConversation {
         return try await _store(
             conversation: conversation,
             inboxId: inboxId,
             withLatestMessages: true,
-            clientConversationId: clientConversationId
+            clientConversationId: clientConversationId,
+            quarantinedAt: quarantinedAt
         )
     }
 
@@ -217,7 +239,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         conversation: XMTPiOS.Group,
         inboxId: String,
         withLatestMessages: Bool = false,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        quarantinedAt: Date? = nil
     ) async throws -> DBConversation {
         // Sync group to get latest state including member permission levels
         try await conversation.sync()
@@ -235,7 +258,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             metadata: metadata,
             inboxId: inboxId,
             clientConversationId: clientConversationId,
-            imageLastRenewed: nil
+            imageLastRenewed: nil,
+            quarantinedAt: quarantinedAt
         )
 
         // Save to database. Capture the actual clientConversationId used (may be a draft ID
@@ -358,7 +382,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         metadata: ConversationMetadata,
         inboxId: String,
         clientConversationId: String? = nil,
-        imageLastRenewed: Date? = nil
+        imageLastRenewed: Date? = nil,
+        quarantinedAt: Date? = nil
     ) async throws -> DBConversation {
         // Assert the inbox exists locally even though the column no longer
         // lives on the conversation row — readers expect an inbox row for the
@@ -392,7 +417,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAssistant: metadata.hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: metadata.hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt
         )
     }
 

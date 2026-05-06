@@ -54,6 +54,62 @@ struct ContactsRepositoryTests {
         #expect(try repo.isContact(inboxId: "stranger") == false)
     }
 
+    @Test("isBlocked is false for unknown inboxIds and unblocked contacts, true for blocked contacts")
+    func testIsBlockedLookup() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: "unblocked",
+                addedAt: Date(),
+                addedViaConversationId: nil,
+                displayName: "Unblocked"
+            ).save(db)
+            try DBContact(
+                inboxId: "blocked",
+                addedAt: Date(),
+                addedViaConversationId: nil,
+                displayName: "Blocked",
+                blockedAt: Date()
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        #expect(try repo.isBlocked(inboxId: "blocked") == true)
+        #expect(try repo.isBlocked(inboxId: "unblocked") == false)
+        #expect(try repo.isBlocked(inboxId: "stranger") == false)
+    }
+
+    @Test("fetchAll includes blocked contacts so the browse list can offer an unblock affordance")
+    func testFetchAllIncludesBlockedContacts() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: "alice",
+                addedAt: Date(),
+                addedViaConversationId: nil,
+                displayName: "Alice"
+            ).save(db)
+            try DBContact(
+                inboxId: "bob",
+                addedAt: Date(),
+                addedViaConversationId: nil,
+                displayName: "Bob",
+                blockedAt: Date()
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let contacts = try repo.fetchAll()
+
+        #expect(contacts.map(\.inboxId) == ["alice", "bob"])
+        let bob = contacts.first { $0.inboxId == "bob" }
+        #expect(bob?.isBlocked == true)
+        let alice = contacts.first { $0.inboxId == "alice" }
+        #expect(alice?.isBlocked == false)
+    }
+
     @Test("Contacts with nil displayName fall back to truncated inboxId in the sort key")
     func testNilDisplayNameFallback() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

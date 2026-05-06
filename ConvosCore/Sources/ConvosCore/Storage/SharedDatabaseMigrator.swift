@@ -179,6 +179,19 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("createContactTable") { db in
             try SharedDatabaseMigrator.createContactSchema(db)
         }
+
+        migrator.registerMigration("addContactBlockedAt") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "blockedAt", .datetime)
+            }
+        }
+
+        migrator.registerMigration("addConversationQuarantineFields") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "quarantinedAt", .datetime)
+                t.add(column: "quarantineReleasedAt", .datetime)
+            }
+        }
         return migrator
     }
 
@@ -545,7 +558,8 @@ extension SharedDatabaseMigrator {
     /// member-profile data arrives. The `addedViaConversationId` foreign key
     /// uses `setNull` so deleting the source conversation does not delete the
     /// contact — contacts survive the local user leaving every shared group.
-    /// `blockedAt` is intentionally omitted in Step 1 and added in Step 2.
+    /// `blockedAt` is added by the `addContactBlockedAt` migration registered
+    /// alongside this baseline.
     private static func createContactSchema(_ db: Database) throws {
         try db.create(table: "contact") { t in
             t.column("inboxId", .text)

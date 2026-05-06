@@ -4,15 +4,22 @@ import GRDB
 
 public protocol ContactsRepositoryProtocol: Sendable {
     /// Reactive publisher of all contacts ordered alphabetically by display
-    /// name (case-insensitive). Updates whenever the contact table changes.
+    /// name (case-insensitive). Includes blocked contacts so the browse list
+    /// can render them with an unblock affordance. Callers that need an
+    /// unblocked-only list (e.g. the picker) filter in the view layer.
     var contactsPublisher: AnyPublisher<[Contact], Never> { get }
 
-    /// Synchronous fetch of the alphabetical contact list.
+    /// Synchronous fetch of the alphabetical contact list. Includes blocked
+    /// contacts; see `contactsPublisher` for the rationale.
     func fetchAll() throws -> [Contact]
 
     /// Indexed point read; returns true if the inboxId is present in the
-    /// contact table.
+    /// contact table. Blocked contacts still count as contacts.
     func isContact(inboxId: String) throws -> Bool
+
+    /// Indexed point read; returns true if the inboxId has a non-nil
+    /// `blockedAt` value. False for non-contacts and unblocked contacts.
+    func isBlocked(inboxId: String) throws -> Bool
 
     /// Fetches a single contact by inboxId.
     func fetchContact(inboxId: String) throws -> Contact?
@@ -44,6 +51,15 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
         try databaseReader.read { db in
             try DBContact
                 .filter(DBContact.Columns.inboxId == inboxId)
+                .fetchCount(db) > 0
+        }
+    }
+
+    func isBlocked(inboxId: String) throws -> Bool {
+        try databaseReader.read { db in
+            try DBContact
+                .filter(DBContact.Columns.inboxId == inboxId)
+                .filter(DBContact.Columns.blockedAt != nil)
                 .fetchCount(db) > 0
         }
     }

@@ -14,6 +14,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
     public let bio: String?
     public let addedAt: Date
     public let addedViaConversationId: String?
+    public let isBlocked: Bool
 
     public init(
         inboxId: String,
@@ -21,7 +22,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         avatarURL: String?,
         bio: String?,
         addedAt: Date,
-        addedViaConversationId: String?
+        addedViaConversationId: String?,
+        isBlocked: Bool = false
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -29,6 +31,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.bio = bio
         self.addedAt = addedAt
         self.addedViaConversationId = addedViaConversationId
+        self.isBlocked = isBlocked
     }
 
     /// Display label that always returns something printable. Falls back to a
@@ -64,7 +67,8 @@ extension Contact {
             avatarURL: dbContact.avatarURL,
             bio: dbContact.bio,
             addedAt: dbContact.addedAt,
-            addedViaConversationId: dbContact.addedViaConversationId
+            addedViaConversationId: dbContact.addedViaConversationId,
+            isBlocked: dbContact.blockedAt != nil
         )
     }
 }
@@ -75,7 +79,8 @@ extension Contact {
         displayName: String? = "Sample Contact",
         avatarURL: String? = nil,
         bio: String? = nil,
-        addedViaConversationId: String? = nil
+        addedViaConversationId: String? = nil,
+        isBlocked: Bool = false
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -83,7 +88,8 @@ extension Contact {
             avatarURL: avatarURL,
             bio: bio,
             addedAt: Date(),
-            addedViaConversationId: addedViaConversationId
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked
         )
     }
 }

@@ -23,6 +23,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
     @State private var showingDebugInjector: Bool = false
+    @State private var presentingAddFromContactsPicker: Bool = false
+    @State private var addFromContactsErrorMessage: String?
+    @State private var presentingAddFromContactsErrorAlert: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private var showPullToAddAssistant: Bool {
@@ -246,8 +249,41 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onInviteAssistant: {
                 viewModel.onRequestAssistantJoin()
-            }
+            },
+            onAddFromContacts: handleAddFromContactsTap
         )
+    }
+
+    private var handleAddFromContactsTap: () -> Void {
+        { presentingAddFromContactsPicker = true }
+    }
+
+    @ViewBuilder
+    private var addFromContactsPickerSheet: some View {
+        let alreadyInChat: Set<String> = Set(viewModel.conversation.members.map(\.profile.inboxId))
+        ContactsPickerView(
+            mode: .addToConversation(
+                conversationId: viewModel.conversation.id,
+                conversationTitle: viewModel.conversation.name
+            ),
+            contactsRepository: viewModel.messagingService.contactsRepository(),
+            alreadyInChatInboxIds: alreadyInChat,
+            onConfirm: handleAddFromContactsConfirm
+        )
+    }
+
+    private func handleAddFromContactsConfirm(_ inboxIds: Set<String>) {
+        let ids = Array(inboxIds)
+        guard !ids.isEmpty else { return }
+        Task {
+            do {
+                try await viewModel.addMembersFromContacts(ids)
+            } catch {
+                Log.error("Add from contacts failed: \(error.localizedDescription)")
+                addFromContactsErrorMessage = "We couldn't add those contacts. Please try again."
+                presentingAddFromContactsErrorAlert = true
+            }
+        }
     }
 
     private var scanInviteButton: some View {
@@ -356,6 +392,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationId: viewModel.conversation.id,
             messagingService: viewModel.messagingService
         )
+        .sheet(isPresented: $presentingAddFromContactsPicker) { addFromContactsPickerSheet }
+        .alert(
+            "Couldn't add contacts",
+            isPresented: $presentingAddFromContactsErrorAlert,
+            presenting: addFromContactsErrorMessage
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,

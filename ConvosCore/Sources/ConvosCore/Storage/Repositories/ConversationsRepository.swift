@@ -65,6 +65,14 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            // Exclude held / quarantined inbound conversations from the main
+            // feed. Released rows (sender promoted to contact) keep their
+            // `quarantinedAt` for audit but expose `quarantineReleasedAt` —
+            // those reappear here.
+            .filter(
+                DBConversation.Columns.quarantinedAt == nil
+                || DBConversation.Columns.quarantineReleasedAt != nil
+            )
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)

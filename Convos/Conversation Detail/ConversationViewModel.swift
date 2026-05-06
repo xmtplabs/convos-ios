@@ -2187,6 +2187,14 @@ extension ConversationViewModel {
         UIPasteboard.general.string = urlString
     }
 
+    /// Adds the given inboxIds as members of this conversation via the
+    /// existing `addMembers` flow. Used by the "Add from Contacts" entry on
+    /// the chat plus-menu (Phase 2.5).
+    func addMembersFromContacts(_ inboxIds: [String]) async throws {
+        guard !inboxIds.isEmpty else { return }
+        try await metadataWriter.addMembers(inboxIds, to: conversation.id)
+    }
+
     func requestAssistantJoin() {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }

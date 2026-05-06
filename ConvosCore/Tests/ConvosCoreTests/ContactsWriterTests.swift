@@ -212,6 +212,122 @@ struct ContactsWriterTests {
         #expect(contact?.displayName == "Newer")
     }
 
+    @Test("block sets blockedAt on an existing contact and is idempotent")
+    func testBlockIsIdempotent() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Test")
+        )
+
+        try await writer.block(inboxId: inboxId)
+        let firstBlockedAt = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)?.blockedAt
+        }
+        #expect(firstBlockedAt != nil)
+
+        // Sleep briefly so a second block call would produce a meaningfully
+        // different timestamp if it overwrote the original.
+        try await Task.sleep(nanoseconds: 5_000_000)
+
+        try await writer.block(inboxId: inboxId)
+        let secondBlockedAt = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)?.blockedAt
+        }
+        #expect(secondBlockedAt == firstBlockedAt)
+    }
+
+    @Test("unblock clears blockedAt and is idempotent")
+    func testUnblockIsIdempotent() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Test")
+        )
+        try await writer.block(inboxId: inboxId)
+
+        try await writer.unblock(inboxId: inboxId)
+        var blockedAt = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)?.blockedAt
+        }
+        #expect(blockedAt == nil)
+
+        // Repeat unblock on an already-unblocked contact must not error.
+        try await writer.unblock(inboxId: inboxId)
+        blockedAt = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)?.blockedAt
+        }
+        #expect(blockedAt == nil)
+    }
+
+    @Test("block no-ops when the inboxId has no contact row")
+    func testBlockUnknownContactNoOps() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+
+        try await writer.block(inboxId: "ghost")
+
+        let count = try await dbManager.dbReader.read { db in
+            try DBContact.fetchCount(db)
+        }
+        #expect(count == 0)
+    }
+
+    @Test("block followed by unblock returns the contact to the unblocked state")
+    func testBlockUnblockRoundTrip() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Test")
+        )
+
+        try await writer.block(inboxId: inboxId)
+        try await writer.unblock(inboxId: inboxId)
+        try await writer.block(inboxId: inboxId)
+
+        let contact = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(contact?.blockedAt != nil)
+    }
+
+    @Test("Profile updates do not clobber the blocked flag")
+    func testProfileUpdatePreservesBlockedAt() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Original", profileUpdatedAt: Date(timeIntervalSince1970: 100))
+        )
+        try await writer.block(inboxId: inboxId)
+
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(displayName: "Renamed", profileUpdatedAt: Date(timeIntervalSince1970: 200))
+        )
+
+        let contact = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(contact?.displayName == "Renamed")
+        #expect(contact?.blockedAt != nil)
+    }
+
     @Test("upsertContact merges partial profile snapshots")
     func testPartialProfileMerge() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

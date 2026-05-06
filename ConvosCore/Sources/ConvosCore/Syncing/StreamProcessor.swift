@@ -74,6 +74,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
+    private let inboundFilter: InboundConversationFilter
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
@@ -115,6 +116,9 @@ actor StreamProcessor: StreamProcessorProtocol {
             identityStore: identityStore,
             databaseWriter: databaseWriter
         )
+        self.inboundFilter = InboundConversationFilter(
+            contactsRepository: ContactsRepository(databaseReader: databaseReader)
+        )
     }
 
     // MARK: - Public Interface
@@ -144,8 +148,30 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         clientConversationId: String? = nil
     ) async throws {
-        guard try await shouldProcessConversation(conversation, params: params) else { return }
+        let decision = try await decideInboundConversation(conversation, params: params)
+        switch decision {
+        case .reject:
+            return
+        case .deliver:
+            try await persistDeliveredConversation(
+                conversation,
+                params: params,
+                clientConversationId: clientConversationId
+            )
+        case .quarantine:
+            try await persistQuarantinedConversation(
+                conversation,
+                params: params,
+                clientConversationId: clientConversationId
+            )
+        }
+    }
 
+    private func persistDeliveredConversation(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams,
+        clientConversationId: String?
+    ) async throws {
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == params.client.inboxId {
             // we created the conversation, update permissions, set inviteTag, and generate encryption key
@@ -180,6 +206,26 @@ actor StreamProcessor: StreamProcessorProtocol {
             conversationId: conversation.id,
             params: params,
             context: "on stream"
+        )
+    }
+
+    /// Persists an inbound conversation with the `quarantinedAt` flag set,
+    /// hiding it from the main feed. The QuarantineSweeper will later either
+    /// promote the row (if the sender becomes a contact within the TTL) or
+    /// delete it (if the TTL expires first). We deliberately do NOT subscribe
+    /// to push notifications here — quarantined conversations should be
+    /// silent until promoted.
+    private func persistQuarantinedConversation(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams,
+        clientConversationId: String?
+    ) async throws {
+        Log.info("Quarantining inbound conversation from non-contact: \(conversation.id)")
+        try await conversationWriter.storeWithLatestMessages(
+            conversation: conversation,
+            inboxId: params.client.inboxId,
+            clientConversationId: clientConversationId,
+            quarantinedAt: Date()
         )
     }
 
@@ -635,7 +681,17 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     /// Checks if a conversation should be processed based on its consent state.
-    /// If consent is unknown but there's an outgoing join request, updates consent to allowed.
+    /// If consent is unknown but there's an outgoing join request, updates
+    /// consent to allowed.
+    ///
+    /// Used by the message-stream path (`processMessage` → group case) to
+    /// gate whether messages from a particular conversation should be
+    /// processed. This intentionally does not consult the contact list or
+    /// block list — per the PRD, blocking only affects new inbound
+    /// conversation invitations, not in-group messages from a previously-
+    /// accepted sender. For the new-conversation arrival path with full 3-
+    /// way decision granularity (including quarantine), use
+    /// `decideInboundConversation`.
     /// - Parameters:
     ///   - conversation: The conversation to check
     ///   - params: The sync client parameters
@@ -666,6 +722,55 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         return consentState == .allowed
+    }
+
+    /// Returns the full inbound-conversation decision (deliver / quarantine /
+    /// reject) for a NEW inbound conversation. `processConversation` uses
+    /// this to drive the new quarantine path. The message-stream path
+    /// continues to use the legacy `shouldProcessConversation` so blocking
+    /// does not silence in-group messages.
+    ///
+    /// As a side effect, when the decision is `.deliver` and consent was
+    /// `.unknown`, this method bumps XMTP consent to `.allowed` so future
+    /// deliveries flow through without re-running the gate. This preserves
+    /// the legacy invite-flow behavior verbatim.
+    private func decideInboundConversation(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams
+    ) async throws -> InboundConversationDecision {
+        let consent = try conversation.consentState().asConsent
+        let creatorInboxId = try await conversation.creatorInboxId()
+        let clientInboxId = params.client.inboxId
+
+        // Only do the (potentially expensive) outgoing-join-request lookup
+        // when the filter would actually need it — preserves the legacy
+        // call-skip behavior for `.allowed` and creator-self paths.
+        let hasOutgoingJoinRequest: Bool
+        if consent == .unknown && creatorInboxId != clientInboxId {
+            hasOutgoingJoinRequest = try await joinRequestsManager.hasOutgoingJoinRequest(
+                for: conversation,
+                client: params.client
+            )
+        } else {
+            hasOutgoingJoinRequest = false
+        }
+
+        let decision = inboundFilter.decide(
+            consentState: consent,
+            creatorInboxId: creatorInboxId,
+            clientInboxId: clientInboxId,
+            hasOutgoingJoinRequest: hasOutgoingJoinRequest
+        )
+
+        // Side effect parity with the legacy gate: when delivering a
+        // previously-unknown conversation (via invite-flow handshake or
+        // contact-list match), bump XMTP consent so future welcomes flow
+        // through without re-running the gate.
+        if decision == .deliver && consent == .unknown && creatorInboxId != clientInboxId {
+            try await conversation.updateConsentState(state: .allowed)
+        }
+
+        return decision
     }
 
     // MARK: - Push Notifications
