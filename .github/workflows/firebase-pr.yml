@@ -28,6 +28,9 @@ on:
   workflow_dispatch:
   pull_request:
     branches: ["main", "dev"]
+    # `labeled` lets contributors trigger a build by adding the
+    # `adhoc-build` label without re-pushing. Filtered in the job's `if:`.
+    types: [opened, synchronize, reopened, labeled]
 
 concurrency:
   group: firebase-pr-${{ github.event.pull_request.number || github.ref }}
@@ -36,6 +39,9 @@ concurrency:
 jobs:
   firebase_pr:
     name: Build & upload to Firebase App Distribution
+    # On `labeled`, only run when the `adhoc-build` label is the one being
+    # added — otherwise unrelated labels (bug, wip, etc.) would also fire.
+    if: github.event.action != 'labeled' || github.event.label.name == 'adhoc-build'
     runs-on: warp-macos-latest-arm64-12x
     timeout-minutes: 25
     permissions:
