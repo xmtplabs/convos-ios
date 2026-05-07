@@ -10,11 +10,12 @@ struct AttachmentPreviewSheet: View {
     let fileURL: URL
     let sender: ConversationMember
     let sentAt: Date
-    var onTapSender: ((ConversationMember) -> Void)?
+    var profileSheetContent: ((ConversationMember) -> AnyView)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var resolvedHTMLTitle: String?
     @State private var htmlBodyBackgroundColor: Color?
+    @State private var presentingProfileForMember: ConversationMember?
 
     var body: some View {
         NavigationStack {
@@ -36,7 +37,7 @@ struct AttachmentPreviewSheet: View {
                         AttachmentSenderIndicator(
                             sender: sender,
                             sentAt: sentAt,
-                            onTap: onTapSender
+                            onTap: { tapped in presentingProfileForMember = tapped }
                         )
                     }
                     ToolbarItem(placement: .confirmationAction) {
@@ -49,6 +50,11 @@ struct AttachmentPreviewSheet: View {
                 }
         }
         .accessibilityElement(children: .contain)
+        .sheet(item: $presentingProfileForMember) { member in
+            if let profileSheetContent {
+                profileSheetContent(member)
+            }
+        }
         .task(id: attachment.key) {
             guard attachment.isHTMLFile else { return }
             if let cached = HTMLPageMetadata.shared.cachedTitle(for: attachment.key) {

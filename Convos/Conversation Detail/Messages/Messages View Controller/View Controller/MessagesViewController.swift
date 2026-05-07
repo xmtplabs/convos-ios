@@ -197,6 +197,7 @@ final class MessagesViewController: UIViewController {
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
+    var profileSheetForMember: ((ConversationMember) -> AnyView)?
 
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
@@ -929,12 +930,7 @@ extension MessagesViewController {
             fileURL: fileURL,
             sender: sender,
             sentAt: sentAt,
-            onTapSender: { [weak self] tappedSender in
-                guard let self else { return }
-                self.dismiss(animated: true) {
-                    self.onTapAvatar?(tappedSender)
-                }
-            }
+            profileSheetContent: profileSheetForMember
         )
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
