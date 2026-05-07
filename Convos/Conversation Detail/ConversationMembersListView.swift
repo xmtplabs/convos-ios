@@ -4,6 +4,8 @@ import SwiftUI
 struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
+    @State private var presentingAddFromContactsPicker: Bool = false
+
     /// Phase 2.9 stopgap — same resolver pattern as `ConversationView`.
     /// Used to substitute contact-list display names for members whose
     /// per-conversation profile name is empty.
@@ -12,6 +14,14 @@ struct ConversationMembersListView: View {
     }
 
     var body: some View {
+        membersList
+            .addFromContactsPicker(
+                viewModel: viewModel,
+                isPresented: $presentingAddFromContactsPicker
+            )
+    }
+
+    private var membersList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.conversation.members.sortedByRole(), id: \.id) { member in
@@ -54,6 +64,9 @@ struct ConversationMembersListView: View {
                     },
                     onInviteAssistant: {
                         viewModel.requestAssistantJoin()
+                    },
+                    onAddFromContacts: {
+                        presentingAddFromContactsPicker = true
                     }
                 )
             }

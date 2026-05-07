@@ -81,6 +81,7 @@ struct ConversationInfoView: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var presentingShareView: Bool = false
+    @State private var presentingAddFromContactsPicker: Bool = false
     @State private var exportedLogsURL: URL?
     @State private var metadataDebugText: String = "Loading…"
     @State private var showingRestoreInviteTagAlert: Bool = false
@@ -408,6 +409,10 @@ struct ConversationInfoView: View {
 
     var body: some View {
         infoContent
+            .addFromContactsPicker(
+                viewModel: viewModel,
+                isPresented: $presentingAddFromContactsPicker
+            )
     }
 
     private var vanishSection: some View {
@@ -609,6 +614,9 @@ struct ConversationInfoView: View {
                         },
                         onInviteAssistant: {
                             viewModel.requestAssistantJoin()
+                        },
+                        onAddFromContacts: {
+                            presentingAddFromContactsPicker = true
                         }
                     )
                     .accessibilityIdentifier("info-add-button")
