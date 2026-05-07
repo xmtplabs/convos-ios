@@ -527,6 +527,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onConvoCode: {},
             onInviteAssistant: {},
             onRetryTranscript: { _ in },
+            profileSheetForMember: { _ in AnyView(EmptyView()) },
             hasAssistant: false,
             isAssistantJoinPending: false,
             isAssistantEnabled: true,

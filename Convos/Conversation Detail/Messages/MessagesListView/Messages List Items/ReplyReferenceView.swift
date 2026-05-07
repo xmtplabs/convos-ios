@@ -11,7 +11,7 @@ struct ReplyReferenceView: View {
     let shouldBlurPhotos: Bool
     var onTapAvatar: (() -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
-    var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var parentAudioTranscriptText: String?
@@ -106,14 +106,14 @@ struct ReplyReferenceView: View {
                 ReplyReferenceAudioPreview(attachment: attachment, transcriptText: parentAudioTranscriptText)
             } else if let attachment = parentAttachment, attachment.isHTMLFile {
                 if let onOpenFile {
-                    let tap: () -> Void = { onOpenFile(attachment) }
+                    let tap: () -> Void = { onOpenFile(attachment, .message(parentMessage, .existing)) }
                     ReplyReferenceHTMLPreview(attachment: attachment, onTap: tap)
                 } else {
                     ReplyReferenceHTMLPreview(attachment: attachment, onTap: {})
                 }
             } else if let attachment = parentAttachment, attachment.mediaType == .file {
                 if let onOpenFile {
-                    let tap: () -> Void = { onOpenFile(attachment) }
+                    let tap: () -> Void = { onOpenFile(attachment, .message(parentMessage, .existing)) }
                     Button(action: tap) {
                         ReplyReferenceFileBubble(attachment: attachment)
                     }

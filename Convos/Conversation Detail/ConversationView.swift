@@ -117,6 +117,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
+            profileSheetForMember: { member in
+                AnyView(
+                    NavigationStack {
+                        ConversationMemberView(viewModel: viewModel, member: member)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    AttachmentProfileSheetCloseButton()
+                                }
+                            }
+                    }
+                )
+            },
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
@@ -341,6 +353,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
+    }
+}
+
+private struct AttachmentProfileSheetCloseButton: View {
+    @Environment(\.dismiss) private var dismiss: DismissAction
+
+    var body: some View {
+        let action = { dismiss() }
+        Button(role: .cancel, action: action)
     }
 }
 

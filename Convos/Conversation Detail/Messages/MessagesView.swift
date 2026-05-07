@@ -69,6 +69,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
+    let profileSheetForMember: (ConversationMember) -> AnyView
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
@@ -114,6 +115,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onConvoCode: onConvoCode,
             onInviteAssistant: onInviteAssistant,
             onRetryTranscript: onRetryTranscript,
+            profileSheetForMember: profileSheetForMember,
             hasAssistant: hasAssistant,
             isAssistantJoinPending: isAssistantJoinPending,
             isAssistantEnabled: isAssistantEnabled,
