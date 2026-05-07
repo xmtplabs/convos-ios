@@ -104,8 +104,16 @@ class AssistantFilesLinksViewModel {
     }
 }
 
+struct AttachmentPreviewPresentation: Identifiable {
+    let id: String
+    let attachment: HydratedAttachment
+    let fileURL: URL
+    let sentAt: Date
+}
+
 struct AssistantFilesLinksView: View {
     @State private var viewModel: AssistantFilesLinksViewModel
+    @State private var presentingPreview: AttachmentPreviewPresentation?
 
     init(repository: AssistantFilesLinksRepository) {
         _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
@@ -125,6 +133,15 @@ struct AssistantFilesLinksView: View {
             }
             .task {
                 await viewModel.load()
+            }
+            .sheet(item: $presentingPreview) { preview in
+                AttachmentPreviewSheet(
+                    attachment: preview.attachment,
+                    fileURL: preview.fileURL,
+                    sender: nil,
+                    sentAt: preview.sentAt
+                )
+                .presentationDetents([.large])
             }
             .alert("File Unavailable", isPresented: Binding(
                 get: { viewModel.fileOpenError != nil },
@@ -215,9 +232,18 @@ struct AssistantFilesLinksView: View {
                         filename: file.filename
                     )
                     await MainActor.run {
-                        if let presenter = UIApplication.shared.topMostViewController() {
-                            FileAttachmentQuickLookCoordinator.shared.present(fileURL: url, from: presenter)
-                        }
+                        let hydrated = HydratedAttachment(
+                            key: file.attachmentKey,
+                            mimeType: file.mimeType,
+                            thumbnailDataBase64: file.thumbnailDataBase64,
+                            filename: file.filename
+                        )
+                        presentingPreview = AttachmentPreviewPresentation(
+                            id: file.id,
+                            attachment: hydrated,
+                            fileURL: url,
+                            sentAt: file.date
+                        )
                     }
                 } catch {
                     Log.error("Failed to open assistant file: \(error)")

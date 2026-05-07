@@ -8,7 +8,7 @@ import WebKit
 struct AttachmentPreviewSheet: View {
     let attachment: HydratedAttachment
     let fileURL: URL
-    let sender: ConversationMember
+    var sender: ConversationMember?
     let sentAt: Date
     var profileSheetContent: ((ConversationMember) -> AnyView)?
 
@@ -33,15 +33,17 @@ struct AttachmentPreviewSheet: View {
                         .accessibilityLabel("Close")
                         .accessibilityIdentifier("attachment-preview-close")
                     }
-                    ToolbarItem(placement: .principal) {
-                        let tap: ((ConversationMember) -> Void)? = profileSheetContent == nil
-                            ? nil
-                            : { tapped in presentingProfileForMember = tapped }
-                        AttachmentSenderIndicator(
-                            sender: sender,
-                            sentAt: sentAt,
-                            onTap: tap
-                        )
+                    if let sender {
+                        ToolbarItem(placement: .principal) {
+                            let tap: ((ConversationMember) -> Void)? = profileSheetContent == nil
+                                ? nil
+                                : { tapped in presentingProfileForMember = tapped }
+                            AttachmentSenderIndicator(
+                                sender: sender,
+                                sentAt: sentAt,
+                                onTap: tap
+                            )
+                        }
                     }
                     if showsShareButton {
                         ToolbarItem(placement: .confirmationAction) {
