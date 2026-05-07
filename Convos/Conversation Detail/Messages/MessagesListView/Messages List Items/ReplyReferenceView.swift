@@ -560,6 +560,7 @@ private struct ReplyReferenceHTMLPreview: View {
             }
         }
         .task(id: attachment.key) {
+            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key)
             guard loadedImage == nil else { return }
             do {
                 let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)

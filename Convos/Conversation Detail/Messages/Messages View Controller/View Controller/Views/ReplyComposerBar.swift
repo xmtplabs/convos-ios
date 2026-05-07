@@ -158,11 +158,13 @@ struct ReplyComposerBar: View {
             resolvedHTMLTitle = cached
             return
         }
+        resolvedHTMLTitle = nil
         do {
             let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
             resolvedHTMLTitle = await HTMLPageMetadata.shared.title(for: attachment.key, fileURL: fileURL)
         } catch {
             Log.error("Failed to load HTML page title for reply composer: \(error)")
+            resolvedHTMLTitle = nil
         }
     }
 }
@@ -194,6 +196,7 @@ private struct ReplyHTMLThumbnail: View {
             }
         }
         .task(id: attachment.key) {
+            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key)
             guard loadedImage == nil else { return }
             do {
                 let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)

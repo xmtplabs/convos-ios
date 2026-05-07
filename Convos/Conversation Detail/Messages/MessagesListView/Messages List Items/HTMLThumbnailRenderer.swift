@@ -21,8 +21,12 @@ final class HTMLThumbnailRenderer {
     """
 
     private var inflight: [String: Task<UIImage?, Never>] = [:]
+    private var cachedRenderWindow: UIWindow?
 
-    private lazy var renderWindow: UIWindow? = {
+    private var renderWindow: UIWindow? {
+        if let cachedRenderWindow, cachedRenderWindow.windowScene != nil {
+            return cachedRenderWindow
+        }
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState != .background }
@@ -33,8 +37,9 @@ final class HTMLThumbnailRenderer {
         window.alpha = 0.01
         window.rootViewController = UIViewController()
         window.isHidden = false
+        cachedRenderWindow = window
         return window
-    }()
+    }
 
     static func cacheKey(for attachmentKey: String) -> String {
         cacheKeyPrefix + attachmentKey
