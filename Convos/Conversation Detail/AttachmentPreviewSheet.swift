@@ -154,7 +154,7 @@ private struct SentDateFormatter {
     func string(for date: Date) -> String {
         if calendar.isDateInToday(date) { return "Today" }
         if calendar.isDateInYesterday(date) { return "Yesterday" }
-        if let days = calendar.dateComponents([.day], from: date, to: .now).day, days < 7 {
+        if let days = calendar.dateComponents([.day], from: date, to: .now).day, (1..<7).contains(days) {
             return weekdayFormatter.string(from: date)
         }
         return shortDateFormatter.string(from: date)
