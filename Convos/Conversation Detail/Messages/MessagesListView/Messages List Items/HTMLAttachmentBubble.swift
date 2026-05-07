@@ -140,6 +140,9 @@ struct HTMLAttachmentBubble: View {
     }
 
     private func loadThumbnail() async {
+        renderedImage = nil
+        bottomEdgeColor = nil
+        hasLoadFailed = false
         if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key) {
             renderedImage = cached
             bottomEdgeColor = cached.convos_bottomCenterColor()
