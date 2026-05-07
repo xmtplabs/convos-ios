@@ -42,21 +42,24 @@ public struct InboundConversationFilter: Sendable {
         clientInboxId: String,
         hasOutgoingJoinRequest: Bool
     ) -> InboundConversationDecision {
-        // Hard reject: blocked contacts always lose, no matter the path. The
-        // local user previously decided this inbox should not be able to
-        // start new conversations with them; honor that even if the XMTP
-        // consent says allowed (defense-in-depth — typically a user who
-        // blocks would have unblocked first if they'd already accepted).
-        if (try? contactsRepository.isBlocked(inboxId: creatorInboxId)) == true {
-            return .reject
-        }
-
-        // Already-allowed conversations (including ones the local user
-        // explicitly accepted in the past) flow through.
+        // Already-accepted conversations bypass every other check. Blocking
+        // does not retroactively quarantine an existing accepted convo —
+        // see PRD §"Blocking" effects list. The user can still post in
+        // groups they shared before the block; only NEW inbound from a
+        // blocked sender is held.
         if consentState == .allowed { return .deliver }
 
         // Self-creator: the local user created this conversation.
         if creatorInboxId == clientInboxId { return .deliver }
+
+        // Block path: quarantine instead of dropping. Held conversations
+        // are persisted but hidden from the main feed; the
+        // `QuarantineSweeper` promotes them on unblock or deletes them
+        // past the TTL. This restores the conversation when the user
+        // unblocks within the hold window.
+        if (try? contactsRepository.isBlocked(inboxId: creatorInboxId)) == true {
+            return .quarantine
+        }
 
         if consentState == .unknown {
             // Existing invite-flow path. Caller bumps consent → .allowed

@@ -77,8 +77,24 @@ struct InboundConversationFilterTests {
         #expect(decision == .quarantine)
     }
 
-    @Test("Blocked contact rejects, even when consent is .allowed")
-    func testBlockedRejectsRegardlessOfConsent() {
+    @Test("Blocked contact quarantines on .unknown so unblocking later can restore access")
+    func testBlockedQuarantinesOnUnknown() {
+        let repo = MockContactsRepository(
+            contacts: [.mock(inboxId: Self.creator, isBlocked: true)]
+        )
+        let filter = InboundConversationFilter(contactsRepository: repo)
+
+        let unknownDecision = filter.decide(
+            consentState: .unknown,
+            creatorInboxId: Self.creator,
+            clientInboxId: Self.me,
+            hasOutgoingJoinRequest: true
+        )
+        #expect(unknownDecision == .quarantine)
+    }
+
+    @Test(".allowed bypasses the block check — existing accepted convos are not retroactively quarantined")
+    func testAllowedBypassesBlock() {
         let repo = MockContactsRepository(
             contacts: [.mock(inboxId: Self.creator, isBlocked: true)]
         )
@@ -90,14 +106,7 @@ struct InboundConversationFilterTests {
             clientInboxId: Self.me,
             hasOutgoingJoinRequest: false
         )
-        let unknownDecision = filter.decide(
-            consentState: .unknown,
-            creatorInboxId: Self.creator,
-            clientInboxId: Self.me,
-            hasOutgoingJoinRequest: true
-        )
-        #expect(allowedDecision == .reject)
-        #expect(unknownDecision == .reject)
+        #expect(allowedDecision == .deliver)
     }
 
     @Test(".denied consent rejects")
@@ -114,7 +123,7 @@ struct InboundConversationFilterTests {
         #expect(decision == .reject)
     }
 
-    @Test("Block check takes precedence over invite-flow handshake")
+    @Test("Block check takes precedence over invite-flow handshake (still quarantines)")
     func testBlockedBeatsInviteFlow() {
         let repo = MockContactsRepository(
             contacts: [.mock(inboxId: Self.creator, isBlocked: true)]
@@ -127,6 +136,8 @@ struct InboundConversationFilterTests {
             clientInboxId: Self.me,
             hasOutgoingJoinRequest: true
         )
-        #expect(decision == .reject)
+        // Even with an outgoing invite handshake on file, a current block
+        // overrides — held in quarantine, recoverable on unblock.
+        #expect(decision == .quarantine)
     }
 }

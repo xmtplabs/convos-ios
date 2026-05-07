@@ -1,6 +1,19 @@
 import Foundation
 import GRDB
 
+public extension Notification.Name {
+    /// Posted on the main queue by `ContactsWriter.block` / `unblock` when
+    /// a contact's blocked state actually changes (idempotent no-ops do
+    /// not fire). `SessionManager` observes this to run an immediate
+    /// `QuarantineSweeper.sweep()` — unblocking should restore held-by-
+    /// block conversations to the main feed without waiting for the next
+    /// hourly or foreground-entry sweep. UserInfo:
+    /// `inboxId: String`, `blocked: Bool`.
+    static let contactBlockingDidChange: Notification.Name = Notification.Name(
+        "ContactBlockingDidChange"
+    )
+}
+
 /// Snapshot of profile fields used when upserting a contact. All fields are
 /// optional — callers pass whatever they currently have for the inbox. A
 /// `nil` field means "no signal — preserve whatever is already stored on the
@@ -98,31 +111,63 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     }
 
     func block(inboxId: String) async throws {
-        try await databaseWriter.write { db in
+        let didChange: Bool = try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 // Blocking is action-gated on an existing contact row. We
                 // never auto-create a contact just to flag it as blocked.
                 Log.debug("block(inboxId:) skipped, no contact row for \(inboxId)")
-                return
+                return false
             }
             guard existing.blockedAt == nil else {
                 // Idempotent: leave the original blockedAt timestamp.
-                return
+                return false
             }
             try existing.with(blockedAt: Date()).save(db)
+            return true
+        }
+        if didChange {
+            ContactsWriter.postBlockingDidChange(inboxId: inboxId, blocked: true)
         }
     }
 
     func unblock(inboxId: String) async throws {
-        try await databaseWriter.write { db in
+        let didChange: Bool = try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 Log.debug("unblock(inboxId:) skipped, no contact row for \(inboxId)")
-                return
+                return false
             }
             guard existing.blockedAt != nil else {
-                return
+                return false
             }
             try existing.with(blockedAt: nil).save(db)
+            return true
+        }
+        if didChange {
+            ContactsWriter.postBlockingDidChange(inboxId: inboxId, blocked: false)
+        }
+    }
+
+    /// Posted on the main queue after `block` / `unblock` writes a real
+    /// state change (idempotent no-ops do not fire). `SessionManager`
+    /// observes this to trigger an immediate `QuarantineSweeper.sweep()`
+    /// so unblocking restores held-by-block conversations to the main
+    /// feed without waiting for the next hourly/foreground sweep.
+    private static func postBlockingDidChange(inboxId: String, blocked: Bool) {
+        let userInfo: [String: Any] = ["inboxId": inboxId, "blocked": blocked]
+        if Thread.isMainThread {
+            NotificationCenter.default.post(
+                name: .contactBlockingDidChange,
+                object: nil,
+                userInfo: userInfo
+            )
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .contactBlockingDidChange,
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
         }
     }
 

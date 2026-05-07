@@ -28,6 +28,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
     private var activeConversationObserver: NSObjectProtocol?
+    private var contactBlockingObserver: NSObjectProtocol?
     private var quarantineSweeperTask: Task<Void, Never>?
     private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
 
@@ -161,6 +162,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
+        if let contactBlockingObserver {
+            NotificationCenter.default.removeObserver(contactBlockingObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -185,6 +189,20 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ) { [weak self] notification in
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
+        }
+
+        // Trigger an immediate quarantine sweep when a contact gets
+        // unblocked (or blocked — though only unblocking has a UX-visible
+        // effect on existing held conversations). Without this, the user
+        // would have to wait for the next hourly sweep or app-foreground
+        // entry before quarantined-by-block conversations reappear in
+        // the main feed.
+        contactBlockingObserver = NotificationCenter.default.addObserver(
+            forName: .contactBlockingDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.runQuarantineSweep(reason: "contactBlockingDidChange")
         }
 
         scheduleQuarantineSweeper()

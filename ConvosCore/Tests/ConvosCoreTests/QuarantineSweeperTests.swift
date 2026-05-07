@@ -174,6 +174,57 @@ struct QuarantineSweeperTests {
         #expect(row?.quarantineReleasedAt == nil)
     }
 
+    @Test("Blocked-then-unblocked: sweeper promotes the held conversation")
+    func testBlockedThenUnblockedPromotion() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let creator = "creator-1"
+        let convId = "conv-1"
+        let quarantinedAt = Date(timeIntervalSinceNow: -60)
+
+        // Setup: contact exists and is currently blocked. Conversation
+        // arrived from this creator while blocked → quarantined.
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(db, id: convId, creatorId: creator, quarantinedAt: quarantinedAt)
+            try Self.seedContact(db, inboxId: creator, blocked: true)
+        }
+
+        // First sweep with sender still blocked: no promotion.
+        let firstSweeper = QuarantineSweeper(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader,
+            contactsRepository: ContactsRepository(databaseReader: dbManager.dbReader)
+        )
+        try await firstSweeper.sweep()
+
+        let stillHeld = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: creator)
+        }
+        let conversationStillHeld = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, key: convId)
+        }
+        #expect(stillHeld?.blockedAt != nil)
+        #expect(conversationStillHeld?.quarantineReleasedAt == nil)
+
+        // User unblocks the contact.
+        try await dbManager.dbWriter.write { db in
+            guard let contact = try DBContact.fetchOne(db, key: creator) else { return }
+            try contact.with(blockedAt: nil).save(db)
+        }
+
+        // Second sweep: now isContact && !isBlocked → promote.
+        let secondSweeper = QuarantineSweeper(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader,
+            contactsRepository: ContactsRepository(databaseReader: dbManager.dbReader)
+        )
+        try await secondSweeper.sweep()
+
+        let promoted = try await dbManager.dbReader.read { db in
+            try DBConversation.fetchOne(db, key: convId)
+        }
+        #expect(promoted?.quarantineReleasedAt != nil)
+    }
+
     @Test("Already-released rows are ignored by the sweeper")
     func testReleasedRowsIgnored() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

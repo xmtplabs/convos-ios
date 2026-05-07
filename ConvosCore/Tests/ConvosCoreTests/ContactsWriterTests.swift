@@ -281,6 +281,46 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
+    @Test("Block and unblock post `contactBlockingDidChange` on real state changes only")
+    func testBlockingPostsNotificationOnRealChanges() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Test")
+        )
+
+        let recorder = NotificationRecorder(name: .contactBlockingDidChange)
+
+        // First block: real change → post.
+        try await writer.block(inboxId: inboxId)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 1)
+        #expect(recorder.notifications.first?.userInfo?["inboxId"] as? String == inboxId)
+        #expect(recorder.notifications.first?.userInfo?["blocked"] as? Bool == true)
+
+        // Idempotent re-block: no change → no post.
+        try await writer.block(inboxId: inboxId)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 1)
+
+        // Unblock: real change → post.
+        try await writer.unblock(inboxId: inboxId)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 2)
+        #expect(recorder.notifications.last?.userInfo?["blocked"] as? Bool == false)
+
+        // Idempotent re-unblock: no change → no post.
+        try await writer.unblock(inboxId: inboxId)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 2)
+
+        recorder.stop()
+    }
+
     @Test("block followed by unblock returns the contact to the unblocked state")
     func testBlockUnblockRoundTrip() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -563,4 +603,34 @@ struct ContactsWriterTests {
         #expect(contact?.displayName == "Renamed")
         #expect(contact?.avatarURL == "https://example.com/a.jpg")
     }
+}
+
+/// Records every `Notification` posted on a given name so tests can assert
+/// what the writer fired. Removes its observer on `stop()`.
+private final class NotificationRecorder: @unchecked Sendable {
+    private(set) var notifications: [Notification] = []
+    private var token: NSObjectProtocol?
+    private let lock: NSLock = NSLock()
+
+    init(name: Notification.Name) {
+        token = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let self else { return }
+            self.lock.lock()
+            self.notifications.append(notification)
+            self.lock.unlock()
+        }
+    }
+
+    func stop() {
+        if let token {
+            NotificationCenter.default.removeObserver(token)
+            self.token = nil
+        }
+    }
+
+    deinit { stop() }
 }

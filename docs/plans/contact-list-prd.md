@@ -136,12 +136,15 @@ Acceptance criteria:
 - [ ] An inbound conversation that did come through the Convos invite flow continues to land as it does today, regardless of contact status. (Regression guarantee.)
 - [ ] No UI is shown for the held / quarantined conversations in V1.
 
-#### As a user, I want to block someone, so that they cannot start new conversations with me even if we share a group.
+#### As a user, I want to block someone, so that they cannot start new conversations with me even if we share a group — and if I unblock them later, I want to recover any conversations they invited me to during the block.
 
 Acceptance criteria:
 
 - [ ] From the contact card, I can mark a contact as blocked.
-- [ ] Once blocked, any inbound conversation (welcome) from that user is rejected and never delivered to my main feed, even if the user remains in my contact list.
+- [ ] Once blocked, any *new* inbound conversation (welcome) from that user is held in quarantine: persisted to the local DB but not surfaced in the main feed, unread counts, badges, or notifications. From the user's perspective the conversation does not exist while the block stands.
+- [ ] When I unblock the contact, the next `QuarantineSweeper` run (within an hour, or sooner via the foreground-entry trigger) promotes any conversations they invited me to during the block period back to the main feed. I see the conversation and the messages that were sent while I had them blocked.
+- [ ] If I never unblock within the TTL window (default 7 days), the held-by-block conversations are deleted with no further user-visible effect.
+- [ ] Blocking does not retroactively quarantine an existing accepted conversation. The `consent == .allowed` short-circuit in the filter ensures past-accepted convos continue to deliver normally even when the sender is currently blocked.
 - [ ] Blocking does not delete existing shared conversations (per-conversation removal is a separate affordance).
 - [ ] Blocking does not silence messages within an existing shared group conversation (TBD, tracked in open questions).
 
@@ -484,19 +487,26 @@ The practical effect today is that the only inbound group conversations the user
 
 #### New gate (Step 2 — Phase 2.6 of this work)
 
-We extend `shouldProcessConversation` to add a contact-list path that elevates `.unknown` → `.allowed`, plus a block check that rejects outright, plus a quarantine path for everything else. The invite-flow branch is unchanged.
+We extend `shouldProcessConversation` to add a contact-list path that elevates `.unknown` → `.allowed`, plus a block path that **quarantines** new welcomes (so unblocking later restores access via the sweeper), plus a stranger-quarantine path for everything else. The invite-flow branch is unchanged.
 
 ```swift
 // Pseudocode for the extended decision; the actual structure should preserve the existing guards.
 var consentState = try conversation.consentState()
+
+// Already-accepted conversations bypass every other check. Blocking does
+// NOT retroactively quarantine an existing accepted convo — see the
+// "Blocking" section's effects list.
 if consentState == .allowed { return .deliver }
 if try await conversation.creatorInboxId() == params.client.inboxId { return .deliver }
 
 let creatorInboxId = try await conversation.creatorInboxId()
 
-// Hard reject: blocked contacts always lose, no matter the path.
+// Block path: quarantine instead of dropping. The conversation is held
+// (persisted but hidden from the main feed) so unblocking later via the
+// QuarantineSweeper can promote it back to the feed. If the user never
+// unblocks within the TTL window, the sweeper deletes it.
 if contactsRepository.isBlocked(inboxId: creatorInboxId) {
-    return .reject  // do not persist (matches today's drop-on-floor behavior)
+    return .quarantine
 }
 
 if consentState == .unknown {
@@ -523,8 +533,9 @@ Notes:
 - The "sender" of an inbound conversation is its creator — `creatorInboxId()` on the XMTP conversation, the same value `shouldProcessConversation` already reads on line 722. There is exactly one creator per conversation.
 - The contact-list and block-list checks are indexed point reads on `DBContact` (lookup by primary-key `inboxId`); negligible overhead relative to the existing async XMTP calls.
 - `InboundConversationFilter` is the Swift type that owns the new logic; `shouldProcessConversation` becomes a thin wrapper over `InboundConversationFilter.decide(for: conversation, client:)` to keep the file small and the decision testable in isolation.
-- Once delivered or rejected, the decision is final. We do not re-evaluate when the sender is later unblocked or removed-from-contacts; that is handled by future inbound conversations.
-- Quarantined conversations *are* persisted (so we can promote them later if the sender becomes a contact during the hold window), but excluded from the main-feed `ConversationsRepository` query and from any unread-count, badge, or notification surface.
+- **Delivery and rejection are terminal; quarantine is recoverable.** Once a conversation is delivered or rejected, that decision is final — we do not re-evaluate. Quarantined conversations are the recoverable middle state: the `QuarantineSweeper` re-evaluates them periodically and either promotes them to the main feed (sender became a contact, OR sender is no longer blocked) or deletes them past the TTL.
+- **Block does not retroactively quarantine an already-accepted conversation.** The `consent == .allowed` short-circuit at the top of the filter ensures that any conversation the user previously accepted continues to be delivered, even if the sender is now blocked. Blocking only affects *new* inbound from that sender; the user's existing shared conversations with the blocked party are untouched. (Mid-group muting / silencing remains an open question.)
+- Quarantined conversations *are* persisted (so we can promote them later if the sender becomes a contact OR is later unblocked), but excluded from the main-feed `ConversationsRepository` query and from any unread-count, badge, or notification surface.
 
 #### DMs (the deferred part)
 
@@ -551,9 +562,11 @@ public protocol ContactsWriterProtocol: Sendable {
 
 Effects:
 
-- Future inbound conversations from this `inboxId` are rejected by `InboundConversationFilter` (never persisted, never surfaced).
+- **Future inbound conversations from this `inboxId` are quarantined** by `InboundConversationFilter` — persisted to the local DB but hidden from the main feed, unread counts, badges, and notifications. The user sees nothing while the block stands.
+- **Unblocking restores access to held conversations.** The `QuarantineSweeper`'s next run sees `isContact && !isBlocked` for the sender and promotes any held-by-block conversations back to the main feed. The user gets all the messages that were sent in those conversations during the block period.
+- **If the user never unblocks**, the sweeper deletes held-by-block conversations once they pass the TTL (default 7 days), same as stranger-quarantined conversations. No long-term storage cost.
 - Blocked contacts are still listed in the contacts list (so the user can find them to unblock); the contact card surfaces the blocked state with an unblock affordance.
-- Existing shared conversations are not touched — the blocked party can still post in groups the local user is in. Mid-group muting is out of scope for V1 (open question).
+- **Existing shared conversations are not touched** — the `consent == .allowed` short-circuit in the filter ensures past-accepted convos continue to deliver. The blocked party can still post in groups the local user is in. Mid-group muting is out of scope for V1 (open question).
 - Blocking does not delete the contact. The user can independently remove a contact (open question — not shipped V1) once we add that affordance.
 
 Blocking is local-only. The blocked party is not notified.
@@ -719,13 +732,14 @@ Ship-readiness: add-to-chat flow works end-to-end.
 #### Phase 2.6: Inbound filter + quarantine sweeper
 
 - [ ] Refactor `StreamProcessor.shouldProcessConversation` (lines 713-739) to delegate to a new `InboundConversationFilter.decide(for:client:)` returning `.deliver | .quarantine | .reject`. Preserve the existing consent / creator-self / outgoing-join-request branches verbatim.
+- [ ] Order the filter checks: `consent == .allowed` short-circuit FIRST (existing accepted convos always deliver, even from a now-blocked sender), then creator-self, then the block check.
 - [ ] Add the contact-list path: `consent == .unknown` and `contactsRepository.isContact(creatorInboxId)` and not blocked → bump consent to `.allowed` and deliver.
-- [ ] Add the block path: `contactsRepository.isBlocked(creatorInboxId)` → reject outright (drop on floor, matches today's behavior for non-allowed conversations).
-- [ ] Add the quarantine path: `consent == .unknown`, no outgoing join request, sender not a contact, not blocked → persist with `quarantinedAt = now`, hidden from main feed.
+- [ ] Add the block path: `contactsRepository.isBlocked(creatorInboxId)` → quarantine (persist hidden; recoverable on unblock via the sweeper).
+- [ ] Add the stranger-quarantine path: `consent == .unknown`, no outgoing join request, sender not a contact, not blocked → persist with `quarantinedAt = now`, hidden from main feed.
 - [ ] Update `processConversation` (lines 140-145) to honor the three-way return — `.quarantine` persists with the new flag set, `.reject` matches today's drop, `.deliver` matches today's pass.
-- [ ] `QuarantineSweeper` that runs on launch and every hour while foregrounded; promotes quarantined conversations whose senders are now contacts; deletes those past TTL (default 7 days, configurable via `QuarantineConstant`).
+- [ ] `QuarantineSweeper` that runs on launch and every hour while foregrounded; promotes any quarantined conversation whose sender is currently `isContact && !isBlocked` (covers both the stranger-became-contact and the blocked-now-unblocked cases); deletes those past TTL (default 7 days, configurable via `QuarantineConstant`).
 - [ ] Update `ConversationsRepository` main-feed query to exclude `quarantinedAt IS NOT NULL AND quarantineReleasedAt IS NULL`.
-- [ ] Integration tests: existing invite-flow path still delivers (regression); inbound from a contact (no invite handshake) → delivered with consent bumped to `.allowed`; inbound from a stranger → quarantined; stranger becomes a contact → promoted; quarantined past TTL → deleted; inbound from a blocked contact → rejected; conversation creator-is-self → delivered as today.
+- [ ] Integration tests: existing invite-flow path still delivers (regression); inbound from a contact (no invite handshake) → delivered with consent bumped to `.allowed`; inbound from a stranger → quarantined; stranger becomes a contact → promoted; quarantined past TTL → deleted; inbound from a blocked contact → quarantined; blocked-then-unblocked → sweeper promotes the held conversation; conversation creator-is-self → delivered as today; consent==.allowed + sender currently blocked → still delivers (no retroactive quarantine of accepted convos).
 
 Ship-readiness: filter and sweeper both work; today's invite-flow happy path is unchanged; contacts can now land conversations directly; blocking has observable effect.
 
