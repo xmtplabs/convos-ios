@@ -34,10 +34,13 @@ struct AttachmentPreviewSheet: View {
                         .accessibilityIdentifier("attachment-preview-close")
                     }
                     ToolbarItem(placement: .principal) {
+                        let tap: ((ConversationMember) -> Void)? = profileSheetContent == nil
+                            ? nil
+                            : { tapped in presentingProfileForMember = tapped }
                         AttachmentSenderIndicator(
                             sender: sender,
                             sentAt: sentAt,
-                            onTap: { tapped in presentingProfileForMember = tapped }
+                            onTap: tap
                         )
                     }
                     ToolbarItem(placement: .confirmationAction) {
@@ -130,6 +133,7 @@ private struct AttachmentSenderIndicator: View {
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Sent by \(sender.profile.displayName), \(subtitle), tap to view profile")
+        .accessibilityIdentifier("attachment-preview-sender")
     }
 }
 
