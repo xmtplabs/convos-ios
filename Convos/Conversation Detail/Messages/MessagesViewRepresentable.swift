@@ -33,7 +33,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
-    let verifiedAssistantName: String?
+    let agentNamesByInboxId: [String: String]
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
@@ -102,7 +102,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.hasAssistant = hasAssistant
         messagesViewController.isAssistantJoinPending = isAssistantJoinPending
         messagesViewController.isAssistantEnabled = isAssistantEnabled
-        messagesViewController.verifiedAssistantName = verifiedAssistantName
+        messagesViewController.agentNamesByInboxId = agentNamesByInboxId
         let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -158,7 +158,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         hasAssistant: false,
         isAssistantJoinPending: false,
         isAssistantEnabled: true,
-        verifiedAssistantName: nil,
+        agentNamesByInboxId: [:],
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         onBottomOverscrollReleased: { _ in },

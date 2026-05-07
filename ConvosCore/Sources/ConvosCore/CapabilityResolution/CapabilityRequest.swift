@@ -22,6 +22,12 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
 
     public let version: Int
     public let requestId: String
+    /// Inbox id of the agent making the request. Bound on the wire (rather than relying
+    /// on the XMTP envelope's `senderInboxId` alone) so the runtime, CLI, and iOS all
+    /// agree on the asking identity even when the message hasn't been verified yet —
+    /// and so that the persisted grant row, the connection_event credit, and the
+    /// resolver lookup all key off the same value the sender chose to publish.
+    public let askerInboxId: String
     public let subject: CapabilitySubject
     public let capability: ConnectionCapability
     public let rationale: String
@@ -30,6 +36,7 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     public init(
         version: Int = CapabilityRequest.supportedVersion,
         requestId: String,
+        askerInboxId: String,
         subject: CapabilitySubject,
         capability: ConnectionCapability,
         rationale: String,
@@ -37,6 +44,7 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     ) {
         self.version = version
         self.requestId = requestId
+        self.askerInboxId = askerInboxId
         self.subject = subject
         self.capability = capability
         self.rationale = Self.truncatedRationale(rationale)
@@ -44,7 +52,7 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, requestId, subject, capability, rationale, preferredProviders
+        case version, requestId, askerInboxId, subject, capability, rationale, preferredProviders
     }
 
     public init(from decoder: Decoder) throws {
@@ -58,6 +66,7 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
             )
         }
         self.requestId = try container.decode(String.self, forKey: .requestId)
+        self.askerInboxId = try container.decode(String.self, forKey: .askerInboxId)
         self.subject = try container.decode(CapabilitySubject.self, forKey: .subject)
         self.capability = try container.decode(ConnectionCapability.self, forKey: .capability)
         let rawRationale = try container.decode(String.self, forKey: .rationale)

@@ -90,12 +90,14 @@ struct ConnectionGrantWriterTests {
         func seedGrant(
             connectionId: String,
             conversationId: String,
-            serviceId: String
+            serviceId: String,
+            grantedToInboxId: String = "agent-1"
         ) throws {
             let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
+                grantedToInboxId: grantedToInboxId,
                 grantedAt: Date()
             )
             try databaseManager.dbWriter.write { db in
@@ -127,7 +129,7 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_1"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(connection.id, to: conversationId)
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.count == 1)
@@ -162,7 +164,7 @@ struct ConnectionGrantWriterTests {
 
         var caughtExpectedError: Bool = false
         do {
-            try await fixture.writer.grantConnection(connection.id, to: conversationId)
+            try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
             Issue.record("Expected grantConnection to throw")
         } catch is PublishFailure {
             caughtExpectedError = true
@@ -181,7 +183,7 @@ struct ConnectionGrantWriterTests {
         defer { fixture.cleanup() }
 
         await #expect(throws: CloudConnectionGrantError.self) {
-            try await fixture.writer.grantConnection("missing", to: "conv_x")
+            try await fixture.writer.grantConnection("missing", to: "conv_x", grantedToInboxId: "agent-1")
         }
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
         let stored = try fixture.storedGrants(for: "conv_x")
@@ -196,7 +198,7 @@ struct ConnectionGrantWriterTests {
         let connection = try fixture.seedConnection(id: "conn_inactive", status: .revoked)
 
         await #expect(throws: CloudConnectionGrantError.self) {
-            try await fixture.writer.grantConnection(connection.id, to: "conv_x")
+            try await fixture.writer.grantConnection(connection.id, to: "conv_x", grantedToInboxId: "agent-1")
         }
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
     }
@@ -217,7 +219,7 @@ struct ConnectionGrantWriterTests {
             serviceId: connection.serviceId
         )
 
-        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId)
+        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.isEmpty)
@@ -249,7 +251,7 @@ struct ConnectionGrantWriterTests {
 
         var caughtExpectedError: Bool = false
         do {
-            try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId)
+            try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
             Issue.record("Expected revokeGrant to throw")
         } catch is PublishFailure {
             caughtExpectedError = true
@@ -268,7 +270,7 @@ struct ConnectionGrantWriterTests {
         let fixture = Fixture()
         defer { fixture.cleanup() }
 
-        try await fixture.writer.revokeGrant(connectionId: "nope", from: "conv_nope")
+        try await fixture.writer.revokeGrant(connectionId: "nope", from: "conv_nope", grantedToInboxId: "agent-1")
 
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
         let stored = try fixture.storedGrants(for: "conv_nope")
@@ -287,8 +289,8 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_multi"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(first.id, to: conversationId)
-        try await fixture.writer.grantConnection(second.id, to: conversationId)
+        try await fixture.writer.grantConnection(first.id, to: conversationId, grantedToInboxId: "agent-1")
+        try await fixture.writer.grantConnection(second.id, to: conversationId, grantedToInboxId: "agent-1")
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.count == 2)

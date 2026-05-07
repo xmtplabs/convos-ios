@@ -26,7 +26,8 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
     public func resolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async -> Set<ProviderID> {
         do {
             return try await database.read { db in
@@ -34,6 +35,7 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
                     .filter(DBCapabilityResolution.Columns.subject == subject.rawValue)
                     .filter(DBCapabilityResolution.Columns.conversationId == conversationId)
                     .filter(DBCapabilityResolution.Columns.capability == capability.rawValue)
+                    .filter(DBCapabilityResolution.Columns.grantedToInboxId == grantedToInboxId)
                     .fetchOne(db)
                 return Set(
                     row?.providerIds
@@ -50,7 +52,8 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
         _ providerIds: Set<ProviderID>,
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {
         try CapabilityResolutionValidator.validate(
             providerIds: providerIds,
@@ -63,11 +66,13 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
                 .filter(DBCapabilityResolution.Columns.subject == subject.rawValue)
                 .filter(DBCapabilityResolution.Columns.conversationId == conversationId)
                 .filter(DBCapabilityResolution.Columns.capability == capability.rawValue)
+                .filter(DBCapabilityResolution.Columns.grantedToInboxId == grantedToInboxId)
                 .fetchOne(db)
             let row = DBCapabilityResolution(
                 subject: subject,
                 conversationId: conversationId,
                 capability: capability,
+                grantedToInboxId: grantedToInboxId,
                 providerIds: providerIds,
                 createdAt: existing?.createdAt ?? timestamp,
                 updatedAt: timestamp
@@ -79,25 +84,29 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
     public func clearResolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {
         _ = try await database.write { db in
             try DBCapabilityResolution
                 .filter(DBCapabilityResolution.Columns.subject == subject.rawValue)
                 .filter(DBCapabilityResolution.Columns.conversationId == conversationId)
                 .filter(DBCapabilityResolution.Columns.capability == capability.rawValue)
+                .filter(DBCapabilityResolution.Columns.grantedToInboxId == grantedToInboxId)
                 .deleteAll(db)
         }
     }
 
     public func clearAllResolutions(
         subject: CapabilitySubject,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {
         _ = try await database.write { db in
             try DBCapabilityResolution
                 .filter(DBCapabilityResolution.Columns.subject == subject.rawValue)
                 .filter(DBCapabilityResolution.Columns.conversationId == conversationId)
+                .filter(DBCapabilityResolution.Columns.grantedToInboxId == grantedToInboxId)
                 .deleteAll(db)
         }
     }
@@ -106,7 +115,7 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
         let timestamp = now()
         try await database.write { db in
             // Read every row, rewrite the ones that reference the provider. Number of rows
-            // is bounded by (subjects × conversations × verbs) which stays small.
+            // is bounded by (subjects × conversations × verbs × agents) which stays small.
             let rows = try DBCapabilityResolution.fetchAll(db)
             for row in rows {
                 let providers = row.providerIds
@@ -121,6 +130,7 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
                         subject: row.subject,
                         conversationId: row.conversationId,
                         capability: row.capability,
+                        grantedToInboxId: row.grantedToInboxId,
                         providerIds: remaining.sorted().joined(separator: DBCapabilityResolution.providerIdsSeparator),
                         createdAt: row.createdAt,
                         updatedAt: timestamp

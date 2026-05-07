@@ -36,6 +36,10 @@ final class ConversationConnectionsViewModel {
     private var grantedConnectionIds: Set<String> = []
 
     private let conversationId: String
+    /// Inbox ids of every agent in this conversation at view-model construction. Each
+    /// per-conversation toggle fans out one grant row per agent so the model stays
+    /// consistent with the per-agent grant scoping introduced alongside.
+    private let agentInboxIds: [String]
     private let cloudConnectionManager: any CloudConnectionManagerProtocol
     private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
     private let grantWriter: any CloudConnectionGrantWriterProtocol
@@ -47,6 +51,7 @@ final class ConversationConnectionsViewModel {
 
     init(
         conversationId: String,
+        agentInboxIds: [String],
         cloudConnectionManager: any CloudConnectionManagerProtocol,
         cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
         grantWriter: any CloudConnectionGrantWriterProtocol,
@@ -55,6 +60,7 @@ final class ConversationConnectionsViewModel {
         capabilityResolver: any CapabilityResolver
     ) {
         self.conversationId = conversationId
+        self.agentInboxIds = agentInboxIds
         self.cloudConnectionManager = cloudConnectionManager
         self.cloudConnectionRepository = cloudConnectionRepository
         self.grantWriter = grantWriter
@@ -99,21 +105,61 @@ final class ConversationConnectionsViewModel {
         let newValue = !deviceConnections[index].isEnabled
         deviceConnections[index] = DeviceConnection(kind: kind, isEnabled: newValue)
 
+        let agents = agentInboxIds
+        // No agents → nothing to grant or revoke against. Skip the storage writes
+        // and the event so we don't surface a subject-less "has access to …" line.
+        guard !agents.isEmpty else {
+            return
+        }
         Task {
-            // Read the store-side state once at the top so we can decide whether to emit
-            // a grant/revoke event only when the persisted state actually changes. Without
-            // this, rapid toggling fires redundant connection_event messages even when
-            // every store write is a no-op (e.g. tap-on then tap-off before either Task
-            // runs).
-            let wasEnabled = await enablementStore.isEnabled(kind: kind, capability: .read, conversationId: conversationId)
-            for capability in ConnectionCapability.allCases {
-                await enablementStore.setEnabled(newValue, kind: kind, capability: capability, conversationId: conversationId)
+            // Snapshot per-agent state once before mutating so we only emit one
+            // group-update line per state-change, not one per agent and not one per
+            // redundant tap. The snapshot uses any-agent-was-enabled semantics — if at
+            // least one agent had the capability, the conversation already showed it on
+            // and the user toggling off should fire a single revoked event. The
+            // `where !anyWasEnabled` clause short-circuits the loop once any agent
+            // reports enabled.
+            var anyWasEnabled = false
+            for agent in agents where !anyWasEnabled {
+                anyWasEnabled = await enablementStore.isEnabled(
+                    kind: kind,
+                    capability: .read,
+                    conversationId: conversationId,
+                    grantedToInboxId: agent
+                )
             }
-            if newValue != wasEnabled {
+            for agent in agents {
+                for capability in ConnectionCapability.allCases {
+                    await enablementStore.setEnabled(
+                        newValue,
+                        kind: kind,
+                        capability: capability,
+                        conversationId: conversationId,
+                        grantedToInboxId: agent
+                    )
+                }
+            }
+            if newValue != anyWasEnabled {
+                // Credit the first agent so the rendered text reads as
+                // "<agent name> has access to …" instead of a subject-less phrase.
+                // With multiple agents this is imprecise — every agent really did get
+                // the grant — but the chat shows one event per state change, and one
+                // representative actor matches the prior single-actor display.
+                let representativeAgent = agents.first
                 if newValue {
-                    try? await connectionEventWriter.sendGranted(providerId: "device.\(kind.rawValue)", in: conversationId)
+                    try? await connectionEventWriter.sendGranted(
+                        providerId: "device.\(kind.rawValue)",
+                        capability: nil,
+                        grantedToInboxId: representativeAgent,
+                        in: conversationId
+                    )
                 } else {
-                    try? await connectionEventWriter.sendRevoked(providerId: "device.\(kind.rawValue)", in: conversationId)
+                    try? await connectionEventWriter.sendRevoked(
+                        providerId: "device.\(kind.rawValue)",
+                        capability: nil,
+                        grantedToInboxId: representativeAgent,
+                        in: conversationId
+                    )
                 }
             }
             await MainActor.run {
@@ -127,64 +173,97 @@ final class ConversationConnectionsViewModel {
     }
 
     private func grant(connectionId: String, providerId: ProviderID) {
+        let agents = agentInboxIds
+        guard !agents.isEmpty else { return }
         Task {
-            do {
-                try await grantWriter.grantConnection(connectionId, to: conversationId)
-                try? await connectionEventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
-            } catch {
-                Log.error("Failed to grant connection: \(error.localizedDescription)")
-                self.error = error
+            var anyWritten = false
+            for agent in agents {
+                do {
+                    try await grantWriter.grantConnection(connectionId, to: conversationId, grantedToInboxId: agent)
+                    anyWritten = true
+                } catch {
+                    Log.error("Failed to grant connection \(connectionId) to \(agent): \(error.localizedDescription)")
+                    self.error = error
+                }
+            }
+            if anyWritten {
+                try? await connectionEventWriter.sendGranted(
+                    providerId: providerId.rawValue,
+                    capability: nil,
+                    grantedToInboxId: agents.first,
+                    in: conversationId
+                )
             }
         }
     }
 
     private func revokeGrant(connectionId: String, providerId: ProviderID) {
+        let agents = agentInboxIds
+        guard !agents.isEmpty else { return }
         Task {
-            do {
-                try await grantWriter.revokeGrant(connectionId: connectionId, from: conversationId)
+            var anyRemoved = false
+            for agent in agents {
+                do {
+                    try await grantWriter.revokeGrant(connectionId: connectionId, from: conversationId, grantedToInboxId: agent)
+                    anyRemoved = true
+                } catch {
+                    Log.error("Failed to revoke grant \(connectionId) from \(agent): \(error.localizedDescription)")
+                    self.error = error
+                }
+            }
+            if anyRemoved {
                 // Order matches CloudConnectionManager.postRevocationSideEffects:
                 // post the user-visible group-update line first, then drop the
-                // provider from every (subject, verb) row scoped to this
+                // provider from every (subject, verb, agent) row scoped to this
                 // conversation. Resolver-cleanup is what unblocks
                 // persistApprovedCloudCapabilities' idempotency gate so a
                 // follow-up capability_request approval re-emits its own
-                // group-update line.
-                try? await connectionEventWriter.sendRevoked(providerId: providerId.rawValue, in: conversationId)
-                await clearResolverEntriesForProvider(providerId)
-            } catch {
-                Log.error("Failed to revoke connection grant: \(error.localizedDescription)")
-                self.error = error
+                // group-update line. Revoke text is a complete sentence
+                // ("Calendar connection removed") so it reads fine without an actor —
+                // we leave grantedToInboxId nil to keep the message conversation-level.
+                try? await connectionEventWriter.sendRevoked(
+                    providerId: providerId.rawValue,
+                    capability: nil,
+                    grantedToInboxId: nil,
+                    in: conversationId
+                )
+                await clearResolverEntriesForProvider(providerId, agents: agents)
             }
         }
     }
 
-    private func clearResolverEntriesForProvider(_ providerId: ProviderID) async {
+    private func clearResolverEntriesForProvider(_ providerId: ProviderID, agents: [String]) async {
         for subject in CapabilitySubject.allCases {
             for capability in ConnectionCapability.allCases {
-                let current = await capabilityResolver.resolution(
-                    subject: subject,
-                    capability: capability,
-                    conversationId: conversationId
-                )
-                guard current.contains(providerId) else { continue }
-                let shrunk = current.subtracting([providerId])
-                do {
-                    if shrunk.isEmpty {
-                        try await capabilityResolver.clearResolution(
-                            subject: subject,
-                            capability: capability,
-                            conversationId: conversationId
-                        )
-                    } else {
-                        try await capabilityResolver.setResolution(
-                            shrunk,
-                            subject: subject,
-                            capability: capability,
-                            conversationId: conversationId
-                        )
+                for agent in agents {
+                    let current = await capabilityResolver.resolution(
+                        subject: subject,
+                        capability: capability,
+                        conversationId: conversationId,
+                        grantedToInboxId: agent
+                    )
+                    guard current.contains(providerId) else { continue }
+                    let shrunk = current.subtracting([providerId])
+                    do {
+                        if shrunk.isEmpty {
+                            try await capabilityResolver.clearResolution(
+                                subject: subject,
+                                capability: capability,
+                                conversationId: conversationId,
+                                grantedToInboxId: agent
+                            )
+                        } else {
+                            try await capabilityResolver.setResolution(
+                                shrunk,
+                                subject: subject,
+                                capability: capability,
+                                conversationId: conversationId,
+                                grantedToInboxId: agent
+                            )
+                        }
+                    } catch {
+                        Log.warning("Failed to clear resolver entry for \(providerId.rawValue) (\(subject), \(capability), \(agent)): \(error.localizedDescription)")
                     }
-                } catch {
-                    Log.warning("Failed to clear resolver entry for \(providerId.rawValue) (\(subject), \(capability)): \(error.localizedDescription)")
                 }
             }
         }
@@ -193,15 +272,33 @@ final class ConversationConnectionsViewModel {
     /// First-link path: run the OAuth flow, then immediately grant the resulting
     /// connection for this conversation so the user's intent ("turn it on for
     /// this convo") completes in one tap. Mirrors what the App Settings list
-    /// would do followed by the conversation-info toggle, just chained.
+    /// would do followed by the conversation-info toggle, just chained — fanning
+    /// out the grant across every agent currently in the conversation.
     private func connectAndGrant(serviceId: String, providerId: ProviderID) {
+        let agents = agentInboxIds
+        guard !agents.isEmpty else { return }
         isConnecting = true
         error = nil
         Task {
             do {
                 let connection = try await cloudConnectionManager.connect(serviceId: serviceId)
-                try await grantWriter.grantConnection(connection.id, to: conversationId)
-                try? await connectionEventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+                var anyWritten = false
+                for agent in agents {
+                    do {
+                        try await grantWriter.grantConnection(connection.id, to: conversationId, grantedToInboxId: agent)
+                        anyWritten = true
+                    } catch {
+                        Log.error("Failed to grant fresh connection \(connection.id) to \(agent): \(error.localizedDescription)")
+                    }
+                }
+                if anyWritten {
+                    try? await connectionEventWriter.sendGranted(
+                        providerId: providerId.rawValue,
+                        capability: nil,
+                        grantedToInboxId: agents.first,
+                        in: conversationId
+                    )
+                }
             } catch let oauthError as OAuthError {
                 if case .cancelled = oauthError {
                 } else {
@@ -238,15 +335,38 @@ final class ConversationConnectionsViewModel {
     }
 
     private func refreshDeviceConnections() {
+        let agents = agentInboxIds
         Task { [self] in
             var items: [DeviceConnection] = []
             for kind in ConnectionKind.allCases where SupportedConnections.isSupported(kind) {
-                let isReadEnabled = await self.enablementStore.isEnabled(kind: kind, capability: .read, conversationId: self.conversationId)
+                // The toggle reads on for the conversation if any agent has it enabled —
+                // matches the per-conversation UX even though storage is per-agent.
+                // The `where !isReadEnabled` clause short-circuits once any agent reports
+                // enabled.
+                var isReadEnabled = false
+                for agent in agents where !isReadEnabled {
+                    isReadEnabled = await self.enablementStore.isEnabled(
+                        kind: kind,
+                        capability: .read,
+                        conversationId: self.conversationId,
+                        grantedToInboxId: agent
+                    )
+                }
                 var hasWrite = false
-                for capability in ConnectionCapability.allCases where capability.isWrite {
-                    if await self.enablementStore.isEnabled(kind: kind, capability: capability, conversationId: self.conversationId) {
-                        hasWrite = true
-                        break
+                if !isReadEnabled {
+                    for agent in agents {
+                        for capability in ConnectionCapability.allCases where capability.isWrite {
+                            if await self.enablementStore.isEnabled(
+                                kind: kind,
+                                capability: capability,
+                                conversationId: self.conversationId,
+                                grantedToInboxId: agent
+                            ) {
+                                hasWrite = true
+                                break
+                            }
+                        }
+                        if hasWrite { break }
                     }
                 }
                 items.append(DeviceConnection(kind: kind, isEnabled: isReadEnabled || hasWrite))

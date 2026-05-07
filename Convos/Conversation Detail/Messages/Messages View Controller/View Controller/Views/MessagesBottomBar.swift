@@ -533,7 +533,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             hasAssistant: false,
             isAssistantJoinPending: false,
             isAssistantEnabled: true,
-            verifiedAssistantName: nil,
+            agentNamesByInboxId: [:],
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             onBottomOverscrollReleased: { _ in },

@@ -3,14 +3,13 @@ import SwiftUI
 
 struct ConnectionEventSummaryView: View {
     let summary: ConnectionEventSummary
-    /// Live name of the verified assistant in the current conversation. The
-    /// processor leaves `.verifiedAssistant`-actor summaries unprefixed and
-    /// this view prepends the name at render time so the rendered text stays
-    /// in sync with the conversation's stable membership snapshot, instead of
-    /// flapping with the per-emission `agentVerification` state in
-    /// memberProfiles. Pass `nil` if no verified assistant is in the
-    /// conversation; the view falls back to rendering `summary.text` as-is.
-    var verifiedAssistantName: String?
+    /// Live agent display names keyed by inbox id, sourced from the
+    /// conversation's current members. The renderer prepends the resolved
+    /// name for `.grantedAgent`-actor summaries so ProfileUpdate-driven
+    /// renames propagate without reprocessing the message list. Pass an
+    /// empty dictionary if no agents are in the conversation; the view
+    /// falls back to rendering `summary.text` as-is.
+    var agentNamesByInboxId: [String: String]
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.stepX) {
@@ -29,8 +28,9 @@ struct ConnectionEventSummaryView: View {
     }
 
     private var renderedText: String {
-        guard summary.actor == .verifiedAssistant,
-              let name = verifiedAssistantName,
+        guard summary.actor == .grantedAgent,
+              let inboxId = summary.grantedToInboxId,
+              let name = agentNamesByInboxId[inboxId],
               !name.isEmpty else {
             return summary.text
         }

@@ -7,17 +7,18 @@ import Foundation
 public struct CapabilityManifestBuilder: Sendable {
     public init() {}
 
-    /// Build the manifest for one conversation. Walks every subject, every registered
-    /// provider, and every capability verb the provider declares — for each verb, looks
-    /// up the resolution and marks `resolved[verb] = true` if this provider is in the
-    /// resolution set.
+    /// Build the manifest for one (conversation, agent) pair. Walks every subject, every
+    /// registered provider, and every capability verb the provider declares — for each
+    /// verb, looks up the resolution scoped to `grantedToInboxId` and marks
+    /// `resolved[verb] = true` if this provider is in the resolution set.
     ///
     /// Provider-list ordering is alphabetical by `id.rawValue` so re-publishes with
     /// equivalent state produce byte-identical JSON (no spurious `ProfileUpdate` writes).
     public func build(
         registry: any CapabilityProviderRegistry,
         resolver: any CapabilityResolver,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async -> CapabilityManifest {
         var entries: [CapabilityManifest.Entry] = []
 
@@ -28,6 +29,7 @@ public struct CapabilityManifestBuilder: Sendable {
             let resolutionsByCapability = await resolutions(
                 for: subject,
                 conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId,
                 resolver: resolver
             )
 
@@ -60,6 +62,7 @@ public struct CapabilityManifestBuilder: Sendable {
     private func resolutions(
         for subject: CapabilitySubject,
         conversationId: String,
+        grantedToInboxId: String,
         resolver: any CapabilityResolver
     ) async -> [ConnectionCapability: Set<ProviderID>] {
         var result: [ConnectionCapability: Set<ProviderID>] = [:]
@@ -67,7 +70,8 @@ public struct CapabilityManifestBuilder: Sendable {
             let providers = await resolver.resolution(
                 subject: subject,
                 capability: capability,
-                conversationId: conversationId
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
             )
             if !providers.isEmpty {
                 result[capability] = providers

@@ -84,18 +84,20 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
             try DBCloudConnection.fetchOne(db, key: connectionId)?.serviceId
         }
 
-        // Collect conversations that currently reference this connection so we
-        // can republish per-conversation metadata after the local rows are gone.
-        // Without this, the ProfileUpdate metadata previously published to XMTP
-        // groups still carries the revoked grants and the agent would keep
-        // using them.
-        let affectedConversationIds = try await databaseWriter.read { db in
+        // Collect every (conversation, agent) grant row that currently references
+        // this connection so we can republish per-conversation metadata after the
+        // local rows are gone. Without this, the ProfileUpdate metadata previously
+        // published to XMTP groups still carries the revoked grants and the agent
+        // would keep using them. With per-agent grants, the same conversation can
+        // have several rows (one per agent), and each must be revoked individually
+        // so the metadata payload's per-agent entries all go away.
+        let affectedGrants: [(conversationId: String, grantedToInboxId: String)] = try await databaseWriter.read { db in
             try DBCloudConnectionGrant
                 .filter(DBCloudConnectionGrant.Columns.connectionId == connectionId)
                 .fetchAll(db)
-                .map { $0.conversationId }
+                .map { ($0.conversationId, $0.grantedToInboxId) }
         }
-        let uniqueConversationIds = Array(Set(affectedConversationIds))
+        let uniqueConversationIds = Array(Set(affectedGrants.map(\.conversationId)))
 
         // revokeGrant deletes the row and republishes metadata for that
         // conversation. We go through the public writer interface so the two
@@ -105,17 +107,22 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         // removed locally. The stale metadata on XMTP is the best we can do
         // if the sync is down at wipe time.
         if let grantWriter = grantWriterProvider() {
-            for conversationId in uniqueConversationIds {
+            for grant in affectedGrants {
                 do {
                     try await grantWriter.revokeGrant(
                         connectionId: connectionId,
-                        from: conversationId
+                        from: grant.conversationId,
+                        grantedToInboxId: grant.grantedToInboxId
                     )
                 } catch {
-                    Log.warning("[CloudConnections] failed to republish grants after disconnect (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                    Log.warning(
+                        "[CloudConnections] failed to republish grants after disconnect " +
+                        "(connectionId=\(connectionId), conversationId=\(grant.conversationId), " +
+                        "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+                    )
                 }
             }
-        } else if !uniqueConversationIds.isEmpty {
+        } else if !affectedGrants.isEmpty {
             let conversationCount = uniqueConversationIds.count
             Log.warning(
                 "[CloudConnections] disconnect had no grant writer injected; metadata for " +
@@ -189,11 +196,14 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                     do {
                         try await grantWriter.revokeGrant(
                             connectionId: grant.connectionId,
-                            from: grant.conversationId
+                            from: grant.conversationId,
+                            grantedToInboxId: grant.grantedToInboxId
                         )
                     } catch {
                         Log.warning(
-                            "[CloudConnections] failed to republish grants during refresh (connectionId=\(grant.connectionId), conversationId=\(grant.conversationId)): \(error.localizedDescription)"
+                            "[CloudConnections] failed to republish grants during refresh " +
+                            "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                            "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
                         )
                     }
                 }
@@ -277,6 +287,7 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                     try await eventWriter.sendRevoked(
                         providerId: providerId.rawValue,
                         capability: nil,
+                        grantedToInboxId: nil,
                         in: conversationId
                     )
                 } catch {

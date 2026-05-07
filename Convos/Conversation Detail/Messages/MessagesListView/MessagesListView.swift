@@ -31,15 +31,15 @@ struct MessagesListView: View {
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
     @State private var lastItemIndex: Int?
 
-    /// Stable verified-assistant display name derived from the conversation's
-    /// membership. Falls back through `isVerifiedAssistant` → `isAgent` so the
-    /// name doesn't flip to nil while attestation re-verification is in
-    /// progress.
-    private var verifiedAssistantName: String? {
-        if let verified = conversation.members.first(where: \.isVerifiedAssistant) {
-            return verified.displayName
-        }
-        return conversation.members.first(where: \.isAgent)?.displayName
+    /// Live agent display names keyed by inbox id, sourced from the
+    /// conversation's current members. Drives `.grantedAgent`-actor connection
+    /// event rendering so ProfileUpdate-driven renames propagate immediately.
+    private var agentNamesByInboxId: [String: String] {
+        Dictionary(
+            uniqueKeysWithValues: conversation.members
+                .filter { $0.isAgent }
+                .map { ($0.profile.inboxId, $0.displayName) }
+        )
     }
 
     var body: some View {
@@ -138,7 +138,7 @@ struct MessagesListView: View {
         case let .connectionEvent(_, summary, _):
             ConnectionEventSummaryView(
                 summary: summary,
-                verifiedAssistantName: verifiedAssistantName
+                agentNamesByInboxId: agentNamesByInboxId
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
 

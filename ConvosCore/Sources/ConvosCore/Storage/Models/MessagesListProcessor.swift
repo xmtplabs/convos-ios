@@ -67,24 +67,6 @@ public final class MessagesListProcessor: Sendable {
         }
         trackedMemberCount = max(0, trackedMemberCount)
 
-        // Resolve the verified-assistant displayName once for the whole pass.
-        // Used by `connection_event` summaries whose `actor` field is
-        // `.verifiedAssistant` — the formatter doesn't have conversation context,
-        // so the real name is filled in here. Prefer `memberProfiles` (carries
-        // verification state for every member) over iterating messages, since
-        // some agent-authored content types (`capabilityRequest`) are filtered
-        // out at the repo layer and never appear in `messages`.
-        var verifiedAssistantName: String? = memberProfiles.values
-            .first(where: \.isVerifiedAssistant)?
-            .name
-            .flatMap { $0.isEmpty ? nil : $0 }
-        if verifiedAssistantName == nil {
-            for msg in messages where msg.sender.isVerifiedAssistant {
-                verifiedAssistantName = msg.sender.displayName
-                break
-            }
-        }
-
         var items: [MessagesListItemType] = []
         items.reserveCapacity(messageCount)
 
@@ -165,11 +147,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(
-                    in: eventSummary,
-                    sender: msg.sender,
-                    verifiedAssistantName: verifiedAssistantName
-                )
+                let resolvedSummary = resolvingActor(in: eventSummary, sender: msg.sender)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -186,11 +164,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(
-                    in: resultSummary,
-                    sender: msg.sender,
-                    verifiedAssistantName: verifiedAssistantName
-                )
+                let resolvedSummary = resolvingActor(in: resultSummary, sender: msg.sender)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -213,11 +187,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(
-                    in: payloadSummary,
-                    sender: msg.sender,
-                    verifiedAssistantName: verifiedAssistantName
-                )
+                let resolvedSummary = resolvingActor(in: payloadSummary, sender: msg.sender)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -445,19 +415,15 @@ public final class MessagesListProcessor: Sendable {
     /// - `.messageSender` is resolved here using the message's own sender
     ///   snapshot. That snapshot is per-message and stable, so prepending at
     ///   processing time is fine.
-    /// - `.verifiedAssistant` is **not** resolved here. The view layer reads a
-    ///   live verified-assistant name from the conversation's membership
-    ///   (which is plumbed through the SwiftUI tree) and prepends it at
-    ///   render time. Resolving here would couple the rendered text to the
-    ///   per-emission `agentVerification` snapshot in memberProfiles, which
-    ///   flaps during periodic attestation re-verification and produced a
-    ///   visible flicker between "Assistant" and the agent's profile name.
+    /// - `.grantedAgent` is **not** resolved here. The renderer looks the
+    ///   `grantedToInboxId` up against the conversation's live members so
+    ///   ProfileUpdate-driven renames propagate without re-running the
+    ///   processor.
     /// - `nil` actor (legacy summary or no actor expected) is returned
     ///   unchanged.
     private static func resolvingActor(
         in summary: ConnectionEventSummary,
-        sender: ConversationMember,
-        verifiedAssistantName: String?
+        sender: ConversationMember
     ) -> ConnectionEventSummary {
         guard summary.actor == .messageSender else { return summary }
         let actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
@@ -466,7 +432,8 @@ public final class MessagesListProcessor: Sendable {
             text: "\(actorName) \(summary.text)",
             outcome: summary.outcome,
             icon: summary.icon,
-            actor: summary.actor
+            actor: summary.actor,
+            grantedToInboxId: summary.grantedToInboxId
         )
     }
 }

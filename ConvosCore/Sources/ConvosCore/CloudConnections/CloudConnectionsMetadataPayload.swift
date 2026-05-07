@@ -4,9 +4,16 @@ import Foundation
 ///
 /// Shape matches the runtime's expected format exactly. See:
 /// `runtime/convos-platform/skills/connections/scripts/connections.mjs`.
+///
+/// `grantedToInboxId` scopes the grant to a single agent within the conversation.
+/// XMTP group metadata is broadcast to every member, so any agent in the conversation
+/// can technically read every grant entry; the runtime's agent-ignorable rule filters
+/// to only entries where `grantedToInboxId == myInboxId`. iOS publishes one entry per
+/// (agent, connection, conversation) tuple so the runtime sees the right scope.
 public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
     public let id: String                    // grant identifier (grant_…)
     public let senderId: String               // XMTP inbox ID of the user who granted
+    public let grantedToInboxId: String       // XMTP inbox ID of the agent the grant authorizes
     public let service: String                // canonical service name, e.g. "google_calendar"
     public let provider: String               // e.g. "composio"
     public let scope: String                  // "conversation" for v0.1
@@ -17,6 +24,7 @@ public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
     public init(
         id: String,
         senderId: String,
+        grantedToInboxId: String,
         service: String,
         provider: String,
         scope: String = "conversation",
@@ -26,6 +34,7 @@ public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
     ) {
         self.id = id
         self.senderId = senderId
+        self.grantedToInboxId = grantedToInboxId
         self.service = service
         self.provider = provider
         self.scope = scope

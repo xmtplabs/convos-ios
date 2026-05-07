@@ -29,7 +29,9 @@ public final class XMTPInvocationListener: @unchecked Sendable {
         self.delivery = delivery
     }
 
-    /// Process a decoded XMTP message. No-ops for content types that aren't ours.
+    /// Process a decoded XMTP message. No-ops for content types that aren't ours. The
+    /// `senderInboxId` from the envelope is treated as the authoritative invoker — it
+    /// flows through to the manager as `invokerInboxId` for per-agent gating.
     public func processIncoming(message: DecodedMessage, conversationId: String) async {
         let encoded: EncodedContent
         do {
@@ -47,12 +49,20 @@ public final class XMTPInvocationListener: @unchecked Sendable {
             return
         }
 
-        await handle(invocation: invocation, conversationId: conversationId)
+        await handle(
+            invocation: invocation,
+            conversationId: conversationId,
+            invokerInboxId: message.senderInboxId
+        )
     }
 
     /// Visible for testing. Schema-version gate + manager routing, without the XMTP
     /// decoding step. Exercised by the public `processIncoming` after decoding.
-    internal func handle(invocation: ConnectionInvocation, conversationId: String) async {
+    internal func handle(
+        invocation: ConnectionInvocation,
+        conversationId: String,
+        invokerInboxId: String
+    ) async {
         if invocation.schemaVersion > ConnectionInvocation.currentSchemaVersion {
             let result = ConnectionInvocationResult(
                 invocationId: invocation.invocationId,
@@ -77,6 +87,10 @@ public final class XMTPInvocationListener: @unchecked Sendable {
         // Route through the manager's gating chain. The manager auto-delivers the result
         // via whatever `ConnectionDelivering` it was constructed with — so long as the
         // host passed `self.delivery` as that value, the agent gets its reply.
-        _ = await manager.handleInvocation(invocation, from: conversationId)
+        _ = await manager.handleInvocation(
+            invocation,
+            from: conversationId,
+            invokerInboxId: invokerInboxId
+        )
     }
 }

@@ -3,8 +3,16 @@ import GRDB
 @preconcurrency import XMTPiOS
 
 public protocol CloudConnectionGrantWriterProtocol: Sendable {
-    func grantConnection(_ connectionId: String, to conversationId: String) async throws
-    func revokeGrant(connectionId: String, from conversationId: String) async throws
+    func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws
+    func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws
 }
 
 final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unchecked Sendable {
@@ -25,7 +33,11 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         self.myProfileWriter = myProfileWriter
     }
 
-    func grantConnection(_ connectionId: String, to conversationId: String) async throws {
+    func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
         let connection = try await databaseReader.read { db in
             try DBCloudConnection.fetchOne(db, key: connectionId)
         }
@@ -40,6 +52,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             connectionId: connectionId,
             conversationId: conversationId,
             serviceId: connection.serviceId,
+            grantedToInboxId: grantedToInboxId,
             grantedAt: Date()
         )
 
@@ -58,12 +71,17 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         }
     }
 
-    func revokeGrant(connectionId: String, from conversationId: String) async throws {
+    func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
         let existing = try await databaseReader.read { db in
             try DBCloudConnectionGrant
                 .filter(
                     DBCloudConnectionGrant.Columns.connectionId == connectionId
                         && DBCloudConnectionGrant.Columns.conversationId == conversationId
+                        && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
                 )
                 .fetchOne(db)
         }
@@ -78,7 +96,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         let targetGrants = try await projectedGrants(
             for: conversationId,
             addingOrReplacing: nil,
-            removing: (connectionId: connectionId, conversationId: conversationId)
+            removing: (connectionId: connectionId, conversationId: conversationId, grantedToInboxId: grantedToInboxId)
         )
         try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
 
@@ -87,6 +105,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 .filter(
                     DBCloudConnectionGrant.Columns.connectionId == connectionId
                         && DBCloudConnectionGrant.Columns.conversationId == conversationId
+                        && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
                 )
                 .deleteAll(db)
         }
@@ -95,7 +114,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     private func projectedGrants(
         for conversationId: String,
         addingOrReplacing addition: DBCloudConnectionGrant?,
-        removing removal: (connectionId: String, conversationId: String)?
+        removing removal: (connectionId: String, conversationId: String, grantedToInboxId: String)?
     ) async throws -> [DBCloudConnectionGrant] {
         let existing = try await databaseReader.read { db in
             try DBCloudConnectionGrant
@@ -108,12 +127,14 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             projected.removeAll {
                 $0.connectionId == removal.connectionId
                     && $0.conversationId == removal.conversationId
+                    && $0.grantedToInboxId == removal.grantedToInboxId
             }
         }
         if let addition {
             projected.removeAll {
                 $0.connectionId == addition.connectionId
                     && $0.conversationId == addition.conversationId
+                    && $0.grantedToInboxId == addition.grantedToInboxId
             }
             projected.append(addition)
         }
@@ -141,8 +162,9 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             // stored serviceId is a Composio toolkit slug, translate back to canonical.
             let canonicalService = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: conn.serviceId)
             return CloudConnectionGrantEntry(
-                id: "grant_\(grant.connectionId)_\(conversationId)",
+                id: "grant_\(grant.connectionId)_\(conversationId)_\(grant.grantedToInboxId)",
                 senderId: senderId,
+                grantedToInboxId: grant.grantedToInboxId,
                 service: canonicalService,
                 provider: conn.provider,
                 scope: "conversation",

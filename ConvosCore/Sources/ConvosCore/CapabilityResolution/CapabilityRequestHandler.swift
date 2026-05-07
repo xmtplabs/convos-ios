@@ -31,10 +31,12 @@ public struct CapabilityRequestHandler: Sendable {
 
         // Look at existing resolutions on this subject so we can short-circuit to the
         // verb-consent card when the answer is already implied by a previous verb's
-        // resolution.
+        // resolution. Scoped to the asking agent — another agent's resolutions don't
+        // imply this agent's consent.
         let existingResolutions = await Self.resolutionsForSubject(
             subject: request.subject,
             conversationId: conversationId,
+            grantedToInboxId: request.askerInboxId,
             resolver: resolver
         )
 
@@ -88,7 +90,8 @@ public struct CapabilityRequestHandler: Sendable {
     }
 
     /// User tapped Approve. Validates the selection against the cardinality rules,
-    /// persists it through the resolver, and returns the `.approved` result envelope.
+    /// persists it through the resolver scoped to the asking agent, and returns the
+    /// `.approved` result envelope.
     public func commit(
         request: CapabilityRequest,
         approvedProviderIds: Set<ProviderID>,
@@ -99,7 +102,8 @@ public struct CapabilityRequestHandler: Sendable {
             approvedProviderIds,
             subject: request.subject,
             capability: request.capability,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: request.askerInboxId
         )
         return CapabilityRequestResult(
             requestId: request.requestId,
@@ -159,6 +163,7 @@ public struct CapabilityRequestHandler: Sendable {
     private static func resolutionsForSubject(
         subject: CapabilitySubject,
         conversationId: String,
+        grantedToInboxId: String,
         resolver: any CapabilityResolver
     ) async -> [ConnectionCapability: Set<ProviderID>] {
         var result: [ConnectionCapability: Set<ProviderID>] = [:]
@@ -166,7 +171,8 @@ public struct CapabilityRequestHandler: Sendable {
             let providers = await resolver.resolution(
                 subject: subject,
                 capability: verb,
-                conversationId: conversationId
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
             )
             if !providers.isEmpty {
                 result[verb] = providers

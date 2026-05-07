@@ -168,7 +168,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case let .connectionEvent(_, summary, _):
                     ConnectionEventSummaryView(
                         summary: summary,
-                        verifiedAssistantName: config.verifiedAssistantName
+                        agentNamesByInboxId: config.agentNamesByInboxId
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)

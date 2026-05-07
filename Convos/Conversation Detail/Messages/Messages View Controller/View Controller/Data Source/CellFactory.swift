@@ -29,11 +29,11 @@ struct CellConfig {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
-    /// Live verified-assistant display name; consumed by
+    /// Live agent display names keyed by inbox id. Consumed by
     /// `ConnectionEventSummaryView` to prepend the actor on
-    /// `.verifiedAssistant`-actor summaries at render time. Sourced from
-    /// `ConversationViewModel.verifiedAssistantName`.
-    let verifiedAssistantName: String?
+    /// `.grantedAgent`-actor summaries at render time so ProfileUpdate-driven
+    /// renames propagate without re-running the messages-list processor.
+    let agentNamesByInboxId: [String: String]
 }
 
 // swiftlint:disable force_cast
