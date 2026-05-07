@@ -104,7 +104,8 @@ struct ConvosApp: App {
         let viewModel = ConversationsViewModel(
             session: convos.session,
             navigator: navigator,
-            navState: navState
+            navState: navState,
+            metricsDelegate: metricsDelegate
         )
         self.conversationsViewModel = viewModel
         navState.conversationLookup = { [weak viewModel] id in

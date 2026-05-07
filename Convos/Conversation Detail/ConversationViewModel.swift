@@ -635,14 +635,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             conversation: conversation,
             session: session,
             messagingService: messagingService,
-            backgroundUploadManager: backgroundUploadManager
+            backgroundUploadManager: backgroundUploadManager,
+            metricsDelegate: CollectorDelegate()
         )
     }
 
     static func createSync(
         conversation: Conversation,
         session: any SessionManagerProtocol,
-        metricsDelegate: CollectorDelegate = CollectorDelegate()
+        metricsDelegate: CollectorDelegate
     ) -> ConversationViewModel {
         let messagingService = session.messagingServiceSync()
         return ConversationViewModel(
@@ -659,7 +660,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         messagingService: any MessagingServiceProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
         applyGlobalDefaultsForNewConversation: Bool = false,
-        metricsDelegate: CollectorDelegate = CollectorDelegate()
+        metricsDelegate: CollectorDelegate
     ) {
         let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
@@ -774,7 +775,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         conversationStateManager: any ConversationStateManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
         applyGlobalDefaultsForNewConversation: Bool = false,
-        metricsDelegate: CollectorDelegate = CollectorDelegate()
+        metricsDelegate: CollectorDelegate
     ) {
         self.conversation = conversation
         self.session = session
@@ -1907,10 +1908,10 @@ extension ConversationViewModel {
         let metricStartedAt: Date = Date()
         let metricMemberCount: Int = conversation.members.count
         let metricHasAssistant: Bool = conversation.hasAgent
-        var metricAttachmentCount: Int = 0
-        if selectedAttachmentImage != nil { metricAttachmentCount += 1 }
-        if selectedVideoURL != nil { metricAttachmentCount += 1 }
-        if pendingFileAttachment != nil { metricAttachmentCount += 1 }
+        var metricAttachmentTypes: [String] = []
+        if selectedAttachmentImage != nil { metricAttachmentTypes.append("image/jpeg") }
+        if selectedVideoURL != nil { metricAttachmentTypes.append("video/mp4") }
+        if let pendingFileAttachment { metricAttachmentTypes.append(pendingFileAttachment.mimeType) }
 
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
@@ -1981,7 +1982,7 @@ extension ConversationViewModel {
             recordSentMessageMetric(
                 startedAt: metricStartedAt,
                 memberCount: metricMemberCount,
-                attachmentCount: metricAttachmentCount,
+                attachmentTypes: metricAttachmentTypes,
                 hasText: hasText,
                 hasAssistant: metricHasAssistant,
                 isSuccess: sendSucceeded
@@ -1992,7 +1993,7 @@ extension ConversationViewModel {
     private func recordSentMessageMetric(
         startedAt: Date,
         memberCount: Int,
-        attachmentCount: Int,
+        attachmentTypes: [String],
         hasText: Bool,
         hasAssistant: Bool,
         isSuccess: Bool
@@ -2003,7 +2004,7 @@ extension ConversationViewModel {
             await metrics.actions.sentMessage(
                 sendingTime: sendingTime,
                 memberCount: memberCount,
-                attachmentCount: attachmentCount,
+                attachmentTypes: attachmentTypes,
                 hasText: hasText,
                 hasAssistant: hasAssistant,
                 isSuccess: isSuccess
@@ -2426,6 +2427,15 @@ extension ConversationViewModel {
         let urlString = invite.inviteURLString
         guard !urlString.isEmpty else { return }
         UIPasteboard.general.string = urlString
+        let metrics: CoreMetrics = coreMetrics
+        let memberCount: Int = conversation.members.count
+        let hasAssistant: Bool = conversation.hasAgent
+        Task {
+            await metrics.actions.invitedToConversation(
+                memberCount: memberCount,
+                hasAssistant: hasAssistant
+            )
+        }
     }
 
     /// Adds the given inboxIds as members of this conversation via the
@@ -2450,6 +2460,8 @@ extension ConversationViewModel {
         let conversationId = conversation.id
         let requestId = UUID().uuidString
         let taskId = requestId
+        let metrics: CoreMetrics = coreMetrics
+        let memberCount: Int = conversation.members.count
         assistantJoinTask = Task { [weak self, session] in
             await Self.broadcastAssistantJoinRequest(
                 status: .pending, requestId: requestId,
@@ -2488,6 +2500,7 @@ extension ConversationViewModel {
                 }
                 return
             }
+            await metrics.actions.addedAssistant(memberCount: memberCount)
             await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
         }
         assistantJoinTaskId = taskId
@@ -2722,13 +2735,11 @@ extension ConversationViewModel {
 
 extension ConversationViewModel {
     static var mock: ConversationViewModel {
-        let mockConversation: Conversation = .mock()
-        let mockSession: any SessionManagerProtocol = MockInboxesService()
-        let mockMessaging: any MessagingServiceProtocol = MockMessagingService()
-        return ConversationViewModel(
-            conversation: mockConversation,
-            session: mockSession,
-            messagingService: mockMessaging
+        return .init(
+            conversation: .mock(),
+            session: MockInboxesService(),
+            messagingService: MockMessagingService(),
+            metricsDelegate: CollectorDelegate()
         )
     }
 }

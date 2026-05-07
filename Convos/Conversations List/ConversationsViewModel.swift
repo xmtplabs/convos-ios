@@ -168,16 +168,29 @@ final class ConversationsViewModel {
 
     let appSettingsViewModel: AppSettingsViewModel
 
+    @ObservationIgnored
+    let metricsDelegate: CollectorDelegate
+    @ObservationIgnored
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(delegate: metricsDelegate)
+    @ObservationIgnored
+    private var didIdentifyUser: Bool = false
+    @ObservationIgnored
+    private var identifyTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var userPropertiesTask: Task<Void, Never>?
+
     init(
         session: any SessionManagerProtocol,
         navigator: any ConversationsNavigator,
         navState: ConversationsNavigatorImpl,
-        horizontalSizeClass: UserInterfaceSizeClass? = nil
+        horizontalSizeClass: UserInterfaceSizeClass? = nil,
+        metricsDelegate: CollectorDelegate = CollectorDelegate()
     ) {
         self.session = session
         self.navigator = navigator
         self.navState = navState
         self.horizontalSizeClass = horizontalSizeClass
+        self.metricsDelegate = metricsDelegate
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
         self.appSettingsViewModel = AppSettingsViewModel(session: session)
@@ -200,6 +213,7 @@ final class ConversationsViewModel {
             self.conversationsCount = 0
         }
         observe()
+        identifyAndUpdateUserPropertiesIfNeeded()
     }
 
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
@@ -394,6 +408,8 @@ final class ConversationsViewModel {
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
                 }
+
+                self.scheduleUserPropertiesUpdate()
             }
             .store(in: &cancellables)
 
@@ -536,6 +552,73 @@ final class ConversationsViewModel {
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func identifyAndUpdateUserPropertiesIfNeeded() {
+        guard !didIdentifyUser else { return }
+        didIdentifyUser = true
+
+        identifyTask?.cancel()
+        let metrics: CoreMetrics = coreMetrics
+        let messagingService: AnyMessagingService = session.messagingService()
+        identifyTask = Task { [weak self] in
+            do {
+                let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+                guard !Task.isCancelled else { return }
+                let inboxId = inboxResult.client.inboxId
+                metrics.identify(userId: inboxId)
+                await self?.sendCurrentUserProperties()
+            } catch {
+                Log.warning("Metrics identify failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func scheduleUserPropertiesUpdate() {
+        guard didIdentifyUser else { return }
+        userPropertiesTask?.cancel()
+        userPropertiesTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await self?.sendCurrentUserProperties()
+        }
+    }
+
+    private func sendCurrentUserProperties() async {
+        let properties: UserProperties = currentUserProperties()
+        await coreMetrics.updateUserProperties(properties: properties)
+    }
+
+    private func currentUserProperties() -> UserProperties {
+        let now: Date = Date()
+        let oneDay: TimeInterval = 60 * 60 * 24
+        let sevenDays: TimeInterval = oneDay * 7
+        let groupConversations: [Conversation] = conversations.filter { $0.kind == .group }
+        let conversationCount: Int = groupConversations.count
+        let assistantConversationCount: Int = groupConversations.filter { $0.hasAgent }.count
+        let activeWithin24Hours: [Conversation] = groupConversations.filter {
+            guard let lastAt = $0.lastMessage?.createdAt else { return false }
+            return now.timeIntervalSince(lastAt) <= oneDay
+        }
+        let conversationCount24Hours: Int = activeWithin24Hours.count
+        let conversationCount7Days: Int = groupConversations.filter {
+            guard let lastAt = $0.lastMessage?.createdAt else { return false }
+            return now.timeIntervalSince(lastAt) <= sevenDays
+        }.count
+        let maxAgeSecs: TimeInterval = activeWithin24Hours
+            .map { now.timeIntervalSince($0.createdAt) }
+            .max() ?? 0
+        let maxActiveConvoAge: Float = Float(maxAgeSecs / oneDay)
+        return UserProperties(
+            hasMessagedAssistant: false,
+            lastAssistantMessageTimestamp: nil,
+            contactCount: 0,
+            conversationCount: conversationCount,
+            assistantConversationCount: assistantConversationCount,
+            conversationCount24Hours: conversationCount24Hours,
+            conversationCount7Days: conversationCount7Days,
+            maxActiveConvoAge: maxActiveConvoAge
+        )
     }
 
     func scheduleConversationExplosion(_ conversation: Conversation, at expiresAt: Date) {

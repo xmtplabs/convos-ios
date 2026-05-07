@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import PhotosUI
 import SwiftUI
 

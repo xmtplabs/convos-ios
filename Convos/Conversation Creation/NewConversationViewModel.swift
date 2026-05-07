@@ -118,6 +118,14 @@ class NewConversationViewModel: Identifiable {
 
     // MARK: - Private
 
+    private let metricsDelegate: CollectorDelegate
+    @ObservationIgnored
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(delegate: metricsDelegate)
+    @ObservationIgnored
+    private var verificationStartedAt: Date?
+    @ObservationIgnored
+    private var didReportTerminalConversationMetric: Bool = false
+    private let conversationSource: ConversationSource?
     private var conversationStateManager: (any ConversationStateManagerProtocol)?
     private var acquiredMessagingService: AnyMessagingService?
     /// Agent template id to provision into the conversation once it
@@ -171,6 +179,7 @@ class NewConversationViewModel: Identifiable {
         self.qrScannerViewModel = QRScannerViewModel()
         let navState = NewConversationNavigatorImpl()
         self.navState = navState
+        self.metricsDelegate = metricsDelegate
         self.navigator = NewConversationCollector(instance: navState, delegate: metricsDelegate)
 
         if case .newConversationWithTemplate(let templateId) = mode {
@@ -183,12 +192,14 @@ class NewConversationViewModel: Identifiable {
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
             self.allowsDismissingScanner = true
+            self.conversationSource = nil
 
         case .scanner:
             self.autoCreateConversation = false
             self.startedWithFullscreenScanner = true
             self.showingFullScreenScanner = true
             self.allowsDismissingScanner = true
+            self.conversationSource = .scan
 
         // `.existingConversation` and `.joinInvite` both open / join
         // an existing chat without creating one - same scanner-off
@@ -198,6 +209,7 @@ class NewConversationViewModel: Identifiable {
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
             self.allowsDismissingScanner = true
+            self.conversationSource = .url
         }
 
         if case .newConversationWithMembers(let ids) = mode {
@@ -228,6 +240,7 @@ class NewConversationViewModel: Identifiable {
         self.qrScannerViewModel = QRScannerViewModel()
         let navState = NewConversationNavigatorImpl()
         self.navState = navState
+        self.metricsDelegate = metricsDelegate
         self.navigator = NewConversationCollector(instance: navState, delegate: metricsDelegate)
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -238,6 +251,7 @@ class NewConversationViewModel: Identifiable {
         self.isExistingConversation = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
+        self.conversationSource = showingFullScreenScanner ? .scan : nil
 
         configureWithMessagingService(
             messagingService,
@@ -327,7 +341,8 @@ class NewConversationViewModel: Identifiable {
             session: session,
             messagingService: mockService,
             conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: false
+            applyGlobalDefaultsForNewConversation: false,
+            metricsDelegate: metricsDelegate
         )
         convoVM.showsInfoView = !startedWithFullscreenScanner
         armSeededExpectationIfNeeded(on: convoVM, for: draftConversation)
@@ -417,7 +432,8 @@ class NewConversationViewModel: Identifiable {
             session: session,
             messagingService: messagingService,
             conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: autoCreateConversation
+            applyGlobalDefaultsForNewConversation: autoCreateConversation,
+            metricsDelegate: metricsDelegate
         )
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false
@@ -764,6 +780,9 @@ extension NewConversationViewModel {
             conversationViewModel?.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
+            if verificationStartedAt == nil {
+                verificationStartedAt = Date()
+            }
 
         case .validated(let invite, _, _, _):
             cachedInviteCode = try? invite.toURLSafeSlug()
@@ -814,6 +833,8 @@ extension NewConversationViewModel {
                 conversationViewModel?.requestAgentJoin(templateId: pendingAgentTemplateId)
             }
 
+            reportTerminalConversationMetric(for: result.origin)
+
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
             handleJoinFailedState(error)
@@ -821,6 +842,42 @@ extension NewConversationViewModel {
         case .error(let error):
             consecutiveFailureCount += 1
             handleErrorState(error)
+        }
+    }
+
+    private func reportTerminalConversationMetric(for origin: ConversationReadyResult.Origin) {
+        guard !didReportTerminalConversationMetric else { return }
+        let metrics: CoreMetrics = coreMetrics
+        let memberCount: Int = conversationViewModel?.conversation.members.count ?? 0
+        let hasAssistant: Bool = conversationViewModel?.conversation.hasAgent ?? false
+
+        switch origin {
+        case .created:
+            didReportTerminalConversationMetric = true
+            Task {
+                await metrics.actions.startedConversation()
+            }
+
+        case .joined:
+            didReportTerminalConversationMetric = true
+            let verificationDuration: Float
+            if let startedAt = verificationStartedAt {
+                verificationDuration = Float(Date().timeIntervalSince(startedAt))
+            } else {
+                verificationDuration = 0
+            }
+            let source: ConversationSource = conversationSource ?? .url
+            Task {
+                await metrics.actions.joinedConversation(
+                    verificationDuration: verificationDuration,
+                    memberCount: memberCount,
+                    hasAssistant: hasAssistant,
+                    source: source
+                )
+            }
+
+        case .existing:
+            return
         }
     }
 
