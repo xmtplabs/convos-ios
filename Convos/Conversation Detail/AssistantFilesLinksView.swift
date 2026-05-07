@@ -45,6 +45,14 @@ class AssistantFilesLinksViewModel {
         self.repository = repository
     }
 
+    var hasAnyItems: Bool {
+        !files.isEmpty || !links.isEmpty
+    }
+
+    var isFiltering: Bool {
+        filter != .all || !searchText.isEmpty
+    }
+
     var filteredItems: [StuffItem] {
         let query = searchText.lowercased()
 
@@ -64,6 +72,11 @@ class AssistantFilesLinksViewModel {
 
         items.sort { $0.date > $1.date }
         return items
+    }
+
+    func clearFilters() {
+        filter = .all
+        searchText = ""
     }
 
     private func matches(file: AssistantFile, query: String) -> Bool {
@@ -99,37 +112,41 @@ struct AssistantFilesLinksView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.filteredItems.isEmpty {
-                emptyState
-            } else {
-                itemList
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.colorBackgroundRaisedSecondary)
+            .navigationTitle("Stuff")
+            .toolbarTitleDisplayMode(.large)
+            .safeAreaBar(edge: .bottom) {
+                StuffSearchBar(
+                    searchText: $viewModel.searchText,
+                    filter: $viewModel.filter
+                )
             }
-        }
-        .navigationTitle("Stuff")
-        .navigationBarTitleDisplayMode(.large)
-        .background(.colorBackgroundRaisedSecondary)
-        .safeAreaInset(edge: .bottom) {
-            StuffSearchBar(
-                searchText: $viewModel.searchText,
-                filter: $viewModel.filter
-            )
-        }
-        .task {
-            await viewModel.load()
-        }
-        .alert("File Unavailable", isPresented: Binding(
-            get: { viewModel.fileOpenError != nil },
-            set: { if !$0 { viewModel.fileOpenError = nil } }
-        )) {
-            Button("OK", role: .cancel) {
-                viewModel.fileOpenError = nil
+            .task {
+                await viewModel.load()
             }
-        } message: {
-            Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
+            .alert("File Unavailable", isPresented: Binding(
+                get: { viewModel.fileOpenError != nil },
+                set: { if !$0 { viewModel.fileOpenError = nil } }
+            )) {
+                Button("OK", role: .cancel) {
+                    viewModel.fileOpenError = nil
+                }
+            } message: {
+                Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.isLoading {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewModel.filteredItems.isEmpty {
+            emptyState
+        } else {
+            itemList
         }
     }
 
@@ -146,22 +163,36 @@ struct AssistantFilesLinksView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        VStack {
-            Spacer()
-            Text(emptyStateText)
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
-            Spacer()
+        if viewModel.isFiltering {
+            VStack {
+                Spacer()
+                FilteredEmptyStateView(message: filteredEmptyMessage) {
+                    viewModel.clearFilters()
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step6x)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack {
+                Spacer()
+                Text("Nothing here yet")
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var emptyStateText: String {
+    private var filteredEmptyMessage: String {
         if !viewModel.searchText.isEmpty { return "Nothing matches your search" }
         switch viewModel.filter {
-        case .all: return "Nothing here yet"
-        case .files: return "No files yet"
-        case .links: return "No links yet"
+        case .all: return "Nothing matches"
+        case .files: return "No files match"
+        case .links: return "No links match"
         }
     }
 
@@ -320,22 +351,24 @@ private struct StuffSearchBar: View {
     @Binding var filter: StuffFilter
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.colorTextSecondary)
-                TextField("Search", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("stuff-search-field")
+        GlassEffectContainer {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.colorTextSecondary)
+                    TextField("Search", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .accessibilityIdentifier("stuff-search-field")
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+                .glassEffect(.regular.interactive(), in: .capsule)
+
+                filterMenu
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .glassEffect(.regular.interactive(), in: .capsule)
-
-            filterMenu
+            .padding(.vertical, DesignConstants.Spacing.step2x)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.bottom, DesignConstants.Spacing.step2x)
     }
 
     private var filterMenu: some View {
