@@ -18,7 +18,7 @@ struct CellConfig {
     let onRetryAssistantJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
-    let onOpenFile: ((HydratedAttachment) -> Void)?
+    let onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onCopyInviteLink: () -> Void

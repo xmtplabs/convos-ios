@@ -27,7 +27,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var onTapUpdateMember: ((ConversationMember) -> Void)?
-    var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAssistantJoin: (() -> Void)?
@@ -119,8 +119,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapUpdateMember: { [weak self] member in
                 self?.onTapUpdateMember?(member)
             },
-            onOpenFile: { [weak self] attachment in
-                self?.onOpenFile?(attachment)
+            onOpenFile: { [weak self] attachment, message in
+                self?.onOpenFile?(attachment, message)
             },
             onRetryMessage: { [weak self] message in
                 self?.onRetryMessage?(message)

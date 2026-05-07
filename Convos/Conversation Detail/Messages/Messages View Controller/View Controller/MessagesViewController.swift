@@ -368,8 +368,8 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapUpdateMember = { [weak self] member in
             self?.onTapUpdateMember?(member)
         }
-        dataSource.onOpenFile = { [weak self] attachment in
-            self?.openFileAttachment(attachment)
+        dataSource.onOpenFile = { [weak self] attachment, message in
+            self?.openFileAttachment(attachment, from: message)
         }
         dataSource.onRetryMessage = { [weak self] message in
             self?.onRetryMessage?(message)
@@ -892,22 +892,17 @@ extension MessagesViewController: KeyboardListenerDelegate {
 // MARK: - File Attachment QuickLook
 
 extension MessagesViewController {
-    private func openFileAttachment(_ attachment: HydratedAttachment) {
+    private func openFileAttachment(_ attachment: HydratedAttachment, from message: AnyMessage) {
         Task {
             do {
                 let fileURL = try await loadFileForPreview(attachment)
                 await MainActor.run {
-                    if attachment.isMarkdownFile {
-                        presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
-                    } else if attachment.isHTMLFile {
-                        presentHTMLPreview(
-                            fileURL: fileURL,
-                            filename: attachment.filename ?? "Web Page",
-                            attachmentKey: attachment.key
-                        )
-                    } else {
-                        FileAttachmentQuickLookCoordinator.shared.present(fileURL: fileURL, from: self)
-                    }
+                    presentAttachmentPreview(
+                        attachment: attachment,
+                        fileURL: fileURL,
+                        sender: message.sender,
+                        sentAt: message.date
+                    )
                 }
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
@@ -923,25 +918,23 @@ extension MessagesViewController {
         }
     }
 
-    private func presentMarkdownPreview(fileURL: URL, filename: String) {
-        let preview = MarkdownAttachmentPreviewSheet(
+    private func presentAttachmentPreview(
+        attachment: HydratedAttachment,
+        fileURL: URL,
+        sender: ConversationMember,
+        sentAt: Date
+    ) {
+        let preview = AttachmentPreviewSheet(
+            attachment: attachment,
             fileURL: fileURL,
-            filename: filename
-        )
-        let controller = UIHostingController(rootView: preview)
-        controller.modalPresentationStyle = .pageSheet
-        if let sheet = controller.sheetPresentationController {
-            sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = false
-        }
-        present(controller, animated: true)
-    }
-
-    private func presentHTMLPreview(fileURL: URL, filename: String, attachmentKey: String) {
-        let preview = HTMLAttachmentPreviewSheet(
-            fileURL: fileURL,
-            filename: filename,
-            attachmentKey: attachmentKey
+            sender: sender,
+            sentAt: sentAt,
+            onTapSender: { [weak self] tappedSender in
+                guard let self else { return }
+                self.dismiss(animated: true) {
+                    self.onTapAvatar?(tappedSender)
+                }
+            }
         )
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
@@ -954,211 +947,6 @@ extension MessagesViewController {
 
     private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
         try await FileAttachmentLoader.loadFile(for: attachment)
-    }
-}
-
-private struct MarkdownAttachmentPreviewSheet: View {
-    let fileURL: URL
-    let filename: String
-    @Environment(\.dismiss) private var dismiss: DismissAction
-
-    @State private var htmlString: String?
-    @State private var errorMessage: String?
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if let htmlString {
-                    MarkdownWebView(html: htmlString)
-                        .ignoresSafeArea(edges: .bottom)
-                } else if let errorMessage {
-                    ContentUnavailableView("Preview Unavailable", systemImage: "doc.text", description: Text(errorMessage))
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .navigationTitle(filename)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    ShareLink(item: fileURL) {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    let action = { dismiss() }
-                    Button("Done", action: action)
-                }
-            }
-        }
-        .task {
-            await loadMarkdown()
-        }
-    }
-
-    private func loadMarkdown() async {
-        guard let markedJS = Self.loadMarkedJS() else {
-            errorMessage = "Markdown renderer is unavailable."
-            return
-        }
-        do {
-            let url = fileURL
-            let markdown = try await Task.detached {
-                try String(contentsOf: url, encoding: .utf8)
-            }.value
-            let encodedMarkdown = Data(markdown.utf8).base64EncodedString()
-            htmlString = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;" />
-            <style>
-                :root { color-scheme: light dark; }
-                body {
-                    font: -apple-system-body;
-                    font-family: -apple-system, system-ui, sans-serif;
-                    padding: 16px;
-                    line-height: 1.6;
-                    word-wrap: break-word;
-                    overflow-wrap: break-word;
-                }
-                h1 { font-size: 1.6em; margin-top: 0; }
-                h2 { font-size: 1.4em; }
-                h3 { font-size: 1.2em; }
-                code {
-                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                    font-size: 0.9em;
-                    background: rgba(128, 128, 128, 0.15);
-                    padding: 2px 5px;
-                    border-radius: 4px;
-                }
-                pre {
-                    background: rgba(128, 128, 128, 0.1);
-                    padding: 12px;
-                    border-radius: 8px;
-                    overflow-x: auto;
-                }
-                pre code {
-                    background: none;
-                    padding: 0;
-                }
-                blockquote {
-                    border-left: 3px solid rgba(128, 128, 128, 0.4);
-                    margin-left: 0;
-                    padding-left: 16px;
-                    color: rgba(128, 128, 128, 0.8);
-                }
-                img { max-width: 100%; height: auto; }
-                table {
-                    border-collapse: collapse;
-                    width: 100%;
-                }
-                th, td {
-                    border: 1px solid rgba(128, 128, 128, 0.3);
-                    padding: 8px;
-                    text-align: left;
-                }
-                a { color: #007AFF; }
-                @media (prefers-color-scheme: dark) {
-                    a { color: #0A84FF; }
-                }
-            </style>
-            <script>\(markedJS)</script>
-            </head>
-            <body data-markdown="\(encodedMarkdown)">
-            <div id="content"></div>
-            <script>
-                var encoded = document.body.getAttribute('data-markdown');
-                var decoded = atob(encoded);
-                var text = new TextDecoder().decode(Uint8Array.from(decoded, function(c) { return c.charCodeAt(0); }));
-                var renderer = { html: function(token) { return ''; } };
-                marked.use({ renderer: renderer });
-                var html = marked.parse(text);
-                var div = document.createElement('div');
-                div.innerHTML = html;
-                div.querySelectorAll('script, iframe, object, embed, form, input, textarea, button, select').forEach(function(el) { el.remove(); });
-                div.querySelectorAll('*').forEach(function(el) {
-                    el.getAttributeNames().filter(function(n) { return n.startsWith('on'); }).forEach(function(n) { el.removeAttribute(n); });
-                });
-                div.querySelectorAll('a').forEach(function(el) {
-                    var href = el.getAttribute('href');
-                    if (!href) {
-                        return;
-                    }
-                    try {
-                        var parsed = new URL(href, 'https://example.invalid');
-                        var scheme = parsed.protocol.toLowerCase();
-                        if (scheme !== 'http:' && scheme !== 'https:' && scheme !== 'mailto:') {
-                            el.removeAttribute('href');
-                        }
-                    } catch (e) {
-                        el.removeAttribute('href');
-                    }
-                });
-                document.getElementById('content').innerHTML = div.innerHTML;
-            </script>
-            </body>
-            </html>
-            """
-        } catch {
-            errorMessage = "This markdown file could not be loaded."
-        }
-    }
-
-    private static func loadMarkedJS() -> String? {
-        guard let url = Bundle.main.url(forResource: "marked.min", withExtension: "js"),
-              let js = try? String(contentsOf: url, encoding: .utf8) else {
-            return nil
-        }
-        return js
-    }
-}
-
-private struct MarkdownWebView: UIViewRepresentable {
-    let html: String
-
-    func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.navigationDelegate = context.coordinator
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        guard context.coordinator.loadedHTML != html else { return }
-        context.coordinator.loadedHTML = html
-        webView.loadHTMLString(html, baseURL: nil)
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        var loadedHTML: String?
-
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction
-        ) async -> WKNavigationActionPolicy {
-            guard navigationAction.navigationType == .linkActivated,
-                  let url = navigationAction.request.url else {
-                return .allow
-            }
-
-            guard let scheme = url.scheme?.lowercased(),
-                  ["http", "https", "mailto"].contains(scheme) else {
-                return .cancel
-            }
-
-            await UIApplication.shared.open(url)
-            return .cancel
-        }
     }
 }
 
