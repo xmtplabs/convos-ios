@@ -2,15 +2,37 @@ import ConvosCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum AssistantFilesLinksTab: String, CaseIterable {
-    case files = "Files"
+enum StuffFilter: String, CaseIterable, Identifiable {
+    case all = "All"
     case links = "Links"
+    case files = "Files"
+
+    var id: String { rawValue }
+}
+
+enum StuffItem: Identifiable {
+    case file(AssistantFile)
+    case link(AssistantLink)
+
+    var id: String {
+        switch self {
+        case .file(let file): return "file-\(file.id)"
+        case .link(let link): return "link-\(link.id)"
+        }
+    }
+
+    var date: Date {
+        switch self {
+        case .file(let file): return file.date
+        case .link(let link): return link.date
+        }
+    }
 }
 
 @MainActor
 @Observable
 class AssistantFilesLinksViewModel {
-    var selectedTab: AssistantFilesLinksTab = .files
+    var filter: StuffFilter = .all
     var searchText: String = ""
     var files: [AssistantFile] = []
     var links: [AssistantLink] = []
@@ -23,19 +45,36 @@ class AssistantFilesLinksViewModel {
         self.repository = repository
     }
 
-    var filteredFiles: [AssistantFile] {
-        guard !searchText.isEmpty else { return files }
+    var filteredItems: [StuffItem] {
         let query = searchText.lowercased()
-        return files.filter { $0.displayName.lowercased().contains(query) }
+
+        var items: [StuffItem] = []
+
+        if filter == .all || filter == .files {
+            for file in files where matches(file: file, query: query) {
+                items.append(.file(file))
+            }
+        }
+
+        if filter == .all || filter == .links {
+            for link in links where matches(link: link, query: query) {
+                items.append(.link(link))
+            }
+        }
+
+        items.sort { $0.date > $1.date }
+        return items
     }
 
-    var filteredLinks: [AssistantLink] {
-        guard !searchText.isEmpty else { return links }
-        let query = searchText.lowercased()
-        return links.filter {
-            $0.displayTitle.lowercased().contains(query)
-            || $0.url.lowercased().contains(query)
-        }
+    private func matches(file: AssistantFile, query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        return file.displayName.lowercased().contains(query)
+    }
+
+    private func matches(link: AssistantLink, query: String) -> Bool {
+        guard !query.isEmpty else { return true }
+        return link.displayTitle.lowercased().contains(query)
+            || link.url.lowercased().contains(query)
     }
 
     func load() async {
@@ -60,47 +99,25 @@ struct AssistantFilesLinksView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $viewModel.selectedTab) {
-                ForEach(AssistantFilesLinksTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.colorTextSecondary)
-                TextField("Search", text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("files-links-search-field")
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(Color.colorFillMinimal)
-            )
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-
+        Group {
             if viewModel.isLoading {
-                Spacer()
                 ProgressView()
-                Spacer()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.filteredItems.isEmpty {
+                emptyState
             } else {
-                switch viewModel.selectedTab {
-                case .files:
-                    filesTab
-                case .links:
-                    linksTab
-                }
+                itemList
             }
         }
-        .navigationTitle("Files & Links")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Stuff")
+        .navigationBarTitleDisplayMode(.large)
         .background(.colorBackgroundRaisedSecondary)
+        .safeAreaInset(edge: .bottom) {
+            StuffSearchBar(
+                searchText: $viewModel.searchText,
+                filter: $viewModel.filter
+            )
+        }
         .task {
             await viewModel.load()
         }
@@ -116,39 +133,45 @@ struct AssistantFilesLinksView: View {
         }
     }
 
-    @ViewBuilder
-    private var filesTab: some View {
-        if viewModel.filteredFiles.isEmpty {
-            emptyState(text: viewModel.searchText.isEmpty ? "No files yet" : "No files match your search")
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(viewModel.filteredFiles) { file in
-                        fileRow(file)
-                        Divider()
-                            .padding(.leading, 80.0)
-                    }
+    private var itemList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(viewModel.filteredItems) { item in
+                    row(for: item)
+                    Divider()
+                        .padding(.leading, Constant.dividerInset)
                 }
-                .padding(.top, DesignConstants.Spacing.step2x)
             }
+            .padding(.top, DesignConstants.Spacing.step2x)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            Text(emptyStateText)
+                .font(.body)
+                .foregroundStyle(.colorTextSecondary)
+            Spacer()
+        }
+    }
+
+    private var emptyStateText: String {
+        if !viewModel.searchText.isEmpty { return "Nothing matches your search" }
+        switch viewModel.filter {
+        case .all: return "Nothing here yet"
+        case .files: return "No files yet"
+        case .links: return "No links yet"
         }
     }
 
     @ViewBuilder
-    private var linksTab: some View {
-        if viewModel.filteredLinks.isEmpty {
-            emptyState(text: viewModel.searchText.isEmpty ? "No links yet" : "No links match your search")
-        } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(viewModel.filteredLinks) { link in
-                        linkRow(link)
-                        Divider()
-                            .padding(.leading, 80.0)
-                    }
-                }
-                .padding(.top, DesignConstants.Spacing.step2x)
-            }
+    private func row(for item: StuffItem) -> some View {
+        switch item {
+        case .file(let file):
+            fileRow(file)
+        case .link(let link):
+            linkRow(link)
         }
     }
 
@@ -175,47 +198,31 @@ struct AssistantFilesLinksView: View {
             return
         }
         return Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                fileThumbnail(file)
-                    .frame(width: 56.0, height: 56.0)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
-
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(file.displayName)
-                        .font(.body)
-                        .foregroundStyle(.colorTextPrimary)
-                        .lineLimit(1)
-
-                    Text(fileSubtitle(file))
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.colorTextSecondary)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-            .contentShape(Rectangle())
+            StuffRowContent(
+                thumbnail: { fileThumbnail(file) },
+                title: file.displayName,
+                subtitle: relativeDate(for: file.date),
+                trailingSymbol: "doc"
+            )
         }
         .buttonStyle(.plain)
     }
 
-    private func fileSubtitle(_ file: AssistantFile) -> String {
-        var parts: [String] = []
-        if let mimeType = file.mimeType,
-           let utType = UTType(mimeType: mimeType),
-           let ext = utType.preferredFilenameExtension {
-            parts.append(ext.uppercased())
-        } else if let ext = (file.filename as NSString?)?.pathExtension, !ext.isEmpty {
-            parts.append(ext.uppercased())
+    private func linkRow(_ link: AssistantLink) -> some View {
+        let action = {
+            if let url = link.resolvedURL {
+                UIApplication.shared.open(url)
+            }
         }
-        parts.append(file.formattedDate)
-        return parts.joined(separator: " · ")
+        return Button(action: action) {
+            StuffRowContent(
+                thumbnail: { linkThumbnail(link) },
+                title: link.displayTitle,
+                subtitle: relativeDate(for: link.date),
+                trailingSymbol: "globe"
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -234,42 +241,6 @@ struct AssistantFilesLinksView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
         }
-    }
-
-    private func linkRow(_ link: AssistantLink) -> some View {
-        let action = {
-            if let url = link.resolvedURL {
-                UIApplication.shared.open(url)
-            }
-        }
-        return Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                linkThumbnail(link)
-                    .frame(width: 56.0, height: 56.0)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
-
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(link.displayTitle)
-                        .font(.body)
-                        .foregroundStyle(.colorTextPrimary)
-                        .lineLimit(1)
-
-                    Text(link.displayHost)
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Image(systemName: "safari")
-                    .foregroundStyle(.colorTextSecondary)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -294,13 +265,98 @@ struct AssistantFilesLinksView: View {
             }
     }
 
-    private func emptyState(text: String) -> some View {
-        VStack {
-            Spacer()
-            Text(text)
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
-            Spacer()
+    private func relativeDate(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        if let days = calendar.dateComponents([.day], from: date, to: .now).day, (1..<7).contains(days) {
+            return "\(days)d ago"
         }
+        return date.formatted(.dateTime.month(.abbreviated).day().year(.twoDigits))
+    }
+
+    private enum Constant {
+        static let dividerInset: CGFloat = 80.0
+    }
+}
+
+private struct StuffRowContent<Thumbnail: View>: View {
+    @ViewBuilder let thumbnail: () -> Thumbnail
+    let title: String
+    let subtitle: String
+    let trailingSymbol: String
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            thumbnail()
+                .frame(width: 56.0, height: 56.0)
+                .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Image(systemName: trailingSymbol)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct StuffSearchBar: View {
+    @Binding var searchText: String
+    @Binding var filter: StuffFilter
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.colorTextSecondary)
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("stuff-search-field")
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .glassEffect(.regular.interactive(), in: .capsule)
+
+            filterMenu
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.bottom, DesignConstants.Spacing.step2x)
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            ForEach(StuffFilter.allCases) { option in
+                let action = { filter = option }
+                Button(action: action) {
+                    if option == filter {
+                        Label(option.rawValue, systemImage: "checkmark")
+                    } else {
+                        Text(option.rawValue)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: 48.0, height: 48.0)
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
+        .accessibilityLabel("Filter")
+        .accessibilityIdentifier("stuff-filter-button")
     }
 }
