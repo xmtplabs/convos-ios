@@ -1909,9 +1909,13 @@ extension ConversationViewModel {
         let metricMemberCount: Int = conversation.members.count
         let metricHasAssistant: Bool = conversation.hasAgent
         var metricAttachmentTypes: [String] = []
-        if selectedAttachmentImage != nil { metricAttachmentTypes.append("image/jpeg") }
-        if selectedVideoURL != nil { metricAttachmentTypes.append("video/mp4") }
-        if let pendingFileAttachment { metricAttachmentTypes.append(pendingFileAttachment.mimeType) }
+        for attachment in pendingMediaAttachments {
+            switch attachment {
+            case .photo: metricAttachmentTypes.append("image/jpeg")
+            case .video: metricAttachmentTypes.append("video/mp4")
+            case .file(let file): metricAttachmentTypes.append(file.mimeType)
+            }
+        }
 
         let prevMessageText = messageText
         let replyTarget = replyingToMessage

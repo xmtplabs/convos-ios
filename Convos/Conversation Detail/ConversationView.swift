@@ -109,8 +109,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
-            onVideoSelected: viewModel.onVideoSelected(_:),
-            onFileSelected: viewModel.onFileSelected(url:filename:mimeType:fileSize:),
+            onPhotoSelected: viewModel.addPhotoAttachment(_:),
+            onVideoSelected: viewModel.addVideoAttachment(url:),
+            onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
             onAboutAssistants: { viewModel.navigator.present(assistantInfo: AssistantInfoNavigatorArgs()) },
             onAgentOutOfCredits: { viewModel.navigator.present(processingPowerInfo: ProcessingPowerInfoNavigatorArgs()) },
             onTapUpdateMember: { member in

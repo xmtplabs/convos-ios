@@ -211,11 +211,12 @@ public final class ConfigManager: @unchecked Sendable {
             return nil
         }
         return name
-        
-    /// PostHog ingestion host from config.json. Same value across environments today,
-    /// but kept in config.json so a regional move is a one-line change per env.
+    }
+
+    /// PostHog ingestion host from config.json. Same value across environments today
     public var posthogHost: String? {
-        config["posthogHost"] as? String
+        // an absent posthog host simply does not report metrics events
+        return config["posthogHost"] as? String
     }
 
     public var bundleIdentifier: String {
