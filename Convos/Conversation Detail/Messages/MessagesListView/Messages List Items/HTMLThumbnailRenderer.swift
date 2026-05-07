@@ -123,7 +123,7 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
         self.completion = completion
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak webView] in
             guard let self, !self.hasResumed, let webView else {
                 self?.resume(image: nil)
@@ -140,14 +140,14 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
         }
     }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
         Log.error("HTMLThumbnailRenderer load failed: \(error)")
         resume(image: nil)
     }
 
     func webView(
         _ webView: WKWebView,
-        didFailProvisionalNavigation navigation: WKNavigation!,
+        didFailProvisionalNavigation navigation: WKNavigation?,
         withError error: Error
     ) {
         Log.error("HTMLThumbnailRenderer provisional load failed: \(error)")
