@@ -57,6 +57,7 @@ struct MessagesGroupItemView: View {
                     shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
+                    onOpenFile: onOpenFile,
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden,
                     parentAudioTranscriptText: parentAudioTranscriptText

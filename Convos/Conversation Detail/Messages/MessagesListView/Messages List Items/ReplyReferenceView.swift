@@ -11,6 +11,7 @@ struct ReplyReferenceView: View {
     let shouldBlurPhotos: Bool
     var onTapAvatar: (() -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
+    var onOpenFile: ((HydratedAttachment) -> Void)?
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var parentAudioTranscriptText: String?
@@ -103,8 +104,23 @@ struct ReplyReferenceView: View {
 
             if let attachment = parentAttachment, attachment.mediaType == .audio {
                 ReplyReferenceAudioPreview(attachment: attachment, transcriptText: parentAudioTranscriptText)
+            } else if let attachment = parentAttachment, attachment.isHTMLFile {
+                if let onOpenFile {
+                    let tap: () -> Void = { onOpenFile(attachment) }
+                    ReplyReferenceHTMLPreview(attachment: attachment, onTap: tap)
+                } else {
+                    ReplyReferenceHTMLPreview(attachment: attachment, onTap: {})
+                }
             } else if let attachment = parentAttachment, attachment.mediaType == .file {
-                ReplyReferenceFileBubble(attachment: attachment)
+                if let onOpenFile {
+                    let tap: () -> Void = { onOpenFile(attachment) }
+                    Button(action: tap) {
+                        ReplyReferenceFileBubble(attachment: attachment)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    ReplyReferenceFileBubble(attachment: attachment)
+                }
             } else if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
@@ -505,6 +521,55 @@ private struct ReplyReferenceLinkPreview: View {
                     ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
                     cachedImage = image
                 }
+            }
+        }
+    }
+}
+
+// MARK: - HTML Reply Preview
+
+private struct ReplyReferenceHTMLPreview: View {
+    let attachment: HydratedAttachment
+    let onTap: () -> Void
+
+    @State private var loadedImage: UIImage?
+
+    private static let maxHeight: CGFloat = 80.0
+
+    init(attachment: HydratedAttachment, onTap: @escaping () -> Void) {
+        self.attachment = attachment
+        self.onTap = onTap
+        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key))
+    }
+
+    var body: some View {
+        Group {
+            if let loadedImage {
+                Image(uiImage: loadedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxHeight: Self.maxHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+                    .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+                    .onTapGesture { onTap() }
+            } else {
+                Button(action: onTap) {
+                    ReplyReferenceFileBubble(attachment: attachment)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .task(id: attachment.key) {
+            guard loadedImage == nil else { return }
+            do {
+                let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+                let image = await HTMLThumbnailRenderer.shared.thumbnail(
+                    for: attachment.key,
+                    fileURL: fileURL
+                )
+                loadedImage = image
+            } catch {
+                Log.error("Failed to render HTML reply thumbnail: \(error)")
             }
         }
     }

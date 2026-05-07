@@ -668,6 +668,16 @@ struct MessageContextMenuOverlay: View {
                     isLoading: false
                 )
             }
+        } else if attachment.isHTMLFile {
+            let radius: CGFloat = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : (appeared ? C.photoCornerRadius : 0)
+            HTMLAttachmentBubble(
+                attachment: attachment,
+                profile: profile,
+                reactions: [],
+                cornerRadiusOverride: radius
+            )
         } else if attachment.mediaType == .file {
             FileAttachmentBubble(
                 attachment: attachment,

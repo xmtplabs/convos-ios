@@ -900,7 +900,11 @@ extension MessagesViewController {
                     if attachment.isMarkdownFile {
                         presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
                     } else if attachment.isHTMLFile {
-                        presentHTMLPreview(fileURL: fileURL, filename: attachment.filename ?? "Web Page")
+                        presentHTMLPreview(
+                            fileURL: fileURL,
+                            filename: attachment.filename ?? "Web Page",
+                            attachmentKey: attachment.key
+                        )
                     } else {
                         FileAttachmentQuickLookCoordinator.shared.present(fileURL: fileURL, from: self)
                     }
@@ -933,10 +937,11 @@ extension MessagesViewController {
         present(controller, animated: true)
     }
 
-    private func presentHTMLPreview(fileURL: URL, filename: String) {
+    private func presentHTMLPreview(fileURL: URL, filename: String, attachmentKey: String) {
         let preview = HTMLAttachmentPreviewSheet(
             fileURL: fileURL,
-            filename: filename
+            filename: filename,
+            attachmentKey: attachmentKey
         )
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
