@@ -1,18 +1,45 @@
 import ConvosCore
 import SwiftUI
 
-/// Contact card with profile snapshot, "Send a message" CTA, and block /
-/// unblock affordance. The card pulls live blocked-state from the contacts
-/// repository so the toggle reflects post-write reality.
+// MARK: - Module overview
+//
+// `ContactCardView` is the single canonical "look at this person" surface
+// in the app. It is invoked from two entry points, parameterized by
+// `ContactCardMode`:
+//
+//   1. **Contacts list** (`ContactsView`) → `mode: .standalone`. Default.
+//   2. **Member-avatar tap inside a chat** (`ConversationView` → presenting
+//      `presentingProfileForMember`) → `mode: .scopedToConversation(...)`.
+//
+// Section visibility is driven by the mode plus the contact's stored state:
+//
+//   - Header (avatar / name / bio) — always
+//   - Agent rows (Get skills / Learn about assistants) — both modes, when
+//     `contact.agentVerification?.isVerified == true`
+//   - Send a message — both modes, calls `contactsWriter.upsertContact(...)`
+//     before opening the picker so a synthetic / non-yet-stored contact is
+//     promoted to a real one (the narrow per-person upsert documented in
+//     the contacts PRD §"Send-message on a non-contact")
+//   - Block / Unblock — both modes
+//   - Group actions (Remove, Block-and-leave) — scoped mode only
+//
+// Mirrors `ContactsPickerMode`'s "one component, two entry points" pattern.
+
+/// Unified contact card. See module-overview comment above for entry-point
+/// mapping and section visibility rules.
 struct ContactCardView: View {
     let contact: Contact
+    let mode: ContactCardMode
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
+    private let onRemove: (() -> Void)?
+    private let onBlockAndLeave: (() -> Void)?
 
     @State private var isBlocked: Bool
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
+    @State private var presentingBlockAndLeaveConfirmation: Bool = false
     @State private var presentingPicker: Bool = false
     @State private var presentingStartErrorAlert: Bool = false
     @State private var startErrorMessage: String?
@@ -20,14 +47,20 @@ struct ContactCardView: View {
 
     init(
         contact: Contact,
+        mode: ContactCardMode = .standalone,
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         contactsRepository: any ContactsRepositoryProtocol,
-        session: (any SessionManagerProtocol)? = nil
+        session: (any SessionManagerProtocol)? = nil,
+        onRemove: (() -> Void)? = nil,
+        onBlockAndLeave: (() -> Void)? = nil
     ) {
         self.contact = contact
+        self.mode = mode
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
+        self.onRemove = onRemove
+        self.onBlockAndLeave = onBlockAndLeave
         _isBlocked = State(initialValue: contact.isBlocked)
     }
 
@@ -39,12 +72,16 @@ struct ContactCardView: View {
             .navigationBarTitleDisplayMode(.inline)
             .modifier(ContactCardModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
+                presentingBlockAndLeaveConfirmation: $presentingBlockAndLeaveConfirmation,
                 presentingPicker: $presentingPicker,
                 presentingStartErrorAlert: $presentingStartErrorAlert,
                 startErrorMessage: startErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
                 blockAlertActions: { blockAlertActions },
+                blockAndLeaveAlertTitle: blockAndLeaveAlertTitle,
+                blockAndLeaveAlertMessage: blockAndLeaveAlertMessage,
+                blockAndLeaveAlertActions: { blockAndLeaveAlertActions },
                 pickerSheet: { pickerSheet }
             ))
             .task(id: contact.inboxId) { await syncBlockedState() }
@@ -56,6 +93,9 @@ struct ContactCardView: View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             ContactCardHeader(contact: contact)
             ContactCardMetadata(addedAt: contact.addedAt, isBlocked: isBlocked)
+            if isVerifiedAgent {
+                ContactCardAgentLinks()
+            }
             ContactCardActions(
                 isBlocked: isBlocked,
                 isApplyingBlockChange: isApplyingBlockChange,
@@ -63,8 +103,22 @@ struct ContactCardView: View {
                 onSendMessage: handleSendMessage,
                 onToggleBlock: handleBlockTap
             )
+            if mode.isScopedToConversation && !mode.isCurrentUser {
+                ContactCardGroupActions(
+                    canRemoveMembers: mode.canRemoveMembers,
+                    contactDisplayName: contact.resolvedDisplayName,
+                    onRemove: handleRemoveTap,
+                    onBlockAndLeave: handleBlockAndLeaveTap
+                )
+            }
             Spacer()
         }
+    }
+
+    // MARK: - Derived
+
+    private var isVerifiedAgent: Bool {
+        contact.agentVerification?.isVerified == true
     }
 
     // MARK: - Picker sheet
@@ -102,6 +156,22 @@ struct ContactCardView: View {
         }
     }
 
+    // MARK: - Block-and-leave alert content
+
+    private var blockAndLeaveAlertTitle: String {
+        "Block \(contact.resolvedDisplayName) and leave convo?"
+    }
+
+    private var blockAndLeaveAlertMessage: String {
+        "They won't know they're blocked, and you'll leave this conversation so they can't reach you here."
+    }
+
+    @ViewBuilder
+    private var blockAndLeaveAlertActions: some View {
+        Button("Cancel", role: .cancel) {}
+        Button("Confirm", role: .destructive, action: handleBlockAndLeaveConfirmed)
+    }
+
     // MARK: - Actions
 
     private func ensureStarter() {
@@ -111,7 +181,28 @@ struct ContactCardView: View {
 
     private func handleSendMessage() {
         ensureStarter()
-        presentingPicker = true
+        Task {
+            // Idempotent. For a contact already in the DB, the writer
+            // preserves the original `addedAt` and `addedViaConversationId`
+            // and merges only the profile snapshot. For a synthetic contact
+            // (passed in from a chat member-tap on a non-contact), this
+            // promotes them to a real contact attributed to the source
+            // conversation. See PRD §"Send-message on a non-contact".
+            try? await contactsWriter.upsertContact(
+                inboxId: contact.inboxId,
+                addedViaConversationId: contact.addedViaConversationId ?? mode.conversationId,
+                profile: ContactProfileSnapshot(
+                    displayName: contact.displayName,
+                    avatarURL: contact.avatarURL,
+                    bio: contact.bio,
+                    profileUpdatedAt: nil,
+                    agentVerification: contact.agentVerification
+                )
+            )
+            await MainActor.run {
+                presentingPicker = true
+            }
+        }
     }
 
     private func handleBlockTap() {
@@ -124,6 +215,18 @@ struct ContactCardView: View {
 
     private func handleUnblockConfirmed() {
         applyBlockChange(block: false)
+    }
+
+    private func handleRemoveTap() {
+        onRemove?()
+    }
+
+    private func handleBlockAndLeaveTap() {
+        presentingBlockAndLeaveConfirmation = true
+    }
+
+    private func handleBlockAndLeaveConfirmed() {
+        onBlockAndLeave?()
     }
 
     private func applyBlockChange(block: Bool) {
@@ -241,6 +344,60 @@ private struct ContactCardMetadata: View {
     }
 }
 
+// MARK: - Agent links
+
+private struct ContactCardAgentLinks: View {
+    @Environment(\.openURL) private var openURL: OpenURLAction
+
+    var body: some View {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            agentLinkRow(
+                title: "Get skills",
+                subtitle: "Browse 100+ curated capabilities",
+                url: AgentLinks.getSkillsURL,
+                accessibilityIdentifier: "contact-card-get-skills"
+            )
+            agentLinkRow(
+                title: "Learn about assistants",
+                subtitle: "Capabilities, privacy and security",
+                url: AgentLinks.learnAboutAssistantsURL,
+                accessibilityIdentifier: "contact-card-learn-about-assistants"
+            )
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+    }
+
+    private func agentLinkRow(
+        title: String,
+        subtitle: String,
+        url: URL,
+        accessibilityIdentifier: String
+    ) -> some View {
+        let action = { openURL(url) }
+        return Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2.0) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .padding(DesignConstants.Spacing.step3x)
+            .background(
+                RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+            )
+        }
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
 // MARK: - Action buttons
 
 private struct ContactCardActions: View {
@@ -295,16 +452,84 @@ private struct ContactCardActions: View {
     }
 }
 
+// MARK: - Group actions (scoped mode only)
+
+private struct ContactCardGroupActions: View {
+    let canRemoveMembers: Bool
+    let contactDisplayName: String
+    let onRemove: () -> Void
+    let onBlockAndLeave: () -> Void
+
+    var body: some View {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            if canRemoveMembers {
+                groupActionRow(
+                    label: "Remove from convo",
+                    footer: "Remove \(contactDisplayName) from this conversation",
+                    accessibilityLabel: "Remove \(contactDisplayName)",
+                    accessibilityIdentifier: "remove-member-button",
+                    action: onRemove
+                )
+            }
+            groupActionRow(
+                label: "Block and leave",
+                footer: "Leave this convo and block \(contactDisplayName)",
+                accessibilityLabel: "Block \(contactDisplayName)",
+                accessibilityIdentifier: "block-member-button",
+                action: onBlockAndLeave
+            )
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step2x)
+    }
+
+    private func groupActionRow(
+        label: String,
+        footer: String,
+        accessibilityLabel: String,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4.0) {
+            Button(action: action) {
+                Text(label)
+                    .font(.body)
+                    .foregroundStyle(.colorCaution)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, DesignConstants.Spacing.step2x)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+                    )
+            }
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            Text(footer)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+        }
+    }
+}
+
 // MARK: - Modals modifier
 
-private struct ContactCardModalsModifier<Actions: View, PickerContent: View>: ViewModifier {
+private struct ContactCardModalsModifier<
+    BlockActions: View,
+    BlockLeaveActions: View,
+    PickerContent: View
+>: ViewModifier {
     @Binding var presentingBlockConfirmation: Bool
+    @Binding var presentingBlockAndLeaveConfirmation: Bool
     @Binding var presentingPicker: Bool
     @Binding var presentingStartErrorAlert: Bool
     let startErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
-    let blockAlertActions: () -> Actions
+    let blockAlertActions: () -> BlockActions
+    let blockAndLeaveAlertTitle: String
+    let blockAndLeaveAlertMessage: String
+    let blockAndLeaveAlertActions: () -> BlockLeaveActions
     let pickerSheet: () -> PickerContent
 
     func body(content: Content) -> some View {
@@ -313,6 +538,11 @@ private struct ContactCardModalsModifier<Actions: View, PickerContent: View>: Vi
                 blockAlertActions()
             } message: {
                 Text(blockAlertMessage)
+            }
+            .alert(blockAndLeaveAlertTitle, isPresented: $presentingBlockAndLeaveConfirmation) {
+                blockAndLeaveAlertActions()
+            } message: {
+                Text(blockAndLeaveAlertMessage)
             }
             .alert(
                 "Couldn't start conversation",
@@ -326,6 +556,34 @@ private struct ContactCardModalsModifier<Actions: View, PickerContent: View>: Vi
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()
             }
+    }
+}
+
+// MARK: - Synthetic contact for member taps
+
+extension Contact {
+    /// Builds a presentation-only `Contact` from a chat member when the
+    /// inbox is not yet a stored contact. The card uses this until the user
+    /// taps "Send a message", at which point the writer's idempotent upsert
+    /// promotes the synthetic to a real contact attributed to the source
+    /// conversation.
+    public static func synthetic(
+        inboxId: String,
+        displayName: String?,
+        avatarURL: String?,
+        addedViaConversationId: String?,
+        agentVerification: AgentVerification?
+    ) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            bio: nil,
+            addedAt: Date(),
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: false,
+            agentVerification: agentVerification
+        )
     }
 }
 
@@ -343,6 +601,34 @@ private struct ContactCardModalsModifier<Actions: View, PickerContent: View>: Vi
         ContactCardView(
             contact: .mock(displayName: "Alice", isBlocked: true),
             contactsRepository: MockContactsRepository()
+        )
+    }
+}
+
+#Preview("Verified agent") {
+    NavigationStack {
+        ContactCardView(
+            contact: .mock(
+                displayName: "Convos Assistant",
+                agentVerification: .verified(.convos)
+            ),
+            contactsRepository: MockContactsRepository()
+        )
+    }
+}
+
+#Preview("Scoped to conversation, admin") {
+    NavigationStack {
+        ContactCardView(
+            contact: .mock(displayName: "Bob"),
+            mode: .scopedToConversation(
+                conversationId: "convo-1",
+                canRemoveMembers: true,
+                isCurrentUser: false
+            ),
+            contactsRepository: MockContactsRepository(),
+            onRemove: {},
+            onBlockAndLeave: {}
         )
     }
 }

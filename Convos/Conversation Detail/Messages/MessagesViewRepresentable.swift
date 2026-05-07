@@ -32,6 +32,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onInviteAssistant: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
+    let memberNameOverride: (String) -> String?
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
@@ -102,6 +103,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onInviteAssistant = onInviteAssistant
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember
+        messagesViewController.memberNameOverride = memberNameOverride
         messagesViewController.hasAssistant = hasAssistant
         messagesViewController.isAssistantJoinPending = isAssistantJoinPending
         messagesViewController.isAssistantEnabled = isAssistantEnabled
@@ -159,6 +161,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onInviteAssistant: {},
         onRetryTranscript: { _ in },
         profileSheetForMember: { _ in AnyView(EmptyView()) },
+        memberNameOverride: { _ in nil },
         hasAssistant: false,
         isAssistantJoinPending: false,
         isAssistantEnabled: true,

@@ -335,6 +335,14 @@ final class ConversationsViewModel {
     }
 
     private func observe() {
+        NotificationCenter.default
+            .publisher(for: .contactsRequestedNewConversation)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                self?.handleContactsRequestedNewConversation(notification)
+            }
+            .store(in: &cancellables)
+
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
                 guard let conversationId = notification.userInfo?["conversationId"] as? String else {
@@ -411,6 +419,23 @@ final class ConversationsViewModel {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    /// Routes the user into a conversation that was just created from the
+    /// contacts picker. Closes any existing conversation by clearing the
+    /// selection first, then sets it to the new id. The picker dismisses
+    /// itself; the contacts settings sheet (if open) is dismissed by the
+    /// view layer's `.onReceive` for the same notification.
+    private func handleContactsRequestedNewConversation(_ notification: Notification) {
+        guard let conversationId = notification.userInfo?["conversationId"] as? String else {
+            Log.warning("contactsRequestedNewConversation fired without a conversationId")
+            return
+        }
+        Log.info("Routing into newly-created conversation from contacts: \(conversationId)")
+        if selectedConversationId != nil {
+            selectedConversationId = nil
+        }
+        selectedConversationId = conversationId
     }
 
     private func handleConversationNotificationTap(_ notification: Notification) {

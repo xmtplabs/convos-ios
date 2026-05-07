@@ -2,23 +2,31 @@ import Foundation
 import GRDB
 
 /// Snapshot of profile fields used when upserting a contact. All fields are
-/// optional — callers pass whatever they currently have for the inbox.
+/// optional — callers pass whatever they currently have for the inbox. A
+/// `nil` field means "no signal — preserve whatever is already stored on the
+/// contact." This supports partial updates: a profile event that carries
+/// only an avatar URL won't clobber a stored display name, and a profile
+/// event from a non-agent member won't unset a previously-observed
+/// `agentVerification`.
 public struct ContactProfileSnapshot: Sendable, Hashable {
     public let displayName: String?
     public let avatarURL: String?
     public let bio: String?
     public let profileUpdatedAt: Date?
+    public let agentVerification: AgentVerification?
 
     public init(
         displayName: String? = nil,
         avatarURL: String? = nil,
         bio: String? = nil,
-        profileUpdatedAt: Date? = nil
+        profileUpdatedAt: Date? = nil,
+        agentVerification: AgentVerification? = nil
     ) {
         self.displayName = displayName
         self.avatarURL = avatarURL
         self.bio = bio
         self.profileUpdatedAt = profileUpdatedAt
+        self.agentVerification = agentVerification
     }
 }
 
@@ -140,7 +148,8 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             displayName: profile.displayName,
             avatarURL: profile.avatarURL,
             bio: profile.bio,
-            profileUpdatedAt: profile.profileUpdatedAt ?? now
+            profileUpdatedAt: profile.profileUpdatedAt ?? now,
+            agentVerification: profile.agentVerification
         )
         try row.save(db)
         Log.debug("Inserted new contact for inboxId=\(inboxId) via=\(addedViaConversationId ?? "nil")")
@@ -150,7 +159,26 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         into existing: DBContact,
         with profile: ContactProfileSnapshot
     ) -> DBContact {
-        let incomingTimestamp: Date = profile.profileUpdatedAt ?? Date()
+        // A snapshot without a `profileUpdatedAt` is "fill in defaults" data
+        // — typically from `ContactSyncCoordinator`, which reads a per-
+        // conversation `DBMemberProfile` that itself isn't timestamped. The
+        // per-conversation profile may be stale relative to the contact's
+        // most-recent-wins state (e.g., the local user knows the contact as
+        // "Bob" from a recent ProfileUpdate in conversation A, but conv B's
+        // older snapshot still says "Robert"). For untimestamped snapshots
+        // we only populate fields the existing contact has nil/empty for —
+        // we never overwrite known data with snapshots of unknown freshness.
+        guard let incomingTimestamp = profile.profileUpdatedAt else {
+            return existing.with(
+                displayName: nonEmpty(existing.displayName) ?? profile.displayName,
+                avatarURL: nonEmpty(existing.avatarURL) ?? profile.avatarURL,
+                bio: nonEmpty(existing.bio) ?? profile.bio,
+                profileUpdatedAt: existing.profileUpdatedAt,
+                agentVerification: existing.agentVerification ?? profile.agentVerification
+            )
+        }
+
+        // Timestamped snapshot — most-recent-wins.
         let storedTimestamp: Date? = existing.profileUpdatedAt
         let shouldApply: Bool
         if let storedTimestamp {
@@ -163,15 +191,28 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         // We only overwrite a stored field if the incoming value is non-nil.
         // This lets profile snapshots that carry only some fields (e.g. just
         // an avatar update) merge cleanly without clobbering the others.
+        // For agentVerification, the same rule preserves "last-known agent
+        // state" — an incoming non-agent profile event (nil agentVerification)
+        // does not clear a previously observed verification.
         let mergedName = profile.displayName ?? existing.displayName
         let mergedAvatar = profile.avatarURL ?? existing.avatarURL
         let mergedBio = profile.bio ?? existing.bio
+        let mergedAgent = profile.agentVerification ?? existing.agentVerification
         return existing.with(
             displayName: mergedName,
             avatarURL: mergedAvatar,
             bio: mergedBio,
-            profileUpdatedAt: incomingTimestamp
+            profileUpdatedAt: incomingTimestamp,
+            agentVerification: mergedAgent
         )
+    }
+
+    /// Helper for the fill-defaults branch of `mergeProfile`. Returns the
+    /// string only when it's non-nil and non-empty, so callers can express
+    /// "use stored if present, else fall back to incoming" with `??`.
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
     }
 }
 
@@ -198,12 +239,18 @@ extension ContactsWriter {
     /// no contact for `inboxId` — profile events never auto-add contacts; only the
     /// action-gated coordinator does. An incoming `receivedAt` older than stored
     /// `profileUpdatedAt` is dropped.
-    static func mirrorMemberProfileToContactInTransaction(
+    /// - Parameter agentVerification: pass when the calling site already
+    ///   knows the verification state (e.g. it just resolved an attestation).
+    ///   Pass `nil` to leave any previously stored verification untouched —
+    ///   profile events from non-agent contexts should not clear a contact's
+    ///   prior verified-agent flag.
+    static func mirrorMemberProfileToContactInTransaction(    
         db: Database,
         inboxId: String,
         name: String?,
         avatarURL: String?,
-        receivedAt: Date
+        receivedAt: Date,
+        agentVerification: AgentVerification? = nil
     ) throws {
         guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
             return
@@ -212,7 +259,8 @@ extension ContactsWriter {
             displayName: name,
             avatarURL: avatarURL,
             bio: nil,
-            profileUpdatedAt: receivedAt
+            profileUpdatedAt: receivedAt,
+            agentVerification: agentVerification
         )
         let merged = mergeProfile(into: existing, with: snapshot)
         try merged.save(db)
@@ -232,7 +280,8 @@ extension ContactsWriter {
             inboxId: profile.inboxId,
             name: profile.name,
             avatarURL: profile.avatar,
-            receivedAt: receivedAt
+            receivedAt: receivedAt,
+            agentVerification: profile.memberKind?.agentVerification
         )
     }
 }

@@ -7,6 +7,10 @@ import Observation
 /// scoping the selection to add members to an existing chat. The mode drives
 /// the title, the bottom CTA copy, and the inline-disabled "in chat"
 /// treatment for members already in the destination conversation.
+///
+/// Mirrors `ContactCardMode`'s "one view, multiple entry points" pattern.
+/// When introducing a similar surface elsewhere in the app, prefer this
+/// shape (mode enum + parameterized view) over duplicating the view.
 enum ContactsPickerMode: Hashable {
     case newConversation
     case addToConversation(conversationId: String, conversationTitle: String?)

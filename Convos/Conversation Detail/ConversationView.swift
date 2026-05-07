@@ -27,6 +27,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var presentingAddFromContactsErrorAlert: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
+    /// Phase 2.9 stopgap: substitutes contact-list display names when a
+    /// member's per-conversation profile name is missing (system messages,
+    /// "Somebody joined" → "Alice joined" when Alice is a contact). Built
+    /// once per `ConversationView` lifetime; reads through the messaging
+    /// service's contacts repository.
+    private var memberNameResolver: MemberNameResolver {
+        MemberNameResolver(contactsRepository: viewModel.messagingService.contactsRepository())
+    }
+
     private var showPullToAddAssistant: Bool {
         !viewModel.conversation.hasAgent
             && !viewModel.isAssistantJoinPending
@@ -124,6 +133,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.retryTranscript(for: item)
             },
             profileSheetForMember: profileSheetForMember,
+            memberNameOverride: memberNameResolver.contactName(for:),
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
@@ -245,6 +255,55 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
+    @ViewBuilder
+    private func memberContactCardSheet(for member: ConversationMember) -> some View {
+        let messagingService = viewModel.messagingService
+        let contactsRepository = messagingService.contactsRepository()
+        let contactsWriter = messagingService.contactsWriter()
+        let resolvedContact: Contact = {
+            if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
+                return stored
+            }
+            return Contact.synthetic(
+                inboxId: member.profile.inboxId,
+                displayName: member.profile.displayName,
+                avatarURL: member.profile.avatar,
+                addedViaConversationId: viewModel.conversation.id,
+                agentVerification: member.agentVerification
+            )
+        }()
+        let onRemove: () -> Void = {
+            viewModel.remove(member: member)
+            viewModel.presentingProfileForMember = nil
+        }
+        let onBlockAndLeave: () -> Void = {
+            viewModel.blockAndLeaveConvo(inboxId: member.profile.inboxId)
+            viewModel.presentingProfileForMember = nil
+        }
+        NavigationStack {
+            ContactCardView(
+                contact: resolvedContact,
+                mode: .scopedToConversation(
+                    conversationId: viewModel.conversation.id,
+                    canRemoveMembers: viewModel.canRemoveMembers,
+                    isCurrentUser: member.isCurrentUser
+                ),
+                contactsWriter: contactsWriter,
+                contactsRepository: contactsRepository,
+                session: viewModel.session,
+                onRemove: onRemove,
+                onBlockAndLeave: onBlockAndLeave
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
+                        viewModel.presentingProfileForMember = nil
+                    }
+                }
+            }
+        }
+    }
+
     private func handleAddFromContactsConfirm(_ inboxIds: Set<String>) {
         let ids = Array(inboxIds)
         guard !ids.isEmpty else { return }
@@ -350,6 +409,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
         }
         .toolbar { topBarTrailing }
+        .onReceive(NotificationCenter.default.publisher(for: .requestAddFromContactsInCurrentConversation)) { _ in
+            // Surfaces from `NewConvoIdentityView`'s invite-members menu in
+            // the new-conversation flow. Reuses the same picker state the
+            // chat plus-menu's "Add from Contacts" row drives.
+            presentingAddFromContactsPicker = true
+        }
         .sheet(isPresented: $presentingAddFromContactsPicker) { addFromContactsPickerSheet }
         .alert(
             "Couldn't add contacts",
@@ -386,16 +451,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
-            NavigationStack {
-                ConversationMemberView(viewModel: viewModel, member: member)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button(role: .cancel) {
-                                viewModel.presentingProfileForMember = nil
-                            }
-                        }
-                    }
-            }
+            memberContactCardSheet(for: member)
         }
         .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
             ReactionsDrawerView(message: message) { reaction in

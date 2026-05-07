@@ -252,6 +252,12 @@ struct ConversationsView: View {
         .onOpenURL { url in
             viewModel.handleURL(url)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .contactsRequestedNewConversation)) { _ in
+            // Dismiss the contacts settings sheet stack so the user lands on
+            // the newly-routed conversation. ConversationsViewModel handles
+            // the actual conversation selection on the same notification.
+            presentingAppSettings = false
+        }
     }
 }
 

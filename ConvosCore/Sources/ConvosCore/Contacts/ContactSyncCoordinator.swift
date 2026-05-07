@@ -127,7 +127,11 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                     displayName: profile?.name,
                     avatarURL: profile?.avatar,
                     bio: nil,
-                    profileUpdatedAt: nil
+                    profileUpdatedAt: nil,
+                    // Derived from the stored memberKind. nil → no agent
+                    // signal (preserve existing); .agent / .verifiedConvos /
+                    // .verifiedUserOAuth → the corresponding AgentVerification.
+                    agentVerification: profile?.memberKind?.agentVerification
                 )
                 try ContactsWriter.upsertContactInTransaction(
                     db: db,

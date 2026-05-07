@@ -1,10 +1,29 @@
 import ConvosCore
 import SwiftUI
 
-/// Multi-select contact picker. Modes parameterize the title, the bottom CTA
-/// copy, and the inline-disabled treatment for members already in the
-/// destination conversation. The view itself is presentation-only; callers
-/// own the side effect on confirm by passing in `onConfirm`.
+// MARK: - Module overview
+//
+// `ContactsPickerView` is the canonical multi-select contact picker.
+// It is invoked from three entry points, parameterized by `ContactsPickerMode`:
+//
+//   1. **Compose toolbar on the contacts list** (`ContactsView` → toolbar
+//      `+`) → `mode: .newConversation`. Confirm hands the selection off to
+//      `ContactConversationStarter` for create-then-add-members.
+//   2. **Send-a-message CTA on the contact card** (`ContactCardView`,
+//      either standalone or scoped) → `mode: .newConversation` with
+//      `preselectedInboxIds: [contact.inboxId]`.
+//   3. **Add from Contacts in the chat plus-menu** (`ConversationView` →
+//      `AddToConversationMenu.onAddFromContacts`) → `mode:
+//      .addToConversation(...)` with the conversation's existing members
+//      passed as `alreadyInChatInboxIds`. Confirm calls
+//      `ConversationViewModel.addMembersFromContacts(_:)`.
+//
+// Mirrors `ContactCardMode`'s "one component, two-or-more entry points"
+// pattern. The view itself is presentation-only; callers own the side
+// effect on confirm by passing in `onConfirm`.
+
+/// Multi-select contact picker. See module-overview comment above for
+/// entry-point mapping and the role each mode plays.
 struct ContactsPickerView: View {
     @State private var viewModel: ContactsPickerViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction

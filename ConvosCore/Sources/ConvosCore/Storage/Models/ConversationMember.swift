@@ -62,11 +62,39 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         }
         return profile.displayName
     }
+
+    /// Phase 2.9 stopgap variant. Same precedence as `displayName` but
+    /// inserts a contact-list lookup between "no per-conversation profile
+    /// name" and the "Somebody" fallback. Pass `{ _ in nil }` for the
+    /// legacy behavior. The override is consulted only when the per-
+    /// conversation profile name is empty; non-empty profile names always
+    /// win. Agent unverified-fallback ("Agent") is preserved.
+    public func displayName(memberNameOverride: (String) -> String?) -> String {
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+            return overridden
+        }
+        if isAgent && !agentVerification.isVerified {
+            return "Agent"
+        }
+        return profile.displayName
+    }
 }
 
 public extension Array where Element == ConversationMember {
     var formattedNamesString: String {
         map { $0.profile }.formattedNamesString
+    }
+
+    /// Phase 2.9 stopgap variant — see
+    /// `Array<Profile>.formattedNamesString(memberNameOverride:)` for the
+    /// precedence rules.
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        map { $0.profile }.formattedNamesString(memberNameOverride: memberNameOverride)
     }
 
     func sortedByRole() -> [ConversationMember] {

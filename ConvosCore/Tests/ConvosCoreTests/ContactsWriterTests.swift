@@ -328,6 +328,213 @@ struct ContactsWriterTests {
         #expect(contact?.blockedAt != nil)
     }
 
+    @Test("agentVerification persists on a new contact via upsert")
+    func testAgentVerificationPersistsOnNewContact() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-agent"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Agent",
+                profileUpdatedAt: Date(timeIntervalSince1970: 100),
+                agentVerification: .verified(.convos)
+            )
+        )
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(stored?.agentVerification == .verified(.convos))
+    }
+
+    @Test("Newer agentVerification overrides older")
+    func testAgentVerificationMostRecentWins() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                profileUpdatedAt: Date(timeIntervalSince1970: 100),
+                agentVerification: .unverified
+            )
+        )
+
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(
+                profileUpdatedAt: Date(timeIntervalSince1970: 200),
+                agentVerification: .verified(.userOAuth)
+            )
+        )
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(stored?.agentVerification == .verified(.userOAuth))
+    }
+
+    @Test("Profile update without agentVerification preserves the existing verification")
+    func testAgentVerificationPreservedOnNilSignal() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Original",
+                profileUpdatedAt: Date(timeIntervalSince1970: 100),
+                agentVerification: .verified(.convos)
+            )
+        )
+
+        // Newer profile event from a non-agent context (nil agentVerification).
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(
+                displayName: "Renamed",
+                profileUpdatedAt: Date(timeIntervalSince1970: 200),
+                agentVerification: nil
+            )
+        )
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(stored?.displayName == "Renamed")
+        #expect(stored?.agentVerification == .verified(.convos))
+    }
+
+    @Test("applyMemberProfileInTransaction promotes a contact's verification when passed in")
+    func testApplyMemberProfilePromotesAgentVerification() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(profileUpdatedAt: Date(timeIntervalSince1970: 100))
+        )
+
+        try await dbManager.dbWriter.write { db in
+            try ContactsWriter.applyMemberProfileInTransaction(
+                db: db,
+                inboxId: inboxId,
+                name: "Agent",
+                avatarURL: nil,
+                receivedAt: Date(timeIntervalSince1970: 200),
+                agentVerification: .verified(.convos)
+            )
+        }
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(stored?.agentVerification == .verified(.convos))
+    }
+
+    @Test("Untimestamped snapshot does not overwrite a more-recent stored name (Robert/Bob bug)")
+    func testUntimestampedSnapshotPreservesNewerStoredData() async throws {
+        // Robert/Bob scenario: contact already updated to "Bob" via a
+        // timestamped ProfileUpdate from conversation A. Later, a coordinator-
+        // style sync fires from conversation B (where the per-conversation
+        // profile still says "Robert" and has no timestamp). The contact
+        // must remain "Bob" — untimestamped snapshots are "fill defaults"
+        // data and never overwrite known fields.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "robert-inbox"
+
+        // Initial seed: contact added with "Robert" via timestamped event.
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Robert",
+                profileUpdatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        // ProfileUpdate from conv-A: name → Bob.
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(
+                displayName: "Bob",
+                profileUpdatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+
+        let afterUpdate = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(afterUpdate?.displayName == "Bob")
+        let bobTimestamp = afterUpdate?.profileUpdatedAt
+
+        // Coordinator re-sync from conv-B: per-conversation profile still
+        // says "Robert", snapshot has nil timestamp.
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: "conv-b",
+            profile: ContactProfileSnapshot(
+                displayName: "Robert",
+                profileUpdatedAt: nil
+            )
+        )
+
+        let afterCoordinator = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        // Bob should win — untimestamped snapshot didn't claim freshness.
+        #expect(afterCoordinator?.displayName == "Bob")
+        // The stored timestamp should remain the Bob-update timestamp,
+        // not be advanced to "now" by the coordinator's nil-timestamp call.
+        #expect(afterCoordinator?.profileUpdatedAt == bobTimestamp)
+    }
+
+    @Test("Untimestamped snapshot fills nil/empty fields on existing contact")
+    func testUntimestampedSnapshotFillsNilFieldsOnly() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        // Seed contact with only a display name.
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Alice",
+                profileUpdatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        // Coordinator-style untimestamped snapshot with both name and avatar.
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "AliceFromConvB",
+                avatarURL: "https://example.com/a.jpg",
+                profileUpdatedAt: nil
+            )
+        )
+
+        let stored = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        // Name preserved (already set by timestamped path).
+        #expect(stored?.displayName == "Alice")
+        // Avatar filled in (was nil, no risk of overwriting "known" data).
+        #expect(stored?.avatarURL == "https://example.com/a.jpg")
+    }
+
     @Test("upsertContact merges partial profile snapshots")
     func testPartialProfileMerge() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

@@ -129,6 +129,42 @@ Use `@Previewable` for preview state variables:
 @Previewable @State var text: String = "Preview"
 ```
 
+### View Modes for Multi-Entry-Point Surfaces
+
+When the same screen is shown from multiple entry points with subtly
+different behavior (e.g., a card with extra actions in some contexts), prefer
+parameterizing the view with a mode enum over duplicating the view per
+surface:
+
+```swift
+enum ContactCardMode {
+    case standalone
+    case scopedToConversation(...)
+}
+
+ContactCardView(mode: .standalone)
+ContactCardView(mode: .scopedToConversation(...))
+```
+
+Conventions:
+
+- Define the mode enum in its own file alongside the view (e.g.
+  `ContactCardMode.swift` next to `ContactCardView.swift`).
+- Add a module-overview comment block at the top of the view file
+  enumerating every entry point and the mode it uses. New engineers grep
+  for the view, find the file, and the first thing they see is the entry-
+  point map.
+- Cross-reference sibling mode enums in their doc comments (e.g.
+  `ContactCardMode` notes that it mirrors `ContactsPickerMode`'s pattern).
+- Keep view structure shared — only branch behavior on the mode where
+  necessary. If the structural difference is large enough to feel like two
+  views, that's a signal you may want a wrapper composition instead.
+
+Existing examples in the codebase:
+
+- `ContactCardMode` — `Convos/Contacts/ContactCardMode.swift`
+- `ContactsPickerMode` — `Convos/Contacts/ContactsPickerViewModel.swift`
+
 ## Code Style & Formatting
 
 ### SwiftFormat Configuration

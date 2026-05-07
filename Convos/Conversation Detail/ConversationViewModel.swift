@@ -135,7 +135,7 @@ enum ExplodeDuration: CaseIterable {
 class ConversationViewModel { // swiftlint:disable:this type_body_length
     // MARK: - Private
 
-    private let session: any SessionManagerProtocol
+    let session: any SessionManagerProtocol
     let messagingService: any MessagingServiceProtocol
     private let conversationStateManager: any ConversationStateManagerProtocol
     private let outgoingMessageWriter: any OutgoingMessageWriterProtocol
@@ -1746,12 +1746,28 @@ extension ConversationViewModel {
         }
     }
 
-    func blockAndLeaveConvo() {
+    /// Blocks the given inbox at the contact level, then leaves this
+    /// conversation. The block is written *first* so the contact-list-aware
+    /// inbound filter (`InboundConversationFilter`) honors the block on any
+    /// future welcome from this inbox even if the leave call somehow fails
+    /// or races with concurrent stream events. Callers pass the member's
+    /// inboxId; the contact row is upserted if not already present so the
+    /// `blockedAt` write has somewhere to land.
+    func blockAndLeaveConvo(inboxId: String) {
+        let contactsWriter = messagingService.contactsWriter()
         let consentWriter = consentWriter
         let conversation = conversation
         Task { [weak self] in
             guard let self else { return }
             do {
+                // Ensure a contact row exists so block() has something to
+                // flag. Idempotent — preserves identity columns on re-upsert.
+                try await contactsWriter.upsertContact(
+                    inboxId: inboxId,
+                    addedViaConversationId: conversation.id,
+                    profile: ContactProfileSnapshot()
+                )
+                try await contactsWriter.block(inboxId: inboxId)
                 try await consentWriter.delete(conversation: conversation)
                 await MainActor.run {
                     self.presentingConversationSettings = false

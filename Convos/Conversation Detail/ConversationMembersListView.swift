@@ -4,14 +4,24 @@ import SwiftUI
 struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
+    /// Phase 2.9 stopgap — same resolver pattern as `ConversationView`.
+    /// Used to substitute contact-list display names for members whose
+    /// per-conversation profile name is empty.
+    private var memberNameResolver: MemberNameResolver {
+        MemberNameResolver(contactsRepository: viewModel.messagingService.contactsRepository())
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.conversation.members.sortedByRole(), id: \.id) { member in
                     NavigationLink {
-                        ConversationMemberView(viewModel: viewModel, member: member)
+                        memberContactCardDestination(for: member)
                     } label: {
-                        MemberRow(member: member)
+                        MemberRow(
+                            member: member,
+                            displayName: member.displayName(memberNameOverride: memberNameResolver.contactName(for:))
+                        )
                     }
                 }
             }
@@ -49,10 +59,50 @@ struct ConversationMembersListView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func memberContactCardDestination(for member: ConversationMember) -> some View {
+        let messagingService = viewModel.messagingService
+        let contactsRepository = messagingService.contactsRepository()
+        let contactsWriter = messagingService.contactsWriter()
+        let resolvedContact: Contact = {
+            if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
+                return stored
+            }
+            return Contact.synthetic(
+                inboxId: member.profile.inboxId,
+                displayName: member.profile.displayName,
+                avatarURL: member.profile.avatar,
+                addedViaConversationId: viewModel.conversation.id,
+                agentVerification: member.agentVerification
+            )
+        }()
+        let onRemove: () -> Void = { viewModel.remove(member: member) }
+        let onBlockAndLeave: () -> Void = {
+            viewModel.blockAndLeaveConvo(inboxId: member.profile.inboxId)
+        }
+        ContactCardView(
+            contact: resolvedContact,
+            mode: .scopedToConversation(
+                conversationId: viewModel.conversation.id,
+                canRemoveMembers: viewModel.canRemoveMembers,
+                isCurrentUser: member.isCurrentUser
+            ),
+            contactsWriter: contactsWriter,
+            contactsRepository: contactsRepository,
+            session: viewModel.session,
+            onRemove: onRemove,
+            onBlockAndLeave: onBlockAndLeave
+        )
+    }
 }
 
 private struct MemberRow: View {
     let member: ConversationMember
+    /// Pre-resolved name (per-conversation profile → contact-list override
+    /// → "Somebody"). Computed by the parent so the row stays a pure
+    /// presentation view.
+    let displayName: String
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
@@ -61,7 +111,7 @@ private struct MemberRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(member.displayName)
+                Text(displayName)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                 if member.isCurrentUser {

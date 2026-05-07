@@ -15,6 +15,11 @@ public struct Contact: Hashable, Identifiable, Sendable {
     public let addedAt: Date
     public let addedViaConversationId: String?
     public let isBlocked: Bool
+    /// Last-known agent verification for this contact. `nil` means we have
+    /// not observed any agent signal for this inbox. The unified contact
+    /// card surfaces verified-agent affordances (Get skills, Learn about
+    /// assistants) iff `agentVerification?.isVerified == true`.
+    public let agentVerification: AgentVerification?
 
     public init(
         inboxId: String,
@@ -23,7 +28,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         bio: String?,
         addedAt: Date,
         addedViaConversationId: String?,
-        isBlocked: Bool = false
+        isBlocked: Bool = false,
+        agentVerification: AgentVerification? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -32,6 +38,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.addedAt = addedAt
         self.addedViaConversationId = addedViaConversationId
         self.isBlocked = isBlocked
+        self.agentVerification = agentVerification
     }
 
     /// Display label that always returns something printable. Falls back to a
@@ -68,7 +75,8 @@ extension Contact {
             bio: dbContact.bio,
             addedAt: dbContact.addedAt,
             addedViaConversationId: dbContact.addedViaConversationId,
-            isBlocked: dbContact.blockedAt != nil
+            isBlocked: dbContact.blockedAt != nil,
+            agentVerification: dbContact.agentVerification
         )
     }
 }
@@ -80,7 +88,8 @@ extension Contact {
         avatarURL: String? = nil,
         bio: String? = nil,
         addedViaConversationId: String? = nil,
-        isBlocked: Bool = false
+        isBlocked: Bool = false,
+        agentVerification: AgentVerification? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -89,7 +98,8 @@ extension Contact {
             bio: bio,
             addedAt: Date(),
             addedViaConversationId: addedViaConversationId,
-            isBlocked: isBlocked
+            isBlocked: isBlocked,
+            agentVerification: agentVerification
         )
     }
 }

@@ -153,7 +153,36 @@ Acceptance criteria:
 - [ ] Each conversation entry shows the conversation's name, last-message timestamp, and last-message preview (matching the main-feed treatment).
 - [ ] Tapping a conversation entry opens that conversation.
 
-## UI / UX
+#### As a user tapping a member's avatar inside a group, I want the same contact card I see from the contacts list — augmented with the group-specific actions — so I have one consistent surface for "info + actions for this person."
+
+Today, tapping a member's avatar inside a chat opens `ConversationMemberView`, a separate screen with only Remove and "Block and leave" actions. The contact card from the contacts list (Phase 2.4) has Send-a-message and Block / Unblock. Maintaining two surfaces for "view this person" is a fragmentation we should retire. Phase 2.8 unifies them: the same `ContactCardView` renders both entry points, with a mode flag that adds the group-specific actions when the entry point is a chat.
+
+Acceptance criteria:
+
+- [ ] Tapping a member's avatar inside a conversation opens `ContactCardView` (the same component used in the contacts list) with the conversation context.
+- [ ] In conversation context, the card shows: Send a message, Block / Unblock, Remove from convo (admin-only), Block and leave (writes `blockedAt` AND leaves the group).
+- [ ] When the tapped member is the current user, the card routes to "My info" rather than the contact card (no behavior change for self).
+- [ ] When the contact is a verified agent, agent-specific affordances (Get skills, Learn about assistants) appear above the standard contact actions in **both** modes — the contacts list and the chat member-tap. Today's `ConversationMemberView` behavior is preserved AND extended to the contacts-list entry point.
+- [ ] When the tapped member is not yet in the local contact list, the "Send a message" CTA is still shown. Tapping it performs a single-person `ContactsWriter.upsertContact` for that member's `inboxId` (with `addedViaConversationId = <this conversation>`) and then opens the picker pre-selected with them. The rest of the group's members are *not* added — only the tapped member, because the explicit action here is per-person, not per-group. (This narrower auto-add path is distinct from the per-group "send a message" trigger in Step 1.)
+- [ ] No regression: today's "Remove" and "Block and leave" continue to work with identical effect; existing accessibility identifiers (`remove-member-button`, `block-member-button`) are preserved.
+
+#### As a user whose contacts have names, I want member-name fallbacks across in-group surfaces — system messages, members list, mentions — to use my contact's display name when the member is one of my contacts and hasn't yet published their per-conversation profile.
+
+The expectation is that people who join a group will update their profile name right away. In practice there's a gap: we invite someone we already have as a contact, they accept the invite via the join flow, but they haven't yet sent their profile snapshot — or they have, and it hasn't propagated to this device yet. During that window, every in-group surface that names them falls through to `Profile.displayName`'s "Somebody" sentinel, even though we have a stored display name for them on the contact row.
+
+Phase 2.9 closes that gap with a stopgap fallback: when an in-group render site would emit "Somebody," it first checks the contacts list. The user already named this person; we should use that name until the canonical per-conversation profile arrives.
+
+Acceptance criteria:
+
+- [ ] System messages rendering a member name (join / leave / added-by / removed-by / role change / name change) that would otherwise emit "Somebody" use the contact's `displayName` instead when the inbox is a known contact (e.g. "Alice joined this convo," "Alice was added by Bob").
+- [ ] The members list (`ConversationMembersListView`) shows the contact's display name for any member whose per-conversation profile name is empty.
+- [ ] Mention strings, typing-indicator labels, and other in-group contexts that today fall through to `Profile.displayName` get the same fallback.
+- [ ] **Per-conversation profile always wins.** The contacts-list lookup is a fallback **only** when the per-conversation profile name is empty/missing. If the per-conversation profile has a name, the renderer uses it verbatim — no contact lookup, no override. Per-conversation profile remains the canonical source for in-conversation rendering (ADR-005).
+- [ ] When the per-conversation profile finally arrives (member sends their profile snapshot), it takes precedence on the next render — no stale contact-name persistence.
+- [ ] When the inbox is **not** in the contacts list (e.g., a stranger who joined a group the local user has never acted in), the existing "Somebody" sentinel is preserved.
+- [ ] The fallback is read-only — looking up a contact for rendering does **not** auto-add or modify any contact rows.
+- [ ] Out of scope for V1: surfaces outside the conversation view that don't have direct repo access — push notification copy and any in-NSE rendering. Those keep their current behavior; a later phase can adopt the resolver if the contacts repo is plumbed into those targets.
+- [ ] Performance: the contacts lookup is an indexed point read (primary key `inboxId`). The fallback path runs only when the per-conversation name is empty/missing, so it is not on the hot rendering path for the common case.
 
 Wireframes are in `contact-list-mocks/`; the picker design is updated to match the new mock attached to the post-review feedback (see "picker" entry below). The MVP surfaces, mapped to the two delivery steps:
 
@@ -164,6 +193,7 @@ Wireframes are in `contact-list-mocks/`; the picker design is updated to match t
 | 3 | Step 1 / Step 2 | Contact card | `ContactCardView` / `ContactCardViewModel` | Tap row in screen 2. Step 1: profile-only placeholder. Step 2: adds "Send a message" CTA and (stretch) shared-conversations list. |
 | 4 | Step 2 | Contact picker (new conversation, multi-select) | `ContactsPickerView` / `ContactsPickerViewModel` | Top-level "new conversation" affordance; "Send a message" CTA on contact card; "Add from Contacts" row in chat plus-menu (scoped mode) |
 | 5 | Step 2 | "Add from Contacts" in chat plus-menu | Existing chat plus-menu (one new row) | + button in chat header |
+| 6 | Step 2 | Contact card scoped to a conversation (replaces `ConversationMemberView`) | `ContactCardView` with new `ContactCardMode.scopedToConversation(...)` | Tap a member's avatar inside a chat |
 
 **Picker design (screen 4)** — matches the attached mock:
 
@@ -179,6 +209,23 @@ Wireframes are in `contact-list-mocks/`; the picker design is updated to match t
 - Same alphabetical sectioning + side-letter index.
 - No "To" header pill; no Favorites section in V1 (a single alphabetical list is fine — Favorites can come later when we add per-contact metadata).
 - Tapping a row opens the contact card (screen 3).
+
+**Contact card modes (screens 3 and 6)** — one component, two entry points:
+
+- `ContactCardMode.standalone` — the card rendered from the contacts list (screen 3). Sections: avatar / name / bio, agent links (Get skills, Learn about assistants) when `contact.agentVerification?.isVerified == true`, "Send a message" CTA (opens picker pre-selected), Block / Unblock.
+- `ContactCardMode.scopedToConversation(conversationId, canRemoveMembers, isCurrentUser)` — the card rendered from a member tap inside a chat (screen 6). Same standalone sections, plus a group-actions section: "Remove from convo" (gated on `canRemoveMembers && !isCurrentUser`), "Block and leave" (gated on `!isCurrentUser` — writes `contactsWriter.block(inboxId:)` *before* the group-leave so the inbound filter from Phase 2.6 honors the block on subsequent welcomes).
+
+The split mirrors the picker's `ContactsPickerMode` pattern. Both modes share the avatar / name / bio header, the Send-message + Block-only affordances, and the verified-agent rows, so consistency is automatic.
+
+**Agent-status on contacts.** For the verified-agent rows to appear on the standalone card, the `Contact` presentation model exposes `agentVerification: AgentVerification?`, sourced from a new `DBContact.agentVerification` JSON column. `nil` means "we have no agent signal for this inbox yet" (existing rows after migration); `.unverified` and `.verified(...)` are observed states. The verified-agent gate uses `?.isVerified == true`, so `nil` and `.unverified` both hide the rows correctly. The contact-sync coordinator and profile-sync writer populate the field from the per-conversation member-profile data they already see; no new XMTP read path. See Phase 2.8 for the migration + writer-update steps.
+
+**Send-message on a non-contact (chat member-tap).** Tapping "Send a message" on a member who is not yet in the contacts list performs a *narrow, person-specific* `ContactsWriter.upsertContact` for just that inbox before opening the picker. This is intentionally narrower than the Step 1 group auto-add: the user's intent is to message this specific person, not to enroll the whole room. The same single-person upsert keeps the rest of the picker / starter flow unchanged.
+
+**Member-name resolution with contact-list fallback (Phase 2.9).** Today every render site for a member's display name funnels through `Profile.displayName`, which falls back to the literal "Somebody" when the per-conversation `name` field is empty. The contact-list fallback inserts itself between those two: per-conversation `name` (if present) → contacts-list `displayName` (if the inbox is a known contact) → "Somebody" (last resort). The lookup is read-only and sub-millisecond — `contactsRepository.fetchContact(inboxId:)` is a primary-key point read.
+
+This is explicitly a **stopgap** for the window between "we invite a contact" and "their profile snapshot arrives on this device." The expected-and-still-canonical flow is: a member joins, sends their profile snapshot, every device renders by the per-conversation profile thereafter. The fallback exists only to bridge the gap. Once a per-conversation profile is observed for an inbox, the stopgap stops firing for that inbox in that conversation — no stale contact-name persistence, no override.
+
+Surfaces that adopt the fallback in V1: in-group system messages (join / leave / added-by / role change / name change), the members list, mention strings, and typing-indicator labels — anywhere a remote member's name would otherwise be "Somebody" inside the conversation view. Surfaces that *don't* adopt it for V1: push-notification copy and any rendering inside the NSE / app extensions, where the contacts repository isn't plumbed in. Those keep their existing "Somebody" behavior pending a follow-up that wires the repo into those targets.
 
 **Component reuse:** screens 2 and 4 share `ContactRow`, alphabetical sectioning, and the side-letter index. Implement as one `ContactRow` view + one `ContactsList` container that takes a mode (`.browse`, `.pickerForNewConversation`, `.pickerScopedToConversation(conversationId)`); the mode parameterizes the header (none / "To" pill), Favorites visibility, tap behavior, "in chat" disable rules, and bottom CTA.
 
@@ -690,7 +737,65 @@ Ship-readiness: filter and sweeper both work; today's invite-flow happy path is 
 
 Ship-readiness: shared-conversations list renders correctly.
 
-**End of Step 2.** Stacked PR or merge train including phases 2.1 – 2.6 (and 2.7 if it makes the cut).
+#### Phase 2.8: Unified contact card (replaces `ConversationMemberView`)
+
+Retires the standalone `ConversationMemberView` in favor of `ContactCardView` rendered in `.scopedToConversation` mode. One canonical "look at this person" surface across the contacts list and the chat member-tap entry point.
+
+**2.8.a — Agent-status on contacts (data layer)**
+
+- [ ] `addContactAgentVerification` migration: adds nullable `agentVerification` column (jsonText) to `contact`. Existing rows get `NULL` (= "unknown / not yet observed").
+- [ ] Add `agentVerification: AgentVerification?` to `DBContact` (with `nil` default in the explicit init) + `Columns` entry. Persisted as JSON via Codable.
+- [ ] Add `agentVerification: AgentVerification?` to `Contact` (presentation model), hydrated from `DBContact`.
+- [ ] Extend `ContactProfileSnapshot` with `agentVerification: AgentVerification? = nil`. When non-nil, the writer applies it during upsert / profile sync; nil leaves the stored value untouched (most-recent-wins semantics consistent with display name — "absence of signal" preserves the last-known state).
+- [ ] Update `ContactSyncCoordinator` to populate `agentVerification` during its per-member upsert by reading `DBMemberProfile.memberKind` (and any verification metadata) for the source conversation.
+- [ ] Update `ContactsProfileSyncWriter` to update `agentVerification` on member-profile-snapshot events.
+- [ ] Unit tests: migration applies; `Contact.agentVerification` defaults to `nil` on pre-migration rows; setting it via the writer persists; profile sync from a verified-agent member promotes the contact's verification; sync from a non-agent profile event does not unset the verification (preserve last-known agent state until an authoritative non-agent signal arrives).
+
+**2.8.b — Unified card view**
+
+- [ ] Define `ContactCardMode` enum: `.standalone`, `.scopedToConversation(conversationId: String, canRemoveMembers: Bool, isCurrentUser: Bool)`. Note: agent state is *not* a mode parameter — it's read from `contact.agentVerification`.
+- [ ] Extend `ContactCardView` with the new mode parameter. Default to `.standalone` so the existing contacts-list entry point compiles unchanged.
+- [ ] Render order in both modes: avatar / name / bio → agent rows (when `contact.agentVerification?.isVerified == true`) → Send-a-message → Block / Unblock.
+- [ ] In `.scopedToConversation` mode, append a "Group actions" section after the standard sections: **Remove from convo** (gated on `canRemoveMembers && !isCurrentUser`), **Block and leave** (gated on `!isCurrentUser`).
+- [ ] Move agent URL constants (`getSkillsURL`, `learnAboutAssistantsURL`) out of `ConversationMemberView.Constant` and into a new shared `AgentLinks` enum colocated with the agent-rows view.
+- [ ] **Send-a-message CTA on a non-contact (scoped mode only):** before presenting the picker, perform a single-person `ContactsWriter.upsertContact(inboxId: member.inboxId, addedViaConversationId: <conversationId>, profile: <best-effort snapshot from the member profile>)`. Then present `ContactsPickerView(mode: .newConversation, preselectedInboxIds: [member.inboxId])`. This narrow upsert is documented as person-specific intent — distinct from the Step 1 group-wide auto-add.
+- [ ] Reroute `viewModel.presentingProfileForMember` to present `ContactCardView(mode: .scopedToConversation(...))` instead of `ConversationMemberView`.
+- [ ] Update `ConversationViewModel.blockAndLeaveConvo()` to call `contactsWriter.block(inboxId:)` *before* the group-leave. Document the ordering in the method's doc comment so a future refactor doesn't accidentally swap the order and leave a window where the inbound filter is unaware of the block.
+- [ ] Delete `ConversationMemberView` after manual verification. Preserve existing accessibility identifiers (`remove-member-button`, `block-member-button`) on the new card so existing UI test selectors keep working.
+- [ ] Tests:
+  - Unit tests for the new mode-driven section visibility (admin-only Remove, self-suppression, agent-rows-when-verified-agent).
+  - Regression test that `blockAndLeaveConvo()` writes `DBContact.blockedAt` non-nil AND removes the local user's `DBConversationMember` row.
+  - Test the narrow-upsert path: tap Send-message on a non-contact member → contact row exists post-tap with `addedViaConversationId == conversationId`.
+
+**2.8.c — Discoverability**
+
+- [ ] Module-level header doc on `ContactCardView.swift` listing all entry points and the mode mapping.
+- [ ] Mirror header doc on `ContactsPickerView.swift` for the picker.
+- [ ] Cross-reference doc comments on `ContactCardMode` and `ContactsPickerMode` pointing at each other ("mirrors X's pattern").
+- [ ] Add a "View Modes for Multi-Entry-Point Surfaces" subsection to `CLAUDE.md` documenting the convention so future engineers default to it when they encounter a similar two-surface situation.
+
+Ship-readiness: tapping a member from inside a chat opens the unified card; existing actions (Remove, Block-and-leave) work end-to-end with identical behavior; new actions (Send message — including for non-contact members via the narrow upsert path, Block-only) work; agent rows appear on both standalone and scoped cards when the contact is a verified agent; `ConversationMemberView` is deleted with no remaining call sites.
+
+#### Phase 2.9: Contact-list display-name fallback
+
+Stopgap for the window between "we invite a contact" and "their profile snapshot arrives." When an in-group render site would emit "Somebody" because the per-conversation profile is empty, fall back to the contacts-list display name first. Read-only; never modifies the contacts table; per-conversation profile always takes precedence once observed.
+
+- [ ] Add a `MemberNameResolver` (small helper, `Convos/` target — the `Profile` API in ConvosCore stays unchanged so its semantics don't drift across modules). Signature: `func resolvedDisplayName(for inboxId: String, profileName: String?) -> String`. Returns `profileName` verbatim if non-empty, otherwise the contact's `displayName` if non-empty, otherwise `"Somebody"`. Constructed with a `ContactsRepositoryProtocol` injected at init.
+- [ ] Inject the resolver into render sites that surface a remote member's name via `Profile.displayName`. Audit during implementation by grepping `Profile.displayName` callers inside `Convos/Conversation Detail/`. Initial known list:
+  - System / update messages: join, leave, added-by, removed-by, role change, name change. These typically share a renderer; updating it once covers all the variants.
+  - The conversation members list (`ConversationMembersListView` → `MemberRow.displayName`).
+  - Mention strings rendered in message bodies (if any).
+  - Typing-indicator labels that include a member name (verify these route through `Profile.displayName` first).
+- [ ] Skip the resolver for any render site that's known to be "self-only" (the local user always has their own profile populated). Don't add overhead to rendering of self.
+- [ ] Don't change `Profile.displayName` itself. The existing "Somebody" behavior remains for callers that haven't opted in. This keeps the fallback opt-in per render site rather than a global semantics shift, and prevents log lines / analytics / unit tests that read `displayName` from suddenly seeing contact names.
+- [ ] Out of scope for V1: NSE / push-notification copy and any rendering outside the conversation view that doesn't have access to a `ContactsRepositoryProtocol`. Those targets continue rendering "Somebody"; a follow-up can plumb the repo through.
+- [ ] Tests:
+  - `MemberNameResolver` unit tests: per-conversation name takes precedence; fallback to contact when name is empty; "Somebody" when neither is available; no contact write occurs during a lookup.
+  - Snapshot- or string-equality test on the system-message renderer for "Somebody joined" → "Alice joined" transformation when Alice is a contact.
+
+Ship-readiness: a member who joins a group I share with them shows by their contact name in system messages and the members list, even before their per-conversation profile snapshot lands; non-contacts continue to render as "Somebody"; no behavior change for the local user's own avatar / name.
+
+**End of Step 2.** Stacked PR or merge train including phases 2.1 – 2.6 (and 2.7 / 2.8 if they make the cut).
 
 ---
 
@@ -780,6 +885,11 @@ Ship-readiness: shared-conversations list renders correctly.
 ## Open Questions
 
 - [ ] **Block-in-group behavior.** Does blocking a contact silence their messages within an existing shared group, or only reject future inbound conversation invitations from them? V1 ships with the latter (block affects only inbound welcomes). Block-in-group is a follow-up.
+- [ ] **"Block" vs "Block and leave" on the unified card (Phase 2.8).** Should the card present both as separate buttons, or merge them into one button with an inline "also leave this convo" toggle? *(Recommendation: keep both as separate buttons — the intents are different ("hard reject this person from initiating new conversations" vs "block + immediately exit this group"). Merging adds cognitive load without saving real estate.)*
+- [x] **Send-message CTA on the unified card when the member isn't yet a contact (Phase 2.8).** *(Resolved: the CTA is always shown. Tapping it performs a narrow per-person `ContactsWriter.upsertContact` for that member's inbox before opening the picker — distinct from the Step 1 group auto-add, which still requires sending a message in the group to enroll the rest of the members.)*
+- [x] **Fate of `ConversationMemberView` (Phase 2.8).** *(Resolved: delete after the unified card is wired and manually verified. Self-tap continues to route through the existing "My info" path, which doesn't pass through `ConversationMemberView` today.)*
+- [ ] **Agent-status freshness on contacts (Phase 2.8).** When does a contact's `agentVerification` flag get cleared? Today's `ConversationMember.agentVerification` is recomputed per conversation; the contact-level flag is denormalized. If an agent loses verification, we'd need a profile-sync event that explicitly says "no longer a verified agent" — the current most-recent-wins design only updates fields it sees a value for. *(Recommendation for V1: only surface agent rows when we've affirmatively seen the verified-agent signal; treat absence-of-signal as "preserve last known." Live verification status remains accurate inside conversation context. If users complain about stale agent rows in the contacts list, add an explicit unset path.)*
+- [x] **Scope of the contact-list display-name fallback (Phase 2.9).** *(Resolved: V1 wires the resolver into every in-group surface that currently falls through to `Profile.displayName`'s "Somebody" sentinel — system messages (join / leave / added-by / role change / name change), the members list, mention strings, and typing-indicator labels. Surfaces outside the conversation view that don't have a `ContactsRepositoryProtocol` injected — push-notification copy, NSE rendering — keep their current behavior; plumbing the repo into those is a follow-up.)*
 - [ ] **Manual contact removal.** Can a user delete a contact (separate from blocking)? If yes, what happens when they next appear in a shared group action? *(Recommendation: ship without manual removal; revisit after user feedback. Blocking covers the most common "I don't want this person to message me" intent already.)*
 - [ ] **Self-contact.** Does the local user appear as their own contact (for "note to self")? *(Recommendation: no for V1. The coordinator filters self via `DBInbox`.)*
 - [ ] **Quarantine TTL.** Default 7 days. Validate with product / privacy review before Phase 2.6 ships.

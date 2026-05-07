@@ -111,6 +111,12 @@ extension SharedDatabaseMigrator {
                 t.add(column: "quarantineReleasedAt", .datetime)
             }
         }
+
+        migrator.registerMigration("addContactAgentVerification") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "agentVerification", .jsonText)
+            }
+        }
         return migrator
     }
 

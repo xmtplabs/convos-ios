@@ -195,6 +195,7 @@ final class MessagesViewController: UIViewController {
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
+    var memberNameOverride: ((String) -> String?)?
 
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
@@ -393,6 +394,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onRetryTranscript = { [weak self] item in
             self?.onRetryTranscript?(item)
+        }
+        dataSource.memberNameOverride = { [weak self] inboxId in
+            self?.memberNameOverride?(inboxId)
         }
 
         setupImmediateTouchGesture()

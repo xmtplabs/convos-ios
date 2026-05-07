@@ -28,6 +28,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onConvoCode: (() -> Void)? { get set }
     var onInviteAssistant: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
+    var memberNameOverride: ((String) -> String?)? { get set }
     var hasAssistant: Bool { get set }
     var isAssistantJoinPending: Bool { get set }
     var isAssistantEnabled: Bool { get set }

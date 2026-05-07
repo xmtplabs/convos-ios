@@ -21,6 +21,7 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         static let bio: Column = Column(CodingKeys.bio)
         static let profileUpdatedAt: Column = Column(CodingKeys.profileUpdatedAt)
         static let blockedAt: Column = Column(CodingKeys.blockedAt)
+        static let agentVerification: Column = Column(CodingKeys.agentVerification)
     }
 
     var id: String { inboxId }
@@ -34,6 +35,13 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
     var bio: String?
     var profileUpdatedAt: Date?
     var blockedAt: Date?
+    /// Agent verification snapshot for this contact. `nil` means we have not
+    /// observed an agent signal for this inbox yet; `.unverified` /
+    /// `.verified(...)` are observed states. The unified contact card shows
+    /// agent rows iff `agentVerification?.isVerified == true`. Most-recent-
+    /// wins via `mergeProfile`: a `nil` value in an incoming snapshot does
+    /// not unset a previously observed verification.
+    var agentVerification: AgentVerification?
 
     init(
         inboxId: String,
@@ -43,7 +51,8 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         avatarURL: String? = nil,
         bio: String? = nil,
         profileUpdatedAt: Date? = nil,
-        blockedAt: Date? = nil
+        blockedAt: Date? = nil,
+        agentVerification: AgentVerification? = nil
     ) {
         self.inboxId = inboxId
         self.addedAt = addedAt
@@ -53,6 +62,7 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         self.bio = bio
         self.profileUpdatedAt = profileUpdatedAt
         self.blockedAt = blockedAt
+        self.agentVerification = agentVerification
     }
 }
 
@@ -61,7 +71,8 @@ extension DBContact {
         displayName: String?,
         avatarURL: String?,
         bio: String?,
-        profileUpdatedAt: Date?
+        profileUpdatedAt: Date?,
+        agentVerification: AgentVerification?
     ) -> DBContact {
         DBContact(
             inboxId: inboxId,
@@ -71,7 +82,8 @@ extension DBContact {
             avatarURL: avatarURL,
             bio: bio,
             profileUpdatedAt: profileUpdatedAt,
-            blockedAt: blockedAt
+            blockedAt: blockedAt,
+            agentVerification: agentVerification
         )
     }
 
@@ -84,7 +96,8 @@ extension DBContact {
             avatarURL: avatarURL,
             bio: bio,
             profileUpdatedAt: profileUpdatedAt,
-            blockedAt: blockedAt
+            blockedAt: blockedAt,
+            agentVerification: agentVerification
         )
     }
 }

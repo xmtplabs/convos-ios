@@ -209,11 +209,29 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
 public extension Array where Element == Profile {
     var formattedNamesString: String {
-        let namedProfiles = filter { $0.name != nil && $0.name?.isEmpty == false }
-            .map { $0.displayName }
-            .sorted()
-        let anonymousCount = filter { $0.name == nil || $0.name?.isEmpty == true }.count
-        let totalCount = namedProfiles.count + anonymousCount
+        formattedNamesString(memberNameOverride: { _ in nil })
+    }
+
+    /// `formattedNamesString` with an inbox → contact-name override applied
+    /// before the "anonymous / Somebody" bucketing kicks in. The override is
+    /// consulted only when the per-conversation profile name is empty;
+    /// non-empty profile names take precedence verbatim. Used by Phase 2.9
+    /// to substitute a known contact's stored name during the gap before
+    /// their profile snapshot lands. Pass `{ _ in nil }` for the legacy
+    /// behavior (no override).
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        let resolved: [String?] = map { profile -> String? in
+            if let name = profile.name, !name.isEmpty { return name }
+            if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+                return overridden
+            }
+            return nil
+        }
+        let namedProfiles: [String] = resolved.compactMap { $0 }.sorted()
+        let anonymousCount: Int = resolved.filter { $0 == nil }.count
+        let totalCount: Int = namedProfiles.count + anonymousCount
 
         if namedProfiles.isEmpty {
             if anonymousCount == 0 {

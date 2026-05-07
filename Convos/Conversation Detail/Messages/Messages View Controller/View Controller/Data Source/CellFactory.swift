@@ -30,6 +30,11 @@ struct CellConfig {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
+    /// Phase 2.9 stopgap: maps an inbox to a contact-list display name when
+    /// the per-conversation profile name is empty. Cells thread this into
+    /// `update.summary(memberNameOverride:)` for system-message rendering.
+    /// Returns nil for non-contacts (the renderer falls back to "Somebody").
+    let memberNameOverride: (String) -> String?
 }
 
 // swiftlint:disable force_cast
