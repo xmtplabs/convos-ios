@@ -9,6 +9,7 @@ final class HTMLThumbnailRenderer {
 
     private static let renderSize: CGSize = CGSize(width: 720, height: 1200)
     private static let paintDelay: TimeInterval = 0.5
+    private static let loadTimeout: TimeInterval = 15.0
     private static let cacheKeyPrefix: String = "html-thumb-v2-"
     private static let injectionScript: String = """
     (function() {
@@ -109,6 +110,13 @@ final class HTMLThumbnailRenderer {
 
             let readAccessURL = fileURL.deletingLastPathComponent()
             webView.loadFileURL(fileURL, allowingReadAccessTo: readAccessURL)
+
+            // Safety net: if the load never finishes or fails, resume with nil so the
+            // webView can be torn down by the surrounding `defer` rather than living
+            // forever as a subview of the render window.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.loadTimeout) { [weak coordinator] in
+                coordinator?.resumeIfNeeded(image: nil, reason: "load timed out")
+            }
         }
     }
 
@@ -158,5 +166,11 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
         guard !hasResumed else { return }
         hasResumed = true
         completion(image)
+    }
+
+    func resumeIfNeeded(image: UIImage?, reason: String) {
+        guard !hasResumed else { return }
+        Log.error("HTMLThumbnailRenderer resuming early: \(reason)")
+        resume(image: image)
     }
 }
