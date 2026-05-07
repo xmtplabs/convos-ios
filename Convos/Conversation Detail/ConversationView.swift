@@ -23,8 +23,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
-    @State private var addFromContactsErrorMessage: String?
-    @State private var presentingAddFromContactsErrorAlert: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     /// Phase 2.9 stopgap: substitutes contact-list display names when a
@@ -242,20 +240,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     @ViewBuilder
-    private var addFromContactsPickerSheet: some View {
-        let alreadyInChat: Set<String> = Set(viewModel.conversation.members.map(\.profile.inboxId))
-        ContactsPickerView(
-            mode: .addToConversation(
-                conversationId: viewModel.conversation.id,
-                conversationTitle: viewModel.conversation.name
-            ),
-            contactsRepository: viewModel.messagingService.contactsRepository(),
-            alreadyInChatInboxIds: alreadyInChat,
-            onConfirm: handleAddFromContactsConfirm
-        )
-    }
-
-    @ViewBuilder
     private func memberContactCardSheet(for member: ConversationMember) -> some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
@@ -300,20 +284,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         viewModel.presentingProfileForMember = nil
                     }
                 }
-            }
-        }
-    }
-
-    private func handleAddFromContactsConfirm(_ inboxIds: Set<String>) {
-        let ids = Array(inboxIds)
-        guard !ids.isEmpty else { return }
-        Task {
-            do {
-                try await viewModel.addMembersFromContacts(ids)
-            } catch {
-                Log.error("Add from contacts failed: \(error.localizedDescription)")
-                addFromContactsErrorMessage = "We couldn't add those contacts. Please try again."
-                presentingAddFromContactsErrorAlert = true
             }
         }
     }
@@ -415,16 +385,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // chat plus-menu's "Add from Contacts" row drives.
             presentingAddFromContactsPicker = true
         }
-        .sheet(isPresented: $presentingAddFromContactsPicker) { addFromContactsPickerSheet }
-        .alert(
-            "Couldn't add contacts",
-            isPresented: $presentingAddFromContactsErrorAlert,
-            presenting: addFromContactsErrorMessage
-        ) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { message in
-            Text(message)
-        }
+        .addFromContactsPicker(
+            viewModel: viewModel,
+            isPresented: $presentingAddFromContactsPicker
+        )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,
