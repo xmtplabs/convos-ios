@@ -7,9 +7,9 @@ import WebKit
 final class HTMLThumbnailRenderer {
     static let shared: HTMLThumbnailRenderer = HTMLThumbnailRenderer()
 
-    private static let renderSize: CGSize = CGSize(width: 720, height: 720)
+    private static let renderSize: CGSize = CGSize(width: 720, height: 1200)
     private static let paintDelay: TimeInterval = 0.5
-    private static let cacheKeyPrefix: String = "html-thumb-"
+    private static let cacheKeyPrefix: String = "html-thumb-v2-"
     private static let injectionScript: String = """
     (function() {
         var css = 'html, body { margin-top: 0 !important; padding-top: 0 !important; } ' +
