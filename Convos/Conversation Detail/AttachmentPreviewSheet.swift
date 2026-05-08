@@ -125,11 +125,10 @@ private struct AttachmentSenderIndicator: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(sender.profile.displayName)
                         .lineLimit(1)
-                        .frame(maxWidth: 140.0, alignment: .leading)
-                        .font(.callout.weight(.medium))
                         .truncationMode(.tail)
+                        .font(.callout.weight(.medium))
                         .foregroundStyle(.colorTextPrimary)
-                        .fixedSize()
+                        .frame(maxWidth: 140.0, alignment: .leading)
                     Text(subtitle)
                         .lineLimit(1)
                         .font(.caption)

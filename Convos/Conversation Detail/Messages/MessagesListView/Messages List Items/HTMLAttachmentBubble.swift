@@ -181,7 +181,11 @@ private extension UIImage {
               cgImage.width > 0,
               cgImage.height > 0 else { return nil }
         let x = cgImage.width / 2
-        let y = max(cgImage.height - 4, 0)
+        let imageRowFromTop = max(cgImage.height - 4, 0)
+        // CGContext.draw flips the CGImage along y, so to land `imageRowFromTop` at
+        // context y=0 we offset by `height - 1 - row`. Without this flip we'd sample
+        // 4 rows from the top instead of the bottom.
+        let yOffset = cgImage.height - 1 - imageRowFromTop
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         var pixel: [UInt8] = [0, 0, 0, 0]
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
@@ -194,7 +198,7 @@ private extension UIImage {
             space: colorSpace,
             bitmapInfo: bitmapInfo
         ) else { return nil }
-        context.draw(cgImage, in: CGRect(x: -x, y: -y, width: cgImage.width, height: cgImage.height))
+        context.draw(cgImage, in: CGRect(x: -x, y: -yOffset, width: cgImage.width, height: cgImage.height))
         let red = CGFloat(pixel[0]) / 255.0
         let green = CGFloat(pixel[1]) / 255.0
         let blue = CGFloat(pixel[2]) / 255.0
