@@ -117,7 +117,8 @@ private struct AttachmentSenderIndicator: View {
                 ProfileAvatarView(
                     profile: sender.profile,
                     profileImage: nil,
-                    useSystemPlaceholder: false
+                    useSystemPlaceholder: false,
+                    agentVerification: sender.agentVerification
                 )
                 .frame(width: 36.0, height: 36.0)
 

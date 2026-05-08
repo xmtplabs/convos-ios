@@ -16,10 +16,6 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
     }
 }
 
-/// Captures horizontal swipes on the collection view to prevent
-/// NavigationSplitView's back gesture from triggering mid-screen.
-private class HorizontalBlockerPanGestureRecognizer: UIPanGestureRecognizer {}
-
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
@@ -177,6 +173,7 @@ final class MessagesViewController: UIViewController {
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
@@ -342,6 +339,10 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onTapReactions?(message)
         }
+        dataSource.onTapReadReceipts = { [weak self] group in
+            guard let self = self else { return }
+            self.onTapReadReceipts?(group)
+        }
         dataSource.onReaction = { [weak self] emoji, messageId in
             guard let self = self else { return }
             self.onReaction?(emoji, messageId)
@@ -395,7 +396,6 @@ final class MessagesViewController: UIViewController {
         }
 
         setupImmediateTouchGesture()
-        setupHorizontalBlockerGesture()
     }
 
     private func setupImmediateTouchGesture() {
@@ -405,12 +405,6 @@ final class MessagesViewController: UIViewController {
         gesture.delaysTouchesEnded = false
         gesture.delegate = self
         collectionView.addGestureRecognizer(gesture)
-    }
-
-    private func setupHorizontalBlockerGesture() {
-        let blocker = HorizontalBlockerPanGestureRecognizer(target: self, action: nil)
-        blocker.delegate = self
-        collectionView.addGestureRecognizer(blocker)
     }
 
     @objc private func handleImmediateTouch(_ gesture: UIGestureRecognizer) {
@@ -949,15 +943,6 @@ extension MessagesViewController {
 // MARK: - UIGestureRecognizerDelegate
 
 extension MessagesViewController: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? HorizontalBlockerPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: view)
-        let location = pan.location(in: view)
-        let isHorizontal = abs(velocity.x) > abs(velocity.y)
-        let isAwayFromEdge = location.x > 30
-        return isHorizontal && isAwayFromEdge
-    }
-
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

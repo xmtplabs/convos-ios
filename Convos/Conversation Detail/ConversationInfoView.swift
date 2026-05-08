@@ -117,7 +117,19 @@ struct ConversationInfoView: View {
         NavigationLink {
             AssistantFilesLinksView(
                 repository: viewModel.makeAssistantFilesLinksRepository(),
-                members: viewModel.conversation.members
+                members: viewModel.conversation.members,
+                profileSheetContent: { member in
+                    AnyView(
+                        NavigationStack {
+                            ConversationMemberView(viewModel: viewModel, member: member)
+                                .toolbar {
+                                    ToolbarItem(placement: .cancellationAction) {
+                                        AttachmentProfileSheetCloseButton()
+                                    }
+                                }
+                        }
+                    )
+                }
             )
         } label: {
             FeatureRowItem(

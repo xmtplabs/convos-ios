@@ -20,6 +20,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingAssistantsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
+    @State private var pagerSelectedPage: ConversationPagerPage = .messages
+    @State private var isKeyboardVisible: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private var showPullToAddAssistant: Bool {
@@ -80,6 +82,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onReaction: viewModel.onReaction(emoji:messageId:),
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
+            onTapReadReceipts: viewModel.onTapReadReceipts(_:),
             onReply: { message in
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
@@ -117,18 +120,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
-            profileSheetForMember: { member in
-                AnyView(
-                    NavigationStack {
-                        ConversationMemberView(viewModel: viewModel, member: member)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    AttachmentProfileSheetCloseButton()
-                                }
-                            }
-                    }
-                )
-            },
+            profileSheetForMember: profileSheetForMember,
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
@@ -148,6 +140,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onConvosAction: { viewModel.onConvosButtonTapped() },
+            extraBottomInset: pagerDotsInset,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     if showPullToAddAssistant {
@@ -242,8 +235,45 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .accessibilityIdentifier("scan-invite-button")
     }
 
+    private var stuffPage: some View {
+        AssistantFilesLinksView(
+            repository: viewModel.makeAssistantFilesLinksRepository(),
+            members: viewModel.conversation.members,
+            usesInlineHeader: true,
+            profileSheetContent: profileSheetForMember
+        )
+    }
+
+    private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
+        AnyView(
+            NavigationStack {
+                ConversationMemberView(viewModel: viewModel, member: member)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            AttachmentProfileSheetCloseButton()
+                        }
+                    }
+            }
+        )
+    }
+
+    private var pagerDotsInset: CGFloat {
+        isKeyboardVisible ? 0.0 : 24.0
+    }
+
     var body: some View {
-        messagesView
+        ConversationPager(
+            selectedPage: $pagerSelectedPage,
+            showsPageDots: !isKeyboardVisible,
+            messagesPage: { messagesView },
+            stuffPage: { stuffPage }
+        )
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            isKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            isKeyboardVisible = false
+        }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForPastedLink()
@@ -317,6 +347,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.removeReaction(reaction, from: message)
             }
         }
+        .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
+            ReadByDrawerView(members: group.readByMembers)
+        }
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(
                 isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
@@ -356,7 +389,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 }
 
-private struct AttachmentProfileSheetCloseButton: View {
+struct AttachmentProfileSheetCloseButton: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {

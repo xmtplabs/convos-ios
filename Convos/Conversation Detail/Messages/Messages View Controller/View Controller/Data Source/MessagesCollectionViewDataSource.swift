@@ -18,6 +18,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
@@ -88,6 +89,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
+            },
+            onTapReadReceipts: { [weak self] group in
+                self?.onTapReadReceipts?(group)
             },
             onReaction: { [weak self] emoji, messageId in
                 self?.onReaction?(emoji, messageId)

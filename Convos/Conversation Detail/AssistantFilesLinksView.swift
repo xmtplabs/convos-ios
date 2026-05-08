@@ -116,10 +116,19 @@ struct AssistantFilesLinksView: View {
     @State private var viewModel: AssistantFilesLinksViewModel
     @State private var presentingPreview: AttachmentPreviewPresentation?
     private let members: [ConversationMember]
+    private let usesInlineHeader: Bool
+    private let profileSheetContent: ((ConversationMember) -> AnyView)?
 
-    init(repository: AssistantFilesLinksRepository, members: [ConversationMember]) {
+    init(
+        repository: AssistantFilesLinksRepository,
+        members: [ConversationMember],
+        usesInlineHeader: Bool = false,
+        profileSheetContent: ((ConversationMember) -> AnyView)? = nil
+    ) {
         _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
         self.members = members
+        self.usesInlineHeader = usesInlineHeader
+        self.profileSheetContent = profileSheetContent
     }
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
@@ -127,11 +136,10 @@ struct AssistantFilesLinksView: View {
     }
 
     var body: some View {
-        content
+        bodyContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
-            .navigationTitle("Stuff")
-            .toolbarTitleDisplayMode(.large)
+            .applyTitle(usesInlineHeader: usesInlineHeader)
             .safeAreaBar(edge: .bottom) {
                 StuffSearchBar(
                     searchText: $viewModel.searchText,
@@ -146,7 +154,8 @@ struct AssistantFilesLinksView: View {
                     attachment: preview.attachment,
                     fileURL: preview.fileURL,
                     sender: preview.sender,
-                    sentAt: preview.sentAt
+                    sentAt: preview.sentAt,
+                    profileSheetContent: profileSheetContent
                 )
                 .presentationDetents([.large])
             }
@@ -160,6 +169,23 @@ struct AssistantFilesLinksView: View {
             } message: {
                 Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
             }
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        if usesInlineHeader {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Stuff")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.colorTextPrimary)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step2x)
+                    .padding(.bottom, DesignConstants.Spacing.step3x)
+                content
+            }
+        } else {
+            content
+        }
     }
 
     @ViewBuilder
@@ -179,11 +205,8 @@ struct AssistantFilesLinksView: View {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.filteredItems) { item in
                     row(for: item)
-                    Divider()
-                        .padding(.leading, Constant.dividerInset)
                 }
             }
-            .padding(.top, DesignConstants.Spacing.step2x)
         }
     }
 
@@ -300,12 +323,8 @@ struct AssistantFilesLinksView: View {
     }
 
     private var linkPlaceholder: some View {
-        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
-            .fill(Color.colorFillMinimal)
-            .overlay {
-                Image(systemName: "link")
-                    .foregroundStyle(.colorTextSecondary)
-            }
+        Image(systemName: "link")
+            .foregroundStyle(.colorTextSecondary)
     }
 
     private func relativeDate(for date: Date) -> String {
@@ -316,10 +335,6 @@ struct AssistantFilesLinksView: View {
             return "\(days)d ago"
         }
         return date.formatted(.dateTime.month(.abbreviated).day().year(.twoDigits))
-    }
-
-    private enum Constant {
-        static let dividerInset: CGFloat = 80.0
     }
 }
 
@@ -338,7 +353,7 @@ private struct FileRow: View {
                 thumbnail: { thumbnail },
                 title: displayTitle,
                 subtitle: subtitle,
-                trailingSymbol: "doc"
+                trailingSymbol: isHTML ? "globe" : "doc"
             )
         }
         .buttonStyle(.plain)
@@ -359,24 +374,20 @@ private struct FileRow: View {
         if let renderedHTMLPreview {
             Image(uiImage: renderedHTMLPreview)
                 .resizable()
-                .aspectRatio(contentMode: .fill)
+                .aspectRatio(contentMode: .fit)
         } else if let renderedFilePreview {
             Image(uiImage: renderedFilePreview)
                 .resizable()
-                .aspectRatio(contentMode: .fill)
+                .aspectRatio(contentMode: .fit)
         } else if let base64 = file.thumbnailDataBase64,
                   let data = Data(base64Encoded: base64),
                   let uiImage = UIImage(data: data) {
             Image(uiImage: uiImage)
                 .resizable()
-                .aspectRatio(contentMode: .fill)
+                .aspectRatio(contentMode: .fit)
         } else {
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
-                .fill(Color.colorFillMinimal)
-                .overlay {
-                    Image(systemName: "doc.fill")
-                        .foregroundStyle(.colorTextSecondary)
-                }
+            Image(systemName: "doc.fill")
+                .foregroundStyle(.colorTextSecondary)
         }
     }
 
@@ -397,10 +408,10 @@ private struct FileRow: View {
             renderedFilePreview = cached.image
         }
 
-        guard renderedHTMLPreview == nil
-            || resolvedHTMLTitle == nil
-            || (!isHTML && renderedFilePreview == nil)
-        else { return }
+        let needsLoad: Bool = isHTML
+            ? (renderedHTMLPreview == nil || resolvedHTMLTitle == nil)
+            : (renderedFilePreview == nil)
+        guard needsLoad else { return }
 
         do {
             let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
@@ -445,10 +456,15 @@ private struct StuffRowContent<Thumbnail: View>: View {
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             thumbnail()
-                .frame(width: 56.0, height: 56.0)
-                .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
+                .frame(width: StuffRowMetrics.thumbnailSize, height: StuffRowMetrics.thumbnailSize)
+                .background(Color.colorFillMinimal)
+                .clipShape(RoundedRectangle(cornerRadius: StuffRowMetrics.thumbnailCornerRadius))
+                .overlay(
+                    RoundedRectangle(cornerRadius: StuffRowMetrics.thumbnailCornerRadius)
+                        .strokeBorder(Color.colorBorderEdge, lineWidth: 1.0)
+                )
 
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+            VStack(alignment: .leading, spacing: StuffRowMetrics.titleSubtitleSpacing) {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
@@ -460,14 +476,33 @@ private struct StuffRowContent<Thumbnail: View>: View {
                     .lineLimit(1)
             }
 
-            Spacer()
+            Spacer(minLength: DesignConstants.Spacing.step3x)
 
             Image(systemName: trailingSymbol)
                 .foregroundStyle(.colorTextSecondary)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
         .contentShape(Rectangle())
+    }
+}
+
+private enum StuffRowMetrics {
+    static let thumbnailSize: CGFloat = 47.0
+    static let thumbnailCornerRadius: CGFloat = 16.0
+    static let titleSubtitleSpacing: CGFloat = 3.0
+}
+
+private extension View {
+    @ViewBuilder
+    func applyTitle(usesInlineHeader: Bool) -> some View {
+        if usesInlineHeader {
+            self
+        } else {
+            self
+                .navigationTitle("Stuff")
+                .toolbarTitleDisplayMode(.large)
+        }
     }
 }
 
