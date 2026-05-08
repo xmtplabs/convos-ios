@@ -109,17 +109,13 @@ final class ConversationConnectionsViewModel {
         deviceConnections[index] = DeviceConnection(kind: kind, isEnabled: newValue)
         Task {
             // any-agent-was-enabled snapshot taken before mutation: if at least one
-            // agent had the capability, the conversation already showed it on, and
-            // toggling off should fire a single revoked event.
-            var anyWasEnabled = false
-            for agent in agents where !anyWasEnabled {
-                anyWasEnabled = await enablementStore.isEnabled(
-                    kind: kind,
-                    capability: .read,
-                    conversationId: conversationId,
-                    grantedToInboxId: agent
-                )
-            }
+            // agent had any capability for this kind, the conversation already
+            // showed the toggle on, and toggling off should fire a single revoked
+            // event. Mirrors `refreshDeviceConnections`'s display semantics
+            // (read or any write) so the two paths can't drift — checking only
+            // `.read` here silently dropped the revoke event when the user revoked
+            // a write-only kind.
+            let anyWasEnabled = await isAnyCapabilityEnabled(kind: kind, agents: agents)
             await forEachAgent(agents: agents, label: "set enablement \(kind.rawValue)") { agent in
                 for capability in ConnectionCapability.allCases {
                     await enablementStore.setEnabled(
@@ -258,42 +254,33 @@ final class ConversationConnectionsViewModel {
         Task { [self] in
             var items: [DeviceConnection] = []
             for kind in ConnectionKind.allCases where SupportedConnections.isSupported(kind) {
-                // The toggle reads on for the conversation if any agent has it enabled —
-                // matches the per-conversation UX even though storage is per-agent.
-                // The `where !isReadEnabled` clause short-circuits once any agent reports
-                // enabled.
-                var isReadEnabled = false
-                for agent in agents where !isReadEnabled {
-                    isReadEnabled = await self.enablementStore.isEnabled(
-                        kind: kind,
-                        capability: .read,
-                        conversationId: self.conversationId,
-                        grantedToInboxId: agent
-                    )
-                }
-                var hasWrite = false
-                if !isReadEnabled {
-                    for agent in agents {
-                        for capability in ConnectionCapability.allCases where capability.isWrite {
-                            if await self.enablementStore.isEnabled(
-                                kind: kind,
-                                capability: capability,
-                                conversationId: self.conversationId,
-                                grantedToInboxId: agent
-                            ) {
-                                hasWrite = true
-                                break
-                            }
-                        }
-                        if hasWrite { break }
-                    }
-                }
-                items.append(DeviceConnection(kind: kind, isEnabled: isReadEnabled || hasWrite))
+                let isEnabled = await self.isAnyCapabilityEnabled(kind: kind, agents: agents)
+                items.append(DeviceConnection(kind: kind, isEnabled: isEnabled))
             }
             await MainActor.run {
                 self.deviceConnections = items.sorted { $0.kind.displayName < $1.kind.displayName }
             }
         }
+    }
+
+    /// True when at least one agent has any capability enabled for `kind`. The toggle
+    /// reads on for the conversation under that condition, matching the per-conversation
+    /// UX even though storage is per-agent. Shared between the display path
+    /// (`refreshDeviceConnections`) and the toggle-off snapshot in
+    /// `toggleDeviceConnection` so the two can't drift on which capabilities count.
+    private func isAnyCapabilityEnabled(kind: ConnectionKind, agents: [String]) async -> Bool {
+        for agent in agents {
+            for capability in ConnectionCapability.allCases {
+                let enabled = await enablementStore.isEnabled(
+                    kind: kind,
+                    capability: capability,
+                    conversationId: conversationId,
+                    grantedToInboxId: agent
+                )
+                guard !enabled else { return true }
+            }
+        }
+        return false
     }
 
     /// Run `body` once per agent. Logs and stores `self.error` on per-agent failures
