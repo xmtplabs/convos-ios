@@ -81,6 +81,7 @@ struct ConversationAvatarView: View {
     let conversationImage: UIImage?
 
     @State private var cachedImage: UIImage?
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
     var body: some View {
         Group {
@@ -105,7 +106,7 @@ struct ConversationAvatarView: View {
     private var fallbackContent: some View {
         switch conversation.avatarType {
         case .customImage:
-            MonogramView(name: conversation.computedDisplayName)
+            MonogramView(name: conversation.computedDisplayName(memberNameOverride: memberNameOverride))
         case let .profile(profile, verification):
             if let emoji = profile.profileEmoji, !emoji.isEmpty {
                 EmojiAvatarView(emoji: emoji, agentVerification: verification)

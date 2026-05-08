@@ -54,17 +54,30 @@ public extension Conversation {
     }
 
     var computedDisplayName: String {
+        computedDisplayName(memberNameOverride: { _ in nil })
+    }
+
+    /// `computedDisplayName` with an inbox → contact-name override applied
+    /// to the auto-generated unnamed-group title and to DM titles. The
+    /// override wins over the per-conversation profile name (mirrors
+    /// `Profile`/`ConversationMember`'s override semantics). When the
+    /// conversation already has an explicit `name`, it's returned verbatim
+    /// — the override only affects auto-generated titles.
+    func computedDisplayName(memberNameOverride: (String) -> String?) -> String {
         if let name, !name.isEmpty {
             return name
         }
         if kind == .dm {
-            return otherMember?.profile.displayName ?? "Somebody"
+            if let other = otherMember {
+                return other.displayName(memberNameOverride: memberNameOverride)
+            }
+            return "Somebody"
         }
         let otherMembers = membersWithoutCurrent
         if otherMembers.isEmpty {
             return "New Convo"
         }
-        return otherMembers.formattedNamesString
+        return otherMembers.formattedNamesString(memberNameOverride: memberNameOverride)
     }
 
     var isFullyAnonymous: Bool {

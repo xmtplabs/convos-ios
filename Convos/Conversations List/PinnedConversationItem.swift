@@ -7,12 +7,18 @@ struct PinnedConversationItem: View {
     var animateOnAppear: Bool = true
     @State private var showingMessagePreview: Bool = false
 
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
+
     private var hasUnreadMessage: Bool {
         conversation.isUnread && conversation.lastMessage != nil
     }
 
+    private var resolvedTitle: String {
+        conversation.title(memberNameOverride: memberNameOverride)
+    }
+
     private var pinnedAccessibilityLabel: String {
-        var parts: [String] = [conversation.title, "pinned"]
+        var parts: [String] = [resolvedTitle, "pinned"]
         if conversation.isUnread { parts.append("unread") }
         if conversation.isMuted { parts.append("muted") }
         if hasUnreadMessage, let lastMessage = conversation.lastMessage {
@@ -39,7 +45,7 @@ struct PinnedConversationItem: View {
                 }
 
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Text(conversation.title)
+                Text(resolvedTitle)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)
@@ -112,6 +118,12 @@ struct PinnedConversationContextPreview: View {
     let conversation: Conversation
     var avatarSize: CGFloat = 115
 
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
+
+    private var resolvedTitle: String {
+        conversation.title(memberNameOverride: memberNameOverride)
+    }
+
     var body: some View {
         VStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
             if conversation.isUnread, let lastMessage = conversation.lastMessage {
@@ -136,7 +148,7 @@ struct PinnedConversationContextPreview: View {
                 .frame(width: avatarSize, height: avatarSize)
 
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Text(conversation.title)
+                Text(resolvedTitle)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)

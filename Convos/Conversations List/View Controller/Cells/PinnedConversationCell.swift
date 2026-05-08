@@ -31,7 +31,11 @@ final class PinnedConversationCell: UICollectionViewCell {
         hostingWrapper = nil
     }
 
-    func configure(with conversation: Conversation, isSelected: Bool) {
+    func configure(
+        with conversation: Conversation,
+        isSelected: Bool,
+        memberNameOverride: @escaping @Sendable (String) -> String? = { _ in nil }
+    ) {
         if let wrapper = hostingWrapper {
             wrapper.update(conversation: conversation, isSelected: isSelected)
         } else {
@@ -39,6 +43,7 @@ final class PinnedConversationCell: UICollectionViewCell {
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 PinnedConversationWrapperView(wrapper: wrapper)
+                    .memberNameOverride(memberNameOverride)
             }
             .margins(.all, 0)
             .background(.clear)
@@ -47,7 +52,8 @@ final class PinnedConversationCell: UICollectionViewCell {
         updateSelectionBackground(isSelected: isSelected)
 
         accessibilityIdentifier = "pinned-conversation-\(conversation.id)"
-        accessibilityLabel = "\(conversation.displayName), pinned"
+        let resolvedName = conversation.computedDisplayName(memberNameOverride: memberNameOverride)
+        accessibilityLabel = "\(resolvedName), pinned"
         isAccessibilityElement = true
     }
 

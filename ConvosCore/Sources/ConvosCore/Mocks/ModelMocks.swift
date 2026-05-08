@@ -240,10 +240,13 @@ private func resolvedMemberDisplayName(
     memberNameOverride: (String) -> String?
 ) -> String {
     if member.isCurrentUser { return "You" }
-    if let name = member.profile.name, !name.isEmpty { return name }
+    // Contact-name override wins over per-conversation profile name —
+    // contact list is the user's deliberate naming choice and should
+    // appear consistently across every member-name surface.
     if let overridden = memberNameOverride(member.profile.inboxId), !overridden.isEmpty {
         return overridden
     }
+    if let name = member.profile.name, !name.isEmpty { return name }
     return "Somebody"
 }
 
@@ -286,12 +289,11 @@ public extension ConversationUpdate {
     }
 
     /// `summary` with an inbox → contact-name override applied to every
-    /// member name in the rendered string. The override is consulted only
-    /// when the per-conversation profile name is empty; non-empty profile
-    /// names always win. Used by Phase 2.9 to substitute a known contact's
-    /// stored name during the gap before their profile snapshot lands.
-    /// Pass `{ _ in nil }` (or use the default `summary` getter) for legacy
-    /// behavior with no override.
+    /// member name in the rendered string. The override **wins** over the
+    /// per-conversation profile name when present — contact-list names
+    /// are the user's deliberate naming choice and should appear
+    /// consistently across every surface. Pass `{ _ in nil }` (or use the
+    /// default `summary` getter) for legacy behavior with no override.
     func summary(memberNameOverride: (String) -> String?) -> String {
         // Creator label is rendered as "You" for self per the original
         // logic; for non-self callers the same precedence applies. The

@@ -212,21 +212,23 @@ public extension Array where Element == Profile {
         formattedNamesString(memberNameOverride: { _ in nil })
     }
 
-    /// `formattedNamesString` with an inbox → contact-name override applied
-    /// before the "anonymous / Somebody" bucketing kicks in. The override is
-    /// consulted only when the per-conversation profile name is empty;
-    /// non-empty profile names take precedence verbatim. Used by Phase 2.9
-    /// to substitute a known contact's stored name during the gap before
-    /// their profile snapshot lands. Pass `{ _ in nil }` for the legacy
-    /// behavior (no override).
+    /// `formattedNamesString` with an inbox → contact-name override that
+    /// **wins** over the per-conversation profile name when present. The
+    /// contact name is the user's deliberate choice from the contacts list
+    /// and should appear consistently across every surface that renders a
+    /// member, regardless of what the per-conversation profile snapshot
+    /// happens to say. The per-conversation profile name is the next
+    /// fallback, and the "Somebody / Somebodies" bucketing remains the
+    /// final fallback for nameless members. Pass `{ _ in nil }` for the
+    /// legacy behavior (no override).
     func formattedNamesString(
         memberNameOverride: (String) -> String?
     ) -> String {
         let resolved: [String?] = map { profile -> String? in
-            if let name = profile.name, !name.isEmpty { return name }
             if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
                 return overridden
             }
+            if let name = profile.name, !name.isEmpty { return name }
             return nil
         }
         let namedProfiles: [String] = resolved.compactMap { $0 }.sorted()

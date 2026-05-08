@@ -246,7 +246,24 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
     var untitledConversationPlaceholder: String {
-        conversation.computedDisplayName
+        conversation.computedDisplayName(memberNameOverride: contactNameLookup)
+    }
+
+    /// Inbox → contact-name lookup used for auto-generated unnamed-group
+    /// titles in the chat header. Mirrors the resolver injected into the
+    /// conversation list. Returns the contact's stored display name when
+    /// the inbox is a known contact, else `nil` so the legacy precedence
+    /// (per-conversation profile name → "Somebody") applies. Underscore
+    /// label keeps the bare method reference usable as a `(String) -> String?`
+    /// closure at call sites (`memberNameOverride: contactNameLookup`).
+    private func contactNameLookup(_ inboxId: String) -> String? {
+        guard let contact = try? messagingService.contactsRepository().fetchContact(inboxId: inboxId) else {
+            return nil
+        }
+        guard let stored = contact.displayName, !stored.isEmpty else {
+            return nil
+        }
+        return stored
     }
     var conversationInfoSubtitle: String {
         if let expiresAt = scheduledExplosionDate {
@@ -280,7 +297,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     var conversationName: String {
-        isEditingConversationName ? editingConversationName : conversation.displayName
+        isEditingConversationName ? editingConversationName : conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
 
     var conversationDescription: String {

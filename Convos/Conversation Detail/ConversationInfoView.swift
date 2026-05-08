@@ -251,7 +251,7 @@ struct ConversationInfoView: View {
                     .frame(width: 160.0, height: 160.0)
 
                     VStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text(viewModel.conversation.computedDisplayName)
+                        Text(viewModel.untitledConversationPlaceholder)
                             .font(.largeTitle.weight(.semibold))
                             .foregroundStyle(.colorTextPrimary)
                             .multilineTextAlignment(.center)

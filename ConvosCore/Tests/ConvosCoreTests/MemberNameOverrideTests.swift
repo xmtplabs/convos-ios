@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-@Suite("Phase 2.9 member-name override precedence")
+@Suite("Member-name override precedence (Phase 2.9 / 2.9.1)")
 struct MemberNameOverrideTests {
     private static func profile(
         inboxId: String,
@@ -31,10 +31,17 @@ struct MemberNameOverrideTests {
 
     // MARK: - Profile.formattedNamesString(memberNameOverride:)
 
-    @Test("Per-conversation profile name takes precedence over override")
-    func testProfileNameWins() {
-        let withName = Self.profile(inboxId: "inbox-1", name: "Alice")
-        let result = [withName].formattedNamesString { _ in "OverrideName" }
+    @Test("Override (contact name) wins over per-conversation profile name")
+    func testOverrideWinsOverProfileName() {
+        let withName = Self.profile(inboxId: "inbox-1", name: "ProfileName")
+        let result = [withName].formattedNamesString { _ in "ContactName" }
+        #expect(result == "ContactName")
+    }
+
+    @Test("Profile name is used when override returns nil")
+    func testProfileNameWhenNoOverride() {
+        let p = Self.profile(inboxId: "inbox-1", name: "Alice")
+        let result = [p].formattedNamesString { _ in nil }
         #expect(result == "Alice")
     }
 
@@ -47,10 +54,10 @@ struct MemberNameOverrideTests {
         #expect(result == "Alice")
     }
 
-    @Test("Empty profile name is treated as missing for override purposes")
-    func testEmptyProfileNameTriggersOverride() {
-        let p = Self.profile(inboxId: "inbox-1", name: "")
-        let result = [p].formattedNamesString { _ in "Alice" }
+    @Test("Empty override falls through to profile name")
+    func testEmptyOverrideFallsThroughToProfileName() {
+        let p = Self.profile(inboxId: "inbox-1", name: "Alice")
+        let result = [p].formattedNamesString { _ in "" }
         #expect(result == "Alice")
     }
 
@@ -61,7 +68,7 @@ struct MemberNameOverrideTests {
         #expect(result == "Somebody")
     }
 
-    @Test("Override returning empty string is treated as no override")
+    @Test("Empty override + no profile name → Somebody")
     func testEmptyOverrideTreatedAsNoOverride() {
         let p = Self.profile(inboxId: "inbox-1", name: nil)
         let result = [p].formattedNamesString { _ in "" }
@@ -120,8 +127,8 @@ struct MemberNameOverrideTests {
         #expect(result == "Somebody joined · Invited by Inviter")
     }
 
-    @Test("Profile name wins over override in summary")
-    func testProfileNameWinsInSummary() {
+    @Test("Override (contact name) wins over profile name in summary")
+    func testOverrideWinsInSummary() {
         let creator = Self.member(inboxId: "inviter", name: "Inviter")
         let joiner = Self.member(inboxId: "joiner", name: "JoinerProfileName")
         let update = ConversationUpdate(
@@ -130,9 +137,11 @@ struct MemberNameOverrideTests {
             removedMembers: [],
             metadataChanges: []
         )
-        let result = update.summary { _ in "ContactNameOverride" }
-        #expect(result.contains("JoinerProfileName"))
-        #expect(!result.contains("ContactNameOverride"))
+        let result = update.summary { inboxId in
+            inboxId == "joiner" ? "ContactNameOverride" : nil
+        }
+        #expect(result.contains("ContactNameOverride"))
+        #expect(!result.contains("JoinerProfileName"))
     }
 
     @Test("Removed member uses override")
@@ -178,5 +187,59 @@ struct MemberNameOverrideTests {
         // The unparameterized `summary` getter should still produce
         // "Somebody joined …" — Phase 2.9 is opt-in per call site.
         #expect(update.summary == "Somebody joined · Invited by Inviter")
+    }
+
+    // MARK: - Conversation.computedDisplayName(memberNameOverride:)
+
+    @Test("Explicit conversation name is returned verbatim, override ignored")
+    func testExplicitConversationNameIgnoresOverride() {
+        let alice = Self.member(inboxId: "alice", name: "AliceProfile")
+        let me = Self.member(inboxId: "me", name: "Me", isCurrentUser: true)
+        let conversation = Conversation.mock(name: "Custom Name", members: [me, alice])
+        let result = conversation.computedDisplayName { _ in "AliceContact" }
+        #expect(result == "Custom Name")
+    }
+
+    @Test("DM title uses contact-name override over per-conversation profile name")
+    func testDMUsesContactNameOverride() {
+        let alice = Self.member(inboxId: "alice", name: "AliceProfile")
+        let me = Self.member(inboxId: "me", name: "Me", isCurrentUser: true)
+        let conversation = Conversation.mock(name: nil, members: [me, alice])
+        let result = conversation.computedDisplayName { inboxId in
+            inboxId == "alice" ? "AliceContact" : nil
+        }
+        #expect(result == "AliceContact")
+    }
+
+    @Test("Unnamed group title uses contact-name override over profile names")
+    func testUnnamedGroupUsesContactName() {
+        let alice = Self.member(inboxId: "alice", name: "AliceProfile")
+        let bob = Self.member(inboxId: "bob", name: "BobProfile")
+        let me = Self.member(inboxId: "me", name: "Me", isCurrentUser: true)
+        let conversation = Conversation.mock(name: nil, members: [me, alice, bob])
+        let result = conversation.computedDisplayName { inboxId in
+            switch inboxId {
+            case "alice": return "AliceContact"
+            case "bob": return "BobContact"
+            default: return nil
+            }
+        }
+        #expect(result.contains("AliceContact"))
+        #expect(result.contains("BobContact"))
+        #expect(!result.contains("AliceProfile"))
+        #expect(!result.contains("BobProfile"))
+    }
+
+    @Test("Unnamed group title uses contact-name even for nameless members")
+    func testUnnamedGroupContactNameForNamelessMember() {
+        let nameless = Self.member(inboxId: "alice", name: nil)
+        let bob = Self.member(inboxId: "bob", name: "Bob")
+        let me = Self.member(inboxId: "me", name: "Me", isCurrentUser: true)
+        let conversation = Conversation.mock(name: nil, members: [me, nameless, bob])
+        let result = conversation.computedDisplayName { inboxId in
+            inboxId == "alice" ? "AliceContact" : nil
+        }
+        #expect(result.contains("AliceContact"))
+        #expect(!result.contains("Somebody"))
     }
 }
