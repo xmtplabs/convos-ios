@@ -126,9 +126,23 @@ final class FocusCoordinator {
             // Any non-quickEditor end of side-convo name editing falls through to default
             return defaultFocus
 
+        case (.stuffSearchBar, _):
+            // Stuff search lives in a peer page of the pager, not the messages composer.
+            // Don't pull focus back to .message — just dismiss.
+            return nil
+
         default:
             return defaultFocus
         }
+    }
+
+    /// Dismisses the Stuff search field if it currently holds focus. Used when the
+    /// conversation pager pages away from the Stuff page or the conversation
+    /// itself disappears, so the keyboard doesn't stay associated with a field on
+    /// an off-screen page and bump the messages bottom bar with a phantom inset.
+    func dismissStuffSearchIfNeeded() {
+        guard currentFocus == .stuffSearchBar else { return }
+        moveFocus(to: nil)
     }
 
     /// Moves focus to `message` if we're currently focusing a quick-editor field

@@ -57,10 +57,6 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     // Agents
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
 
-    // Invite codes
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
-
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
     func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse
@@ -594,54 +590,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
-    // MARK: - Invite Codes
-
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        var request = try authenticatedRequest(for: "v2/invite-codes/redeem", method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let normalised = code.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        request.httpBody = try JSONEncoder().encode(ConvosAPI.RedeemCodeRequest(code: normalised))
-
-        let (data, httpResponse) = try await performAuthenticatedRequest(request)
-
-        switch httpResponse.statusCode {
-        case 200...299:
-            let response = try JSONDecoder().decode(ConvosAPI.RedeemInviteCodeResponse.self, from: data)
-            return response.data.inviteCode
-        case 409:
-            throw APIError.inviteCodeFullyRedeemed
-        case 404:
-            throw APIError.inviteCodeNotFound
-        case 422:
-            throw APIError.inviteCodeInvalidFormat
-        case 429:
-            throw APIError.rateLimitExceeded
-        default:
-            throw APIError.serverError(parseErrorMessage(from: data))
-        }
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        let normalised = code.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let request = try authenticatedRequest(for: "v2/invite-codes/\(normalised)/status", method: "GET")
-        let (data, httpResponse) = try await performAuthenticatedRequest(request)
-
-        switch httpResponse.statusCode {
-        case 200...299:
-            let response = try JSONDecoder().decode(ConvosAPI.InviteCodeStatusResponse.self, from: data)
-            return response.data
-        case 404:
-            throw APIError.inviteCodeNotFound
-        case 422:
-            throw APIError.inviteCodeInvalidFormat
-        case 429:
-            throw APIError.rateLimitExceeded
-        default:
-            throw APIError.serverError(parseErrorMessage(from: data))
-        }
-    }
-
     // MARK: - Connections
 
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
@@ -714,9 +662,6 @@ public enum APIError: Error {
     case noAgentsAvailable
     case agentPoolTimeout
     case agentProvisionFailed
-    case inviteCodeNotFound
-    case inviteCodeInvalidFormat
-    case inviteCodeFullyRedeemed
 }
 
 extension APIError: DisplayError {
@@ -750,12 +695,6 @@ extension APIError: DisplayError {
             return "Assistant timed out"
         case .agentProvisionFailed:
             return "Couldn't add assistant"
-        case .inviteCodeNotFound:
-            return "Code not found"
-        case .inviteCodeInvalidFormat:
-            return "Invalid code"
-        case .inviteCodeFullyRedeemed:
-            return "Code already used up"
         }
     }
 
@@ -789,12 +728,6 @@ extension APIError: DisplayError {
             return "Assistant setup took too long. Please try again."
         case .agentProvisionFailed:
             return "Something went wrong while adding an assistant. Please try again."
-        case .inviteCodeNotFound:
-            return "No invite code found with that value."
-        case .inviteCodeInvalidFormat:
-            return "Code must be 8 letters."
-        case .inviteCodeFullyRedeemed:
-            return "That invite code has already been fully redeemed."
         }
     }
 }

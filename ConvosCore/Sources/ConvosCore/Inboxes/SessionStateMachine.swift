@@ -601,7 +601,13 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         emitStateChange(.ready(result))
         await startNetworkMonitoring()
         startAppLifecycleObservation()
-        if await appLifecycle.currentState != .active {
+        // .inactive is a transient state during launch (scene activating) and
+        // routine interruptions (control center, notifications). Only treat
+        // .background as a real background launch — otherwise we drop the
+        // libxmtp DB pool here, never receive a willEnterForeground (the OS
+        // doesn't post it on a fresh launch), and every worker spins on
+        // PoolNeedsConnection until the next process restart.
+        if await appLifecycle.currentState == .background {
             enqueueAction(.enterBackground)
         }
     }
