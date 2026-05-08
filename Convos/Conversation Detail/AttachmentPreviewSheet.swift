@@ -482,8 +482,7 @@ private struct AttachmentQuickLookContent: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UINavigationController {
         let preview = QLPreviewController()
         preview.dataSource = context.coordinator
-        let nav = UINavigationController(rootViewController: preview)
-        nav.isNavigationBarHidden = true
+        let nav = HiddenBarNavigationController(rootViewController: preview)
         nav.setToolbarHidden(true, animated: false)
         return nav
     }
@@ -514,5 +513,16 @@ private struct AttachmentQuickLookContent: UIViewControllerRepresentable {
         ) -> any QLPreviewItem {
             fileURL as NSURL
         }
+    }
+}
+
+private final class HiddenBarNavigationController: UINavigationController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        super.setNavigationBarHidden(true, animated: false)
+    }
+
+    override func setNavigationBarHidden(_ hidden: Bool, animated: Bool) {
+        super.setNavigationBarHidden(true, animated: false)
     }
 }
