@@ -12,14 +12,14 @@ struct CloudConnectionServiceInfo: Identifiable, Hashable {
 enum CloudConnectionServiceCatalog {
     static let all: [CloudConnectionServiceInfo] = [
         CloudConnectionServiceInfo(
-            id: "google_calendar",
+            id: "googlecalendar",
             displayName: "Google Calendar",
             iconSystemName: "calendar",
             iconBackgroundColor: .blue,
             subtitle: "Share your calendar with conversations"
         ),
         CloudConnectionServiceInfo(
-            id: "google_drive",
+            id: "googledrive",
             displayName: "Google Drive",
             iconSystemName: "folder",
             iconBackgroundColor: .green,

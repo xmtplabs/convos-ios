@@ -21,7 +21,7 @@ struct ComputeLayoutVariantTests {
     private let conversationId: String = "conv-1"
 
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
-    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.google_calendar")
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
     private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
     private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
 
@@ -146,7 +146,7 @@ struct ComputeLayoutPreferredProvidersTests {
     private let handler: CapabilityRequestHandler = CapabilityRequestHandler()
     private let conversationId: String = "conv-1"
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
-    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.google_calendar")
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
     private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
     private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
 
@@ -411,7 +411,7 @@ struct CommitDenyCancelTests {
         await #expect(throws: CapabilityResolutionError.self) {
             try await handler.commit(
                 request: request,
-                approvedProviderIds: [appleCalendar, ProviderID(rawValue: "composio.google_calendar")],
+                approvedProviderIds: [appleCalendar, ProviderID(rawValue: "composio.googlecalendar")],
                 resolver: resolver,
                 conversationId: "conv-1"
             )

@@ -14,7 +14,7 @@ public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
     public let id: String                    // grant identifier (grant_…)
     public let senderId: String               // XMTP inbox ID of the user who granted
     public let grantedToInboxId: String       // XMTP inbox ID of the agent the grant authorizes
-    public let service: String                // canonical service name, e.g. "google_calendar"
+    public let service: String                // Composio toolkit slug, e.g. "googlecalendar"
     public let provider: String               // e.g. "composio"
     public let scope: String                  // "conversation" for v0.1
     public let composioEntityId: String

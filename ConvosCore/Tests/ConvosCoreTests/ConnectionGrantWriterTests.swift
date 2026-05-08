@@ -38,7 +38,7 @@ struct ConnectionGrantWriterTests {
 
         func seedConnection(
             id: String = "conn_google_cal",
-            serviceId: String = "google_calendar",
+            serviceId: String = "googlecalendar",
             status: CloudConnectionStatus = .active
         ) throws -> DBCloudConnection {
             let connection = DBCloudConnection(
@@ -284,8 +284,8 @@ struct ConnectionGrantWriterTests {
         let fixture = Fixture()
         defer { fixture.cleanup() }
 
-        let first = try fixture.seedConnection(id: "conn_a", serviceId: "google_calendar")
-        let second = try fixture.seedConnection(id: "conn_b", serviceId: "google_drive")
+        let first = try fixture.seedConnection(id: "conn_a", serviceId: "googlecalendar")
+        let second = try fixture.seedConnection(id: "conn_b", serviceId: "googledrive")
         let conversationId = "conv_multi"
         try fixture.seedConversation(id: conversationId)
 
@@ -305,6 +305,6 @@ struct ConnectionGrantWriterTests {
         let payload = try CloudConnectionsMetadataPayload.fromJsonString(grantsJson)
         #expect(payload.grants.count == 2)
         let serviceIds = Set(payload.grants.map(\.service))
-        #expect(serviceIds == ["google_calendar", "google_drive"])
+        #expect(serviceIds == ["googlecalendar", "googledrive"])
     }
 }

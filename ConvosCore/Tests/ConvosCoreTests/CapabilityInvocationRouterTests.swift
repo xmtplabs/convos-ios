@@ -156,7 +156,7 @@ struct CapabilityInvocationRouterTests {
     func cloudOnlyExecutionFailed() async throws {
         let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
         try await resolver.setResolution(
-            [ProviderID(rawValue: "composio.google_calendar")],
+            [ProviderID(rawValue: "composio.googlecalendar")],
             subject: .calendar,
             capability: .writeCreate,
             conversationId: conversationId,
@@ -174,7 +174,7 @@ struct CapabilityInvocationRouterTests {
             invokerInboxId: invokerInboxId
         )
         #expect(result.status == .executionFailed)
-        #expect(result.errorMessage?.contains("composio.google_calendar") == true)
+        #expect(result.errorMessage?.contains("composio.googlecalendar") == true)
         let calls = await spy.calls
         #expect(calls.isEmpty, "device dispatch should not run when the resolution is cloud-only")
     }

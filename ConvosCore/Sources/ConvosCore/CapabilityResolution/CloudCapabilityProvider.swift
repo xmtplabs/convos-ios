@@ -43,14 +43,14 @@ public extension CloudCapabilityProvider {
     /// bootstrap helper falls back to ignoring services that aren't in the table, since
     /// publishing an unrouted provider would just confuse the picker.
     static let serviceSubjectMap: [String: CapabilitySubject] = [
-        "google_calendar": .calendar,
-        "google_drive": .photos,
-        "microsoft_outlook": .calendar,
-        "google_contacts": .contacts,
+        "googlecalendar": .calendar,
+        "googledrive": .photos,
+        "microsoftoutlook": .calendar,
+        "googlecontacts": .contacts,
         "strava": .fitness,
         "fitbit": .fitness,
         "spotify": .music,
-        "google_tasks": .tasks,
+        "googletasks": .tasks,
         "todoist": .tasks,
         "gmail": .mail,
     ]
@@ -59,14 +59,14 @@ public extension CloudCapabilityProvider {
     /// not actually supported by Composio's tool catalog get a runtime error from the
     /// router; the manifest just declares "we'd allow you to ask."
     static let serviceCapabilitiesMap: [String: Set<ConnectionCapability>] = [
-        "google_calendar": [.read, .writeCreate, .writeUpdate, .writeDelete],
-        "microsoft_outlook": [.read, .writeCreate, .writeUpdate, .writeDelete],
-        "google_drive": [.read, .writeCreate, .writeUpdate, .writeDelete],
-        "google_contacts": [.read, .writeCreate, .writeUpdate, .writeDelete],
+        "googlecalendar": [.read, .writeCreate, .writeUpdate, .writeDelete],
+        "microsoftoutlook": [.read, .writeCreate, .writeUpdate, .writeDelete],
+        "googledrive": [.read, .writeCreate, .writeUpdate, .writeDelete],
+        "googlecontacts": [.read, .writeCreate, .writeUpdate, .writeDelete],
         "strava": [.read],
         "fitbit": [.read],
         "spotify": [.read, .writeCreate, .writeUpdate],
-        "google_tasks": [.read, .writeCreate, .writeUpdate, .writeDelete],
+        "googletasks": [.read, .writeCreate, .writeUpdate, .writeDelete],
         "todoist": [.read, .writeCreate, .writeUpdate, .writeDelete],
         "gmail": [.read, .writeCreate],
     ]
@@ -75,14 +75,14 @@ public extension CloudCapabilityProvider {
     /// provider before a `CloudConnection` exists — once a connection lands, the
     /// `serviceName` from the connection takes over (see `from(_:)`).
     static let serviceDisplayNames: [String: String] = [
-        "google_calendar": "Google Calendar",
-        "microsoft_outlook": "Microsoft Outlook",
-        "google_drive": "Google Drive",
-        "google_contacts": "Google Contacts",
+        "googlecalendar": "Google Calendar",
+        "microsoftoutlook": "Microsoft Outlook",
+        "googledrive": "Google Drive",
+        "googlecontacts": "Google Contacts",
         "strava": "Strava",
         "fitbit": "Fitbit",
         "spotify": "Spotify",
-        "google_tasks": "Google Tasks",
+        "googletasks": "Google Tasks",
         "todoist": "Todoist",
         "gmail": "Gmail",
     ]
@@ -90,10 +90,10 @@ public extension CloudCapabilityProvider {
     /// Build a provider from a `CloudConnection`, or `nil` if its `serviceId` isn't in
     /// the subject map (in which case it's not surfaced to agents).
     ///
-    /// Display name resolution: prefer the canonical-id lookup (`serviceDisplayNames`)
-    /// so we don't surface stale or mis-cased values that older rows may carry from
-    /// before the naming normalisation landed (e.g. `"Googlecalendar"`). Falls through
-    /// to the connection's own `serviceName` only when the canonical map has no entry.
+    /// Display name resolution: prefer the slug-keyed `serviceDisplayNames` lookup
+    /// so brand capitalisation stays consistent regardless of what the server happens
+    /// to return for `serviceName`. Falls through to title-casing via
+    /// `CloudConnectionServiceNaming.displayName(for:)` when no entry exists.
     static func from(_ connection: CloudConnection) -> CloudCapabilityProvider? {
         guard let subject = serviceSubjectMap[connection.serviceId] else { return nil }
         let capabilities = serviceCapabilitiesMap[connection.serviceId] ?? [.read]

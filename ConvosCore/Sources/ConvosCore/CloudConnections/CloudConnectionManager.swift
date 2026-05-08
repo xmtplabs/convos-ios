@@ -34,12 +34,11 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         self.resolverProvider = resolverProvider
     }
 
-    public func connect(serviceId canonicalServiceId: String) async throws -> CloudConnection {
+    public func connect(serviceId: String) async throws -> CloudConnection {
         let redirectUri = "\(callbackURLScheme)://connections/callback"
-        let toolkitSlug = CloudConnectionServiceNaming.composioToolkitSlug(for: canonicalServiceId)
 
         let initiation = try await apiClient.initiateCloudConnection(
-            serviceId: toolkitSlug,
+            serviceId: serviceId,
             redirectUri: redirectUri
         )
 
@@ -51,14 +50,14 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
 
         let completion = try await apiClient.completeCloudConnection(connectionRequestId: initiation.connectionRequestId)
 
-        // Backend echoes whatever slug Composio returns; normalise back to canonical.
-        let canonicalFromResponse = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: completion.serviceId)
-        let finalCanonical = canonicalFromResponse == completion.serviceId ? canonicalServiceId : canonicalFromResponse
+        // Backend echoes Composio's slug. Fall back to the original arg only if
+        // the response somehow comes back with no service id at all.
+        let finalServiceId = completion.serviceId.isEmpty ? serviceId : completion.serviceId
 
         let connection = CloudConnection(
             id: completion.connectionId,
-            serviceId: finalCanonical,
-            serviceName: displayName(for: completion.serviceName, fallbackFrom: finalCanonical),
+            serviceId: finalServiceId,
+            serviceName: displayName(for: completion.serviceName, fallbackFrom: finalServiceId),
             provider: .composio,
             composioEntityId: completion.composioEntityId,
             composioConnectionId: completion.composioConnectionId,
@@ -179,12 +178,11 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
             )
 
             let refreshed: [CloudConnection] = responses.map { response in
-                let canonical = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: response.serviceId)
                 let existingConnectedAt = existingById[response.connectionId]?.connectedAt
                 return CloudConnection(
                     id: response.connectionId,
-                    serviceId: canonical,
-                    serviceName: self.displayName(for: response.serviceName, fallbackFrom: canonical),
+                    serviceId: response.serviceId,
+                    serviceName: self.displayName(for: response.serviceName, fallbackFrom: response.serviceId),
                     provider: .composio,
                     composioEntityId: response.composioEntityId,
                     composioConnectionId: response.composioConnectionId,

@@ -26,7 +26,7 @@ struct ConnectionRepositoryTests {
         @discardableResult
         func seedConnection(
             id: String = "conn_google_cal",
-            serviceId: String = "google_calendar"
+            serviceId: String = "googlecalendar"
         ) throws -> DBCloudConnection {
             let connection = DBCloudConnection(
                 id: id,
@@ -77,7 +77,7 @@ struct ConnectionRepositoryTests {
         func seedGrant(
             connectionId: String = "conn_google_cal",
             conversationId: String,
-            serviceId: String = "google_calendar",
+            serviceId: String = "googlecalendar",
             grantedToInboxId: String = "agent-1"
         ) throws {
             let grant = DBCloudConnectionGrant(

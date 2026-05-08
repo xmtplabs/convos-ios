@@ -399,8 +399,8 @@ private struct PreviewBackground<Content: View>: View {
                 request: .sample(),
                 variant: .singleSelect,
                 providers: [
-                    .sample(id: "composio.google_calendar", displayName: "Google Calendar", iconName: "calendar", subject: .calendar),
-                    .sample(id: "composio.microsoft_outlook", displayName: "Microsoft Outlook", iconName: "calendar", subject: .calendar),
+                    .sample(id: "composio.googlecalendar", displayName: "Google Calendar", iconName: "calendar", subject: .calendar),
+                    .sample(id: "composio.microsoftoutlook", displayName: "Microsoft Outlook", iconName: "calendar", subject: .calendar),
                     .sample(id: "device.calendar", displayName: "Apple Calendar", iconName: "calendar", subject: .calendar),
                 ],
                 defaultSelection: [ProviderID(rawValue: "device.calendar")]
@@ -462,7 +462,7 @@ private struct PreviewBackground<Content: View>: View {
                 variant: .connectAndApprove,
                 providers: [
                     .sample(id: "device.calendar", displayName: "Apple Calendar", iconName: "calendar", subject: .calendar, linked: false),
-                    .sample(id: "composio.google_calendar", displayName: "Google Calendar", iconName: "calendar", subject: .calendar, linked: false),
+                    .sample(id: "composio.googlecalendar", displayName: "Google Calendar", iconName: "calendar", subject: .calendar, linked: false),
                 ],
                 defaultSelection: []
             ),

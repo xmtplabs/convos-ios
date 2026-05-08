@@ -8,7 +8,7 @@ struct ConnectionsMetadataPayloadTests {
         id: String = "grant_conn_123",
         senderId: String = "sender_abc",
         grantedToInboxId: String = "agent_xyz",
-        service: String = "google_calendar",
+        service: String = "googlecalendar",
         provider: String = "composio",
         scope: String = "conversation",
         composioEntityId: String = "entity_device",
@@ -77,7 +77,7 @@ struct ConnectionsMetadataPayloadTests {
             {
               "id": "grant_ca_foo_conv1",
               "senderId": "19af6d15",
-              "service": "google_calendar",
+              "service": "googlecalendar",
               "provider": "composio",
               "scope": "conversation",
               "composioEntityId": "B8813E83",
@@ -95,7 +95,7 @@ struct ConnectionsMetadataPayloadTests {
         let grant = try #require(decoded.grants.first)
         #expect(grant.id == "grant_ca_foo_conv1")
         #expect(grant.senderId == "19af6d15")
-        #expect(grant.service == "google_calendar")
+        #expect(grant.service == "googlecalendar")
         #expect(grant.provider == "composio")
         #expect(grant.scope == "conversation")
         #expect(grant.composioEntityId == "B8813E83")
@@ -113,8 +113,8 @@ struct ConnectionsMetadataPayloadTests {
 
     @Test("Preserves multiple grants in order")
     func multipleGrants() throws {
-        let a = entry(id: "grant_a", service: "google_calendar")
-        let b = entry(id: "grant_b", service: "google_drive")
+        let a = entry(id: "grant_a", service: "googlecalendar")
+        let b = entry(id: "grant_b", service: "googledrive")
         let payload = CloudConnectionsMetadataPayload(grants: [a, b])
 
         let decoded = try CloudConnectionsMetadataPayload.fromJsonString(payload.toJsonString())

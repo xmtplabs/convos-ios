@@ -25,14 +25,14 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
 
         apiClient.stubbedConnections = [
-            makeConnectionResponse(connectionId: connectionId, serviceId: "google_calendar")
+            makeConnectionResponse(connectionId: connectionId, serviceId: "googlecalendar")
         ]
 
         _ = try await manager.refreshConnections()
@@ -62,7 +62,7 @@ struct ConnectionManagerTests {
         }
 
         apiClient.stubbedConnections = [
-            makeConnectionResponse(connectionId: "conn-keep", serviceId: "google_calendar")
+            makeConnectionResponse(connectionId: "conn-keep", serviceId: "googlecalendar")
         ]
 
         _ = try await manager.refreshConnections()
@@ -87,7 +87,7 @@ struct ConnectionManagerTests {
         try await fixtures.dbWriter.write { db in
             try DBCloudConnection(
                 id: connectionId,
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 serviceName: "Google Calendar",
                 provider: CloudConnectionProvider.composio.rawValue,
                 composioEntityId: "entity-\(connectionId)",
@@ -98,7 +98,7 @@ struct ConnectionManagerTests {
         }
 
         apiClient.stubbedConnections = [
-            makeConnectionResponse(connectionId: connectionId, serviceId: "google_calendar", status: "EXPIRED")
+            makeConnectionResponse(connectionId: connectionId, serviceId: "googlecalendar", status: "EXPIRED")
         ]
 
         let returned = try await manager.refreshConnections()
@@ -125,7 +125,7 @@ struct ConnectionManagerTests {
 
         let before = Date()
         apiClient.stubbedConnections = [
-            makeConnectionResponse(connectionId: "conn-new", serviceId: "google_calendar")
+            makeConnectionResponse(connectionId: "conn-new", serviceId: "googlecalendar")
         ]
 
         let returned = try await manager.refreshConnections()
@@ -153,14 +153,14 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
 
         apiClient.stubbedConnections = [
-            makeConnectionResponse(connectionId: connectionId, serviceId: "google_calendar", status: "EXPIRED")
+            makeConnectionResponse(connectionId: connectionId, serviceId: "googlecalendar", status: "EXPIRED")
         ]
 
         _ = try await manager.refreshConnections()
@@ -198,19 +198,19 @@ struct ConnectionManagerTests {
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: "convo-a").insert(db)
             try makeDBConversation(id: "convo-b").insert(db)
-            try makeDBConnection(id: staleId, serviceId: "google_calendar").insert(db)
-            try makeDBConnection(id: keepId, serviceId: "google_calendar").insert(db)
+            try makeDBConnection(id: staleId, serviceId: "googlecalendar").insert(db)
+            try makeDBConnection(id: keepId, serviceId: "googlecalendar").insert(db)
             try DBCloudConnectionGrant(
                 connectionId: staleId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: staleId,
                 conversationId: "convo-b",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -218,14 +218,14 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant(
                 connectionId: keepId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
 
         apiClient.stubbedConnections = [
-            makeConnectionResponse(connectionId: keepId, serviceId: "google_calendar")
+            makeConnectionResponse(connectionId: keepId, serviceId: "googlecalendar")
         ]
 
         _ = try await manager.refreshConnections()
@@ -233,11 +233,11 @@ struct ConnectionManagerTests {
         let revokedEvents = await eventWriter.revokedEvents()
         #expect(revokedEvents.count == 2, "Each conversation that referenced the orphan must get a revoked event")
         #expect(Set(revokedEvents.map(\.conversationId)) == ["convo-a", "convo-b"])
-        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.google_calendar" })
+        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.googlecalendar" })
         #expect(revokedEvents.allSatisfy { $0.capability == nil })
 
         let cleared = await resolver.removedProviders()
-        #expect(cleared == [ProviderID(rawValue: "composio.google_calendar")],
+        #expect(cleared == [ProviderID(rawValue: "composio.googlecalendar")],
                 "Resolver must be cleared exactly once per orphaned provider")
     }
 
@@ -262,14 +262,14 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-b",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -277,7 +277,7 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant(
                 connectionId: "conn-other",
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -342,19 +342,19 @@ struct ConnectionManagerTests {
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: "convo-a").insert(db)
             try makeDBConversation(id: "convo-b").insert(db)
-            try makeDBConnection(id: connectionId, serviceId: "google_calendar").insert(db)
+            try makeDBConnection(id: connectionId, serviceId: "googlecalendar").insert(db)
 
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-b",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -365,7 +365,7 @@ struct ConnectionManagerTests {
         let revokedEvents = await eventWriter.revokedEvents()
         #expect(revokedEvents.count == 2)
         #expect(Set(revokedEvents.map(\.conversationId)) == ["convo-a", "convo-b"])
-        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.google_calendar" })
+        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.googlecalendar" })
         // App-level disconnect spans every verb, so capability stays nil.
         #expect(revokedEvents.allSatisfy { $0.capability == nil })
     }
@@ -388,11 +388,11 @@ struct ConnectionManagerTests {
 
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: "convo-a").insert(db)
-            try makeDBConnection(id: connectionId, serviceId: "google_calendar").insert(db)
+            try makeDBConnection(id: connectionId, serviceId: "googlecalendar").insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -401,7 +401,7 @@ struct ConnectionManagerTests {
         try await manager.disconnect(connectionId: connectionId)
 
         let cleared = await resolver.removedProviders()
-        #expect(cleared == [ProviderID(rawValue: "composio.google_calendar")])
+        #expect(cleared == [ProviderID(rawValue: "composio.googlecalendar")])
     }
 
     @Test("disconnect tolerates event writer and resolver failures")
@@ -426,11 +426,11 @@ struct ConnectionManagerTests {
 
         try await fixtures.dbWriter.write { db in
             try makeDBConversation(id: "convo-a").insert(db)
-            try makeDBConnection(id: connectionId, serviceId: "google_calendar").insert(db)
+            try makeDBConnection(id: connectionId, serviceId: "googlecalendar").insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -461,7 +461,7 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-a",
-                serviceId: "google_calendar",
+                serviceId: "googlecalendar",
                 grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
@@ -536,7 +536,7 @@ private extension ConnectionManagerTests {
 
     func makeDBConnection(
         id: String,
-        serviceId: String = "google_calendar",
+        serviceId: String = "googlecalendar",
         status: String = CloudConnectionStatus.active.rawValue
     ) -> DBCloudConnection {
         DBCloudConnection(
@@ -623,7 +623,7 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(
             connectionId: "stub-conn",
-            serviceId: "google_calendar",
+            serviceId: "googlecalendar",
             serviceName: "Google Calendar",
             composioEntityId: "entity",
             composioConnectionId: "ca",

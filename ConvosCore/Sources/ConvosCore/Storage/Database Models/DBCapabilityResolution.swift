@@ -36,7 +36,7 @@ struct DBCapabilityResolution: Codable, FetchableRecord, PersistableRecord, Hash
 
 extension DBCapabilityResolution {
     /// Provider id list separator. Comma is safe because `ProviderID.rawValue` is dotted-
-    /// alphanumeric ("device.calendar", "composio.google_calendar") with no commas.
+    /// alphanumeric ("device.calendar", "composio.googlecalendar") with no commas.
     static let providerIdsSeparator: String = ","
 
     init(

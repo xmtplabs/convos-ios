@@ -13,7 +13,7 @@ public enum SupportedConnections {
     ]
 
     public static let supportedCloudServiceIds: Set<String> = [
-        "google_calendar",
+        "googlecalendar",
     ]
 
     public static func isSupported(_ kind: ConnectionKind) -> Bool {

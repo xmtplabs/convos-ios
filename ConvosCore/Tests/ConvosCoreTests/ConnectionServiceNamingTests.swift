@@ -4,37 +4,33 @@ import Testing
 
 @Suite("CloudConnectionServiceNaming Tests")
 struct ConnectionServiceNamingTests {
-    @Test("Canonical -> Composio slug for mapped services")
-    func mappedServices() {
-        #expect(CloudConnectionServiceNaming.composioToolkitSlug(for: "google_calendar") == "googlecalendar")
-        #expect(CloudConnectionServiceNaming.composioToolkitSlug(for: "google_drive") == "googledrive")
+    @Test("Compound-brand slugs use the override map")
+    func overriddenDisplayNames() {
+        #expect(CloudConnectionServiceNaming.displayName(for: "googlecalendar") == "Google Calendar")
+        #expect(CloudConnectionServiceNaming.displayName(for: "googledrive") == "Google Drive")
+        #expect(CloudConnectionServiceNaming.displayName(for: "googlecontacts") == "Google Contacts")
+        #expect(CloudConnectionServiceNaming.displayName(for: "googletasks") == "Google Tasks")
+        #expect(CloudConnectionServiceNaming.displayName(for: "microsoftoutlook") == "Microsoft Outlook")
     }
 
-    @Test("Unmapped services pass through unchanged")
-    func unmappedPassThrough() {
-        #expect(CloudConnectionServiceNaming.composioToolkitSlug(for: "slack") == "slack")
-        #expect(CloudConnectionServiceNaming.composioToolkitSlug(for: "github") == "github")
-        #expect(CloudConnectionServiceNaming.composioToolkitSlug(for: "notion") == "notion")
+    @Test("Single-word slugs title-case via the fallback")
+    func titleCaseFallback() {
+        #expect(CloudConnectionServiceNaming.displayName(for: "slack") == "Slack")
+        #expect(CloudConnectionServiceNaming.displayName(for: "github") == "Github")
+        #expect(CloudConnectionServiceNaming.displayName(for: "notion") == "Notion")
     }
 
-    @Test("Composio slug -> canonical for mapped services")
-    func reverseMapped() {
-        #expect(CloudConnectionServiceNaming.canonicalService(fromComposioSlug: "googlecalendar") == "google_calendar")
-        #expect(CloudConnectionServiceNaming.canonicalService(fromComposioSlug: "googledrive") == "google_drive")
+    @Test("Non-empty serviceName wins over fallback derivation")
+    func serverProvidedNameWins() {
+        #expect(
+            CloudConnectionServiceNaming.displayName(for: "Google Calendar", fallbackFrom: "googlecalendar")
+                == "Google Calendar"
+        )
     }
 
-    @Test("Reverse lookup falls back to input for unknown slugs")
-    func reverseUnmappedPassThrough() {
-        #expect(CloudConnectionServiceNaming.canonicalService(fromComposioSlug: "google_calendar") == "google_calendar")
-        #expect(CloudConnectionServiceNaming.canonicalService(fromComposioSlug: "slack") == "slack")
-    }
-
-    @Test("Round-trip canonical -> slug -> canonical")
-    func roundTrip() {
-        for canonical in ["google_calendar", "google_drive", "slack", "github"] {
-            let slug = CloudConnectionServiceNaming.composioToolkitSlug(for: canonical)
-            let restored = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: slug)
-            #expect(restored == canonical)
-        }
+    @Test("Override matching is case-insensitive on the slug")
+    func overrideCaseInsensitive() {
+        #expect(CloudConnectionServiceNaming.displayName(for: "GoogleCalendar") == "Google Calendar")
+        #expect(CloudConnectionServiceNaming.displayName(for: "GOOGLEDRIVE") == "Google Drive")
     }
 }

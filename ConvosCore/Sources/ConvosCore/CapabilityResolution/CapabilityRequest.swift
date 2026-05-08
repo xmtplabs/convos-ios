@@ -71,24 +71,8 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
         self.capability = try container.decode(ConnectionCapability.self, forKey: .capability)
         let rawRationale = try container.decode(String.self, forKey: .rationale)
         self.rationale = Self.truncatedRationale(rawRationale)
-        // Translate Composio toolkit-slug wire form to canonical for internal use.
-        let wirePreferred = try container.decodeIfPresent([String].self, forKey: .preferredProviders)
-        let canonicalPreferred = wirePreferred?.map { ProviderID(wireForm: $0) }
-        self.preferredProviders = Self.truncatedProviders(canonicalPreferred)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(version, forKey: .version)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(askerInboxId, forKey: .askerInboxId)
-        try container.encode(subject, forKey: .subject)
-        try container.encode(capability, forKey: .capability)
-        try container.encode(rationale, forKey: .rationale)
-        // Emit Composio toolkit slug on the wire so agents can pass straight to
-        // `tools.execute` without translation.
-        let wirePreferred = preferredProviders?.map { $0.wireFormRawValue }
-        try container.encodeIfPresent(wirePreferred, forKey: .preferredProviders)
+        let rawPreferred = try container.decodeIfPresent([ProviderID].self, forKey: .preferredProviders)
+        self.preferredProviders = Self.truncatedProviders(rawPreferred)
     }
 
     private static func truncatedRationale(_ rationale: String) -> String {

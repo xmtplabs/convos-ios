@@ -1,57 +1,32 @@
 import Foundation
 
-/// Translates between the canonical service names used in grant metadata
-/// (e.g. `google_calendar`) and the Composio toolkit slugs (`googlecalendar`)
-/// expected by Composio's API.
+/// Cloud service identifiers in Convos use the **Composio toolkit slug** form
+/// (`googlecalendar`, `googledrive`, `slack`, `github`, …) end-to-end — DB,
+/// wire format, picker registry, agent runtime, and Composio's API. No
+/// translation layer between iOS and Composio.
 ///
-/// The runtime's `connections.mjs` stores grants keyed by canonical name and
-/// translates to the slug only when calling Composio. iOS mirrors that split:
-/// canonical everywhere internally, slug only when talking to the backend's
-/// /initiate endpoint.
+/// Display names mostly fall out of title-casing the slug (`slack` → "Slack",
+/// `notion` → "Notion"), with explicit overrides for compound brand names
+/// where the slug has no word boundary (`googlecalendar` → "Google Calendar").
 public enum CloudConnectionServiceNaming {
-    /// Canonical service name -> Composio toolkit slug. Omitted services
-    /// pass through unchanged (i.e. canonical == slug, as for `slack`, `github`, etc.).
-    private static let canonicalToComposioSlug: [String: String] = [
-        "google_calendar": "googlecalendar",
-        "google_drive": "googledrive",
+    /// Slugs whose display name can't be derived from title-casing alone.
+    /// Add an entry when a new compound-brand toolkit lands.
+    private static let displayNameOverrides: [String: String] = [
+        "googlecalendar": "Google Calendar",
+        "googledrive": "Google Drive",
+        "googlecontacts": "Google Contacts",
+        "googletasks": "Google Tasks",
+        "microsoftoutlook": "Microsoft Outlook",
     ]
 
-    /// Convert a canonical service name (what iOS stores) to the Composio
-    /// toolkit slug (what the backend sends to Composio's API).
-    public static func composioToolkitSlug(for canonicalServiceId: String) -> String {
-        canonicalToComposioSlug[canonicalServiceId] ?? canonicalServiceId
-    }
-
-    /// Convert a Composio toolkit slug received from the backend back to the
-    /// canonical service name. Match is case-insensitive so a previously-stored
-    /// (mis-capitalised) value like `"Googlecalendar"` round-trips correctly.
-    /// Falls back to the slug if no mapping exists.
-    public static func canonicalService(fromComposioSlug slug: String) -> String {
-        let lower = slug.lowercased()
-        if let canonical = canonicalToComposioSlug.first(where: { $0.value == lower })?.key {
-            return canonical
-        }
-        return slug
-    }
-
-    /// Humanize a canonical service id (or server-supplied service name) into
-    /// something user-readable. `google_calendar` → `Google Calendar`. The
-    /// optional `fallbackFrom` is used when `serviceName` is empty (e.g. a
-    /// server response with no name field) — pass the canonical id.
-    ///
-    /// The server sometimes sends the Composio toolkit slug (e.g.
-    /// `googlecalendar`) instead of the canonical underscore form. Without
-    /// translating back, the title-caser would produce `Googlecalendar` because
-    /// it has no word boundary to split on. Round-tripping through
-    /// `canonicalService(fromComposioSlug:)` recovers the canonical form so the
-    /// underscore split works.
+    /// Humanize a service slug into something user-readable.
+    /// `googlecalendar` → "Google Calendar", `slack` → "Slack". A non-empty
+    /// `serviceName` (e.g. backend-supplied display label) wins over derivation.
     public static func displayName(for serviceName: String, fallbackFrom serviceId: String = "") -> String {
         let raw = serviceName.isEmpty ? serviceId : serviceName
-        let canonical = canonicalService(fromComposioSlug: raw)
-        return canonical
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        if let override = displayNameOverrides[raw.lowercased()] {
+            return override
+        }
+        return raw.prefix(1).uppercased() + raw.dropFirst()
     }
 }

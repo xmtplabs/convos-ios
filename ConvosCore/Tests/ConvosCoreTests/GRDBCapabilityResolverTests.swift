@@ -101,7 +101,7 @@ struct GRDBCapabilityResolverTests {
         let resolver = makeResolver(db)
         await #expect(throws: CapabilityResolutionError.self) {
             try await resolver.setResolution(
-                [appleCalendar, ProviderID(rawValue: "composio.google_calendar")],
+                [appleCalendar, ProviderID(rawValue: "composio.googlecalendar")],
                 subject: .calendar,
                 capability: .read,
                 conversationId: "conv-1",

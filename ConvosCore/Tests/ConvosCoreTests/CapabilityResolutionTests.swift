@@ -28,7 +28,7 @@ struct CapabilityResolutionValidatorTests {
     private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
     private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
-    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.google_calendar")
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
 
     @Test("empty set is rejected")
     func emptySetRejected() {
@@ -179,7 +179,7 @@ struct InMemoryCapabilityResolverTests {
     private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
     private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
-    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.google_calendar")
+    private let googleCalendar: ProviderID = ProviderID(rawValue: "composio.googlecalendar")
 
     @Test("empty resolution by default")
     func emptyByDefault() async {

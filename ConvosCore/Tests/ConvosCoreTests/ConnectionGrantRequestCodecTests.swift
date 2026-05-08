@@ -8,7 +8,7 @@ struct ConnectionGrantRequestCodecTests {
     let codec: CloudConnectionGrantRequestCodec = CloudConnectionGrantRequestCodec()
 
     private let sampleRequest: CloudConnectionGrantRequest = CloudConnectionGrantRequest(
-        service: "google_calendar",
+        service: "googlecalendar",
         requestedByInboxId: "agent_inbox",
         targetInboxId: "user_inbox",
         reason: "I can check your schedule."
@@ -21,7 +21,7 @@ struct ConnectionGrantRequestCodecTests {
 
         #expect(decoded == sampleRequest)
         #expect(decoded.version == 1)
-        #expect(decoded.service == "google_calendar")
+        #expect(decoded.service == "googlecalendar")
         #expect(decoded.requestedByInboxId == "agent_inbox")
         #expect(decoded.targetInboxId == "user_inbox")
         #expect(decoded.reason == "I can check your schedule.")
@@ -43,7 +43,7 @@ struct ConnectionGrantRequestCodecTests {
     @Test("Fallback text mentions the service for pre-codec clients")
     func fallback() throws {
         let text = try #require(try codec.fallback(content: sampleRequest))
-        #expect(text.contains("google_calendar"))
+        #expect(text.contains("googlecalendar"))
     }
 
     @Test("Decoding empty content throws")
@@ -69,7 +69,7 @@ struct ConnectionGrantRequestCodecTests {
         let futurePayload = """
         {
           "version": 2,
-          "service": "google_calendar",
+          "service": "googlecalendar",
           "requestedByInboxId": "agent_inbox",
           "targetInboxId": "user_inbox",
           "reason": "future schema"
@@ -96,7 +96,7 @@ struct ConnectionGrantRequestCodecTests {
     func reasonTruncatedOnDecode() throws {
         let oversizedReason = String(repeating: "A", count: CloudConnectionGrantRequest.maxReasonLength + 250)
         let paddedRequest = CloudConnectionGrantRequest(
-            service: "google_calendar",
+            service: "googlecalendar",
             requestedByInboxId: "agent_inbox",
             targetInboxId: "user_inbox",
             reason: oversizedReason
@@ -116,7 +116,7 @@ struct ConnectionGrantRequestCodecTests {
         }
         let rawData = try JSONEncoder().encode(RawPayload(
             version: CloudConnectionGrantRequest.supportedVersion,
-            service: "google_calendar",
+            service: "googlecalendar",
             requestedByInboxId: "agent_inbox",
             targetInboxId: "user_inbox",
             reason: oversizedReason
@@ -133,7 +133,7 @@ struct ConnectionGrantRequestCodecTests {
     @Test("validateConnectionGrantRequest rejects spoofed requestedByInboxId")
     func validateRejectsSpoofedSender() throws {
         let spoofed = CloudConnectionGrantRequest(
-            service: "google_calendar",
+            service: "googlecalendar",
             requestedByInboxId: "trusted_assistant_inbox",
             targetInboxId: "user_inbox",
             reason: "hostile reason"
@@ -151,7 +151,7 @@ struct ConnectionGrantRequestCodecTests {
     @Test("validateConnectionGrantRequest passes when sender matches requestedByInboxId")
     func validateAcceptsMatchingSender() throws {
         let legitimate = CloudConnectionGrantRequest(
-            service: "google_calendar",
+            service: "googlecalendar",
             requestedByInboxId: "assistant_inbox",
             targetInboxId: "user_inbox",
             reason: "I can check your schedule."

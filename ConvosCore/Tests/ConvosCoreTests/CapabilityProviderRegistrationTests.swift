@@ -86,7 +86,7 @@ struct CloudCapabilityProviderTests {
     @Test("Google Calendar maps to .calendar with full verb support")
     func googleCalendarProvider() {
         let provider = CloudCapabilityProvider.from(
-            makeConnection(serviceId: "google_calendar", serviceName: "Google Calendar")
+            makeConnection(serviceId: "googlecalendar", serviceName: "Google Calendar")
         )
         let unwrapped = try? #require(provider)
         #expect(unwrapped?.subject == .calendar)

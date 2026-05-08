@@ -9,7 +9,7 @@ struct ConnectionEventCodecTests {
     func roundTripsWithCapability() throws {
         let codec = ConnectionEventCodec()
         let event = ConnectionEvent(
-            providerId: "composio.google_calendar",
+            providerId: "composio.googlecalendar",
             action: .granted,
             capability: .writeCreate
         )
@@ -36,14 +36,14 @@ struct ConnectionEventCodecTests {
     @Test("decodes legacy payload missing capability field")
     func decodesLegacyPayload() throws {
         let json = #"""
-        {"version":1,"providerId":"composio.google_calendar","action":"granted"}
+        {"version":1,"providerId":"composio.googlecalendar","action":"granted"}
         """#
         guard let data = json.data(using: .utf8) else {
             Issue.record("Failed to encode legacy JSON fixture")
             return
         }
         let decoded = try JSONDecoder().decode(ConnectionEvent.self, from: data)
-        #expect(decoded.providerId == "composio.google_calendar")
+        #expect(decoded.providerId == "composio.googlecalendar")
         #expect(decoded.action == .granted)
         #expect(decoded.capability == nil)
     }
@@ -81,7 +81,7 @@ struct ConnectionMessageSummaryFormatterCapabilityTests {
         }
     }
 
-    @Test("granted cloud google_calendar varies by capability")
+    @Test("granted cloud googlecalendar varies by capability")
     func grantedCloudCalendarVariesByCapability() {
         let cases: [(ConnectionCapability, String)] = [
             (.read, "can read calendar events"),
@@ -91,7 +91,7 @@ struct ConnectionMessageSummaryFormatterCapabilityTests {
         ]
         for (capability, expected) in cases {
             let event = ConnectionEvent(
-                providerId: "composio.google_calendar",
+                providerId: "composio.googlecalendar",
                 action: .granted,
                 capability: capability
             )
