@@ -231,46 +231,42 @@ struct AssistantFilesLinksView: View {
     }
 
     private func fileRow(_ file: AssistantFile) -> some View {
-        let action = {
-            Task {
-                do {
-                    let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
+        FileRow(
+            file: file,
+            subtitle: relativeDate(for: file.date),
+            onTap: { openFile(file) }
+        )
+    }
+
+    private func openFile(_ file: AssistantFile) {
+        Task {
+            do {
+                let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
+                    key: file.attachmentKey,
+                    filename: file.filename
+                )
+                await MainActor.run {
+                    let hydrated = HydratedAttachment(
                         key: file.attachmentKey,
+                        mimeType: file.mimeType,
+                        thumbnailDataBase64: file.thumbnailDataBase64,
                         filename: file.filename
                     )
-                    await MainActor.run {
-                        let hydrated = HydratedAttachment(
-                            key: file.attachmentKey,
-                            mimeType: file.mimeType,
-                            thumbnailDataBase64: file.thumbnailDataBase64,
-                            filename: file.filename
-                        )
-                        presentingPreview = AttachmentPreviewPresentation(
-                            id: file.id,
-                            attachment: hydrated,
-                            fileURL: url,
-                            sender: member(forInboxId: file.senderInboxId),
-                            sentAt: file.date
-                        )
-                    }
-                } catch {
-                    Log.error("Failed to open assistant file: \(error)")
-                    await MainActor.run {
-                        viewModel.fileOpenError = "This file is no longer available on this device."
-                    }
+                    presentingPreview = AttachmentPreviewPresentation(
+                        id: file.id,
+                        attachment: hydrated,
+                        fileURL: url,
+                        sender: member(forInboxId: file.senderInboxId),
+                        sentAt: file.date
+                    )
+                }
+            } catch {
+                Log.error("Failed to open assistant file: \(error)")
+                await MainActor.run {
+                    viewModel.fileOpenError = "This file is no longer available on this device."
                 }
             }
-            return
         }
-        return Button(action: action) {
-            StuffRowContent(
-                thumbnail: { fileThumbnail(file) },
-                title: file.displayName,
-                subtitle: relativeDate(for: file.date),
-                trailingSymbol: "doc"
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private func linkRow(_ link: AssistantLink) -> some View {
@@ -288,41 +284,6 @@ struct AssistantFilesLinksView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private func fileThumbnail(_ file: AssistantFile) -> some View {
-        if let cached = htmlPreview(for: file) {
-            Image(uiImage: cached)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-        } else if let base64 = file.thumbnailDataBase64,
-                  let data = Data(base64Encoded: base64),
-                  let uiImage = UIImage(data: data) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-        } else {
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
-                .fill(Color.colorFillMinimal)
-                .overlay {
-                    Image(systemName: "doc.fill")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-        }
-    }
-
-    private func htmlPreview(for file: AssistantFile) -> UIImage? {
-        guard isHTML(file: file) else { return nil }
-        return HTMLThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey)
-    }
-
-    private func isHTML(file: AssistantFile) -> Bool {
-        if let filename = file.filename {
-            let ext = (filename as NSString).pathExtension.lowercased()
-            if ["html", "htm"].contains(ext) { return true }
-        }
-        return file.mimeType?.lowercased() == "text/html"
     }
 
     @ViewBuilder
@@ -359,6 +320,98 @@ struct AssistantFilesLinksView: View {
 
     private enum Constant {
         static let dividerInset: CGFloat = 80.0
+    }
+}
+
+private struct FileRow: View {
+    let file: AssistantFile
+    let subtitle: String
+    let onTap: () -> Void
+
+    @State private var renderedHTMLPreview: UIImage?
+    @State private var resolvedHTMLTitle: String?
+
+    var body: some View {
+        Button(action: onTap) {
+            StuffRowContent(
+                thumbnail: { thumbnail },
+                title: displayTitle,
+                subtitle: subtitle,
+                trailingSymbol: "doc"
+            )
+        }
+        .buttonStyle(.plain)
+        .task(id: file.attachmentKey) {
+            await loadHTMLMetadataIfNeeded()
+        }
+    }
+
+    private var displayTitle: String {
+        if let resolvedHTMLTitle, !resolvedHTMLTitle.isEmpty {
+            return resolvedHTMLTitle
+        }
+        return file.displayName
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let renderedHTMLPreview {
+            Image(uiImage: renderedHTMLPreview)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let base64 = file.thumbnailDataBase64,
+                  let data = Data(base64Encoded: base64),
+                  let uiImage = UIImage(data: data) {
+            Image(uiImage: uiImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
+                .fill(Color.colorFillMinimal)
+                .overlay {
+                    Image(systemName: "doc.fill")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+        }
+    }
+
+    private var isHTML: Bool {
+        if let filename = file.filename {
+            let ext = (filename as NSString).pathExtension.lowercased()
+            if ["html", "htm"].contains(ext) { return true }
+        }
+        return file.mimeType?.lowercased() == "text/html"
+    }
+
+    private func loadHTMLMetadataIfNeeded() async {
+        guard isHTML else { return }
+
+        renderedHTMLPreview = HTMLThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey)
+        resolvedHTMLTitle = HTMLPageMetadata.shared.cachedTitle(for: file.attachmentKey)
+
+        if renderedHTMLPreview != nil, resolvedHTMLTitle != nil { return }
+
+        do {
+            let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
+                key: file.attachmentKey,
+                filename: file.filename
+            )
+
+            if renderedHTMLPreview == nil {
+                renderedHTMLPreview = await HTMLThumbnailRenderer.shared.thumbnail(
+                    for: file.attachmentKey,
+                    fileURL: url
+                )
+            }
+            if resolvedHTMLTitle == nil {
+                resolvedHTMLTitle = await HTMLPageMetadata.shared.title(
+                    for: file.attachmentKey,
+                    fileURL: url
+                )
+            }
+        } catch {
+            Log.error("Failed to load Stuff list HTML metadata: \(error)")
+        }
     }
 }
 
