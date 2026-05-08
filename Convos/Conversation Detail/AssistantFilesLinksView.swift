@@ -216,7 +216,7 @@ struct AssistantFilesLinksView: View {
         switch viewModel.filter {
         case .all: return "Nothing matches"
         case .files: return "No files match"
-        case .links: return "No links match"
+        case .links: return "No links"
         }
     }
 
