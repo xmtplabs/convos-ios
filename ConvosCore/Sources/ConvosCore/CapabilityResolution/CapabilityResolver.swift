@@ -61,6 +61,12 @@ public protocol CapabilityResolver: Sendable {
     /// across every agent — the underlying credential is gone for everyone. If a row's
     /// resulting set is empty, the row is deleted; otherwise the row's set shrinks.
     func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws
+
+    /// Same as `removeProviderFromAllResolutions` but scoped to one conversation. Used
+    /// when a per-conversation grant is revoked: the credential may still be linked to
+    /// other conversations, so we only scrub rows belonging to this one. Walks every
+    /// agent in this conversation; rows with shrunk-to-empty sets are deleted.
+    func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws
 }
 
 /// In-memory `CapabilityResolver` for tests and bring-up scenarios. The production
@@ -145,7 +151,15 @@ public actor InMemoryCapabilityResolver: CapabilityResolver {
     }
 
     public func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws {
-        for (key, providerIds) in resolutions {
+        shrinkOrClear(providerId) { _ in true }
+    }
+
+    public func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws {
+        shrinkOrClear(providerId) { $0.conversationId == conversationId }
+    }
+
+    private func shrinkOrClear(_ providerId: ProviderID, where matches: (Key) -> Bool) {
+        for (key, providerIds) in resolutions where matches(key) {
             guard providerIds.contains(providerId) else { continue }
             let shrunk = providerIds.subtracting([providerId])
             if shrunk.isEmpty {

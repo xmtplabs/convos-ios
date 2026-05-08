@@ -91,50 +91,18 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         // would keep using them. With per-agent grants, the same conversation can
         // have several rows (one per agent), and each must be revoked individually
         // so the metadata payload's per-agent entries all go away.
-        let affectedGrants: [(conversationId: String, grantedToInboxId: String)] = try await databaseWriter.read { db in
+        let affectedGrants: [DBCloudConnectionGrant] = try await databaseWriter.read { db in
             try DBCloudConnectionGrant
                 .filter(DBCloudConnectionGrant.Columns.connectionId == connectionId)
                 .fetchAll(db)
-                .map { ($0.conversationId, $0.grantedToInboxId) }
         }
-        let uniqueConversationIds = Array(Set(affectedGrants.map(\.conversationId)))
 
-        // revokeGrant deletes the row and republishes metadata for that
-        // conversation. We go through the public writer interface so the two
-        // paths stay in sync. A republish failure here is logged but doesn't
-        // block the subsequent DBCloudConnection delete — the ON DELETE CASCADE
-        // guarantees any grant revokeGrant restored on failure still gets
-        // removed locally. The stale metadata on XMTP is the best we can do
-        // if the sync is down at wipe time.
-        if let grantWriter = grantWriterProvider() {
-            for grant in affectedGrants {
-                do {
-                    try await grantWriter.revokeGrant(
-                        connectionId: connectionId,
-                        from: grant.conversationId,
-                        grantedToInboxId: grant.grantedToInboxId
-                    )
-                } catch {
-                    Log.warning(
-                        "[CloudConnections] failed to republish grants after disconnect " +
-                        "(connectionId=\(connectionId), conversationId=\(grant.conversationId), " +
-                        "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
-                    )
-                }
-            }
-        } else if !affectedGrants.isEmpty {
-            let conversationCount = uniqueConversationIds.count
-            Log.warning(
-                "[CloudConnections] disconnect had no grant writer injected; metadata for " +
-                "\(conversationCount) conversation(s) will remain stale until the next grant/revoke " +
-                "on the affected conversations"
-            )
-        }
+        await republishRevokedGrants(affectedGrants, context: "after disconnect")
 
         await postRevocationSideEffects(
             connectionId: connectionId,
             serviceId: serviceId,
-            conversationIds: uniqueConversationIds
+            conversationIds: Array(Set(affectedGrants.map(\.conversationId)))
         )
 
         // Idempotent: GRDB's deleteOne returns false when the row is already
@@ -190,30 +158,7 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
                     .fetchAll(db)
             }
 
-        if !orphanedGrants.isEmpty {
-            if let grantWriter = grantWriterProvider() {
-                for grant in orphanedGrants {
-                    do {
-                        try await grantWriter.revokeGrant(
-                            connectionId: grant.connectionId,
-                            from: grant.conversationId,
-                            grantedToInboxId: grant.grantedToInboxId
-                        )
-                    } catch {
-                        Log.warning(
-                            "[CloudConnections] failed to republish grants during refresh " +
-                            "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
-                            "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
-                        )
-                    }
-                }
-            } else {
-                Log.warning(
-                    "[CloudConnections] refresh had \(orphanedGrants.count) orphaned grant(s) but no grant writer was " +
-                    "injected; metadata for the affected conversation(s) will remain stale until the next grant/revoke"
-                )
-            }
-        }
+        await republishRevokedGrants(orphanedGrants, context: "during refresh")
 
         for orphan in orphanedConnections {
             let conversationIds = Array(Set(
@@ -270,6 +215,38 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     }
 
     /// Posts `connection_event.revoked` to every affected conversation and
+    /// Walks `grants`, calling `revokeGrant` on the injected writer for each so the
+    /// per-conversation ProfileUpdate metadata reflects the deletion. Best-effort:
+    /// per-grant failures are logged and don't propagate. `context` is a short noun
+    /// phrase ("after disconnect", "during refresh") used for log-message disambiguation
+    /// when both call sites land in the same log file.
+    private func republishRevokedGrants(_ grants: [DBCloudConnectionGrant], context: String) async {
+        guard !grants.isEmpty else { return }
+        guard let grantWriter = grantWriterProvider() else {
+            let conversationCount = Set(grants.map(\.conversationId)).count
+            Log.warning(
+                "[CloudConnections] \(context) had no grant writer injected; metadata for " +
+                "\(conversationCount) conversation(s) will remain stale until the next grant/revoke"
+            )
+            return
+        }
+        for grant in grants {
+            do {
+                try await grantWriter.revokeGrant(
+                    connectionId: grant.connectionId,
+                    from: grant.conversationId,
+                    grantedToInboxId: grant.grantedToInboxId
+                )
+            } catch {
+                Log.warning(
+                    "[CloudConnections] failed to republish grants \(context) " +
+                    "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                    "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
     /// clears the provider from every CapabilityResolution. Best-effort —
     /// failures are logged but never propagate, matching the existing grant-
     /// republish behavior. `serviceId == nil` is the "row already deleted"

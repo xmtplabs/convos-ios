@@ -807,6 +807,11 @@ private actor RecordingResolver: CapabilityResolver {
         if shouldThrow { throw StubError.removeFailed }
     }
 
+    func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws {
+        removed.append(providerId)
+        if shouldThrow { throw StubError.removeFailed }
+    }
+
     enum StubError: Error {
         case removeFailed
     }

@@ -112,12 +112,24 @@ public final class GRDBCapabilityResolver: CapabilityResolver, @unchecked Sendab
     }
 
     public func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws {
+        try await shrinkOrClear(providerId, in: DBCapabilityResolution.all())
+    }
+
+    public func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws {
+        try await shrinkOrClear(
+            providerId,
+            in: DBCapabilityResolution
+                .filter(DBCapabilityResolution.Columns.conversationId == conversationId)
+        )
+    }
+
+    private func shrinkOrClear(_ providerId: ProviderID, in scope: QueryInterfaceRequest<DBCapabilityResolution>) async throws {
         let timestamp = now()
         try await database.write { db in
-            // Read every row, rewrite the ones that reference the provider. Number of rows
-            // is bounded by (subjects × conversations × verbs × agents) which stays small.
-            let rows = try DBCapabilityResolution.fetchAll(db)
-            for row in rows {
+            // Read every matching row, rewrite the ones that reference the provider.
+            // Number of rows is bounded by (subjects × conversations × verbs × agents)
+            // which stays small.
+            for row in try scope.fetchAll(db) {
                 let providers = row.providerIds
                     .split(separator: DBCapabilityResolution.providerIdsSeparator, omittingEmptySubsequences: true)
                     .map(String.init)
