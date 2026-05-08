@@ -25,7 +25,11 @@ public final class CapabilityResolutionsRepository: CapabilityResolutionsReposit
             .tracking { db -> [CapabilityResolution] in
                 try DBCapabilityResolution
                     .filter(DBCapabilityResolution.Columns.conversationId == conversationId)
-                    .order(DBCapabilityResolution.Columns.subject.asc, DBCapabilityResolution.Columns.capability.asc)
+                    .order(
+                        DBCapabilityResolution.Columns.subject.asc,
+                        DBCapabilityResolution.Columns.capability.asc,
+                        DBCapabilityResolution.Columns.grantedToInboxId.asc
+                    )
                     .fetchAll(db)
                     .compactMap { $0.toResolution() }
             }

@@ -6,6 +6,7 @@ import Testing
 @Suite("HealthInvocationRouter")
 struct HealthInvocationRouterTests {
     private static let conversationId: String = "conv-1"
+    static let invokerInboxId: String = "agent-1"
     private static let agentInboxId: String = "agent-1"
 
     // MARK: - intercepts(_:)
@@ -134,7 +135,12 @@ struct HealthInvocationRouterTests {
         static func make(readEnabled: Bool, tests: HealthInvocationRouterTests = .init()) async -> Harness {
             let enablementStore = readEnabled
                 ? InMemoryEnablementStore(initial: [
-                    Enablement(kind: .health, capability: .read, conversationId: HealthInvocationRouterTests.conversationId),
+                    Enablement(
+                        kind: .health,
+                        capability: .read,
+                        conversationId: HealthInvocationRouterTests.conversationId,
+                        grantedToInboxId: HealthInvocationRouterTests.invokerInboxId
+                    ),
                 ])
                 : InMemoryEnablementStore()
 

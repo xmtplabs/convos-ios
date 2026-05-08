@@ -9,6 +9,7 @@ struct GRDBCapabilityResolverTests {
     private let strava: ProviderID = ProviderID(rawValue: "composio.strava")
     private let fitbit: ProviderID = ProviderID(rawValue: "composio.fitbit")
     private let appleCalendar: ProviderID = ProviderID(rawValue: "device.calendar")
+    private let agent: String = "agent-1"
 
     private func makeDatabase() throws -> DatabaseQueue {
         let dbQueue = try DatabaseQueue(configuration: {
@@ -45,7 +46,12 @@ struct GRDBCapabilityResolverTests {
     func emptyByDefault() async throws {
         let db = try makeDatabase()
         let resolver = makeResolver(db)
-        let result = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let result = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(result.isEmpty)
     }
 
@@ -57,9 +63,15 @@ struct GRDBCapabilityResolverTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: agent
         )
-        let result = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let result = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(result == [appleCalendar])
     }
 
@@ -71,9 +83,15 @@ struct GRDBCapabilityResolverTests {
             [strava, fitbit],
             subject: .fitness,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: agent
         )
-        let result = await resolver.resolution(subject: .fitness, capability: .read, conversationId: "conv-1")
+        let result = await resolver.resolution(
+            subject: .fitness,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(result == [strava, fitbit])
     }
 
@@ -86,11 +104,17 @@ struct GRDBCapabilityResolverTests {
                 [appleCalendar, ProviderID(rawValue: "composio.google_calendar")],
                 subject: .calendar,
                 capability: .read,
-                conversationId: "conv-1"
+                conversationId: "conv-1",
+                grantedToInboxId: agent
             )
         }
         // And the row was never persisted.
-        let result = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let result = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(result.isEmpty)
     }
 
@@ -113,13 +137,15 @@ struct GRDBCapabilityResolverTests {
             [strava],
             subject: .fitness,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: agent
         )
         try await resolver.setResolution(
             [strava, fitbit],
             subject: .fitness,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: agent
         )
 
         let row = try await db.read { db in
@@ -141,48 +167,186 @@ struct GRDBCapabilityResolverTests {
     func clearOneVerb() async throws {
         let db = try makeDatabase()
         let resolver = makeResolver(db)
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .read, conversationId: "conv-1")
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
 
-        try await resolver.clearResolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        try await resolver.clearResolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
 
-        let read = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
-        let write = await resolver.resolution(subject: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        let read = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        let write = await resolver.resolution(
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(read.isEmpty)
         #expect(write == [appleCalendar])
     }
 
-    @Test("clearAllResolutions scoped to one (subject, conversation)")
+    @Test("clearAllResolutions scoped to one (subject, conversation, agent)")
     func clearAllScoped() async throws {
         let db = try makeDatabase()
         let resolver = makeResolver(db)
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .read, conversationId: "conv-1")
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .writeCreate, conversationId: "conv-1")
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .read, conversationId: "conv-2")
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-2",
+            grantedToInboxId: agent
+        )
 
-        try await resolver.clearAllResolutions(subject: .calendar, conversationId: "conv-1")
+        try await resolver.clearAllResolutions(
+            subject: .calendar,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
 
-        let conv1Read = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
-        let conv1Write = await resolver.resolution(subject: .calendar, capability: .writeCreate, conversationId: "conv-1")
-        let conv2Read = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-2")
+        let conv1Read = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        let conv1Write = await resolver.resolution(
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        let conv2Read = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-2",
+            grantedToInboxId: agent
+        )
         #expect(conv1Read.isEmpty)
         #expect(conv1Write.isEmpty)
         #expect(conv2Read == [appleCalendar], "other conversation untouched")
+    }
+
+    @Test("clearAllResolutions for one agent leaves a peer agent's rows intact")
+    func clearAllScopedToAgent() async throws {
+        let db = try makeDatabase()
+        let resolver = makeResolver(db)
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-a"
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-b"
+        )
+
+        try await resolver.clearAllResolutions(
+            subject: .calendar,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-a"
+        )
+
+        let aRead = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-a"
+        )
+        let bRead = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-b"
+        )
+        #expect(aRead.isEmpty)
+        #expect(bRead == [appleCalendar], "peer agent's grant untouched")
     }
 
     @Test("removeProviderFromAllResolutions shrinks federated sets and clears singletons")
     func removeProvider() async throws {
         let db = try makeDatabase()
         let resolver = makeResolver(db)
-        try await resolver.setResolution([strava, fitbit], subject: .fitness, capability: .read, conversationId: "conv-1")
-        try await resolver.setResolution([strava], subject: .fitness, capability: .writeCreate, conversationId: "conv-1")
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .read, conversationId: "conv-1")
+        try await resolver.setResolution(
+            [strava, fitbit],
+            subject: .fitness,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        try await resolver.setResolution(
+            [strava],
+            subject: .fitness,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
 
         try await resolver.removeProviderFromAllResolutions(strava)
 
-        let read = await resolver.resolution(subject: .fitness, capability: .read, conversationId: "conv-1")
-        let write = await resolver.resolution(subject: .fitness, capability: .writeCreate, conversationId: "conv-1")
-        let calendar = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let read = await resolver.resolution(
+            subject: .fitness,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        let write = await resolver.resolution(
+            subject: .fitness,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
+        let calendar = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(read == [fitbit], "federated set should shrink to remaining providers")
         #expect(write.isEmpty, "singleton resolution referencing removed provider should be cleared")
         #expect(calendar == [appleCalendar], "unrelated row untouched")
@@ -196,14 +360,20 @@ struct GRDBCapabilityResolverTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: agent
         )
 
         try await db.write { db in
             try db.execute(sql: "DELETE FROM conversation WHERE id = ?", arguments: ["conv-1"])
         }
 
-        let result = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let result = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: agent
+        )
         #expect(result.isEmpty)
     }
 }

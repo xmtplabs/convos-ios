@@ -5,6 +5,12 @@ import Foundation
 /// `ConnectionInvocation` messages and the two underlying systems
 /// (`ConvosConnections`, cloud OAuth).
 ///
+/// Every method takes `grantedToInboxId` because resolutions are scoped per-agent — two
+/// agents in the same conversation have independent rows. The cloud-side enforcement
+/// honors the same scoping via the runtime's agent-ignorable rule (each agent only
+/// reads grants targeted to its inbox); the device side enforces strictly by routing
+/// through `CapabilityInvocationRouter` with the invoker's inbox id.
+///
 /// Belongs to neither package; lives in ConvosCore so it can refer to both subsystems by
 /// type without inducing a cycle.
 public protocol CapabilityResolver: Sendable {
@@ -12,12 +18,14 @@ public protocol CapabilityResolver: Sendable {
     /// user has linked it.
     func availableProviders(for subject: CapabilitySubject) async -> [any CapabilityProvider]
 
-    /// What the user picked previously for this `(subject, conversation, capability)`.
-    /// Empty set means they've never been asked for this verb.
+    /// What the user picked previously for this `(subject, conversation, capability,
+    /// grantedToInboxId)`. Empty set means they've never been asked for this verb on
+    /// behalf of this agent.
     func resolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async -> Set<ProviderID>
 
     /// User has just approved the picker / confirmation card. Validates the set against
@@ -27,7 +35,8 @@ public protocol CapabilityResolver: Sendable {
         _ providerIds: Set<ProviderID>,
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws
 
     /// Clear a resolution for one verb (e.g. user revoked write access in Conversation
@@ -35,20 +44,29 @@ public protocol CapabilityResolver: Sendable {
     func clearResolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws
 
-    /// Clear every verb's resolution for a subject in a conversation (user toggled the
-    /// subject off entirely from Conversation Info).
+    /// Clear every verb's resolution for a subject in a conversation, scoped to a single
+    /// agent. Other agents' rows on the same subject + conversation are untouched.
     func clearAllResolutions(
         subject: CapabilitySubject,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws
 
     /// Remove a single provider from any resolution rows that reference it. Called when a
-    /// provider is unlinked (cloud OAuth revoked, device permission removed). If a row's
+    /// provider is unlinked (cloud OAuth revoked, device permission removed). Scrubs
+    /// across every agent — the underlying credential is gone for everyone. If a row's
     /// resulting set is empty, the row is deleted; otherwise the row's set shrinks.
     func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws
+
+    /// Same as `removeProviderFromAllResolutions` but scoped to one conversation. Used
+    /// when a per-conversation grant is revoked: the credential may still be linked to
+    /// other conversations, so we only scrub rows belonging to this one. Walks every
+    /// agent in this conversation; rows with shrunk-to-empty sets are deleted.
+    func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws
 }
 
 /// In-memory `CapabilityResolver` for tests and bring-up scenarios. The production
@@ -61,6 +79,7 @@ public actor InMemoryCapabilityResolver: CapabilityResolver {
         let subject: CapabilitySubject
         let conversationId: String
         let capability: ConnectionCapability
+        let grantedToInboxId: String
     }
 
     public init(registry: any CapabilityProviderRegistry) {
@@ -74,44 +93,73 @@ public actor InMemoryCapabilityResolver: CapabilityResolver {
     public func resolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async -> Set<ProviderID> {
-        resolutions[Key(subject: subject, conversationId: conversationId, capability: capability)] ?? []
+        resolutions[Key(
+            subject: subject,
+            conversationId: conversationId,
+            capability: capability,
+            grantedToInboxId: grantedToInboxId
+        )] ?? []
     }
 
     public func setResolution(
         _ providerIds: Set<ProviderID>,
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {
         try CapabilityResolutionValidator.validate(
             providerIds: providerIds,
             subject: subject,
             capability: capability
         )
-        resolutions[Key(subject: subject, conversationId: conversationId, capability: capability)] = providerIds
+        resolutions[Key(
+            subject: subject,
+            conversationId: conversationId,
+            capability: capability,
+            grantedToInboxId: grantedToInboxId
+        )] = providerIds
     }
 
     public func clearResolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {
-        resolutions.removeValue(forKey: Key(subject: subject, conversationId: conversationId, capability: capability))
+        resolutions.removeValue(forKey: Key(
+            subject: subject,
+            conversationId: conversationId,
+            capability: capability,
+            grantedToInboxId: grantedToInboxId
+        ))
     }
 
     public func clearAllResolutions(
         subject: CapabilitySubject,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {
         resolutions = resolutions.filter { key, _ in
-            !(key.subject == subject && key.conversationId == conversationId)
+            !(key.subject == subject
+                && key.conversationId == conversationId
+                && key.grantedToInboxId == grantedToInboxId)
         }
     }
 
     public func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws {
-        for (key, providerIds) in resolutions {
+        shrinkOrClear(providerId) { _ in true }
+    }
+
+    public func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws {
+        shrinkOrClear(providerId) { $0.conversationId == conversationId }
+    }
+
+    private func shrinkOrClear(_ providerId: ProviderID, where matches: (Key) -> Bool) {
+        for (key, providerIds) in resolutions where matches(key) {
             guard providerIds.contains(providerId) else { continue }
             let shrunk = providerIds.subtracting([providerId])
             if shrunk.isEmpty {

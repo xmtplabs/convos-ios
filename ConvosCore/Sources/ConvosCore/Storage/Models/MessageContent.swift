@@ -19,15 +19,15 @@ public struct ConnectionEventSummary: Hashable, Codable, Sendable {
     }
 
     /// Marker for an actor placeholder the renderer needs to resolve from
-    /// conversation context. `text` carries an actor-less phrase ("has access to
-    /// calendar data", "read last 24 hours of health data"); the renderer
-    /// prepends the resolved name. `nil` means no actor is expected — render the
-    /// `text` verbatim.
+    /// conversation context. `text` carries an actor-less phrase ("can read calendar
+    /// events"); the renderer prepends the resolved name. `nil` means no actor is
+    /// expected — render `text` verbatim (used for connection-disconnected events).
     public enum Actor: String, Hashable, Codable, Sendable {
-        /// The conversation's verified assistant member. Used for grant/revoke
-        /// events where the actor is the agent gaining or losing access, not the
-        /// underlying message's sender (which is the user granting).
-        case verifiedAssistant = "verified_assistant"
+        /// A specific agent identified by `grantedToInboxId`. The renderer looks the
+        /// inbox id up against the conversation's members and prepends the agent's
+        /// current display name; ProfileUpdate-driven renames propagate live, and
+        /// the lookup is deterministic with N agents in a conversation.
+        case grantedAgent = "granted_agent"
         /// The sender of the underlying message — resolved by the renderer via
         /// `msg.sender`.
         case messageSender = "message_sender"
@@ -37,12 +37,23 @@ public struct ConnectionEventSummary: Hashable, Codable, Sendable {
     public let outcome: Outcome
     public let icon: Icon
     public let actor: Actor?
+    /// Identifies the agent the event concerns. Required for `actor == .grantedAgent`,
+    /// nil otherwise. Renderer prefers a live member-list lookup keyed off this id and
+    /// falls back to bare text only when the agent is no longer in the conversation.
+    public let grantedToInboxId: String?
 
-    public init(text: String, outcome: Outcome, icon: Icon, actor: Actor? = nil) {
+    public init(
+        text: String,
+        outcome: Outcome,
+        icon: Icon,
+        actor: Actor? = nil,
+        grantedToInboxId: String? = nil
+    ) {
         self.text = text
         self.outcome = outcome
         self.icon = icon
         self.actor = actor
+        self.grantedToInboxId = grantedToInboxId
     }
 }
 

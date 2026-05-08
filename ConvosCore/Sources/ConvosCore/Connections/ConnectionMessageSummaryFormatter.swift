@@ -5,18 +5,22 @@ public enum ConnectionMessageSummaryFormatter {
     public static func eventSummary(_ event: ConnectionEvent) -> ConnectionEventSummary {
         switch event.action {
         case .granted:
+            let actor: ConnectionEventSummary.Actor? = event.grantedToInboxId == nil ? nil : .grantedAgent
             return .init(
                 text: grantedText(forProviderId: event.providerId, capability: event.capability),
                 outcome: .success,
                 icon: icon(forProviderId: event.providerId),
-                actor: .verifiedAssistant
+                actor: actor,
+                grantedToInboxId: event.grantedToInboxId
             )
         case .revoked:
+            let actor: ConnectionEventSummary.Actor? = event.grantedToInboxId == nil ? nil : .grantedAgent
             return .init(
                 text: revokedText(forProviderId: event.providerId, capability: event.capability),
                 outcome: .success,
                 icon: icon(forProviderId: event.providerId),
-                actor: nil
+                actor: actor,
+                grantedToInboxId: event.grantedToInboxId
             )
         }
     }

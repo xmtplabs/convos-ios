@@ -101,7 +101,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.hasAssistant = hasAssistant
         messagesViewController.isAssistantJoinPending = isAssistantJoinPending
         messagesViewController.isAssistantEnabled = isAssistantEnabled
-        let menuPresented = contextMenuState.isPresented
+let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
         if menuPresented {

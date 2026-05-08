@@ -201,8 +201,18 @@ private final class DebugModel {
         await refresh()
     }
 
+    /// Stub inbox id used for the debug toggle's per-agent grant entry. Production
+    /// code routes through real agent inbox ids supplied by the assistants backend;
+    /// the debug view only needs a stable key so toggles persist across refreshes.
+    private static let debugStubInboxId: String = "debug-stub-agent"
+
     func setEnabled(_ enabled: Bool, kind: ConnectionKind, conversationId: String) async {
-        await manager.setEnabled(enabled, kind: kind, conversationId: conversationId)
+        await manager.setEnabled(
+            enabled,
+            kind: kind,
+            conversationId: conversationId,
+            grantedToInboxId: Self.debugStubInboxId
+        )
         if enabled {
             try? await manager.startSource(kind: kind)
         } else if await manager.enabledConversationIds(for: kind).isEmpty {
