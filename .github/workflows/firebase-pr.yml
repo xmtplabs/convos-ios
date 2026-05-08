@@ -54,6 +54,8 @@ jobs:
       XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Checkout convos-certificates (match repo)
         uses: actions/checkout@v6
@@ -62,6 +64,14 @@ jobs:
           token: ${{ secrets.CONVOS_CERTIFICATES_TOKEN }}
           path: convos-certificates
           persist-credentials: false
+
+      # ConvosCore's SPM graph references ../ConvosMetrics (a local package
+      # generated from convos-shared via gradle). xcodebuild resolves package
+      # paths before build phases run, so we have to materialize the package
+      # before fastlane invokes xcodebuild. Runs outside the nix devshell
+      # because the devshell does not include a JDK.
+      - name: Generate ConvosMetrics Swift package
+        run: ./Scripts/build-phases/build-navigation-metrics.sh
 
       - name: Install Nix
         uses: nixbuild/nix-quick-install-action@v33

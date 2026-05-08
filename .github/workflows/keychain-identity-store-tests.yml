@@ -51,6 +51,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-xcode-
 
+      # ConvosCore's SPM graph references ../ConvosMetrics (a local package
+      # generated from convos-shared via gradle). xcodebuild resolves package
+      # paths before build phases run, so we have to materialize the package
+      # before -resolvePackageDependencies.
+      - name: Generate ConvosMetrics Swift package
+        run: ./Scripts/build-phases/build-navigation-metrics.sh
+
       - name: Resolve dependencies
         run: |
           xcodebuild -resolvePackageDependencies \
