@@ -1,11 +1,12 @@
 import ConvosConnections
 import Foundation
 
-/// A persisted decision binding `(subject, conversationId, capability)` to one or more
-/// providers.
+/// A persisted decision binding `(subject, conversationId, capability, grantedToInboxId)`
+/// to one or more providers.
 ///
-/// The set's allowed cardinality depends on the subject's `allowsReadFederation` flag and
-/// the capability verb shape:
+/// `grantedToInboxId` scopes the grant to a single agent within the conversation. Two
+/// agents in the same conversation have independent rows; one's resolution doesn't
+/// authorize the other. The cardinality matrix below applies *within* each row:
 ///
 /// | `allowsReadFederation` | verb     | size  |
 /// |------------------------|----------|-------|
@@ -20,17 +21,20 @@ public struct CapabilityResolution: Sendable, Equatable, Hashable {
     public let subject: CapabilitySubject
     public let conversationId: String
     public let capability: ConnectionCapability
+    public let grantedToInboxId: String
     public let providerIds: Set<ProviderID>
 
     public init(
         subject: CapabilitySubject,
         conversationId: String,
         capability: ConnectionCapability,
+        grantedToInboxId: String,
         providerIds: Set<ProviderID>
     ) {
         self.subject = subject
         self.conversationId = conversationId
         self.capability = capability
+        self.grantedToInboxId = grantedToInboxId
         self.providerIds = providerIds
     }
 }

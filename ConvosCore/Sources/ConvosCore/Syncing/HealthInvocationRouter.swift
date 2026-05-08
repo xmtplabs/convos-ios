@@ -48,7 +48,8 @@ actor HealthInvocationRouter {
         let enabled = await enablementStore.isEnabled(
             kind: .health,
             capability: .read,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: agentInboxId
         )
         guard enabled else {
             let result = ConnectionInvocationResult(
@@ -56,7 +57,7 @@ actor HealthInvocationRouter {
                 kind: .health,
                 actionName: actionName,
                 status: .capabilityNotEnabled,
-                errorMessage: "Capability \(ConnectionCapability.read.rawValue) is not enabled for this conversation."
+                errorMessage: "Capability \(ConnectionCapability.read.rawValue) is not enabled for this agent in this conversation."
             )
             try? await delivery.deliver(result, to: conversationId)
             return result

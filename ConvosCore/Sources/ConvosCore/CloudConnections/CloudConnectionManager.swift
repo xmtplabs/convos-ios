@@ -13,19 +13,25 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     private let databaseWriter: any DatabaseWriter
     private let callbackURLScheme: String
     private let grantWriterProvider: @Sendable () -> (any CloudConnectionGrantWriterProtocol)?
+    private let eventWriterProvider: @Sendable () -> (any ConnectionEventWriterProtocol)?
+    private let resolverProvider: @Sendable () -> (any CapabilityResolver)?
 
     public init(
         apiClient: any ConvosAPIClientProtocol,
         oauthProvider: any OAuthSessionProvider,
         databaseWriter: any DatabaseWriter,
         callbackURLScheme: String,
-        grantWriterProvider: @escaping @Sendable () -> (any CloudConnectionGrantWriterProtocol)? = { nil }
+        grantWriterProvider: @escaping @Sendable () -> (any CloudConnectionGrantWriterProtocol)? = { nil },
+        eventWriterProvider: @escaping @Sendable () -> (any ConnectionEventWriterProtocol)? = { nil },
+        resolverProvider: @escaping @Sendable () -> (any CapabilityResolver)? = { nil }
     ) {
         self.apiClient = apiClient
         self.oauthProvider = oauthProvider
         self.databaseWriter = databaseWriter
         self.callbackURLScheme = callbackURLScheme
         self.grantWriterProvider = grantWriterProvider
+        self.eventWriterProvider = eventWriterProvider
+        self.resolverProvider = resolverProvider
     }
 
     public func connect(serviceId canonicalServiceId: String) async throws -> CloudConnection {
@@ -71,45 +77,33 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     public func disconnect(connectionId: String) async throws {
         try await apiClient.revokeCloudConnection(connectionId: connectionId)
 
-        // Collect conversations that currently reference this connection so we
-        // can republish per-conversation metadata after the local rows are gone.
-        // Without this, the ProfileUpdate metadata previously published to XMTP
-        // groups still carries the revoked grants and the agent would keep
-        // using them.
-        let affectedConversationIds = try await databaseWriter.read { db in
+        // Read the connection's serviceId before any local mutation so we can
+        // derive the providerId for ConnectionEvent.revoked and the resolver
+        // cleanup even if the row is gone by the time we need it.
+        let serviceId = try await databaseWriter.read { db in
+            try DBCloudConnection.fetchOne(db, key: connectionId)?.serviceId
+        }
+
+        // Collect every (conversation, agent) grant row that currently references
+        // this connection so we can republish per-conversation metadata after the
+        // local rows are gone. Without this, the ProfileUpdate metadata previously
+        // published to XMTP groups still carries the revoked grants and the agent
+        // would keep using them. With per-agent grants, the same conversation can
+        // have several rows (one per agent), and each must be revoked individually
+        // so the metadata payload's per-agent entries all go away.
+        let affectedGrants: [DBCloudConnectionGrant] = try await databaseWriter.read { db in
             try DBCloudConnectionGrant
                 .filter(DBCloudConnectionGrant.Columns.connectionId == connectionId)
                 .fetchAll(db)
-                .map { $0.conversationId }
         }
-        let uniqueConversationIds = Array(Set(affectedConversationIds))
 
-        // revokeGrant deletes the row and republishes metadata for that
-        // conversation. We go through the public writer interface so the two
-        // paths stay in sync. A republish failure here is logged but doesn't
-        // block the subsequent DBCloudConnection delete — the ON DELETE CASCADE
-        // guarantees any grant revokeGrant restored on failure still gets
-        // removed locally. The stale metadata on XMTP is the best we can do
-        // if the sync is down at wipe time.
-        if let grantWriter = grantWriterProvider() {
-            for conversationId in uniqueConversationIds {
-                do {
-                    try await grantWriter.revokeGrant(
-                        connectionId: connectionId,
-                        from: conversationId
-                    )
-                } catch {
-                    Log.warning("[CloudConnections] failed to republish grants after disconnect (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
-                }
-            }
-        } else if !uniqueConversationIds.isEmpty {
-            let conversationCount = uniqueConversationIds.count
-            Log.warning(
-                "[CloudConnections] disconnect had no grant writer injected; metadata for " +
-                "\(conversationCount) conversation(s) will remain stale until the next grant/revoke " +
-                "on the affected conversations"
-            )
-        }
+        await republishRevokedGrants(affectedGrants, context: "after disconnect")
+
+        await postRevocationSideEffects(
+            connectionId: connectionId,
+            serviceId: serviceId,
+            conversationIds: Array(Set(affectedGrants.map(\.conversationId)))
+        )
 
         // Idempotent: GRDB's deleteOne returns false when the row is already
         // gone (it doesn't throw). Two concurrent disconnects of the same
@@ -142,40 +136,41 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         // `Date()` as their creation timestamp.
         let serverIds = Set(responses.map { $0.connectionId })
 
-        // Before deleting orphaned connections, republish ProfileUpdate
-        // metadata for every conversation that referenced them — same
-        // rationale as disconnect(). Without this, the FK cascade deletes
-        // local DBCloudConnectionGrant rows but the XMTP group metadata still
-        // carries the revoked grants and the assistant keeps using them.
-        let orphanedGrants = try await databaseWriter.read { db in
-            let existingIds = Set(try DBCloudConnection.fetchAll(db).map { $0.id })
-            let toDelete = existingIds.subtracting(serverIds)
-            guard !toDelete.isEmpty else { return [DBCloudConnectionGrant]() }
-            return try DBCloudConnectionGrant
-                .filter(toDelete.contains(DBCloudConnectionGrant.Columns.connectionId))
+        // Before deleting orphaned connections, capture the (id, serviceId)
+        // pairs and the grants that referenced them. We need both to (a)
+        // republish ProfileUpdate metadata so XMTP group state matches the
+        // server-side revoke, and (b) post connection_event.revoked +
+        // clear capability resolutions for the same provider — symmetric
+        // with disconnect(). serviceId must be read before the FK cascade
+        // wipes the row.
+        let orphanedConnections: [(id: String, serviceId: String)] = try await databaseWriter.read { db in
+            try DBCloudConnection
                 .fetchAll(db)
+                .filter { !serverIds.contains($0.id) }
+                .map { ($0.id, $0.serviceId) }
         }
-
-        if !orphanedGrants.isEmpty {
-            if let grantWriter = grantWriterProvider() {
-                for grant in orphanedGrants {
-                    do {
-                        try await grantWriter.revokeGrant(
-                            connectionId: grant.connectionId,
-                            from: grant.conversationId
-                        )
-                    } catch {
-                        Log.warning(
-                            "[CloudConnections] failed to republish grants during refresh (connectionId=\(grant.connectionId), conversationId=\(grant.conversationId)): \(error.localizedDescription)"
-                        )
-                    }
-                }
-            } else {
-                Log.warning(
-                    "[CloudConnections] refresh had \(orphanedGrants.count) orphaned grant(s) but no grant writer was " +
-                    "injected; metadata for the affected conversation(s) will remain stale until the next grant/revoke"
-                )
+        let orphanedConnectionIds = Set(orphanedConnections.map(\.id))
+        let orphanedGrants: [DBCloudConnectionGrant] = orphanedConnectionIds.isEmpty
+            ? []
+            : try await databaseWriter.read { db in
+                try DBCloudConnectionGrant
+                    .filter(orphanedConnectionIds.contains(DBCloudConnectionGrant.Columns.connectionId))
+                    .fetchAll(db)
             }
+
+        await republishRevokedGrants(orphanedGrants, context: "during refresh")
+
+        for orphan in orphanedConnections {
+            let conversationIds = Array(Set(
+                orphanedGrants
+                    .filter { $0.connectionId == orphan.id }
+                    .map(\.conversationId)
+            ))
+            await postRevocationSideEffects(
+                connectionId: orphan.id,
+                serviceId: orphan.serviceId,
+                conversationIds: conversationIds
+            )
         }
 
         let connections: [CloudConnection] = try await databaseWriter.write { [self] db in
@@ -217,6 +212,83 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
 
     private func displayName(for serviceName: String, fallbackFrom serviceId: String) -> String {
         CloudConnectionServiceNaming.displayName(for: serviceName, fallbackFrom: serviceId)
+    }
+
+    /// Posts `connection_event.revoked` to every affected conversation and
+    /// Walks `grants`, calling `revokeGrant` on the injected writer for each so the
+    /// per-conversation ProfileUpdate metadata reflects the deletion. Best-effort:
+    /// per-grant failures are logged and don't propagate. `context` is a short noun
+    /// phrase ("after disconnect", "during refresh") used for log-message disambiguation
+    /// when both call sites land in the same log file.
+    private func republishRevokedGrants(_ grants: [DBCloudConnectionGrant], context: String) async {
+        guard !grants.isEmpty else { return }
+        guard let grantWriter = grantWriterProvider() else {
+            let conversationCount = Set(grants.map(\.conversationId)).count
+            Log.warning(
+                "[CloudConnections] \(context) had no grant writer injected; metadata for " +
+                "\(conversationCount) conversation(s) will remain stale until the next grant/revoke"
+            )
+            return
+        }
+        for grant in grants {
+            do {
+                try await grantWriter.revokeGrant(
+                    connectionId: grant.connectionId,
+                    from: grant.conversationId,
+                    grantedToInboxId: grant.grantedToInboxId
+                )
+            } catch {
+                Log.warning(
+                    "[CloudConnections] failed to republish grants \(context) " +
+                    "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                    "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    /// clears the provider from every CapabilityResolution. Best-effort —
+    /// failures are logged but never propagate, matching the existing grant-
+    /// republish behavior. `serviceId == nil` is the "row already deleted"
+    /// race; we skip cleanup because there's no providerId to derive.
+    private func postRevocationSideEffects(
+        connectionId: String,
+        serviceId: String?,
+        conversationIds: [String]
+    ) async {
+        guard let serviceId else { return }
+        let providerId = ProviderID(rawValue: "composio.\(serviceId)")
+        if let eventWriter = eventWriterProvider() {
+            for conversationId in conversationIds {
+                do {
+                    try await eventWriter.sendRevoked(
+                        providerId: providerId.rawValue,
+                        capability: nil,
+                        grantedToInboxId: nil,
+                        in: conversationId
+                    )
+                } catch {
+                    Log.warning("Failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                }
+            }
+        } else if !conversationIds.isEmpty {
+            Log.warning(
+                "Revocation had no event writer injected; connection_event.revoked " +
+                "will not be posted to \(conversationIds.count) conversation(s) (connectionId=\(connectionId))"
+            )
+        }
+        if let resolver = resolverProvider() {
+            do {
+                try await resolver.removeProviderFromAllResolutions(providerId)
+            } catch {
+                Log.warning("Failed to clear capability resolutions for \(providerId.rawValue): \(error.localizedDescription)")
+            }
+        } else {
+            Log.warning(
+                "Revocation had no capability resolver injected; resolutions for " +
+                "\(providerId.rawValue) will remain stale (connectionId=\(connectionId))"
+            )
+        }
     }
 }
 

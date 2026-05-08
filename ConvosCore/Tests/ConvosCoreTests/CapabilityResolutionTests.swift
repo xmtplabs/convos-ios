@@ -184,7 +184,12 @@ struct InMemoryCapabilityResolverTests {
     @Test("empty resolution by default")
     func emptyByDefault() async {
         let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
-        let result = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "x")
+        let result = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
         #expect(result.isEmpty)
     }
 
@@ -195,9 +200,15 @@ struct InMemoryCapabilityResolverTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: "x"
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
         )
-        let result = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "x")
+        let result = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
         #expect(result == [appleCalendar])
     }
 
@@ -209,7 +220,8 @@ struct InMemoryCapabilityResolverTests {
                 [appleCalendar, googleCalendar],
                 subject: .calendar,
                 capability: .read,
-                conversationId: "x"
+                conversationId: "x",
+                grantedToInboxId: "agent-1"
             )
         }
     }
@@ -221,9 +233,15 @@ struct InMemoryCapabilityResolverTests {
             [strava, fitbit],
             subject: .fitness,
             capability: .read,
-            conversationId: "x"
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
         )
-        let result = await resolver.resolution(subject: .fitness, capability: .read, conversationId: "x")
+        let result = await resolver.resolution(
+            subject: .fitness,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
         #expect(result == [strava, fitbit])
     }
 
@@ -235,39 +253,114 @@ struct InMemoryCapabilityResolverTests {
             [strava],
             subject: .fitness,
             capability: .writeCreate,
-            conversationId: "x"
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
         )
         // Federated resolution that should shrink to {fitbit}
         try await resolver.setResolution(
             [strava, fitbit],
             subject: .fitness,
             capability: .read,
-            conversationId: "x"
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
         )
 
         try await resolver.removeProviderFromAllResolutions(strava)
 
-        let writeResult = await resolver.resolution(subject: .fitness, capability: .writeCreate, conversationId: "x")
+        let writeResult = await resolver.resolution(
+            subject: .fitness,
+            capability: .writeCreate,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
         #expect(writeResult.isEmpty, "singleton resolution referencing the removed provider should be cleared")
 
-        let readResult = await resolver.resolution(subject: .fitness, capability: .read, conversationId: "x")
+        let readResult = await resolver.resolution(
+            subject: .fitness,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
         #expect(readResult == [fitbit], "federated resolution should shrink to remaining providers")
     }
 
     @Test("clearAllResolutions removes every verb for one (subject, conversation)")
     func clearAll() async throws {
         let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .read, conversationId: "x")
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .writeCreate, conversationId: "x")
-        try await resolver.setResolution([appleCalendar], subject: .calendar, capability: .read, conversationId: "y")
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "y",
+            grantedToInboxId: "agent-1"
+        )
 
-        try await resolver.clearAllResolutions(subject: .calendar, conversationId: "x")
+        try await resolver.clearAllResolutions(
+            subject: .calendar,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
 
-        let xRead = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "x")
-        let xWrite = await resolver.resolution(subject: .calendar, capability: .writeCreate, conversationId: "x")
-        let yRead = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "y")
+        let xRead = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
+        let xWrite = await resolver.resolution(
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: "x",
+            grantedToInboxId: "agent-1"
+        )
+        let yRead = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "y",
+            grantedToInboxId: "agent-1"
+        )
         #expect(xRead.isEmpty)
         #expect(xWrite.isEmpty)
         #expect(yRead == [appleCalendar], "other conversation untouched")
+    }
+
+    @Test("agent scoping — agent A's resolution doesn't bleed into agent B")
+    func agentScoped() async throws {
+        let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
+        try await resolver.setResolution(
+            [appleCalendar],
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-a"
+        )
+        let bRead = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-b"
+        )
+        #expect(bRead.isEmpty, "agent-b should not see agent-a's grant")
+        let aRead = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "x",
+            grantedToInboxId: "agent-a"
+        )
+        #expect(aRead == [appleCalendar])
     }
 }

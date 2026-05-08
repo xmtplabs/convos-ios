@@ -7,6 +7,7 @@ struct ConnectionsMetadataPayloadTests {
     private func entry(
         id: String = "grant_conn_123",
         senderId: String = "sender_abc",
+        grantedToInboxId: String = "agent_xyz",
         service: String = "google_calendar",
         provider: String = "composio",
         scope: String = "conversation",
@@ -17,6 +18,7 @@ struct ConnectionsMetadataPayloadTests {
         CloudConnectionGrantEntry(
             id: id,
             senderId: senderId,
+            grantedToInboxId: grantedToInboxId,
             service: service,
             provider: provider,
             scope: scope,
@@ -80,6 +82,7 @@ struct ConnectionsMetadataPayloadTests {
               "scope": "conversation",
               "composioEntityId": "B8813E83",
               "composioConnectionId": "ca_foo",
+              "grantedToInboxId": "agent_inbox_99",
               "grantedAt": "2026-04-21T15:33:01Z"
             }
           ]
@@ -97,6 +100,7 @@ struct ConnectionsMetadataPayloadTests {
         #expect(grant.scope == "conversation")
         #expect(grant.composioEntityId == "B8813E83")
         #expect(grant.composioConnectionId == "ca_foo")
+        #expect(grant.grantedToInboxId == "agent_inbox_99")
         #expect(grant.grantedAt == "2026-04-21T15:33:01Z")
     }
 

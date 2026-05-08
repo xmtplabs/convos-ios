@@ -69,14 +69,32 @@ final class CloudConnectionGrantRequestSheetViewModel {
         connection != nil
     }
 
+    /// Inbox ids for every agent currently in the conversation. The grant fans out
+    /// to each so the user's "share with this conversation" action behaves the same
+    /// as the in-conversation toggle. If the conversation has no agents (or hasn't
+    /// hydrated yet), the share is a no-op — there's nobody to grant to.
+    private var agentInboxIds: [String] {
+        guard let conversation else { return [] }
+        return conversation.members
+            .filter { $0.isAgent }
+            .map { $0.profile.inboxId }
+    }
+
     func share() {
         guard let connection else { return }
         isBusy = true
         error = nil
+        let agents = agentInboxIds
         Task {
             do {
                 let writer = resolveGrantWriter()
-                try await writer.grantConnection(connection.id, to: conversationId)
+                for agent in agents {
+                    try await writer.grantConnection(
+                        connection.id,
+                        to: conversationId,
+                        grantedToInboxId: agent
+                    )
+                }
                 didComplete = true
             } catch {
                 self.error = error
@@ -88,11 +106,18 @@ final class CloudConnectionGrantRequestSheetViewModel {
     func connectAndShare() {
         isBusy = true
         error = nil
+        let agents = agentInboxIds
         Task {
             do {
                 let newConnection = try await cloudConnectionManager.connect(serviceId: serviceId)
                 let writer = resolveGrantWriter()
-                try await writer.grantConnection(newConnection.id, to: conversationId)
+                for agent in agents {
+                    try await writer.grantConnection(
+                        newConnection.id,
+                        to: conversationId,
+                        grantedToInboxId: agent
+                    )
+                }
                 didComplete = true
             } catch let oauthError as OAuthError {
                 if case .cancelled = oauthError {
