@@ -36,6 +36,11 @@ final class AppSettingsViewModel {
 
     func deleteAllData(onComplete: @escaping () -> Void) {
         guard !isDeleting else { return }
+        prepareForDeletion()
+        Task { await runDeletion(onComplete: onComplete) }
+    }
+
+    private func prepareForDeletion() {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
@@ -45,18 +50,18 @@ final class AppSettingsViewModel {
         ConversationsViewModel.resetUserDefaults()
         ConversationOnboardingCoordinator.resetUserDefaults()
         GlobalConvoDefaults.shared.reset()
+    }
 
-        Task {
-            do {
-                for try await progress in session.deleteAllInboxesWithProgress() {
-                    deletionProgress = progress
-                }
-                isDeleting = false
-                onComplete()
-            } catch {
-                deletionError = error
-                isDeleting = false
+    private func runDeletion(onComplete: @escaping () -> Void) async {
+        do {
+            for try await progress in session.deleteAllInboxesWithProgress() {
+                deletionProgress = progress
             }
+            isDeleting = false
+            onComplete()
+        } catch {
+            deletionError = error
+            isDeleting = false
         }
     }
 }
