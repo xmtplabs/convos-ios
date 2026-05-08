@@ -432,7 +432,6 @@ final class ConversationOnboardingCoordinator {
         // failed save (the first attempt mutates editingDisplayName and flips
         // isDefault to false even though persistence didn't land).
         guard state == .settingUpProfile else { return }
-        QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
 
         let conversationId = currentConversationId
         Task { [weak self] in
@@ -444,6 +443,7 @@ final class ConversationOnboardingCoordinator {
             self.profileSettingsViewModel.profileImage = profileImage
             do {
                 try await self.profileSettingsViewModel.saveAndAwait()
+                QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
                 if let conversationId {
                     self.setHasSetProfile(true, for: conversationId)
                 }

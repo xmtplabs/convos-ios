@@ -49,6 +49,12 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
         /// Waiters keyed by a per-call UUID so a cancelled task only resumes its own
         /// continuation, leaving any concurrent callers waiting for the real callback.
         private var authorizationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+        /// `HMHomeManager.homes` is populated asynchronously via the delegate's
+        /// `homeManagerDidUpdateHomes` callback. Until that fires, `homes` is empty even
+        /// when authorization is `.authorized`. Track the initial load so we only block on
+        /// the first call after `createManager()` and pass through afterwards.
+        private var homesLoaded: Bool = false
+        private var homesWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
         func authorizationStatus() -> ConnectionAuthorizationStatus {
             let manager = manager ?? createManager()
@@ -74,10 +80,37 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
             authorizationWaiters.removeValue(forKey: id)?.resume()
         }
 
+        /// Block until `homeManagerDidUpdateHomes` has fired at least once, or return
+        /// immediately if it already has (or `manager.homes` is already populated).
+        /// Without this, write-side actions that hit `manager.homes` right after
+        /// `createManager()` see an empty list and fail with "No matching home found".
+        private func awaitHomesLoaded(manager: HMHomeManager) async {
+            if homesLoaded || !manager.homes.isEmpty {
+                homesLoaded = true
+                return
+            }
+            let waiterId = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    homesWaiters[waiterId] = continuation
+                }
+            } onCancel: {
+                Task { await self.cancelHomesWaiter(id: waiterId) }
+            }
+        }
+
+        private func cancelHomesWaiter(id: UUID) {
+            homesWaiters.removeValue(forKey: id)?.resume()
+        }
+
         fileprivate func onHomesDidUpdate() {
-            let waiters = authorizationWaiters
+            homesLoaded = true
+            let authWaiters = authorizationWaiters
             authorizationWaiters = [:]
-            for waiter in waiters.values { waiter.resume() }
+            for waiter in authWaiters.values { waiter.resume() }
+            let homesWaitersSnapshot = homesWaiters
+            homesWaiters = [:]
+            for waiter in homesWaitersSnapshot.values { waiter.resume() }
         }
 
         func invoke(_ invocation: ConnectionInvocation) async -> ConnectionInvocationResult {
@@ -100,6 +133,7 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
             guard HomeDataSource.map(manager.authorizationStatus) == .authorized else {
                 return Self.makeResult(for: invocation, status: .authorizationDenied, errorMessage: "HomeKit access is not granted.")
             }
+            await awaitHomesLoaded(manager: manager)
             let args = invocation.action.arguments
             guard let home = resolveHome(manager: manager, homeId: args["homeId"]?.stringValue) else {
                 return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: "No matching home found.")
@@ -133,6 +167,7 @@ public final class HomeKitDataSink: DataSink, @unchecked Sendable {
             guard HomeDataSource.map(manager.authorizationStatus) == .authorized else {
                 return Self.makeResult(for: invocation, status: .authorizationDenied, errorMessage: "HomeKit access is not granted.")
             }
+            await awaitHomesLoaded(manager: manager)
             let args = invocation.action.arguments
             guard let home = resolveHome(manager: manager, homeId: args["homeId"]?.stringValue) else {
                 return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: "No matching home found.")

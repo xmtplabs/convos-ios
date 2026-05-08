@@ -1373,15 +1373,21 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 }
             } catch let oauthError as OAuthError {
                 if case .cancelled = oauthError {
-                    await MainActor.run { [weak self] in
-                        guard let self else { return }
-                        self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
-                    }
+                    // User backed out of the OAuth sheet — leave the picker open so they
+                    // can pick a different provider.
                 } else {
                     Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
                 }
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
             } catch {
                 Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
             }
         }
     }

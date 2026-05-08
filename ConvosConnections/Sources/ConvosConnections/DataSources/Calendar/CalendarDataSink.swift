@@ -127,11 +127,15 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
                 return Self.makeResult(for: invocation, status: .executionFailed, errorMessage: error.localizedDescription)
             }
 
+            // `store.event(withIdentifier:)` (used by update/delete) expects
+            // `eventIdentifier`, which differs from `calendarItemIdentifier`.
+            // Returning the wrong one makes round-tripped agent invocations fail
+            // with "Event not found".
             return Self.makeResult(
                 for: invocation,
                 status: .success,
                 result: [
-                    "eventId": .string(event.calendarItemIdentifier),
+                    "eventId": .string(event.eventIdentifier ?? event.calendarItemIdentifier),
                     "calendarId": .string(targetCalendar.calendarIdentifier),
                 ]
             )
@@ -201,7 +205,7 @@ public final class CalendarDataSink: DataSink, @unchecked Sendable {
             return Self.makeResult(
                 for: invocation,
                 status: .success,
-                result: ["eventId": .string(event.calendarItemIdentifier)]
+                result: ["eventId": .string(event.eventIdentifier ?? event.calendarItemIdentifier)]
             )
         }
 

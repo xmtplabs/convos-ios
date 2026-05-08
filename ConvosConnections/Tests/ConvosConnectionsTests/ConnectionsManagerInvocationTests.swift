@@ -4,12 +4,15 @@ import Testing
 
 @Suite("ConnectionsManager invocation routing")
 struct ConnectionsManagerInvocationTests {
+    private static let agent: String = "agent-1"
+
     @Test("returns unknownAction when no sink is registered for the kind")
     func unknownActionForMissingSink() async {
         let manager = makeManager(sinks: [])
         let result = await manager.handleInvocation(
             makeCreateEventInvocation(),
-            from: "conv-1"
+            from: "conv-1",
+            invokerInboxId: Self.agent
         )
         #expect(result.status == .unknownAction)
     }
@@ -23,7 +26,7 @@ struct ConnectionsManagerInvocationTests {
             kind: .calendar,
             action: ConnectionAction(name: "not_a_real_action", arguments: [:])
         )
-        let result = await manager.handleInvocation(invocation, from: "conv-1")
+        let result = await manager.handleInvocation(invocation, from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .unknownAction)
     }
 
@@ -31,7 +34,7 @@ struct ConnectionsManagerInvocationTests {
     func capabilityNotEnabled() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))
         let manager = makeManager(sinks: [sink])
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .capabilityNotEnabled)
     }
 
@@ -44,10 +47,10 @@ struct ConnectionsManagerInvocationTests {
         )
         let delivery = RecordingDelivering()
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: delivery)
 
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .success)
         #expect(result.result["eventId"] == .string("evt-1"))
 
@@ -60,10 +63,10 @@ struct ConnectionsManagerInvocationTests {
     func requiresConfirmationWhenNoHandler() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         await store.setAlwaysConfirmWrites(true, kind: .calendar, conversationId: "conv-1")
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: RecordingDelivering())
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .requiresConfirmation)
     }
 
@@ -71,11 +74,11 @@ struct ConnectionsManagerInvocationTests {
     func requiresConfirmationOnCannotPresent() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         await store.setAlwaysConfirmWrites(true, kind: .calendar, conversationId: "conv-1")
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: RecordingDelivering())
         await manager.setConfirmationHandler(TestConfirmationHandler(decision: .cannotPresent))
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .requiresConfirmation)
     }
 
@@ -83,11 +86,11 @@ struct ConnectionsManagerInvocationTests {
     func authorizationDeniedOnDenied() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         await store.setAlwaysConfirmWrites(true, kind: .calendar, conversationId: "conv-1")
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: RecordingDelivering())
         await manager.setConfirmationHandler(TestConfirmationHandler(decision: .denied))
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .authorizationDenied)
     }
 
@@ -99,11 +102,11 @@ struct ConnectionsManagerInvocationTests {
             response: .init(status: .success, result: ["eventId": .string("evt-x")])
         )
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         await store.setAlwaysConfirmWrites(true, kind: .calendar, conversationId: "conv-1")
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: RecordingDelivering())
         await manager.setConfirmationHandler(TestConfirmationHandler(decision: .approved))
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .success)
     }
 
@@ -127,18 +130,20 @@ struct ConnectionsManagerInvocationTests {
                 kind: .health,
                 action: ConnectionAction(name: "fetch_summary_last_24h", arguments: [:])
             ),
-            from: "conv-1"
+            from: "conv-1",
+            invokerInboxId: Self.agent
         )
         #expect(disabled.status == .capabilityNotEnabled)
 
-        await store.setEnabled(true, kind: .health, capability: .read, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .health, capability: .read, conversationId: "conv-1", grantedToInboxId: Self.agent)
         let enabled = await manager.handleInvocation(
             ConnectionInvocation(
                 invocationId: "read-2",
                 kind: .health,
                 action: ConnectionAction(name: "fetch_summary_last_24h", arguments: [:])
             ),
-            from: "conv-1"
+            from: "conv-1",
+            invokerInboxId: Self.agent
         )
         #expect(enabled.status == .success)
     }
@@ -147,9 +152,9 @@ struct ConnectionsManagerInvocationTests {
     func recordsInvocation() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: RecordingDelivering())
-        _ = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        _ = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         let log = await manager.recentInvocationLog()
         #expect(log.count == 1)
         #expect(log.first?.result.status == .success)
@@ -159,10 +164,10 @@ struct ConnectionsManagerInvocationTests {
     func recordsDeliveryFailure() async {
         let sink = TestSink(kind: .calendar, schemas: CalendarActionSchemas.all, response: .init(status: .success))
         let store = InMemoryEnablementStore()
-        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(true, kind: .calendar, capability: .writeCreate, conversationId: "conv-1", grantedToInboxId: Self.agent)
         let delivery = UnimplementedResultDelivering()
         let manager = ConnectionsManager(sources: [], sinks: [sink], store: store, delivery: delivery)
-        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1")
+        let result = await manager.handleInvocation(makeCreateEventInvocation(), from: "conv-1", invokerInboxId: Self.agent)
         #expect(result.status == .success) // sink still executes
         let log = await manager.recentInvocationLog()
         #expect(log.first?.resultDeliveryError != nil)

@@ -11,7 +11,12 @@ public actor ConsoleDelivering: ConnectionDelivering {
     }
 
     public func deliver(_ payload: ConnectionPayload, to conversationId: String) async throws {
-        let entry = LogEntry(conversationId: conversationId, payload: payload, deliveredAt: Date())
+        let entry = LogEntry(
+            id: UUID(),
+            conversationId: conversationId,
+            payload: payload,
+            deliveredAt: Date()
+        )
         log.append(entry)
         if printToStdout {
             print("[ConvosConnections] -> \(conversationId): \(payload.summary)")
@@ -27,10 +32,9 @@ public actor ConsoleDelivering: ConnectionDelivering {
     }
 
     public struct LogEntry: Sendable, Identifiable, Equatable {
+        public let id: UUID
         public let conversationId: String
         public let payload: ConnectionPayload
         public let deliveredAt: Date
-
-        public var id: UUID { payload.id }
     }
 }

@@ -682,7 +682,7 @@ extension Array where Element == DBMessage {
             parentContent = .text("[Update]")
         case .connectionEvent:
             parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
-                .map { .connectionEvent(summary: $0) } ?? .text("[Update]")
+                .map { .connectionEvent(summary: $0) } ?? .text("")
         case .connectionInvocation:
             parentContent = Self.decodeConnectionSummary(jsonText: sourceDBMessage.text)
                 .map { .connectionInvocation(summary: $0) } ?? .text("")

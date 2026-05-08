@@ -4,14 +4,28 @@ import Testing
 
 @Suite("ConnectionsManager")
 struct ConnectionsManagerTests {
+    private static let agentInboxId: String = "agent-1"
+
     @Test("emitted payload is fanned out to every enabled conversation")
     func emitFansOut() async throws {
         let source = TestDataSource(kind: .health)
         let store = InMemoryEnablementStore()
         let delivery = RecordingDelivering()
 
-        await store.setEnabled(true, kind: .health, conversationId: "conv-a")
-        await store.setEnabled(true, kind: .health, conversationId: "conv-b")
+        await store.setEnabled(
+            true,
+            kind: .health,
+            capability: .read,
+            conversationId: "conv-a",
+            grantedToInboxId: Self.agentInboxId
+        )
+        await store.setEnabled(
+            true,
+            kind: .health,
+            capability: .read,
+            conversationId: "conv-b",
+            grantedToInboxId: Self.agentInboxId
+        )
 
         let manager = ConnectionsManager(sources: [source], store: store, delivery: delivery)
         try await manager.startSource(kind: .health)
@@ -52,11 +66,24 @@ struct ConnectionsManagerTests {
         let delivery = RecordingDelivering()
         let manager = ConnectionsManager(sources: [source], store: store, delivery: delivery)
 
-        let before = await manager.isEnabled(.health, conversationId: "x")
+        let before = await manager.isEnabled(
+            .health,
+            conversationId: "x",
+            grantedToInboxId: Self.agentInboxId
+        )
         #expect(before == false)
 
-        await manager.setEnabled(true, kind: .health, conversationId: "x")
-        let after = await manager.isEnabled(.health, conversationId: "x")
+        await manager.setEnabled(
+            true,
+            kind: .health,
+            conversationId: "x",
+            grantedToInboxId: Self.agentInboxId
+        )
+        let after = await manager.isEnabled(
+            .health,
+            conversationId: "x",
+            grantedToInboxId: Self.agentInboxId
+        )
         #expect(after == true)
 
         let list = await manager.enabledConversationIds(for: .health)

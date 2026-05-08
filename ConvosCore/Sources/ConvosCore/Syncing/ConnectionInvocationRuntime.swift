@@ -80,6 +80,11 @@ actor ConnectionInvocationRuntime {
             return
         }
 
+        // No confirmation handler is wired through yet — the picker-style UI for
+        // per-write approvals doesn't exist in the host app. Until it does, any
+        // invocation that hits a kind/conversation with `alwaysConfirmWrites = true`
+        // will short-circuit to `.requiresConfirmation`. `alwaysConfirmWrites`
+        // defaults to false, so the standard read/write happy paths are unaffected.
         let manager = ConnectionsManager(
             sources: Self.makeSources(),
             sinks: Self.makeSinks(),

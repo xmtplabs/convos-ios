@@ -14,6 +14,11 @@ import Observation
 @MainActor
 @Observable
 final class ExampleModel {
+    /// Stub inbox id used as the `grantedToInboxId` / `invokerInboxId` for every
+    /// per-agent gate the example app touches. The example doesn't model multiple
+    /// agents per conversation; production code routes real XMTP inbox ids.
+    private static let stubAgentInboxId: String = "example-agent"
+
     let manager: ConnectionsManager
     let messageStore: MockMessageStore
     let confirmationHandler: ExampleConfirmationHandler
@@ -86,7 +91,7 @@ final class ExampleModel {
     func toggle(conversation: MockConversation, enabled: Bool) async {
         lastError = nil
         let kind = conversation.kind
-        await manager.setEnabled(enabled, kind: kind, conversationId: conversation.id)
+        await manager.setEnabled(enabled, kind: kind, conversationId: conversation.id, grantedToInboxId: Self.stubAgentInboxId)
 
         if enabled {
             do {
@@ -113,7 +118,7 @@ final class ExampleModel {
         conversation: MockConversation
     ) async {
         lastError = nil
-        await manager.setEnabled(enabled, kind: conversation.kind, capability: capability, conversationId: conversation.id)
+        await manager.setEnabled(enabled, kind: conversation.kind, capability: capability, conversationId: conversation.id, grantedToInboxId: Self.stubAgentInboxId)
         await refresh()
     }
 
@@ -166,7 +171,7 @@ final class ExampleModel {
                 ]
             )
         )
-        _ = await manager.handleInvocation(invocation, from: conversation.id)
+        _ = await manager.handleInvocation(invocation, from: conversation.id, invokerInboxId: Self.stubAgentInboxId)
         await refresh()
     }
 
@@ -182,7 +187,7 @@ final class ExampleModel {
             kind: .music,
             action: ConnectionAction(name: "pause", arguments: [:])
         )
-        _ = await manager.handleInvocation(invocation, from: conversation.id)
+        _ = await manager.handleInvocation(invocation, from: conversation.id, invokerInboxId: Self.stubAgentInboxId)
         await refresh()
     }
 
@@ -204,7 +209,7 @@ final class ExampleModel {
                 ]
             )
         )
-        _ = await manager.handleInvocation(invocation, from: conversation.id)
+        _ = await manager.handleInvocation(invocation, from: conversation.id, invokerInboxId: Self.stubAgentInboxId)
         await refresh()
     }
 
@@ -228,7 +233,7 @@ final class ExampleModel {
                 ]
             )
         )
-        _ = await manager.handleInvocation(invocation, from: conversation.id)
+        _ = await manager.handleInvocation(invocation, from: conversation.id, invokerInboxId: Self.stubAgentInboxId)
         await refresh()
     }
 
@@ -255,7 +260,7 @@ final class ExampleModel {
                 ]
             )
         )
-        _ = await manager.handleInvocation(invocation, from: conversation.id)
+        _ = await manager.handleInvocation(invocation, from: conversation.id, invokerInboxId: Self.stubAgentInboxId)
         await refresh()
     }
 
