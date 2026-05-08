@@ -681,6 +681,7 @@ struct MessageContextMenuOverlay: View {
                 attachment: attachment,
                 profile: profile,
                 reactions: [],
+                agentVerification: message?.sender.agentVerification ?? .unverified,
                 cornerRadiusOverride: radius
             )
         } else if attachment.mediaType == .file {

@@ -308,6 +308,7 @@ struct MessagesGroupItemView: View {
                 attachment: attachment,
                 profile: message.sender.profile,
                 reactions: message.reactions,
+                agentVerification: message.sender.agentVerification,
                 onTapAvatar: avatarTap,
                 onTapReactions: reactionsTap
             )

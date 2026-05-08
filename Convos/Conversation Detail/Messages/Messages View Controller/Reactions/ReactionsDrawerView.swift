@@ -58,7 +58,8 @@ private struct ReactionRowView: View {
             ProfileAvatarView(
                 profile: reaction.sender.profile,
                 profileImage: nil,
-                useSystemPlaceholder: false
+                useSystemPlaceholder: false,
+                agentVerification: reaction.sender.agentVerification
             )
             .frame(width: 40.0, height: 40.0)
 
