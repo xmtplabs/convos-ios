@@ -289,7 +289,7 @@ extension ContactsWriter {
     ///   Pass `nil` to leave any previously stored verification untouched —
     ///   profile events from non-agent contexts should not clear a contact's
     ///   prior verified-agent flag.
-    static func mirrorMemberProfileToContactInTransaction(    
+    static func mirrorMemberProfileToContactInTransaction(
         db: Database,
         inboxId: String,
         name: String?,
