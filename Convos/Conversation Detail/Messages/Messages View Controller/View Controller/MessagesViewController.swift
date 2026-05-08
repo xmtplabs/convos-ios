@@ -173,6 +173,7 @@ final class MessagesViewController: UIViewController {
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
@@ -337,6 +338,10 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapReactions = { [weak self] message in
             guard let self = self else { return }
             self.onTapReactions?(message)
+        }
+        dataSource.onTapReadReceipts = { [weak self] group in
+            guard let self = self else { return }
+            self.onTapReadReceipts?(group)
         }
         dataSource.onReaction = { [weak self] emoji, messageId in
             guard let self = self else { return }

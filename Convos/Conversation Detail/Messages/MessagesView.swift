@@ -45,6 +45,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
     let onReply: (AnyMessage) -> Void
     let replyingToMessage: AnyMessage?
     var replyingToAudioTranscriptText: String?
@@ -102,6 +103,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onTapReactions: onTapReactions,
+            onTapReadReceipts: onTapReadReceipts,
             onReply: onReply,
             contextMenuState: contextMenuState,
             onPhotoRevealed: onPhotoRevealed,

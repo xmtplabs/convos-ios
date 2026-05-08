@@ -82,6 +82,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onReaction: viewModel.onReaction(emoji:messageId:),
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
+            onTapReadReceipts: viewModel.onTapReadReceipts(_:),
             onReply: { message in
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
@@ -119,18 +120,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
-            profileSheetForMember: { member in
-                AnyView(
-                    NavigationStack {
-                        ConversationMemberView(viewModel: viewModel, member: member)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    AttachmentProfileSheetCloseButton()
-                                }
-                            }
-                    }
-                )
-            },
+            profileSheetForMember: profileSheetForMember,
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
@@ -249,7 +239,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
         AssistantFilesLinksView(
             repository: viewModel.makeAssistantFilesLinksRepository(),
             members: viewModel.conversation.members,
-            usesInlineHeader: true
+            usesInlineHeader: true,
+            profileSheetContent: profileSheetForMember
+        )
+    }
+
+    private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
+        AnyView(
+            NavigationStack {
+                ConversationMemberView(viewModel: viewModel, member: member)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            AttachmentProfileSheetCloseButton()
+                        }
+                    }
+            }
         )
     }
 
@@ -343,6 +347,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.removeReaction(reaction, from: message)
             }
         }
+        .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
+            ReadByDrawerView(members: group.readByMembers)
+        }
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(
                 isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
@@ -382,7 +389,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 }
 
-private struct AttachmentProfileSheetCloseButton: View {
+struct AttachmentProfileSheetCloseButton: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {

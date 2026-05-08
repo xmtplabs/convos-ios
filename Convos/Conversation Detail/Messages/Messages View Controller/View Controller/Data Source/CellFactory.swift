@@ -8,6 +8,7 @@ struct CellConfig {
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
