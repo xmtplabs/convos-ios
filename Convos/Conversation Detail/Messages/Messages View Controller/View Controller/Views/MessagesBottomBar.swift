@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName, voiceMemoRecording, sideConvoName
+    case message, displayName, conversationName, voiceMemoRecording, sideConvoName, stuffSearchBar
 }
 
 private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024

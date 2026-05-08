@@ -118,17 +118,20 @@ struct AssistantFilesLinksView: View {
     private let members: [ConversationMember]
     private let usesInlineHeader: Bool
     private let profileSheetContent: ((ConversationMember) -> AnyView)?
+    private let externalFocusBinding: FocusState<MessagesViewInputFocus?>.Binding?
 
     init(
         repository: AssistantFilesLinksRepository,
         members: [ConversationMember],
         usesInlineHeader: Bool = false,
-        profileSheetContent: ((ConversationMember) -> AnyView)? = nil
+        profileSheetContent: ((ConversationMember) -> AnyView)? = nil,
+        focusBinding: FocusState<MessagesViewInputFocus?>.Binding? = nil
     ) {
         _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
         self.members = members
         self.usesInlineHeader = usesInlineHeader
         self.profileSheetContent = profileSheetContent
+        self.externalFocusBinding = focusBinding
     }
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
@@ -143,7 +146,8 @@ struct AssistantFilesLinksView: View {
             .safeAreaBar(edge: .bottom) {
                 StuffSearchBar(
                     searchText: $viewModel.searchText,
-                    filter: $viewModel.filter
+                    filter: $viewModel.filter,
+                    focusBinding: externalFocusBinding
                 )
             }
             .task {
@@ -509,6 +513,7 @@ private extension View {
 private struct StuffSearchBar: View {
     @Binding var searchText: String
     @Binding var filter: StuffFilter
+    var focusBinding: FocusState<MessagesViewInputFocus?>.Binding?
 
     var body: some View {
         GlassEffectContainer {
@@ -516,9 +521,7 @@ private struct StuffSearchBar: View {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.colorTextSecondary)
-                    TextField("Search", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .accessibilityIdentifier("stuff-search-field")
+                    searchTextField
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
                 .padding(.vertical, DesignConstants.Spacing.step3x)
@@ -528,6 +531,18 @@ private struct StuffSearchBar: View {
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.vertical, DesignConstants.Spacing.step2x)
+        }
+    }
+
+    @ViewBuilder
+    private var searchTextField: some View {
+        let textField = TextField("Search", text: $searchText)
+            .textFieldStyle(.plain)
+            .accessibilityIdentifier("stuff-search-field")
+        if let focusBinding {
+            textField.focused(focusBinding, equals: .stuffSearchBar)
+        } else {
+            textField
         }
     }
 
