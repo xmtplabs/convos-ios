@@ -20,17 +20,13 @@ struct ReadByDrawerView: View {
                 .fontWeight(.bold)
                 .padding(.bottom, DesignConstants.Spacing.step2x)
 
-            ScrollView {
+            BoundedScrollView(maxHeight: 600.0) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
                     ForEach(sortedMembers, id: \.self) { member in
                         ReadByRowView(member: member)
                     }
                 }
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollIndicatorsFlash(onAppear: true)
-            .scrollContentBackground(.hidden)
-            .frame(maxHeight: 600)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, DesignConstants.Spacing.step3x)

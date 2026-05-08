@@ -37,10 +37,14 @@ final class AppSettingsViewModel {
 
     func deleteAllData(onComplete: @escaping () -> Void) {
         guard !isDeleting else { return }
+        prepareForDeletion()
+        Task { await runDeletion(onComplete: onComplete) }
+    }
+
+    private func prepareForDeletion() {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
-        Task { await runDeletion(onComplete: onComplete) }
     }
 
     private func resetLocalState() {
