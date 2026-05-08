@@ -38,6 +38,9 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         to conversationId: String,
         grantedToInboxId: String
     ) async throws {
+        guard !grantedToInboxId.isEmpty else {
+            throw CloudConnectionGrantError.missingGrantedToInboxId
+        }
         let connection = try await databaseReader.read { db in
             try DBCloudConnection.fetchOne(db, key: connectionId)
         }
@@ -76,6 +79,9 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         from conversationId: String,
         grantedToInboxId: String
     ) async throws {
+        guard !grantedToInboxId.isEmpty else {
+            throw CloudConnectionGrantError.missingGrantedToInboxId
+        }
         let existing = try await databaseReader.read { db in
             try DBCloudConnectionGrant
                 .filter(
@@ -96,7 +102,7 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         let targetGrants = try await projectedGrants(
             for: conversationId,
             addingOrReplacing: nil,
-            removing: (connectionId: connectionId, conversationId: conversationId, grantedToInboxId: grantedToInboxId)
+            removing: GrantKey(connectionId: connectionId, conversationId: conversationId, grantedToInboxId: grantedToInboxId)
         )
         try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
 
@@ -111,10 +117,16 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         }
     }
 
+    private struct GrantKey {
+        let connectionId: String
+        let conversationId: String
+        let grantedToInboxId: String
+    }
+
     private func projectedGrants(
         for conversationId: String,
         addingOrReplacing addition: DBCloudConnectionGrant?,
-        removing removal: (connectionId: String, conversationId: String, grantedToInboxId: String)?
+        removing removal: GrantKey?
     ) async throws -> [DBCloudConnectionGrant] {
         let existing = try await databaseReader.read { db in
             try DBCloudConnectionGrant
@@ -257,6 +269,7 @@ enum CloudConnectionGrantError: LocalizedError {
     case connectionNotFound(String)
     case connectionNotActive(String, status: String)
     case conversationNotFound(String)
+    case missingGrantedToInboxId
 
     var errorDescription: String? {
         switch self {
@@ -266,6 +279,8 @@ enum CloudConnectionGrantError: LocalizedError {
             "CloudConnection not active (\(status)): \(id)"
         case .conversationNotFound(let id):
             "Conversation not found: \(id)"
+        case .missingGrantedToInboxId:
+            "grantedToInboxId is required and cannot be empty"
         }
     }
 }

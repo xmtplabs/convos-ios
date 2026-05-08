@@ -27,6 +27,13 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     /// agree on the asking identity even when the message hasn't been verified yet —
     /// and so that the persisted grant row, the connection_event credit, and the
     /// resolver lookup all key off the same value the sender chose to publish.
+    ///
+    /// During the bridge period when JS-side agents may not yet populate this field,
+    /// `init(from:)` decodes it as optional with an empty-string default; the
+    /// `CapabilityRequestRepository` backfills the empty value from the DB row's
+    /// `senderId` (the XMTP envelope's `senderInboxId`) so downstream code always sees
+    /// a non-empty value. Once every shipped agent populates the field, the decode can
+    /// be tightened back to required.
     public let askerInboxId: String
     public let subject: CapabilitySubject
     public let capability: ConnectionCapability
@@ -66,13 +73,28 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
             )
         }
         self.requestId = try container.decode(String.self, forKey: .requestId)
-        self.askerInboxId = try container.decode(String.self, forKey: .askerInboxId)
+        self.askerInboxId = try container.decodeIfPresent(String.self, forKey: .askerInboxId) ?? ""
         self.subject = try container.decode(CapabilitySubject.self, forKey: .subject)
         self.capability = try container.decode(ConnectionCapability.self, forKey: .capability)
         let rawRationale = try container.decode(String.self, forKey: .rationale)
         self.rationale = Self.truncatedRationale(rawRationale)
         let rawPreferred = try container.decodeIfPresent([ProviderID].self, forKey: .preferredProviders)
         self.preferredProviders = Self.truncatedProviders(rawPreferred)
+    }
+
+    /// Returns a copy with `askerInboxId` replaced. Used by the repository to backfill
+    /// the field from the XMTP envelope's senderInboxId when an older agent emitted a
+    /// request without populating the wire payload.
+    func withAskerInboxId(_ newValue: String) -> CapabilityRequest {
+        CapabilityRequest(
+            version: version,
+            requestId: requestId,
+            askerInboxId: newValue,
+            subject: subject,
+            capability: capability,
+            rationale: rationale,
+            preferredProviders: preferredProviders
+        )
     }
 
     private static func truncatedRationale(_ rationale: String) -> String {

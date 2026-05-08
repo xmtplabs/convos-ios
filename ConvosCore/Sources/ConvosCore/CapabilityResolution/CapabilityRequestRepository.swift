@@ -39,6 +39,10 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
     /// capability_request message for the conversation in descending date order, and
     /// returns the first one whose `requestId` doesn't appear in any
     /// capability_request_result row.
+    ///
+    /// If the decoded request has an empty `askerInboxId` (older agents that don't
+    /// populate the wire field yet), the row's `senderId` is used as a fallback so
+    /// downstream resolver / picker code always sees a concrete inbox id.
     static func computeLatestPendingRequest(conversationId: String, db: Database) -> CapabilityRequest? {
         do {
             let resolvedIds = try resolvedRequestIds(conversationId: conversationId, db: db)
@@ -50,9 +54,12 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
             for row in requests {
                 guard let text = row.text,
                       let data = text.data(using: .utf8),
-                      let request = try? JSONDecoder().decode(CapabilityRequest.self, from: data) else {
+                      let decoded = try? JSONDecoder().decode(CapabilityRequest.self, from: data) else {
                     continue
                 }
+                let request = decoded.askerInboxId.isEmpty
+                    ? decoded.withAskerInboxId(row.senderId)
+                    : decoded
                 if !resolvedIds.contains(request.requestId) {
                     return request
                 }

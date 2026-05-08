@@ -29,11 +29,6 @@ struct CellConfig {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
-    /// Live agent display names keyed by inbox id. Consumed by
-    /// `ConnectionEventSummaryView` to prepend the actor on
-    /// `.grantedAgent`-actor summaries at render time so ProfileUpdate-driven
-    /// renames propagate without re-running the messages-list processor.
-    let agentNamesByInboxId: [String: String]
 }
 
 // swiftlint:disable force_cast

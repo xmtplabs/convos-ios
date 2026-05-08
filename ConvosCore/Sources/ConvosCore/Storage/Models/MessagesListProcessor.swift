@@ -147,7 +147,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(in: eventSummary, sender: msg.sender)
+                let resolvedSummary = resolvingActor(in: eventSummary, sender: msg.sender, memberProfiles: memberProfiles)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -164,7 +164,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(in: resultSummary, sender: msg.sender)
+                let resolvedSummary = resolvingActor(in: resultSummary, sender: msg.sender, memberProfiles: memberProfiles)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -187,7 +187,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(in: payloadSummary, sender: msg.sender)
+                let resolvedSummary = resolvingActor(in: payloadSummary, sender: msg.sender, memberProfiles: memberProfiles)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -412,21 +412,33 @@ public final class MessagesListProcessor: Sendable {
     /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
     /// actor-less phrase.
     ///
-    /// - `.messageSender` is resolved here using the message's own sender
-    ///   snapshot. That snapshot is per-message and stable, so prepending at
-    ///   processing time is fine.
-    /// - `.grantedAgent` is **not** resolved here. The renderer looks the
-    ///   `grantedToInboxId` up against the conversation's live members so
-    ///   ProfileUpdate-driven renames propagate without re-running the
-    ///   processor.
-    /// - `nil` actor (legacy summary or no actor expected) is returned
-    ///   unchanged.
+    /// - `.messageSender` is resolved using the message's own sender snapshot. That
+    ///   snapshot is per-message and stable.
+    /// - `.grantedAgent` is resolved by inbox-id-keyed lookup against `memberProfiles`.
+    ///   The lookup is by stable inbox id (not the verification flag), so it doesn't
+    ///   flap during attestation re-verification; ProfileUpdates that rename the agent
+    ///   trigger a `memberProfiles` change which re-runs the processor and re-bakes the
+    ///   text — same path `.messageSender` uses.
+    /// - `nil` actor (no actor expected) is returned unchanged.
     private static func resolvingActor(
         in summary: ConnectionEventSummary,
-        sender: ConversationMember
+        sender: ConversationMember,
+        memberProfiles: [String: MemberProfileInfo]
     ) -> ConnectionEventSummary {
-        guard summary.actor == .messageSender else { return summary }
-        let actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
+        let actorName: String
+        switch summary.actor {
+        case .messageSender:
+            actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
+        case .grantedAgent:
+            guard let inboxId = summary.grantedToInboxId,
+                  let name = memberProfiles[inboxId]?.name,
+                  !name.isEmpty else {
+                return summary
+            }
+            actorName = name
+        case .none:
+            return summary
+        }
         guard !actorName.isEmpty else { return summary }
         return ConnectionEventSummary(
             text: "\(actorName) \(summary.text)",

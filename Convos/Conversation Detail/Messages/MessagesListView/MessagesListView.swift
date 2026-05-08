@@ -31,18 +31,7 @@ struct MessagesListView: View {
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
     @State private var lastItemIndex: Int?
 
-    /// Live agent display names keyed by inbox id, sourced from the
-    /// conversation's current members. Drives `.grantedAgent`-actor connection
-    /// event rendering so ProfileUpdate-driven renames propagate immediately.
-    private var agentNamesByInboxId: [String: String] {
-        Dictionary(
-            uniqueKeysWithValues: conversation.members
-                .filter { $0.isAgent }
-                .map { ($0.profile.inboxId, $0.displayName) }
-        )
-    }
-
-    var body: some View {
+var body: some View {
         ScrollViewReader { _ in
             ScrollView {
                 LazyVStack(spacing: 0.0) {
@@ -136,11 +125,8 @@ struct MessagesListView: View {
             assistantPresentView(agent: agent, inviterName: inviterName)
 
         case let .connectionEvent(_, summary, _):
-            ConnectionEventSummaryView(
-                summary: summary,
-                agentNamesByInboxId: agentNamesByInboxId
-            )
-            .padding(.vertical, DesignConstants.Spacing.step2x)
+            ConnectionEventSummaryView(summary: summary)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
 
         case .typingIndicator:
             EmptyView()

@@ -123,7 +123,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
-            agentNamesByInboxId: viewModel.agentNamesByInboxId,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
                 if overscroll == 0 {
@@ -165,7 +164,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         } else if let layout = viewModel.pendingCapabilityPickerLayout {
                             CapabilityPickerCardView(
                                 layout: layout,
-                                assistantName: viewModel.agentNamesByInboxId[layout.request.askerInboxId],
+                                assistantName: viewModel.askerDisplayName(for: layout.request),
                                 onApprove: { providerIds in
                                     viewModel.onCapabilityApprove(providerIds: providerIds)
                                 },

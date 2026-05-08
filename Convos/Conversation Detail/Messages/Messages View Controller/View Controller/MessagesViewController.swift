@@ -207,9 +207,6 @@ final class MessagesViewController: UIViewController {
     var isAssistantEnabled: Bool = false {
         didSet { dataSource.isAssistantEnabled = isAssistantEnabled }
     }
-    var agentNamesByInboxId: [String: String] = [:] {
-        didSet { dataSource.agentNamesByInboxId = agentNamesByInboxId }
-    }
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }

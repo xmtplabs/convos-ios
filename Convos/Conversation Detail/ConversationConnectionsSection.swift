@@ -39,6 +39,14 @@ final class ConversationConnectionsViewModel {
     /// Inbox ids of every agent in this conversation at view-model construction. Each
     /// per-conversation toggle fans out one grant row per agent so the model stays
     /// consistent with the per-agent grant scoping introduced alongside.
+    ///
+    /// Snapshotted at construction — agents that join the conversation after this view
+    /// model is built will not receive grants from subsequent toggles until the model
+    /// is recreated. Acceptable because Conversation Info presentations build a fresh
+    /// view model each time, but if the membership shifts during the lifetime of an
+    /// open settings sheet the user may need to dismiss + reopen for the new agents
+    /// to be reachable from the toggle. Tracked as a follow-up if it becomes a real
+    /// pain point in multi-agent conversations.
     private let agentInboxIds: [String]
     private let cloudConnectionManager: any CloudConnectionManagerProtocol
     private let cloudConnectionRepository: any CloudConnectionRepositoryProtocol
@@ -102,15 +110,12 @@ final class ConversationConnectionsViewModel {
 
     func toggleDeviceConnection(_ kind: ConnectionKind) {
         guard let index = deviceConnections.firstIndex(where: { $0.kind == kind }) else { return }
+        let agents = agentInboxIds
+        // No agents → nothing to grant or revoke against. Bail before mutating local
+        // state so the toggle doesn't visually flip while storage stays untouched.
+        guard !agents.isEmpty else { return }
         let newValue = !deviceConnections[index].isEnabled
         deviceConnections[index] = DeviceConnection(kind: kind, isEnabled: newValue)
-
-        let agents = agentInboxIds
-        // No agents → nothing to grant or revoke against. Skip the storage writes
-        // and the event so we don't surface a subject-less "has access to …" line.
-        guard !agents.isEmpty else {
-            return
-        }
         Task {
             // Snapshot per-agent state once before mutating so we only emit one
             // group-update line per state-change, not one per agent and not one per
@@ -289,6 +294,7 @@ final class ConversationConnectionsViewModel {
                         anyWritten = true
                     } catch {
                         Log.error("Failed to grant fresh connection \(connection.id) to \(agent): \(error.localizedDescription)")
+                        self.error = error
                     }
                 }
                 if anyWritten {

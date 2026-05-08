@@ -30,5 +30,4 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var hasAssistant: Bool { get set }
     var isAssistantJoinPending: Bool { get set }
     var isAssistantEnabled: Bool { get set }
-    var agentNamesByInboxId: [String: String] { get set }
 }

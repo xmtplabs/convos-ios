@@ -3,13 +3,6 @@ import SwiftUI
 
 struct ConnectionEventSummaryView: View {
     let summary: ConnectionEventSummary
-    /// Live agent display names keyed by inbox id, sourced from the
-    /// conversation's current members. The renderer prepends the resolved
-    /// name for `.grantedAgent`-actor summaries so ProfileUpdate-driven
-    /// renames propagate without reprocessing the message list. Pass an
-    /// empty dictionary if no agents are in the conversation; the view
-    /// falls back to rendering `summary.text` as-is.
-    var agentNamesByInboxId: [String: String]
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.stepX) {
@@ -17,24 +10,14 @@ struct ConnectionEventSummaryView: View {
                 .font(.caption)
                 .foregroundStyle(iconColor)
 
-            Text(renderedText)
+            Text(summary.text)
                 .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(renderedText)
-    }
-
-    private var renderedText: String {
-        guard summary.actor == .grantedAgent,
-              let inboxId = summary.grantedToInboxId,
-              let name = agentNamesByInboxId[inboxId],
-              !name.isEmpty else {
-            return summary.text
-        }
-        return "\(name) \(summary.text)"
+        .accessibilityLabel(summary.text)
     }
 
     private var iconName: String {

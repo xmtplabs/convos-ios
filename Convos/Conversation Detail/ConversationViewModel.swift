@@ -2333,18 +2333,14 @@ extension ConversationViewModel {
         return value
     }
 
-    /// Live map of agent inbox id → display name, sourced from the conversation's
-    /// current members. Consumed by the messages list to render
-    /// `.grantedAgent`-actor connection_event summaries with the granted agent's
-    /// name, and by the capability picker card to label the asker. Inbox-id keying
-    /// keeps the rendered text in sync with ProfileUpdate-driven renames without
-    /// re-running the messages-list processor.
-    var agentNamesByInboxId: [String: String] {
-        Dictionary(
-            uniqueKeysWithValues: conversation.members
-                .filter { $0.isAgent }
-                .map { ($0.profile.inboxId, $0.displayName) }
-        )
+    /// Resolved display name for the agent that emitted `request`, or nil if the agent
+    /// is not (or no longer) in the conversation. Used by the capability picker card to
+    /// label the asker. Connection-event summaries do their own name resolution at
+    /// processor time via `MemberProfileInfo`.
+    func askerDisplayName(for request: CapabilityRequest) -> String? {
+        conversation.members
+            .first(where: { $0.profile.inboxId == request.askerInboxId })?
+            .displayName
     }
 
     func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {
