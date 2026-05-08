@@ -33,36 +33,11 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     var assistantsEnabled: Bool {
         get {
             access(keyPath: \.assistantsEnabled)
-            guard assistantCodeUnlocked else { return false }
             return UserDefaults.standard.object(forKey: Constant.assistantsEnabledKey) as? Bool ?? true
         }
         set {
             withMutation(keyPath: \.assistantsEnabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.assistantsEnabledKey)
-            }
-        }
-    }
-
-    var assistantCodeUnlocked: Bool {
-        get {
-            access(keyPath: \.assistantCodeUnlocked)
-            return UserDefaults.standard.bool(forKey: Constant.assistantCodeUnlockedKey)
-        }
-        set {
-            withMutation(keyPath: \.assistantCodeUnlocked) {
-                UserDefaults.standard.set(newValue, forKey: Constant.assistantCodeUnlockedKey)
-            }
-        }
-    }
-
-    var assistantInviteCode: String? {
-        get {
-            access(keyPath: \.assistantInviteCode)
-            return UserDefaults.standard.string(forKey: Constant.assistantInviteCodeKey)
-        }
-        set {
-            withMutation(keyPath: \.assistantInviteCode) {
-                UserDefaults.standard.set(newValue, forKey: Constant.assistantInviteCodeKey)
             }
         }
     }
@@ -89,12 +64,6 @@ final class GlobalConvoDefaults: @unchecked Sendable {
         withMutation(keyPath: \.assistantsEnabled) {
             UserDefaults.standard.removeObject(forKey: Constant.assistantsEnabledKey)
         }
-        withMutation(keyPath: \.assistantCodeUnlocked) {
-            UserDefaults.standard.removeObject(forKey: Constant.assistantCodeUnlockedKey)
-        }
-        withMutation(keyPath: \.assistantInviteCode) {
-            UserDefaults.standard.removeObject(forKey: Constant.assistantInviteCodeKey)
-        }
         withMutation(keyPath: \.sendReadReceipts) {
             UserDefaults.standard.removeObject(forKey: Constant.sendReadReceiptsKey)
         }
@@ -104,8 +73,6 @@ final class GlobalConvoDefaults: @unchecked Sendable {
         static let autoRevealPhotosKey: String = "globalAutoRevealPhotos"
         static let includeInfoWithInvitesKey: String = "globalIncludeInfoWithInvites"
         static let assistantsEnabledKey: String = "globalAssistantsEnabled"
-        static let assistantCodeUnlockedKey: String = "globalAssistantCodeUnlocked"
-        static let assistantInviteCodeKey: String = "globalAssistantInviteCode"
         static let sendReadReceiptsKey: String = "globalSendReadReceipts"
     }
 }

@@ -149,7 +149,7 @@ struct AppSettingsView: View {
         if FeatureFlags.shared.isAssistantEnabled {
             Section {
                 NavigationLink {
-                    AssistantSettingsView(session: session)
+                    AssistantSettingsView()
                 } label: {
                     Text("Assistants")
                         .foregroundStyle(.colorTextPrimary)
