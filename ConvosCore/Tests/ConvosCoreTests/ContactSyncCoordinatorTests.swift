@@ -273,6 +273,61 @@ struct ContactSyncCoordinatorTests {
         #expect(!inboxIds.contains(selfInboxId))
     }
 
+    @Test("syncContacts no-ops when selfInboxIdProvider returns nil (across both pre-fix-broken quadrants)")
+    func testSyncContactsNoOpsWhenSelfUnknown() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-1"
+
+        // Seed a conversation but deliberately omit the DBInbox row so the
+        // default selfInboxIdProvider would return nil. We also pass an
+        // explicit nil-returning provider here to make the contract explicit.
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "alice", "bob"]
+            )
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader,
+            selfInboxIdProvider: { _ in nil }
+        )
+
+        // Quadrant 1: first-message hook on never-synced (force=false). Pre-fix
+        // this fell through both short-circuits and upserted every member,
+        // including the local user, because the per-iteration self-skip guard
+        // can't fire when self is nil.
+        try await coordinator.syncContacts(for: conversationId, force: false)
+
+        var contactIds: Set<String> = try await dbManager.dbReader.read { db in
+            Set(try DBContact.fetchAll(db).map(\.inboxId))
+        }
+        #expect(contactIds.isEmpty, "Sync must no-op when self is unknown — no contacts should be written")
+        #expect(try coordinator.hasSyncedContacts(for: conversationId) == false, "No marker should be written when self is unknown")
+
+        // Seed a marker so the next call hits the (alreadySynced=true,
+        // force=true) quadrant — the other path that was previously broken.
+        try await dbManager.dbWriter.write { db in
+            try DBConversationContactsSync(
+                conversationId: conversationId,
+                contactsSyncedAt: Date()
+            ).save(db)
+        }
+
+        // Quadrant 2: member-added hook on already-synced. Pre-fix this fell
+        // through both short-circuits the same way.
+        try await coordinator.syncContacts(for: conversationId, force: true)
+
+        contactIds = try await dbManager.dbReader.read { db in
+            Set(try DBContact.fetchAll(db).map(\.inboxId))
+        }
+        #expect(contactIds.isEmpty, "Forced sync must also no-op when self is unknown")
+    }
+
     @Test("hasSyncedContacts mirrors marker presence")
     func testHasSyncedContacts() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
