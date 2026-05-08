@@ -1,9 +1,22 @@
 @testable import Convos
 import ConvosCore
+import ConvosMetrics
 import XCTest
 
 @MainActor
 final class ConversationsViewModelDeleteTests: XCTestCase {
+    private func makeViewModel(session: any SessionManagerProtocol) -> (ConversationsViewModel, StubMetricsCollector) {
+        let metricsDelegate = StubMetricsCollector()
+        let navState = ConversationsNavigatorImpl(session: session, metricsDelegate: metricsDelegate)
+        let navigator = ConversationsCollector(instance: navState, delegate: metricsDelegate)
+        let viewModel = ConversationsViewModel(
+            session: session,
+            navigator: navigator,
+            navState: navState,
+            metricsDelegate: metricsDelegate
+        )
+        return (viewModel, metricsDelegate)
+    }
     func testLeaveRoutesThroughConsentWriter() async throws {
         let conversation = Conversation.mock(id: "conv-to-delete", name: "Test")
         let consentWriter = MockConversationConsentWriter()
@@ -13,7 +26,7 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
             messagingService: messagingService
         )
 
-        let viewModel = ConversationsViewModel(session: session)
+        let (viewModel, _) = makeViewModel(session: session)
         viewModel.conversations = [conversation]
 
         viewModel.leave(conversation: conversation)
@@ -37,7 +50,7 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
             messagingService: messagingService
         )
 
-        let viewModel = ConversationsViewModel(session: session)
+        let (viewModel, _) = makeViewModel(session: session)
         viewModel.conversations = [conversation]
 
         viewModel.leave(conversation: conversation)
@@ -66,7 +79,7 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
             messagingService: messagingService
         )
 
-        let viewModel = ConversationsViewModel(session: session)
+        let (viewModel, _) = makeViewModel(session: session)
         viewModel.conversations = [conversation]
 
         viewModel.leave(conversation: conversation)
@@ -94,7 +107,7 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
         )
 
         let conversation = Conversation.mock(id: "conv-delayed", name: "Delayed")
-        let viewModel = ConversationsViewModel(session: session)
+        let (viewModel, _) = makeViewModel(session: session)
         viewModel.conversations = [conversation]
 
         viewModel.leave(conversation: conversation)

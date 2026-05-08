@@ -2740,7 +2740,7 @@ extension ConversationViewModel {
 extension ConversationViewModel {
     static var mock: ConversationViewModel {
         return .init(
-            conversation: .mock(),
+            conversation: Conversation.mock(),
             session: MockInboxesService(),
             messagingService: MockMessagingService(),
             metricsDelegate: CollectorDelegate()

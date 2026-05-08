@@ -1,6 +1,7 @@
 import Combine
 @testable import Convos
 import ConvosCore
+import ConvosMetrics
 import XCTest
 
 @MainActor
@@ -22,7 +23,8 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
             conversation: .mock(id: "draft-test-conversation"),
             session: MockInboxesService(),
             messagingService: MockMessagingService(),
-            applyGlobalDefaultsForNewConversation: true
+            applyGlobalDefaultsForNewConversation: true,
+            metricsDelegate: StubMetricsCollector()
         )
 
         XCTAssertTrue(viewModel.includeInfoInPublicPreview)
@@ -35,7 +37,8 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
             conversation: .mock(id: "real-test-conversation", name: "Real"),
             session: MockInboxesService(),
             messagingService: MockMessagingService(),
-            applyGlobalDefaultsForNewConversation: true
+            applyGlobalDefaultsForNewConversation: true,
+            metricsDelegate: StubMetricsCollector()
         )
 
         XCTAssertFalse(viewModel.includeInfoInPublicPreview)
@@ -84,7 +87,8 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
             session: MockInboxesService(),
             messagingService: messagingService,
             conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: true
+            applyGlobalDefaultsForNewConversation: true,
+            metricsDelegate: StubMetricsCollector()
         )
 
         XCTAssertTrue(viewModel.includeInfoInPublicPreview)
