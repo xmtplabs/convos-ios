@@ -34,10 +34,12 @@ struct ComputeLayoutVariantTests {
     private func makeRequest(
         subject: CapabilitySubject = .calendar,
         capability: ConnectionCapability = .read,
-        preferredProviders: [ProviderID]? = nil
+        preferredProviders: [ProviderID]? = nil,
+        askerInboxId: String = "agent-1"
     ) -> CapabilityRequest {
         CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: askerInboxId,
             subject: subject,
             capability: capability,
             rationale: "test",
@@ -161,6 +163,7 @@ struct ComputeLayoutPreferredProvidersTests {
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .calendar,
                 capability: .read,
                 rationale: "test",
@@ -187,6 +190,7 @@ struct ComputeLayoutPreferredProvidersTests {
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .fitness,
                 capability: .read,
                 rationale: "test",
@@ -213,6 +217,7 @@ struct ComputeLayoutPreferredProvidersTests {
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .calendar,
                 capability: .read,
                 rationale: "test",
@@ -248,12 +253,14 @@ struct ComputeLayoutVerbConsentTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: "agent-1"
         )
 
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .calendar,
                 capability: .writeCreate,
                 rationale: "Add an event"
@@ -280,12 +287,14 @@ struct ComputeLayoutVerbConsentTests {
             [strava, fitbit],
             subject: .fitness,
             capability: .read,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: "agent-1"
         )
 
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .fitness,
                 capability: .writeCreate,
                 rationale: "Log a workout"
@@ -311,12 +320,14 @@ struct ComputeLayoutVerbConsentTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: "agent-1"
         )
 
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .calendar,
                 capability: .read,
                 rationale: "test"
@@ -339,6 +350,7 @@ struct ComputeLayoutVerbConsentTests {
         let layout = await handler.computeLayout(
             request: CapabilityRequest(
                 requestId: "req-1",
+                askerInboxId: "agent-1",
                 subject: .calendar,
                 capability: .read,
                 rationale: "test"
@@ -362,6 +374,7 @@ struct CommitDenyCancelTests {
         let resolver = InMemoryCapabilityResolver(registry: registry)
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "test"
@@ -375,7 +388,12 @@ struct CommitDenyCancelTests {
         #expect(result.status == .approved)
         #expect(result.providers == [appleCalendar])
 
-        let stored = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let stored = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
         #expect(stored == [appleCalendar])
     }
 
@@ -385,6 +403,7 @@ struct CommitDenyCancelTests {
         let resolver = InMemoryCapabilityResolver(registry: registry)
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "test"
@@ -397,7 +416,12 @@ struct CommitDenyCancelTests {
                 conversationId: "conv-1"
             )
         }
-        let stored = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let stored = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
         #expect(stored.isEmpty, "rejected commit must not persist anything")
     }
 
@@ -407,6 +431,7 @@ struct CommitDenyCancelTests {
         let resolver = InMemoryCapabilityResolver(registry: registry)
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "test"
@@ -414,7 +439,12 @@ struct CommitDenyCancelTests {
         let result = handler.deny(request: request)
         #expect(result.status == .denied)
         #expect(result.providers.isEmpty)
-        let stored = await resolver.resolution(subject: .calendar, capability: .read, conversationId: "conv-1")
+        let stored = await resolver.resolution(
+            subject: .calendar,
+            capability: .read,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
         #expect(stored.isEmpty)
     }
 
@@ -422,6 +452,7 @@ struct CommitDenyCancelTests {
     func cancelMatchesShape() {
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "test"

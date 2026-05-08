@@ -110,12 +110,23 @@ public actor ConnectionsManager {
 
     // MARK: - Read enablement (capability = .read)
 
-    public func isEnabled(_ kind: ConnectionKind, conversationId: String) async -> Bool {
-        await store.isEnabled(kind: kind, capability: .read, conversationId: conversationId)
+    public func isEnabled(_ kind: ConnectionKind, conversationId: String, grantedToInboxId: String) async -> Bool {
+        await store.isEnabled(
+            kind: kind,
+            capability: .read,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        )
     }
 
-    public func setEnabled(_ enabled: Bool, kind: ConnectionKind, conversationId: String) async {
-        await store.setEnabled(enabled, kind: kind, capability: .read, conversationId: conversationId)
+    public func setEnabled(_ enabled: Bool, kind: ConnectionKind, conversationId: String, grantedToInboxId: String) async {
+        await store.setEnabled(
+            enabled,
+            kind: kind,
+            capability: .read,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        )
     }
 
     public func enabledConversationIds(for kind: ConnectionKind) async -> [String] {
@@ -128,12 +139,34 @@ public actor ConnectionsManager {
 
     // MARK: - Per-capability enablement
 
-    public func isEnabled(_ kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async -> Bool {
-        await store.isEnabled(kind: kind, capability: capability, conversationId: conversationId)
+    public func isEnabled(
+        _ kind: ConnectionKind,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async -> Bool {
+        await store.isEnabled(
+            kind: kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        )
     }
 
-    public func setEnabled(_ enabled: Bool, kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async {
-        await store.setEnabled(enabled, kind: kind, capability: capability, conversationId: conversationId)
+    public func setEnabled(
+        _ enabled: Bool,
+        kind: ConnectionKind,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async {
+        await store.setEnabled(
+            enabled,
+            kind: kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        )
     }
 
     public func enabledConversationIds(for kind: ConnectionKind, capability: ConnectionCapability) async -> [String] {
@@ -215,8 +248,12 @@ public actor ConnectionsManager {
     ///
     /// Never throws: all failure modes surface through the returned/delivered result.
     @discardableResult
-    public func handleInvocation(_ invocation: ConnectionInvocation, from conversationId: String) async -> ConnectionInvocationResult {
-        let result = await routeInvocation(invocation, from: conversationId)
+    public func handleInvocation(
+        _ invocation: ConnectionInvocation,
+        from conversationId: String,
+        invokerInboxId: String
+    ) async -> ConnectionInvocationResult {
+        let result = await routeInvocation(invocation, from: conversationId, invokerInboxId: invokerInboxId)
         var deliveryError: String?
         do {
             try await delivery.deliver(result, to: conversationId)
@@ -236,7 +273,11 @@ public actor ConnectionsManager {
         return result
     }
 
-    private func routeInvocation(_ invocation: ConnectionInvocation, from conversationId: String) async -> ConnectionInvocationResult {
+    private func routeInvocation(
+        _ invocation: ConnectionInvocation,
+        from conversationId: String,
+        invokerInboxId: String
+    ) async -> ConnectionInvocationResult {
         guard let sink = sinks[invocation.kind] else {
             return Self.makeResult(
                 for: invocation,
@@ -253,12 +294,17 @@ public actor ConnectionsManager {
             )
         }
         let capability = schema.capability
-        let enabledBefore = await store.isEnabled(kind: invocation.kind, capability: capability, conversationId: conversationId)
+        let enabledBefore = await store.isEnabled(
+            kind: invocation.kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: invokerInboxId
+        )
         guard enabledBefore else {
             return Self.makeResult(
                 for: invocation,
                 status: .capabilityNotEnabled,
-                errorMessage: "Capability \(capability.rawValue) is not enabled for this conversation."
+                errorMessage: "Capability \(capability.rawValue) is not enabled for this agent in this conversation."
             )
         }
 
@@ -285,7 +331,12 @@ public actor ConnectionsManager {
                 )
             }
 
-            let enabledAfter = await store.isEnabled(kind: invocation.kind, capability: capability, conversationId: conversationId)
+            let enabledAfter = await store.isEnabled(
+                kind: invocation.kind,
+                capability: capability,
+                conversationId: conversationId,
+                grantedToInboxId: invokerInboxId
+            )
             guard enabledAfter else {
                 return Self.makeResult(
                     for: invocation,

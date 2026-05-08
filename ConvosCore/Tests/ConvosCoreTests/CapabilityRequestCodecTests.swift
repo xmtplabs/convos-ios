@@ -11,6 +11,7 @@ struct CapabilityRequestCodecTests {
         let codec = CapabilityRequestCodec()
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "To summarize your week",
@@ -27,6 +28,7 @@ struct CapabilityRequestCodecTests {
         let codec = CapabilityRequestCodec()
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "To summarize your week"
@@ -41,6 +43,7 @@ struct CapabilityRequestCodecTests {
         let bloated = String(repeating: "x", count: CapabilityRequest.maxRationaleLength + 100)
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: bloated
@@ -56,6 +59,7 @@ struct CapabilityRequestCodecTests {
             .map { ProviderID(rawValue: "composio.x\($0)") }
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "ok",
@@ -81,6 +85,7 @@ struct CapabilityRequestCodecTests {
         let request = CapabilityRequest(
             version: CapabilityRequest.supportedVersion + 1,
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "ok"
@@ -96,6 +101,7 @@ struct CapabilityRequestCodecTests {
         let codec = CapabilityRequestCodec()
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .fitness,
             capability: .read,
             rationale: "ok"
@@ -109,6 +115,7 @@ struct CapabilityRequestCodecTests {
         let codec = CapabilityRequestCodec()
         let request = CapabilityRequest(
             requestId: "req-1",
+            askerInboxId: "agent-1",
             subject: .calendar,
             capability: .read,
             rationale: "ok"

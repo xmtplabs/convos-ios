@@ -30,7 +30,7 @@ struct XMTPInvocationListenerTests {
         """.utf8)
         let invocation = try JSONDecoder().decode(ConnectionInvocation.self, from: futureJSON)
 
-        await listener.handle(invocation: invocation, conversationId: "conv-1")
+        await listener.handle(invocation: invocation, conversationId: "conv-1", invokerInboxId: "agent-1")
 
         let results = await recorder.results()
         #expect(results.count == 1)
@@ -45,7 +45,13 @@ struct XMTPInvocationListenerTests {
         let sink = CountingSink()
         let store = InMemoryEnablementStore()
         // Enable the capability so the manager's gate passes and the sink is hit.
-        await store.setEnabled(true, kind: .contacts, capability: .writeCreate, conversationId: "conv-1")
+        await store.setEnabled(
+            true,
+            kind: .contacts,
+            capability: .writeCreate,
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
+        )
 
         let manager = ConnectionsManager(
             sources: [],
@@ -61,7 +67,7 @@ struct XMTPInvocationListenerTests {
             action: ConnectionAction(name: "create_contact", arguments: [:])
         )
 
-        await listener.handle(invocation: invocation, conversationId: "conv-1")
+        await listener.handle(invocation: invocation, conversationId: "conv-1", invokerInboxId: "agent-1")
 
         #expect(await sink.invokeCount() == 1)
         let results = await recorder.results()

@@ -26,6 +26,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -153,6 +154,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -202,12 +204,14 @@ struct ConnectionManagerTests {
                 connectionId: staleId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: staleId,
                 conversationId: "convo-b",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             // Grant on a kept connection — must not trigger any revoke side-effects.
@@ -215,6 +219,7 @@ struct ConnectionManagerTests {
                 connectionId: keepId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -258,12 +263,14 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-b",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             // Unrelated grant for a different connection — must not trigger republish.
@@ -271,6 +278,7 @@ struct ConnectionManagerTests {
                 connectionId: "conn-other",
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -340,12 +348,14 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-b",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -383,6 +393,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -420,6 +431,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -450,6 +462,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -643,6 +656,7 @@ private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
     struct Call: Sendable, Equatable {
         let connectionId: String
         let conversationId: String
+        let grantedToInboxId: String
     }
 
     private var calls: [Call] = []
@@ -656,10 +670,24 @@ private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
         calls
     }
 
-    nonisolated func grantConnection(_ connectionId: String, to conversationId: String) async throws {}
+    nonisolated func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
 
-    func revokeGrant(connectionId: String, from conversationId: String) async throws {
-        calls.append(Call(connectionId: connectionId, conversationId: conversationId))
+    func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
+        calls.append(
+            Call(
+                connectionId: connectionId,
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
+            )
+        )
         if shouldThrow {
             throw StubError.republishFailed
         }
@@ -680,6 +708,7 @@ private actor RecordingEventWriter: ConnectionEventWriterProtocol {
     struct Call: Sendable, Equatable {
         let providerId: String
         let capability: ConnectionCapability?
+        let grantedToInboxId: String?
         let conversationId: String
     }
 
@@ -694,13 +723,37 @@ private actor RecordingEventWriter: ConnectionEventWriterProtocol {
     func grantedEvents() -> [Call] { grants }
     func revokedEvents() -> [Call] { revocations }
 
-    func sendGranted(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws {
-        grants.append(Call(providerId: providerId, capability: capability, conversationId: conversationId))
+    func sendGranted(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {
+        grants.append(
+            Call(
+                providerId: providerId,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId
+            )
+        )
         if shouldThrow { throw StubError.sendFailed }
     }
 
-    func sendRevoked(providerId: String, capability: ConnectionCapability?, in conversationId: String) async throws {
-        revocations.append(Call(providerId: providerId, capability: capability, conversationId: conversationId))
+    func sendRevoked(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {
+        revocations.append(
+            Call(
+                providerId: providerId,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId
+            )
+        )
         if shouldThrow { throw StubError.sendFailed }
     }
 
@@ -724,28 +777,37 @@ private actor RecordingResolver: CapabilityResolver {
     func resolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async -> Set<ProviderID> { [] }
 
     func setResolution(
         _ providerIds: Set<ProviderID>,
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {}
 
     func clearResolution(
         subject: CapabilitySubject,
         capability: ConnectionCapability,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {}
 
     func clearAllResolutions(
         subject: CapabilitySubject,
-        conversationId: String
+        conversationId: String,
+        grantedToInboxId: String
     ) async throws {}
 
     func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws {
+        removed.append(providerId)
+        if shouldThrow { throw StubError.removeFailed }
+    }
+
+    func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws {
         removed.append(providerId)
         if shouldThrow { throw StubError.removeFailed }
     }

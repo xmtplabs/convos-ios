@@ -50,7 +50,15 @@ public final class MockConnectionRepository: CloudConnectionRepositoryProtocol, 
 public final class MockConnectionGrantWriter: CloudConnectionGrantWriterProtocol, Sendable {
     public init() {}
 
-    public func grantConnection(_ connectionId: String, to conversationId: String) async throws {}
+    public func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
 
-    public func revokeGrant(connectionId: String, from conversationId: String) async throws {}
+    public func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
 }

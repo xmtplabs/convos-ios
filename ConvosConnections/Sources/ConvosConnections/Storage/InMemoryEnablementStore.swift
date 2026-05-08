@@ -3,8 +3,8 @@ import Foundation
 /// In-memory `EnablementStore` used by tests, previews, and the debug view.
 ///
 /// The host app (Convos) supplies a persistent implementation backed by GRDB. This
-/// in-memory variant is intentionally simple: a `Set<Enablement>` for the triples plus a
-/// `[AlwaysConfirmKey: Bool]` for the always-confirm flag.
+/// in-memory variant is intentionally simple: a `Set<Enablement>` for the quadruples
+/// plus a `[AlwaysConfirmKey: Bool]` for the always-confirm flag.
 public actor InMemoryEnablementStore: EnablementStore {
     private var enablements: Set<Enablement>
     private var alwaysConfirm: [AlwaysConfirmKey: Bool]
@@ -38,12 +38,33 @@ public actor InMemoryEnablementStore: EnablementStore {
         self.alwaysConfirm = dict
     }
 
-    public func isEnabled(kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async -> Bool {
-        enablements.contains(Enablement(kind: kind, capability: capability, conversationId: conversationId))
+    public func isEnabled(
+        kind: ConnectionKind,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async -> Bool {
+        enablements.contains(Enablement(
+            kind: kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        ))
     }
 
-    public func setEnabled(_ enabled: Bool, kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async {
-        let enablement = Enablement(kind: kind, capability: capability, conversationId: conversationId)
+    public func setEnabled(
+        _ enabled: Bool,
+        kind: ConnectionKind,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async {
+        let enablement = Enablement(
+            kind: kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        )
         if enabled {
             enablements.insert(enablement)
         } else {
@@ -52,10 +73,11 @@ public actor InMemoryEnablementStore: EnablementStore {
     }
 
     public func conversationIds(enabledFor kind: ConnectionKind, capability: ConnectionCapability) async -> [String] {
-        enablements
-            .filter { $0.kind == kind && $0.capability == capability }
-            .map(\.conversationId)
-            .sorted()
+        var ids: Set<String> = []
+        for e in enablements where e.kind == kind && e.capability == capability {
+            ids.insert(e.conversationId)
+        }
+        return ids.sorted()
     }
 
     public func allEnablements() async -> [Enablement] {
@@ -66,7 +88,10 @@ public actor InMemoryEnablementStore: EnablementStore {
             if lhs.capability.rawValue != rhs.capability.rawValue {
                 return lhs.capability.rawValue < rhs.capability.rawValue
             }
-            return lhs.conversationId < rhs.conversationId
+            if lhs.conversationId != rhs.conversationId {
+                return lhs.conversationId < rhs.conversationId
+            }
+            return lhs.grantedToInboxId < rhs.grantedToInboxId
         })
     }
 

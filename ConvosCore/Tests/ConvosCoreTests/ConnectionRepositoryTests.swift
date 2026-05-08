@@ -77,12 +77,14 @@ struct ConnectionRepositoryTests {
         func seedGrant(
             connectionId: String = "conn_google_cal",
             conversationId: String,
-            serviceId: String = "google_calendar"
+            serviceId: String = "google_calendar",
+            grantedToInboxId: String = "agent-1"
         ) throws {
             let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
+                grantedToInboxId: grantedToInboxId,
                 grantedAt: Date()
             )
             try databaseManager.dbWriter.write { db in

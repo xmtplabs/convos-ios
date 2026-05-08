@@ -67,24 +67,6 @@ public final class MessagesListProcessor: Sendable {
         }
         trackedMemberCount = max(0, trackedMemberCount)
 
-        // Resolve the verified-assistant displayName once for the whole pass.
-        // Used by `connection_event` summaries whose `actor` field is
-        // `.verifiedAssistant` — the formatter doesn't have conversation context,
-        // so the real name is filled in here. Prefer `memberProfiles` (carries
-        // verification state for every member) over iterating messages, since
-        // some agent-authored content types (`capabilityRequest`) are filtered
-        // out at the repo layer and never appear in `messages`.
-        var verifiedAssistantName: String? = memberProfiles.values
-            .first(where: \.isVerifiedAssistant)?
-            .name
-            .flatMap { $0.isEmpty ? nil : $0 }
-        if verifiedAssistantName == nil {
-            for msg in messages where msg.sender.isVerifiedAssistant {
-                verifiedAssistantName = msg.sender.displayName
-                break
-            }
-        }
-
         var items: [MessagesListItemType] = []
         items.reserveCapacity(messageCount)
 
@@ -165,11 +147,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(
-                    in: eventSummary,
-                    sender: msg.sender,
-                    verifiedAssistantName: verifiedAssistantName
-                )
+                let resolvedSummary = resolvingActor(in: eventSummary, sender: msg.sender, memberProfiles: memberProfiles)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -186,11 +164,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(
-                    in: resultSummary,
-                    sender: msg.sender,
-                    verifiedAssistantName: verifiedAssistantName
-                )
+                let resolvedSummary = resolvingActor(in: resultSummary, sender: msg.sender, memberProfiles: memberProfiles)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -213,11 +187,7 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                let resolvedSummary = resolvingActor(
-                    in: payloadSummary,
-                    sender: msg.sender,
-                    verifiedAssistantName: verifiedAssistantName
-                )
+                let resolvedSummary = resolvingActor(in: payloadSummary, sender: msg.sender, memberProfiles: memberProfiles)
                 items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
                 lastWasAttachment = false
                 continue
@@ -442,31 +412,40 @@ public final class MessagesListProcessor: Sendable {
     /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
     /// actor-less phrase.
     ///
-    /// - `.messageSender` is resolved here using the message's own sender
-    ///   snapshot. That snapshot is per-message and stable, so prepending at
-    ///   processing time is fine.
-    /// - `.verifiedAssistant` is **not** resolved here. The view layer reads a
-    ///   live verified-assistant name from the conversation's membership
-    ///   (which is plumbed through the SwiftUI tree) and prepends it at
-    ///   render time. Resolving here would couple the rendered text to the
-    ///   per-emission `agentVerification` snapshot in memberProfiles, which
-    ///   flaps during periodic attestation re-verification and produced a
-    ///   visible flicker between "Assistant" and the agent's profile name.
-    /// - `nil` actor (legacy summary or no actor expected) is returned
-    ///   unchanged.
+    /// - `.messageSender` is resolved using the message's own sender snapshot. That
+    ///   snapshot is per-message and stable.
+    /// - `.grantedAgent` is resolved by inbox-id-keyed lookup against `memberProfiles`.
+    ///   The lookup is by stable inbox id (not the verification flag), so it doesn't
+    ///   flap during attestation re-verification; ProfileUpdates that rename the agent
+    ///   trigger a `memberProfiles` change which re-runs the processor and re-bakes the
+    ///   text — same path `.messageSender` uses.
+    /// - `nil` actor (no actor expected) is returned unchanged.
     private static func resolvingActor(
         in summary: ConnectionEventSummary,
         sender: ConversationMember,
-        verifiedAssistantName: String?
+        memberProfiles: [String: MemberProfileInfo]
     ) -> ConnectionEventSummary {
-        guard summary.actor == .messageSender else { return summary }
-        let actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
+        let actorName: String
+        switch summary.actor {
+        case .messageSender:
+            actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
+        case .grantedAgent:
+            guard let inboxId = summary.grantedToInboxId,
+                  let name = memberProfiles[inboxId]?.name,
+                  !name.isEmpty else {
+                return summary
+            }
+            actorName = name
+        case .none:
+            return summary
+        }
         guard !actorName.isEmpty else { return summary }
         return ConnectionEventSummary(
             text: "\(actorName) \(summary.text)",
             outcome: summary.outcome,
             icon: summary.icon,
-            actor: summary.actor
+            actor: summary.actor,
+            grantedToInboxId: summary.grantedToInboxId
         )
     }
 }

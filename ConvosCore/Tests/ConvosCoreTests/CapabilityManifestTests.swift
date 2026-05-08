@@ -126,7 +126,8 @@ struct CapabilityManifestBuilderTests {
         let manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         #expect(manifest.providers.isEmpty)
         #expect(manifest.version == CapabilityManifest.supportedVersion)
@@ -148,7 +149,8 @@ struct CapabilityManifestBuilderTests {
         let manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         let entry = try? #require(manifest.providers.first)
         #expect(entry?.id == appleCalendar)
@@ -177,13 +179,15 @@ struct CapabilityManifestBuilderTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
 
         let manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         let entry = try #require(manifest.providers.first)
         #expect(entry.resolved == ["read": true, "write_create": false])
@@ -215,13 +219,15 @@ struct CapabilityManifestBuilderTests {
             [strava.id, fitbit.id],
             subject: .fitness,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
 
         let manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         let resolvedReads = manifest.providers.map { $0.resolved["read"] }
         #expect(resolvedReads == [true, true])
@@ -244,18 +250,21 @@ struct CapabilityManifestBuilderTests {
             [appleCalendar],
             subject: .calendar,
             capability: .read,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
 
         let conv1Manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         let conv2Manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-2"
+            conversationId: "conv-2",
+            grantedToInboxId: "agent-1"
         )
         #expect(conv1Manifest.providers.first?.resolved["read"] == true)
         #expect(conv2Manifest.providers.first?.resolved["read"] == false)
@@ -297,7 +306,8 @@ struct CapabilityManifestBuilderTests {
         let manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         let ids = manifest.providers.map(\.id.rawValue)
         #expect(ids == ["composio.fitbit", "composio.strava", "device.calendar"])
@@ -319,7 +329,8 @@ struct CapabilityManifestBuilderTests {
         let manifest = await CapabilityManifestBuilder().build(
             registry: registry,
             resolver: resolver,
-            conversationId: "conv-1"
+            conversationId: "conv-1",
+            grantedToInboxId: "agent-1"
         )
         let entry = try? #require(manifest.providers.first)
         #expect(entry?.available == false)

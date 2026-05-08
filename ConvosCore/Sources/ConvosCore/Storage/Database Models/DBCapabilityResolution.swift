@@ -6,8 +6,12 @@ import GRDB
 /// comma-joined string so the same schema can hold both single-provider rows (the common
 /// case) and federated-read rows (currently only `.fitness`).
 ///
-/// Cardinality is enforced in `CapabilityResolutionValidator`, not the schema — that
-/// keeps the on-disk shape stable when more subjects opt into federation.
+/// Primary key is `(subject, conversationId, capability, grantedToInboxId)` — every row
+/// is scoped to a single agent. Two agents in the same conversation have independent
+/// rows; one's resolution doesn't authorize the other.
+///
+/// Cardinality (set arity) is enforced in `CapabilityResolutionValidator`, not the
+/// schema — that keeps the on-disk shape stable when more subjects opt into federation.
 struct DBCapabilityResolution: Codable, FetchableRecord, PersistableRecord, Hashable {
     static let databaseTableName: String = "capabilityResolution"
 
@@ -15,6 +19,7 @@ struct DBCapabilityResolution: Codable, FetchableRecord, PersistableRecord, Hash
         static let subject: Column = Column(CodingKeys.subject)
         static let conversationId: Column = Column(CodingKeys.conversationId)
         static let capability: Column = Column(CodingKeys.capability)
+        static let grantedToInboxId: Column = Column(CodingKeys.grantedToInboxId)
         static let providerIds: Column = Column(CodingKeys.providerIds)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
@@ -23,6 +28,7 @@ struct DBCapabilityResolution: Codable, FetchableRecord, PersistableRecord, Hash
     let subject: String
     let conversationId: String
     let capability: String
+    let grantedToInboxId: String
     let providerIds: String
     let createdAt: Date
     let updatedAt: Date
@@ -37,6 +43,7 @@ extension DBCapabilityResolution {
         subject: CapabilitySubject,
         conversationId: String,
         capability: ConnectionCapability,
+        grantedToInboxId: String,
         providerIds: Set<ProviderID>,
         createdAt: Date,
         updatedAt: Date
@@ -44,6 +51,7 @@ extension DBCapabilityResolution {
         self.subject = subject.rawValue
         self.conversationId = conversationId
         self.capability = capability.rawValue
+        self.grantedToInboxId = grantedToInboxId
         // Sort for stable on-disk representation; resolver consumers treat it as a Set.
         self.providerIds = providerIds
             .map(\.rawValue)
@@ -65,6 +73,7 @@ extension DBCapabilityResolution {
             subject: subjectValue,
             conversationId: conversationId,
             capability: capabilityValue,
+            grantedToInboxId: grantedToInboxId,
             providerIds: Set(providers)
         )
     }

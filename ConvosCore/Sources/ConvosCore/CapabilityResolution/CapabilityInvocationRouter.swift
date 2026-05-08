@@ -2,7 +2,11 @@ import ConvosConnections
 import Foundation
 
 /// Routes a `ConnectionInvocation` (agent → device) to the right execution path based on
-/// the per-conversation `CapabilityResolution`.
+/// the per-(agent, conversation) `CapabilityResolution`.
+///
+/// `invokerInboxId` comes from the XMTP message envelope's `senderInboxId`. The router
+/// looks up the resolution for that exact agent — another agent's grant in the same
+/// conversation never authorizes this invocation.
 ///
 /// Cloud federation is the agent runtime's concern — when the agent has both a device
 /// and a cloud provider resolved for a federating-subject read, it sends the device
@@ -10,7 +14,7 @@ import Foundation
 /// results itself. The iOS device only ever owns its local slice of any federation.
 public final class CapabilityInvocationRouter: Sendable {
     public typealias CapabilityLookup = @Sendable (ConnectionInvocation) async -> ConnectionCapability?
-    public typealias DeviceDispatch = @Sendable (ConnectionInvocation, String) async -> ConnectionInvocationResult
+    public typealias DeviceDispatch = @Sendable (ConnectionInvocation, String, String) async -> ConnectionInvocationResult
 
     private let resolver: any CapabilityResolver
     private let capabilityLookup: CapabilityLookup
@@ -28,7 +32,8 @@ public final class CapabilityInvocationRouter: Sendable {
 
     public func route(
         _ invocation: ConnectionInvocation,
-        conversationId: String
+        conversationId: String,
+        invokerInboxId: String
     ) async -> ConnectionInvocationResult {
         guard let subject = DeviceCapabilityProvider.subject(for: invocation.kind) else {
             return Self.makeResult(
@@ -49,14 +54,15 @@ public final class CapabilityInvocationRouter: Sendable {
         let resolution = await resolver.resolution(
             subject: subject,
             capability: capability,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: invokerInboxId
         )
 
         if resolution.isEmpty {
             return Self.makeResult(
                 for: invocation,
                 status: .capabilityNotEnabled,
-                errorMessage: "No resolution for \(subject.rawValue)/\(capability.rawValue) in this conversation. Agents should send a capability_request first."
+                errorMessage: "No resolution for \(subject.rawValue)/\(capability.rawValue) for this agent in this conversation. Agents should send a capability_request first."
             )
         }
 
@@ -65,7 +71,7 @@ public final class CapabilityInvocationRouter: Sendable {
             // Either the resolution is exactly this device provider, or it's a federated
             // read where this device is one of N participants. Either way the device's
             // job is to execute its slice; the agent merges across providers.
-            return await deviceDispatch(invocation, conversationId)
+            return await deviceDispatch(invocation, conversationId, invokerInboxId)
         }
 
         // Resolution exists but doesn't include this device — every member is a cloud

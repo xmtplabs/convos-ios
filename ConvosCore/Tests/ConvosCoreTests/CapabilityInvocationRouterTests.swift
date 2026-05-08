@@ -6,6 +6,7 @@ import Testing
 @Suite("CapabilityInvocationRouter")
 struct CapabilityInvocationRouterTests {
     private let conversationId: String = "conv-1"
+    private let invokerInboxId: String = "agent-1"
 
     private func makeInvocation(
         kind: ConnectionKind = .calendar,
@@ -35,7 +36,7 @@ struct CapabilityInvocationRouterTests {
             capabilityLookup: { invocation in
                 capabilityFor[invocation.action.name]
             },
-            deviceDispatch: { invocation, _ in
+            deviceDispatch: { invocation, _, _ in
                 await spy.record(invocation.action.name)
                 return ConnectionInvocationResult(
                     invocationId: invocation.invocationId,
@@ -52,7 +53,11 @@ struct CapabilityInvocationRouterTests {
         let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
         let spy = DeviceDispatchSpy()
         let router = makeRouter(resolver: resolver, spy: spy)
-        let result = await router.route(makeInvocation(kind: .motion), conversationId: conversationId)
+        let result = await router.route(
+            makeInvocation(kind: .motion),
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
+        )
         #expect(result.status == .unknownAction)
         let calls = await spy.calls
         #expect(calls.isEmpty)
@@ -63,7 +68,11 @@ struct CapabilityInvocationRouterTests {
         let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
         let spy = DeviceDispatchSpy()
         let router = makeRouter(resolver: resolver, capabilityFor: [:], spy: spy)
-        let result = await router.route(makeInvocation(actionName: "fictional_action"), conversationId: conversationId)
+        let result = await router.route(
+            makeInvocation(actionName: "fictional_action"),
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
+        )
         #expect(result.status == .unknownAction)
         let calls = await spy.calls
         #expect(calls.isEmpty)
@@ -78,7 +87,11 @@ struct CapabilityInvocationRouterTests {
             capabilityFor: ["create_event": .writeCreate],
             spy: spy
         )
-        let result = await router.route(makeInvocation(actionName: "create_event"), conversationId: conversationId)
+        let result = await router.route(
+            makeInvocation(actionName: "create_event"),
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
+        )
         #expect(result.status == .capabilityNotEnabled)
         let calls = await spy.calls
         #expect(calls.isEmpty)
@@ -91,7 +104,8 @@ struct CapabilityInvocationRouterTests {
             [DeviceCapabilityProvider.providerId(for: .calendar)],
             subject: .calendar,
             capability: .writeCreate,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: invokerInboxId
         )
         let spy = DeviceDispatchSpy()
         let router = makeRouter(
@@ -99,7 +113,11 @@ struct CapabilityInvocationRouterTests {
             capabilityFor: ["create_event": .writeCreate],
             spy: spy
         )
-        let result = await router.route(makeInvocation(actionName: "create_event"), conversationId: conversationId)
+        let result = await router.route(
+            makeInvocation(actionName: "create_event"),
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
+        )
         #expect(result.status == .success)
         let calls = await spy.calls
         #expect(calls == ["create_event"])
@@ -115,7 +133,8 @@ struct CapabilityInvocationRouterTests {
             ],
             subject: .fitness,
             capability: .read,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: invokerInboxId
         )
         let spy = DeviceDispatchSpy()
         let router = makeRouter(
@@ -125,7 +144,8 @@ struct CapabilityInvocationRouterTests {
         )
         let result = await router.route(
             makeInvocation(kind: .health, actionName: "list_recent_workouts"),
-            conversationId: conversationId
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
         )
         #expect(result.status == .success)
         let calls = await spy.calls
@@ -139,7 +159,8 @@ struct CapabilityInvocationRouterTests {
             [ProviderID(rawValue: "composio.google_calendar")],
             subject: .calendar,
             capability: .writeCreate,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: invokerInboxId
         )
         let spy = DeviceDispatchSpy()
         let router = makeRouter(
@@ -147,7 +168,11 @@ struct CapabilityInvocationRouterTests {
             capabilityFor: ["create_event": .writeCreate],
             spy: spy
         )
-        let result = await router.route(makeInvocation(actionName: "create_event"), conversationId: conversationId)
+        let result = await router.route(
+            makeInvocation(actionName: "create_event"),
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
+        )
         #expect(result.status == .executionFailed)
         #expect(result.errorMessage?.contains("composio.google_calendar") == true)
         let calls = await spy.calls
@@ -164,7 +189,8 @@ struct CapabilityInvocationRouterTests {
             ],
             subject: .fitness,
             capability: .read,
-            conversationId: conversationId
+            conversationId: conversationId,
+            grantedToInboxId: invokerInboxId
         )
         let spy = DeviceDispatchSpy()
         let router = makeRouter(
@@ -174,7 +200,8 @@ struct CapabilityInvocationRouterTests {
         )
         let result = await router.route(
             makeInvocation(kind: .health, actionName: "list_recent_workouts"),
-            conversationId: conversationId
+            conversationId: conversationId,
+            invokerInboxId: invokerInboxId
         )
         #expect(result.status == .executionFailed)
         let calls = await spy.calls
@@ -188,7 +215,8 @@ struct CapabilityInvocationRouterTests {
             [DeviceCapabilityProvider.providerId(for: .calendar)],
             subject: .calendar,
             capability: .writeCreate,
-            conversationId: "conv-a"
+            conversationId: "conv-a",
+            grantedToInboxId: invokerInboxId
         )
         let spy = DeviceDispatchSpy()
         let router = makeRouter(
@@ -196,9 +224,39 @@ struct CapabilityInvocationRouterTests {
             capabilityFor: ["create_event": .writeCreate],
             spy: spy
         )
-        let result = await router.route(makeInvocation(actionName: "create_event"), conversationId: "conv-b")
+        let result = await router.route(
+            makeInvocation(actionName: "create_event"),
+            conversationId: "conv-b",
+            invokerInboxId: invokerInboxId
+        )
         #expect(result.status == .capabilityNotEnabled)
         let calls = await spy.calls
         #expect(calls.isEmpty)
+    }
+
+    @Test("agent scoping — agent A's resolution doesn't satisfy agent B's invocation")
+    func agentScoped() async throws {
+        let resolver = InMemoryCapabilityResolver(registry: InMemoryCapabilityProviderRegistry())
+        try await resolver.setResolution(
+            [DeviceCapabilityProvider.providerId(for: .calendar)],
+            subject: .calendar,
+            capability: .writeCreate,
+            conversationId: conversationId,
+            grantedToInboxId: "agent-a"
+        )
+        let spy = DeviceDispatchSpy()
+        let router = makeRouter(
+            resolver: resolver,
+            capabilityFor: ["create_event": .writeCreate],
+            spy: spy
+        )
+        let result = await router.route(
+            makeInvocation(actionName: "create_event"),
+            conversationId: conversationId,
+            invokerInboxId: "agent-b"
+        )
+        #expect(result.status == .capabilityNotEnabled)
+        let calls = await spy.calls
+        #expect(calls.isEmpty, "agent-b should not see agent-a's grant")
     }
 }
