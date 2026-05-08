@@ -535,7 +535,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             onBottomOverscrollReleased: { _ in },
-            scrollToBottomTrigger: { _ in }
+            scrollToBottomTrigger: { _ in },
+            messageInputFocusTrigger: { _ in }
         )
         .ignoresSafeArea()
     }

@@ -65,6 +65,7 @@ final class MessagesViewController: UIViewController {
     private var hasPendingInterrupt: Bool = false
     private var previousLastMessageId: String?
     private var previousFocusState: MessagesViewInputFocus?
+    private var pendingScrollToBottomAfterKeyboard: Bool = false
 
     /// Whether the user is near the bottom of the scroll view (within one screen height)
     private var isNearBottom: Bool {
@@ -242,6 +243,13 @@ final class MessagesViewController: UIViewController {
         super.viewWillTransition(to: size, with: coordinator)
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Drop the flag so an interrupted keyboard transition doesn't surface a
+        // stale scroll-to-bottom on the next appearance.
+        pendingScrollToBottomAfterKeyboard = false
+    }
+
     // MARK: - Private Setup Methods
 
     private func setupUI() {
@@ -273,6 +281,15 @@ final class MessagesViewController: UIViewController {
         }
 
         startObservingFocus()
+    }
+
+    /// Called from MessagesView via the representable when SwiftUI's @FocusState
+    /// transitions into the composer. The synchronous scrollToBottom typically no-ops
+    /// because the keyboard hasn't yet expanded the bottom inset; setting the pending
+    /// flag lets keyboardDidChangeFrame re-anchor once the keyboard frame settles.
+    func messageInputDidBecomeFocused() {
+        pendingScrollToBottomAfterKeyboard = true
+        scrollToBottom()
     }
 
     private func setupCollectionView() {
@@ -797,6 +814,18 @@ extension MessagesViewController: KeyboardListenerDelegate {
 
         currentInterfaceActions.options.insert(.changingKeyboardFrame)
         let newBottomInset = calculateNewBottomInset(for: info)
+        // If the keyboard is growing the bottom inset (appearing or expanding),
+        // queue a scroll-to-bottom for after the inset animation. SwiftUI's
+        // @FocusState may not transition (e.g. when iOS restores first-responder
+        // and just re-shows the keyboard), so we trigger off the keyboard frame
+        // change directly rather than relying on focus events. Only flip the
+        // flag once per keyboard show; rapid frame changes (emoji ↔ standard
+        // keyboard, accessory bar resize) shouldn't queue duplicate scrolls.
+        let insetGrowth = newBottomInset - collectionView.contentInset.bottom
+        if !pendingScrollToBottomAfterKeyboard,
+           insetGrowth > Constant.minKeyboardInsetGrowthForScrollAnchor {
+            pendingScrollToBottomAfterKeyboard = true
+        }
         updateBottomInset(inset: newBottomInset, info: info)
     }
 
@@ -812,6 +841,11 @@ extension MessagesViewController: KeyboardListenerDelegate {
     func keyboardDidChangeFrame(info: KeyboardInfo) {
         if currentInterfaceActions.options.contains(.changingKeyboardFrame) {
             currentInterfaceActions.options.remove(.changingKeyboardFrame)
+        }
+
+        if pendingScrollToBottomAfterKeyboard {
+            pendingScrollToBottomAfterKeyboard = false
+            scrollToBottom()
         }
     }
 
@@ -881,6 +915,13 @@ extension MessagesViewController: KeyboardListenerDelegate {
         }, completion: { _ in
             self.currentInterfaceActions.options.remove(.changingContentInsets)
         })
+    }
+
+    private enum Constant {
+        // Floating-point slop for distinguishing "keyboard appearing" from
+        // micro adjustments (e.g. autocorrect bar resizes, sub-point
+        // accessory-view recalculations).
+        static let minKeyboardInsetGrowthForScrollAnchor: CGFloat = 1.0
     }
 }
 

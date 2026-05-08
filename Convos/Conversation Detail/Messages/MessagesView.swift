@@ -87,6 +87,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: (() -> Void)?
+    @State private var notifyMessageInputFocused: (() -> Void)?
 
     var body: some View {
         MessagesViewRepresentable(
@@ -127,9 +128,17 @@ struct MessagesView<BottomBarContent: View>: View {
             onBottomOverscrollReleased: onBottomOverscrollReleased,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
+            },
+            messageInputFocusTrigger: { fn in
+                notifyMessageInputFocused = fn
             }
         )
         .ignoresSafeArea()
+        .onChange(of: focusState) { oldValue, newValue in
+            if newValue == .message && oldValue != .message {
+                notifyMessageInputFocused?()
+            }
+        }
         .safeAreaBar(edge: .bottom) {
             MessagesBottomBar(
                 profile: profile,
