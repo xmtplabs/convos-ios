@@ -199,11 +199,13 @@ private extension UIImage {
             bitmapInfo: bitmapInfo
         ) else { return nil }
         context.draw(cgImage, in: CGRect(x: -x, y: -yOffset, width: cgImage.width, height: cgImage.height))
-        let red = CGFloat(pixel[0]) / 255.0
-        let green = CGFloat(pixel[1]) / 255.0
-        let blue = CGFloat(pixel[2]) / 255.0
         let alpha = CGFloat(pixel[3]) / 255.0
         if alpha < 0.05 { return nil }
+        // Pixel buffer is premultipliedLast; SwiftUI's Color expects straight RGB,
+        // so divide by alpha to recover the source channel values.
+        let red = CGFloat(pixel[0]) / 255.0 / alpha
+        let green = CGFloat(pixel[1]) / 255.0 / alpha
+        let blue = CGFloat(pixel[2]) / 255.0 / alpha
         return Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
 }

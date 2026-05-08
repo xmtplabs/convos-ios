@@ -142,8 +142,13 @@ private struct AttachmentSenderIndicator: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Sent by \(sender.profile.displayName), \(subtitle), tap to view profile")
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("attachment-preview-sender")
+    }
+
+    private var accessibilityLabel: String {
+        let base = "Sent by \(sender.profile.displayName), \(subtitle)"
+        return onTap == nil ? base : "\(base), tap to view profile"
     }
 }
 
