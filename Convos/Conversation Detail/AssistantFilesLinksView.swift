@@ -215,7 +215,7 @@ struct AssistantFilesLinksView: View {
         if !viewModel.searchText.isEmpty { return "Nothing matches your search" }
         switch viewModel.filter {
         case .all: return "Nothing matches"
-        case .files: return "No files match"
+        case .files: return "No files"
         case .links: return "No links"
         }
     }
@@ -292,9 +292,13 @@ struct AssistantFilesLinksView: View {
 
     @ViewBuilder
     private func fileThumbnail(_ file: AssistantFile) -> some View {
-        if let base64 = file.thumbnailDataBase64,
-           let data = Data(base64Encoded: base64),
-           let uiImage = UIImage(data: data) {
+        if let cached = htmlPreview(for: file) {
+            Image(uiImage: cached)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let base64 = file.thumbnailDataBase64,
+                  let data = Data(base64Encoded: base64),
+                  let uiImage = UIImage(data: data) {
             Image(uiImage: uiImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -306,6 +310,19 @@ struct AssistantFilesLinksView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
         }
+    }
+
+    private func htmlPreview(for file: AssistantFile) -> UIImage? {
+        guard isHTML(file: file) else { return nil }
+        return HTMLThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey)
+    }
+
+    private func isHTML(file: AssistantFile) -> Bool {
+        if let filename = file.filename {
+            let ext = (filename as NSString).pathExtension.lowercased()
+            if ["html", "htm"].contains(ext) { return true }
+        }
+        return file.mimeType?.lowercased() == "text/html"
     }
 
     @ViewBuilder
