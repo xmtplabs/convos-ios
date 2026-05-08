@@ -35,4 +35,29 @@ public extension ProviderID {
         guard rawValue.hasPrefix(prefix) else { return nil }
         return String(rawValue.dropFirst(prefix.count))
     }
+
+    /// Wire-form rawValue: same as `rawValue` for non-Composio providers, but for
+    /// `composio.<canonical>` IDs the canonical service id is mapped to Composio's
+    /// toolkit slug (e.g. `composio.google_calendar` → `composio.googlecalendar`).
+    /// Use this when emitting provider IDs to XMTP wire payloads so agents can
+    /// pass the slug straight to Composio's `tools.execute` without a second
+    /// translation step.
+    var wireFormRawValue: String {
+        guard let serviceId = cloudServiceId else { return rawValue }
+        return "composio.\(CloudConnectionServiceNaming.composioToolkitSlug(for: serviceId))"
+    }
+
+    /// Inverse of `wireFormRawValue` — converts a `composio.<slug>` wire-form ID
+    /// to the canonical-form `ProviderID` iOS uses internally. Identity for
+    /// non-Composio IDs.
+    init(wireForm wire: String) {
+        let prefix = "composio."
+        guard wire.hasPrefix(prefix) else {
+            self.init(rawValue: wire)
+            return
+        }
+        let slug = String(wire.dropFirst(prefix.count))
+        let canonical = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: slug)
+        self.init(rawValue: "\(prefix)\(canonical)")
+    }
 }

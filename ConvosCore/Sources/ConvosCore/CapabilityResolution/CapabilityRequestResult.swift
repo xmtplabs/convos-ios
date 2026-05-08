@@ -59,10 +59,26 @@ public struct CapabilityRequestResult: Codable, Sendable, Hashable {
         self.status = try container.decode(Status.self, forKey: .status)
         self.subject = try container.decode(CapabilitySubject.self, forKey: .subject)
         self.capability = try container.decode(ConnectionCapability.self, forKey: .capability)
-        let rawProviders = try container.decodeIfPresent([ProviderID].self, forKey: .providers) ?? []
+        // Translate Composio toolkit-slug wire form to canonical for internal use.
+        let wireProviders = try container.decodeIfPresent([String].self, forKey: .providers) ?? []
+        let canonicalProviders = wireProviders.map { ProviderID(wireForm: $0) }
         let rawAvailableActions = try container.decodeIfPresent([AvailableAction].self, forKey: .availableActions) ?? []
-        self.providers = Self.truncatedProviders(rawProviders)
+        self.providers = Self.truncatedProviders(canonicalProviders)
         self.availableActions = Self.truncatedAvailableActions(rawAvailableActions)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(status, forKey: .status)
+        try container.encode(subject, forKey: .subject)
+        try container.encode(capability, forKey: .capability)
+        // Emit Composio toolkit slug on the wire — agents pass it straight to
+        // `tools.execute` without a second translation step.
+        let wireProviders = providers.map { $0.wireFormRawValue }
+        try container.encode(wireProviders, forKey: .providers)
+        try container.encode(availableActions, forKey: .availableActions)
     }
 
     private static func truncatedProviders(_ providers: [ProviderID]) -> [ProviderID] {
@@ -99,6 +115,31 @@ public extension CapabilityRequestResult {
             self.summary = summary
             self.inputs = inputs
             self.outputs = outputs
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case providerId, kind, actionName, summary, inputs, outputs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Wire form uses Composio toolkit slug; canonicalize for internal use.
+            self.providerId = ProviderID(wireForm: try container.decode(String.self, forKey: .providerId))
+            self.kind = try container.decode(ConnectionKind.self, forKey: .kind)
+            self.actionName = try container.decode(String.self, forKey: .actionName)
+            self.summary = try container.decode(String.self, forKey: .summary)
+            self.inputs = try container.decode([Parameter].self, forKey: .inputs)
+            self.outputs = try container.decode([Parameter].self, forKey: .outputs)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(providerId.wireFormRawValue, forKey: .providerId)
+            try container.encode(kind, forKey: .kind)
+            try container.encode(actionName, forKey: .actionName)
+            try container.encode(summary, forKey: .summary)
+            try container.encode(inputs, forKey: .inputs)
+            try container.encode(outputs, forKey: .outputs)
         }
     }
 

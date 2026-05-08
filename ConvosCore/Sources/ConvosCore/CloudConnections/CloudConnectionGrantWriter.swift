@@ -170,14 +170,18 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         let iso8601 = ISO8601DateFormatter()
         let entries: [CloudConnectionGrantEntry] = desiredGrants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
-            // Guard against DB rows written before canonical-naming landed: if the
-            // stored serviceId is a Composio toolkit slug, translate back to canonical.
+            // DB rows may be canonical (`google_calendar`) or — pre-normalisation
+            // — already slug (`googlecalendar`). Run through canonical first to
+            // collapse both to canonical, then map to slug for the wire so
+            // agents can pass `service` straight to Composio's `tools.execute`
+            // without a second translation.
             let canonicalService = CloudConnectionServiceNaming.canonicalService(fromComposioSlug: conn.serviceId)
+            let wireService = CloudConnectionServiceNaming.composioToolkitSlug(for: canonicalService)
             return CloudConnectionGrantEntry(
                 id: "grant_\(grant.connectionId)_\(conversationId)_\(grant.grantedToInboxId)",
                 senderId: senderId,
                 grantedToInboxId: grant.grantedToInboxId,
-                service: canonicalService,
+                service: wireService,
                 provider: conn.provider,
                 scope: "conversation",
                 composioEntityId: conn.composioEntityId,

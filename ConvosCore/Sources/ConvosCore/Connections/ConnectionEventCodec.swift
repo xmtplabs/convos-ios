@@ -45,7 +45,12 @@ public struct ConnectionEvent: Codable, Sendable, Hashable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try container.decode(Int.self, forKey: .version)
-        self.providerId = try container.decode(String.self, forKey: .providerId)
+        // Wire form uses Composio toolkit slug (`composio.googlecalendar`); iOS
+        // internals use canonical (`composio.google_calendar`). Translate at the
+        // boundary so resolver/grant lookups by providerId continue to work.
+        self.providerId = ProviderID(
+            wireForm: try container.decode(String.self, forKey: .providerId)
+        ).rawValue
         self.action = try container.decode(Action.self, forKey: .action)
         self.capability = try container.decodeIfPresent(ConnectionCapability.self, forKey: .capability)
         self.grantedToInboxId = try container.decodeIfPresent(String.self, forKey: .grantedToInboxId)
@@ -54,7 +59,9 @@ public struct ConnectionEvent: Codable, Sendable, Hashable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(version, forKey: .version)
-        try container.encode(providerId, forKey: .providerId)
+        // Emit Composio's toolkit slug on the wire so agents can pass the
+        // providerId straight to `tools.execute` without a second translation.
+        try container.encode(ProviderID(rawValue: providerId).wireFormRawValue, forKey: .providerId)
         try container.encode(action, forKey: .action)
         try container.encodeIfPresent(capability, forKey: .capability)
         try container.encodeIfPresent(grantedToInboxId, forKey: .grantedToInboxId)
