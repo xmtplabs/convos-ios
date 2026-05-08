@@ -108,15 +108,22 @@ struct AttachmentPreviewPresentation: Identifiable {
     let id: String
     let attachment: HydratedAttachment
     let fileURL: URL
+    let sender: ConversationMember?
     let sentAt: Date
 }
 
 struct AssistantFilesLinksView: View {
     @State private var viewModel: AssistantFilesLinksViewModel
     @State private var presentingPreview: AttachmentPreviewPresentation?
+    private let members: [ConversationMember]
 
-    init(repository: AssistantFilesLinksRepository) {
+    init(repository: AssistantFilesLinksRepository, members: [ConversationMember]) {
         _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
+        self.members = members
+    }
+
+    private func member(forInboxId inboxId: String) -> ConversationMember? {
+        members.first { $0.profile.inboxId == inboxId }
     }
 
     var body: some View {
@@ -138,7 +145,7 @@ struct AssistantFilesLinksView: View {
                 AttachmentPreviewSheet(
                     attachment: preview.attachment,
                     fileURL: preview.fileURL,
-                    sender: nil,
+                    sender: preview.sender,
                     sentAt: preview.sentAt
                 )
                 .presentationDetents([.large])
@@ -242,6 +249,7 @@ struct AssistantFilesLinksView: View {
                             id: file.id,
                             attachment: hydrated,
                             fileURL: url,
+                            sender: member(forInboxId: file.senderInboxId),
                             sentAt: file.date
                         )
                     }
