@@ -52,7 +52,7 @@ private struct ConversationPagerDots: View {
     @Binding var selectedPage: ConversationPagerPage
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
+        HStack(spacing: 10.0) {
             ForEach(ConversationPagerPage.allCases) { page in
                 let isSelected: Bool = page == selectedPage
                 let action = {
@@ -61,19 +61,38 @@ private struct ConversationPagerDots: View {
                     }
                 }
                 Button(action: action) {
-                    Capsule()
-                        .fill(isSelected ? Color.colorTextPrimary : Color.colorTextSecondary.opacity(0.3))
-                        .frame(width: isSelected ? 18.0 : 8.0, height: 8.0)
+                    pageShape(for: page)
+                        .fill(isSelected ? Color.colorFillSecondary : Color.colorFillTertiary)
+                        .frame(width: 8.0, height: 8.0)
                         .animation(.easeInOut(duration: 0.2), value: isSelected)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(label(for: page))
             }
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .frame(height: 24.0)
+        .padding(.horizontal, 10.0)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityIdentifier("conversation-pager-dots")
+    }
+
+    private func pageShape(for page: ConversationPagerPage) -> UnevenRoundedRectangle {
+        switch page {
+        case .messages:
+            return UnevenRoundedRectangle(cornerRadii: .init(
+                topLeading: 8.0,
+                bottomLeading: 2.0,
+                bottomTrailing: 8.0,
+                topTrailing: 8.0
+            ))
+        case .stuff:
+            return UnevenRoundedRectangle(cornerRadii: .init(
+                topLeading: 2.0,
+                bottomLeading: 2.0,
+                bottomTrailing: 2.0,
+                topTrailing: 2.0
+            ))
+        }
     }
 
     private func label(for page: ConversationPagerPage) -> String {
