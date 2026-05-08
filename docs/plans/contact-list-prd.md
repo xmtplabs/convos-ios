@@ -39,7 +39,6 @@ Step 1 is purely additive: build the contact list, keep it accurate, and let the
 - [ ] **Local contact list.** A GRDB-backed table of contacts, keyed by `inboxId`, populated by explicit action in shared conversations, queryable in an alphabetical list.
 - [ ] **Auto-add on first explicit action in a group.** When the local user joins a new group via invite, the other members are added to the contact list **as soon as the local user sends their first message in that group** — not on join. This treats sending a message as the explicit "I want to be in this conversation" signal.
 - [ ] **Auto-add new members of existing groups.** When the local user is already in a group and a new member joins, that new member is added to the contact list immediately.
-- [ ] **One-time backfill on first launch post-feature.** Every existing conversation on the device that the local user has clearly acted in (i.e., sent at least one message) is scanned once, its members upserted into the contacts table, and the conversation marked synced; never re-scanned.
 - [ ] **Contact list entry from the Convos menu.** The contact list is reachable from the Convos top-left menu (the same menu that surfaces "My info", "Assistants", "Customize", etc.), placed under the "My info" row. There is **no** new toolbar icon on the conversations list.
 
 ### Step 2 — Messaging, filtering, and blocking
@@ -207,7 +206,6 @@ The feature lives almost entirely in `ConvosCore`, with thin SwiftUI views in th
 - `ContactsWriter` / `ContactsWriterProtocol` — write API; idempotent upsert and profile-snapshot writes. (Block / unblock writers added in Step 2.)
 - `ContactSyncCoordinator` — single entry point for "ensure all non-self members of this conversation are contacts." Wraps `ContactsWriter`; idempotent.
 - `ContactsProfileSyncWriter` — listens for member-profile / profile-snapshot events and updates `DBContact` profile fields per most-recent-wins.
-- `ContactsBackfillService` — one-time job that scans every conversation the local user has acted in on first launch post-feature; idempotent (uses `DBConversationContactsSync`).
 - `ContactsView` (browse) and a placeholder `ContactCardView` (profile + back, no actions).
 - `ContactsViewModel`, `ContactCardViewModel` — `@Observable` view models per current convention.
 
@@ -513,25 +511,9 @@ Effects:
 
 Blocking is local-only. The blocked party is not notified.
 
-### Backfill Service (Step 1)
+### Backfill Service (Step 1) — *removed*
 
-`ContactsBackfillService` runs on first launch after this feature ships. Crucially, it backfills only conversations the local user has already acted in — not every conversation on the device. This matches the new auto-add semantics.
-
-```swift
-public protocol ContactsBackfillServiceProtocol: Sendable {
-    func backfillIfNeeded() async throws
-}
-```
-
-Implementation:
-
-1. Query: every `conversation.id` that (a) does not have a `conversation_contacts_sync` row, and (b) has at least one outbound message from the local user in `messages`.
-2. For each such conversationId, call `coordinator.syncContacts(for:)`.
-3. Per-conversation transactions make partial progress durable; an interrupted backfill resumes on next launch.
-
-Conversations the local user is in but has not posted in are intentionally skipped. They will be picked up the moment the local user sends their first message there, via the auto-add hook.
-
-Triggered after `SessionManager` is ready, on a background priority Task; UI is not blocked.
+This feature is shipping prior to public launch, so there are no existing installs to migrate. The four steady-state triggers (first-message hook, addMembers hook, ConversationWriter network-side commit, profile-sync hooks) populate `contact` from a clean slate; no one-time backfill is needed. `ContactsBackfillService` and `Phase 1.3` were removed before merge.
 
 ### Picker Logic (Step 2)
 
@@ -625,15 +607,7 @@ Ship-readiness: ConvosCore tests pass; data layer fully tested with mocked profi
 
 Ship-readiness: Auto-add works end-to-end on Local environment; existing tests still pass.
 
-#### Phase 1.3: Backfill service
-
-- [ ] `ContactsBackfillService.backfillIfNeeded()` — backfills only conversations the local user has acted in.
-- [ ] App-launch wiring after `SessionManager` is ready.
-- [ ] Test: device fixture with N existing conversations, M of which have outbound messages from the local user, run backfill; assert M conversations marked synced and contacts populated for those only.
-
-Ship-readiness: Backfill completes within 30 seconds for a synthetic 200-conversation device; doesn't block launch UI.
-
-#### Phase 1.4: Browse UI
+#### Phase 1.3: Browse UI
 
 - [ ] "Contacts" entry under "My info" in the existing Convos top-left menu.
 - [ ] `ContactsView` with alphabetical sectioning + side-letter index. No search in V1.
@@ -643,7 +617,7 @@ Ship-readiness: Backfill completes within 30 seconds for a synthetic 200-convers
 
 Ship-readiness: User can open the menu, tap "Contacts", browse the list, tap a contact, see their profile.
 
-**End of Step 1.** Ship a stacked PR or merge train including phases 1.1 – 1.4. Existing inbound conversation behavior is unchanged at this point.
+**End of Step 1.** Ship a stacked PR or merge train including phases 1.1 – 1.3. Existing inbound conversation behavior is unchanged at this point.
 
 ---
 
@@ -734,7 +708,6 @@ Ship-readiness: shared-conversations list renders correctly.
 - `ContactsWriter` idempotency — repeated upserts do not clobber `addedAt` / `addedViaConversationId`.
 - `ContactsProfileSyncWriter` most-recent-wins — older event dropped, newer event applied; missing timestamp falls back to receive time.
 - `ContactSyncCoordinator` self-skip, sync-marker short-circuit, force-rerun.
-- `ContactsBackfillService` resumability — kill mid-run, restart, assert correct final state.
 - `InboundConversationFilter` decision-table tests for contact / stranger / blocked sender.
 - `QuarantineSweeper` — promotes when sender becomes contact; deletes when past TTL.
 
@@ -760,17 +733,14 @@ Ship-readiness: shared-conversations list renders correctly.
 **Manual / QA test plan** (`qa/tests/<NN>-contacts-list.md`):
 
 - Onboarding flow: new install, accept invite, send a message, observe contact list populates.
-- Existing-user flow: install update, observe backfill completes for conversations the user has acted in.
 - Quarantine edge: new install, receive an inbound from a stranger, observe nothing in main feed; share a group with that stranger and act in it, observe the held conversation appear.
 - Blocking edge: block a contact, have them try to start a new DM, observe the DM never lands.
 - Edge: leave every group with a contact; observe the contact remains in the list with their last-known profile snapshot.
-- Edge: very large group (100+ members), local user posts → all members backfilled; picker scroll performance.
+- Edge: very large group (100+ members), local user posts → all members appear as contacts; picker scroll performance.
 
 **Architecture review:** Hand the data-model + filter design to `swift-architect` for a final review before Step 1 Phase 1.1 lands.
 
 ## Performance / Scale
-
-**Backfill on a high-conversation device.** Backfill scope is now narrower than the original draft — only conversations the local user has *acted in* are backfilled. Users in many lurk-only groups will see far fewer contact-rows than before. For a worst-case acted-in conversation count of ~100 with ~20 members each, that is ~2,000 contact upserts in a few seconds. The per-conversation transaction model means we never hold a single huge write open.
 
 **Steady-state queries.** The contacts list is a single primary-key-ordered scan of `contact` filtered by `blockedAt IS NULL` and ordered by `displayName`. The `idx_contact_displayName` index keeps this O(log N) for the first paint regardless of contact volume. Budget: ≤100ms for first paint with 1,000 contacts on iPhone 13.
 
@@ -798,7 +768,6 @@ Ship-readiness: shared-conversations list renders correctly.
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Backfill is slow on a high-conversation device, blocking launch UX | Low | Backfill scope is now narrower (only conversations the local user has acted in). Run on background priority Task; per-conversation transactions make partial progress durable. If a real device shows >5s perceptible delay, surface a one-time "setting up your contacts" indicator. |
 | Profile snapshot on `DBContact` goes stale relative to `DBMemberProfile` | Low | `ContactsProfileSyncWriter` listens for member-profile writes and updates the snapshot most-recent-wins. Worst case is brief eventual-consistency; documented in user stories. |
 | `addedViaConversationId` references a deleted conversation | Low | FK uses `onDelete: .setNull`. The "added via" subtitle falls back gracefully when the source convo is gone. |
 | Auto-add fires from a large stranger group merely because the user posted "hi" | Medium | The action-gated trigger is intentional — sending a message is the explicit signal. If users complain about getting hundreds of contacts from one large room, follow-up: add a "skip auto-add for groups with > N members" setting. |

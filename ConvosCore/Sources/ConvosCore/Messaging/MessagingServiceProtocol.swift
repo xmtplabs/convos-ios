@@ -54,7 +54,6 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func contactsRepository() -> any ContactsRepositoryProtocol
     func contactsWriter() -> any ContactsWriterProtocol
     func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol
-    func contactsBackfillService() -> any ContactsBackfillServiceProtocol
 
     func uploadImage(data: Data, filename: String) async throws -> String
     func uploadImageAndExecute(

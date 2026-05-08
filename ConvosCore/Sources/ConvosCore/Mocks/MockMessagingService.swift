@@ -146,10 +146,6 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockContactSyncCoordinator()
     }
 
-    public func contactsBackfillService() -> any ContactsBackfillServiceProtocol {
-        MockContactsBackfillService()
-    }
-
     public func uploadImage(data: Data, filename: String) async throws -> String {
         "https://example.com/uploads/\(filename)"
     }

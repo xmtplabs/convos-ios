@@ -84,52 +84,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         self.deviceInfoProvider = deviceInfoProvider
         self.environment = environment
         self.backgroundUploadManager = backgroundUploadManager
-        self.scheduleContactsBackfill()
-    }
-
-    /// Triggers the one-time contacts-list backfill the first time the
-    /// session reaches a usable state. Spawned as a detached background
-    /// Task that awaits `waitForInboxReadyResult` (resolves once per
-    /// service lifetime) and then runs the backfill. No observer pattern,
-    /// no fire-once flag, no synchronous-fire-at-registration trap — the
-    /// `await` only resumes once on the first ready, so re-emissions
-    /// (foreground transitions, etc.) cannot retrigger this flow.
-    ///
-    /// Idempotent across launches via the `conversation_contacts_sync`
-    /// marker. No-ops when the inbox singleton has not yet been written.
-    ///
-    /// MIGRATION CODE — TARGETED FOR REMOVAL.
-    /// The contacts list shipped with this version. For installs that
-    /// upgraded from a prior version, this backfill seeds `contact` from
-    /// each conversation the local user has already acted in. Once every
-    /// active install has run this once, the steady-state triggers
-    /// (first-message hook in `OutgoingMessageWriter`, member-added hooks
-    /// in `ConversationMetadataWriter`/`ConversationWriter`, profile-sync
-    /// hooks in `StreamProcessor`/etc.) keep `contact` correct without
-    /// any backfill. After ~90 days of broad adoption (or whenever
-    /// telemetry shows >99% of active installs already have contacts
-    /// populated), this method, `ContactsBackfillService`, the matching
-    /// factory on `MessagingServiceProtocol`, and the related tests can
-    /// all be deleted.
-    private func scheduleContactsBackfill() {
-        let backfill = contactsBackfillService()
-        let stateManager = sessionStateManager
-        Task.detached(priority: .background) {
-            do {
-                _ = try await stateManager.waitForInboxReadyResult()
-                try await backfill.backfillIfNeeded()
-            } catch {
-                // `waitForInboxReadyResult` throws on `.error` rather than
-                // continuing to wait for an eventual `.ready`, so a transient
-                // session error during launch will skip backfill for this
-                // service lifetime. The marker query (`s.conversationId IS
-                // NULL`) ensures the next launch picks up any candidates
-                // that were missed; worst case the user sees a
-                // launch-late contacts list. Acceptable for a one-time
-                // migration.
-                Log.warning("ContactsBackfillService skipped this launch: \(error). Will retry on next launch.")
-            }
-        }
     }
 
     /// Constructs a MessagingService that represents the failed-keychain-read
@@ -269,13 +223,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         ContactSyncCoordinator(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader
-        )
-    }
-
-    func contactsBackfillService() -> any ContactsBackfillServiceProtocol {
-        ContactsBackfillService(
-            databaseReader: databaseReader,
-            coordinator: contactSyncCoordinator()
         )
     }
 

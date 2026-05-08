@@ -61,9 +61,3 @@ public final class MockContactSyncCoordinator: ContactSyncCoordinatorProtocol, @
         false
     }
 }
-
-public final class MockContactsBackfillService: ContactsBackfillServiceProtocol, @unchecked Sendable {
-    public init() {}
-
-    public func backfillIfNeeded() async throws {}
-}
