@@ -63,6 +63,15 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
 
     func syncContacts(for conversationId: String, force: Bool) async throws {
         try await databaseWriter.write { [selfInboxIdProvider] db in
+            // Without the local inbox singleton we cannot identify "self" and
+            // therefore cannot exclude the local user from the upsert loop.
+            // No-op rather than risk adding self as a contact. The next hook
+            // (after the singleton is written) retries.
+            guard let selfInboxId = try selfInboxIdProvider(db) else {
+                Log.debug("Skipping contacts sync for \(conversationId): inbox singleton not written yet")
+                return
+            }
+
             // Two short-circuits:
             //   - first-message hook on an already-synced conversation:
             //     no-op via `!force` (the network-side member-add hook in
@@ -78,14 +87,12 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                 .filter(DBConversationContactsSync.Columns.conversationId == conversationId)
                 .fetchCount(db) > 0
 
-            let selfInboxId = try selfInboxIdProvider(db)
-
             if alreadySynced == false && force == true {
                 let creatorId = try DBConversation
                     .filter(DBConversation.Columns.id == conversationId)
                     .fetchOne(db)?.creatorId
                 let selfIsCreator: Bool = {
-                    guard let selfInboxId, let creatorId else { return false }
+                    guard let creatorId else { return false }
                     return creatorId == selfInboxId
                 }()
                 guard selfIsCreator else {
@@ -112,7 +119,7 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
 
             var upsertedCount: Int = 0
             for member in members {
-                if let selfInboxId, member.inboxId == selfInboxId {
+                if member.inboxId == selfInboxId {
                     continue
                 }
                 let profile = profilesByInboxId[member.inboxId]
