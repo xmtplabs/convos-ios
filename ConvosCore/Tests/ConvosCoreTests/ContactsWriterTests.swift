@@ -132,8 +132,8 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
-    @Test("applyMemberProfileInTransaction mirrors a name update onto the contact row")
-    func testApplyMemberProfileInTransactionUpdatesName() async throws {
+    @Test("mirrorMemberProfileToContactInTransaction mirrors a name update onto the contact row")
+    func testMirrorMemberProfileToContactUpdatesName() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
         let inboxId = "inbox-1"
@@ -147,7 +147,7 @@ struct ContactsWriterTests {
 
         // A profile event arrives later naming the inbox "Mickey".
         try await dbManager.dbWriter.write { db in
-            try ContactsWriter.applyMemberProfileInTransaction(
+            try ContactsWriter.mirrorMemberProfileToContactInTransaction(
                 db: db,
                 inboxId: inboxId,
                 name: "Mickey",
@@ -163,12 +163,12 @@ struct ContactsWriterTests {
         #expect(contact?.avatarURL == "https://example.com/mickey.png")
     }
 
-    @Test("applyMemberProfileInTransaction no-ops when the inboxId has no contact row")
-    func testApplyMemberProfileInTransactionNoOpsForUnknownInbox() async throws {
+    @Test("mirrorMemberProfileToContactInTransaction no-ops when the inboxId has no contact row")
+    func testMirrorMemberProfileToContactNoOpsForUnknownInbox() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
 
         try await dbManager.dbWriter.write { db in
-            try ContactsWriter.applyMemberProfileInTransaction(
+            try ContactsWriter.mirrorMemberProfileToContactInTransaction(
                 db: db,
                 inboxId: "stranger",
                 name: "Mickey",
@@ -183,8 +183,8 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
-    @Test("applyMemberProfileInTransaction respects most-recent-wins")
-    func testApplyMemberProfileInTransactionRespectsRecency() async throws {
+    @Test("mirrorMemberProfileToContactInTransaction respects most-recent-wins")
+    func testMirrorMemberProfileToContactRespectsRecency() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
         let inboxId = "inbox-1"
@@ -197,7 +197,7 @@ struct ContactsWriterTests {
 
         // An older profile event must NOT overwrite the stored name.
         try await dbManager.dbWriter.write { db in
-            try ContactsWriter.applyMemberProfileInTransaction(
+            try ContactsWriter.mirrorMemberProfileToContactInTransaction(
                 db: db,
                 inboxId: inboxId,
                 name: "Older",

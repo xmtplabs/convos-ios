@@ -193,17 +193,10 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                     memberKind: memberKind,
                     metadata: profileMetadata
                 )
-                try dbProfile.save(db)
-
-                // Mirror the profile onto the contact row if the joiner is
-                // already a known contact. No-op otherwise.
-                try ContactsWriter.applyMemberProfileInTransaction(
-                    db: db,
-                    inboxId: result.joinerInboxId,
-                    name: dbProfile.name,
-                    avatarURL: dbProfile.avatar,
-                    receivedAt: Date()
-                )
+                // Note: `Date()` here rather than the message's `sentAtNs`
+                // because `JoinResult` doesn't carry the original timestamp.
+                // Tracked as a follow-up — see the contacts MVP plan.
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: dbProfile, receivedAt: Date())
 
                 if dbProfile.agentVerification.isConvosAssistant,
                    let conversation = try DBConversation.fetchOne(db, id: result.conversationId),

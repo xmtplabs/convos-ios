@@ -137,8 +137,9 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     }
 }
 
-/// Internal helpers for in-transaction writes used by the sync coordinator
-/// and by the profile-sync hooks at the `DBMemberProfile` save sites.
+/// In-transaction helpers for contact upserts and for mirroring `DBMemberProfile`
+/// saves onto `DBContact` (`mirrorMemberProfileToContactInTransaction`,
+/// `saveMemberProfileAndMirrorToContactInTransaction`).
 extension ContactsWriter {
     static func upsertContactInTransaction(
         db: Database,
@@ -154,12 +155,12 @@ extension ContactsWriter {
         )
     }
 
-    /// Applies a member-profile event to the matching contact row inside an
-    /// existing transaction. No-ops when the `inboxId` has no contact row
-    /// — profile events never auto-add contacts; only the action-gated
-    /// coordinator does. Most-recent-wins via `mergeProfile`: an incoming
-    /// `receivedAt` older than the stored `profileUpdatedAt` is dropped.
-    static func applyMemberProfileInTransaction(
+    /// Copies member-profile display fields onto the matching contact row inside an
+    /// existing transaction (most-recent-wins via `mergeProfile`). No-ops when there is
+    /// no contact for `inboxId` — profile events never auto-add contacts; only the
+    /// action-gated coordinator does. An incoming `receivedAt` older than stored
+    /// `profileUpdatedAt` is dropped.
+    static func mirrorMemberProfileToContactInTransaction(
         db: Database,
         inboxId: String,
         name: String?,
@@ -177,5 +178,23 @@ extension ContactsWriter {
         )
         let merged = mergeProfile(into: existing, with: snapshot)
         try merged.save(db)
+    }
+
+    /// Persists `profile` and mirrors name/avatar onto the matching `DBContact` in the
+    /// same transaction. Prefer this over `profile.save(db)` plus a separate mirror call
+    /// so callers cannot skip the contact-list sync.
+    static func saveMemberProfileAndMirrorToContactInTransaction(
+        db: Database,
+        profile: DBMemberProfile,
+        receivedAt: Date
+    ) throws {
+        try profile.save(db)
+        try mirrorMemberProfileToContactInTransaction(
+            db: db,
+            inboxId: profile.inboxId,
+            name: profile.name,
+            avatarURL: profile.avatar,
+            receivedAt: receivedAt
+        )
     }
 }
