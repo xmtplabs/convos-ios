@@ -43,12 +43,14 @@ struct AttachmentPreviewSheet: View {
                             onTap: tap
                         )
                     }
-                    ToolbarItem(placement: .confirmationAction) {
-                        ShareLink(item: fileURL) {
-                            Image(systemName: "square.and.arrow.up")
+                    if showsShareButton {
+                        ToolbarItem(placement: .confirmationAction) {
+                            ShareLink(item: fileURL) {
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                            .accessibilityLabel("Share")
+                            .accessibilityIdentifier("attachment-preview-share")
                         }
-                        .accessibilityLabel("Share")
-                        .accessibilityIdentifier("attachment-preview-share")
                     }
                 }
         }
@@ -66,6 +68,12 @@ struct AttachmentPreviewSheet: View {
             }
             resolvedHTMLTitle = await HTMLPageMetadata.shared.title(for: attachment.key, fileURL: fileURL)
         }
+    }
+
+    private var showsShareButton: Bool {
+        // QuickLook renders its own bottom share toolbar, so suppress ours when it
+        // owns the preview. HTML and Markdown branches don't, so we keep ours.
+        attachment.isHTMLFile || attachment.isMarkdownFile
     }
 
     @ViewBuilder
