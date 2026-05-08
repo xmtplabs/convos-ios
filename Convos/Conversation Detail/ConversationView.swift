@@ -240,7 +240,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             repository: viewModel.makeAssistantFilesLinksRepository(),
             members: viewModel.conversation.members,
             usesInlineHeader: true,
-            profileSheetContent: profileSheetForMember
+            profileSheetContent: profileSheetForMember,
+            focusBinding: $focusState
         )
     }
 
@@ -274,6 +275,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
         }
+        .onChange(of: pagerSelectedPage) { _, newPage in
+            if newPage != .stuff {
+                focusCoordinator.dismissStuffSearchIfNeeded()
+            }
+        }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForPastedLink()
@@ -281,7 +287,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear { viewModel.onConversationAppeared() }
-        .onDisappear { viewModel.onConversationDisappeared() }
+        .onDisappear {
+            focusCoordinator.dismissStuffSearchIfNeeded()
+            viewModel.onConversationDisappeared()
+        }
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
