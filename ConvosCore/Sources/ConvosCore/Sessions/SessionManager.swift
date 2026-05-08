@@ -473,14 +473,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
-    public func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await apiClient.redeemInviteCode(code)
-    }
-
-    public func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await apiClient.fetchInviteCodeStatus(code)
-    }
-
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         ConversationRepository(
             conversationId: conversationId,

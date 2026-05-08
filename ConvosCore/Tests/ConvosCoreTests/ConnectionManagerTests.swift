@@ -417,14 +417,6 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 0, redemptionCount: 0, remainingRedemptions: 0)
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        .init(code: code, name: nil, maxRedemptions: 0, redemptionCount: 0, remainingRedemptions: 0)
-    }
-
     func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "stub-request", redirectUrl: "https://example.com/oauth")
     }
