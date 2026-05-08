@@ -1,3 +1,4 @@
+import Combine
 import ConvosCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -40,9 +41,33 @@ class AssistantFilesLinksViewModel {
     var fileOpenError: String?
 
     private let repository: AssistantFilesLinksRepository
+    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
     init(repository: AssistantFilesLinksRepository) {
         self.repository = repository
+        subscribe()
+    }
+
+    private func subscribe() {
+        // Both publishers wrap GRDB ValueObservation with replaceError(with: [])
+        // so they cannot fail and each emits an initial value (possibly empty).
+        // First emission from either is enough to leave the loading state — the
+        // empty-state UI handles the "files arrived, links pending" race.
+        repository.filesPublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newFiles in
+                self?.files = newFiles
+                self?.isLoading = false
+            }
+            .store(in: &cancellables)
+
+        repository.linksPublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newLinks in
+                self?.links = newLinks
+                self?.isLoading = false
+            }
+            .store(in: &cancellables)
     }
 
     var hasAnyItems: Bool {
@@ -81,26 +106,20 @@ class AssistantFilesLinksViewModel {
 
     private func matches(file: AssistantFile, query: String) -> Bool {
         guard !query.isEmpty else { return true }
-        return file.displayName.lowercased().contains(query)
+        if file.displayName.lowercased().contains(query) {
+            return true
+        }
+        if let htmlTitle = HTMLPageMetadata.shared.cachedTitle(for: file.attachmentKey),
+           htmlTitle.lowercased().contains(query) {
+            return true
+        }
+        return false
     }
 
     private func matches(link: AssistantLink, query: String) -> Bool {
         guard !query.isEmpty else { return true }
         return link.displayTitle.lowercased().contains(query)
             || link.url.lowercased().contains(query)
-    }
-
-    func load() async {
-        isLoading = true
-        do {
-            async let fetchedFiles = repository.fetchFiles()
-            async let fetchedLinks = repository.fetchLinks()
-            files = try await fetchedFiles
-            links = try await fetchedLinks
-        } catch {
-            Log.error("Failed to load assistant files and links: \(error.localizedDescription)")
-        }
-        isLoading = false
     }
 }
 
@@ -149,9 +168,6 @@ struct AssistantFilesLinksView: View {
                     filter: $viewModel.filter,
                     focusBinding: externalFocusBinding
                 )
-            }
-            .task {
-                await viewModel.load()
             }
             .sheet(item: $presentingPreview) { preview in
                 AttachmentPreviewSheet(
@@ -299,7 +315,7 @@ struct AssistantFilesLinksView: View {
     private func linkRow(_ link: AssistantLink) -> some View {
         let action = {
             if let url = link.resolvedURL {
-                UIApplication.shared.open(url)
+                InAppBrowser.open(url)
             }
         }
         return Button(action: action) {

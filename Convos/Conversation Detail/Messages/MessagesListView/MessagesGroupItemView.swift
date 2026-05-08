@@ -220,7 +220,7 @@ struct MessagesGroupItemView: View {
     private func linkPreviewBubble(preview: LinkPreview) -> some View {
         let openLink: () -> Void = {
             if let url = preview.resolvedURL {
-                UIApplication.shared.open(url)
+                InAppBrowser.open(url)
             }
         }
         LinkPreviewBubbleView(

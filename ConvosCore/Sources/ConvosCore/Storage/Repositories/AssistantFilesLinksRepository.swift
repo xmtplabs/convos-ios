@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
@@ -55,85 +56,119 @@ public final class AssistantFilesLinksRepository: Sendable {
         self.conversationId = conversationId
     }
 
-    public func fetchFiles() async throws -> [AssistantFile] {
-        try await dbReader.read { [conversationId] db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT m.id, m.date, m.attachmentUrls, m.senderId
-                FROM message m
-                WHERE m.conversationId = ?
-                    AND m.contentType = 'attachments'
-                    AND EXISTS (
-                        SELECT 1
-                        FROM memberProfile mp
-                        WHERE mp.conversationId = m.conversationId
-                            AND mp.inboxId = m.senderId
-                            AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
-                    )
-                ORDER BY m.date DESC
-                """,
-                arguments: [conversationId]
-            )
-
-            return rows.compactMap { row -> AssistantFile? in
-                guard let id: String = row["id"],
-                      let date: Date = row["date"],
-                      let senderInboxId: String = row["senderId"],
-                      let attachmentUrlsJson: String = row["attachmentUrls"],
-                      let keys = try? JSONDecoder().decode([String].self, from: Data(attachmentUrlsJson.utf8)),
-                      let firstKey = keys.first
-                else { return nil }
-
-                let parsed = Self.parseAttachmentKey(firstKey)
-                return AssistantFile(
-                    id: id,
-                    senderInboxId: senderInboxId,
-                    filename: parsed.filename,
-                    mimeType: parsed.mimeType,
-                    date: date,
-                    attachmentKey: firstKey,
-                    thumbnailDataBase64: parsed.thumbnailDataBase64
-                )
+    public func filesPublisher() -> AnyPublisher<[AssistantFile], Never> {
+        let conversationId = conversationId
+        return ValueObservation
+            .tracking { db in
+                try Self.loadFiles(db: db, conversationId: conversationId)
             }
-        }
+            .publisher(in: dbReader, scheduling: .immediate)
+            .replaceError(with: [])
+            .eraseToAnyPublisher()
     }
 
-    public func fetchLinks() async throws -> [AssistantLink] {
-        try await dbReader.read { [conversationId] db in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT m.id, m.date, m.linkPreview, m.senderId
-                FROM message m
-                WHERE m.conversationId = ?
-                    AND m.contentType = 'linkPreview'
-                    AND EXISTS (
-                        SELECT 1
-                        FROM memberProfile mp
-                        WHERE mp.conversationId = m.conversationId
-                            AND mp.inboxId = m.senderId
-                            AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
-                    )
-                ORDER BY m.date DESC
-                """,
-                arguments: [conversationId]
-            )
-
-            return rows.compactMap { row -> AssistantLink? in
-                guard let id: String = row["id"],
-                      let date: Date = row["date"],
-                      let senderInboxId: String = row["senderId"],
-                      let linkPreviewJson: String = row["linkPreview"],
-                      let data = linkPreviewJson.data(using: .utf8),
-                      let preview = try? JSONDecoder().decode(LinkPreview.self, from: data)
-                else { return nil }
-                return AssistantLink(
-                    id: id,
-                    senderInboxId: senderInboxId,
-                    url: preview.url,
-                    title: preview.title,
-                    siteName: preview.siteName,
-                    imageURL: preview.imageURL,
-                    date: date
-                )
+    public func linksPublisher() -> AnyPublisher<[AssistantLink], Never> {
+        let conversationId = conversationId
+        return ValueObservation
+            .tracking { db in
+                try Self.loadLinks(db: db, conversationId: conversationId)
             }
+            .publisher(in: dbReader, scheduling: .immediate)
+            .replaceError(with: [])
+            .eraseToAnyPublisher()
+    }
+
+    private static func loadFiles(db: Database, conversationId: String) throws -> [AssistantFile] {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT m.id, m.date, m.attachmentUrls, m.senderId
+            FROM message m
+            WHERE m.conversationId = ?
+                AND m.contentType = 'attachments'
+                AND EXISTS (
+                    SELECT 1
+                    FROM memberProfile mp
+                    WHERE mp.conversationId = m.conversationId
+                        AND mp.inboxId = m.senderId
+                        AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
+                )
+            ORDER BY m.date DESC
+            """,
+            arguments: [conversationId]
+        )
+
+        let files: [AssistantFile] = rows.compactMap { row -> AssistantFile? in
+            guard let id: String = row["id"],
+                  let date: Date = row["date"],
+                  let senderInboxId: String = row["senderId"],
+                  let attachmentUrlsJson: String = row["attachmentUrls"],
+                  let keys = try? JSONDecoder().decode([String].self, from: Data(attachmentUrlsJson.utf8)),
+                  let firstKey = keys.first
+            else { return nil }
+
+            let parsed = parseAttachmentKey(firstKey)
+            return AssistantFile(
+                id: id,
+                senderInboxId: senderInboxId,
+                filename: parsed.filename,
+                mimeType: parsed.mimeType,
+                date: date,
+                attachmentKey: firstKey,
+                thumbnailDataBase64: parsed.thumbnailDataBase64
+            )
+        }
+
+        // Rows arrive newest first, so the first occurrence of each filename is the
+        // most recent send. Files with no filename pass through individually since
+        // we can't tell duplicates apart.
+        var seenFilenames: Set<String> = []
+        var deduped: [AssistantFile] = []
+        for file in files {
+            if let filename = file.filename {
+                if seenFilenames.insert(filename).inserted {
+                    deduped.append(file)
+                }
+            } else {
+                deduped.append(file)
+            }
+        }
+        return deduped
+    }
+
+    private static func loadLinks(db: Database, conversationId: String) throws -> [AssistantLink] {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT m.id, m.date, m.linkPreview, m.senderId
+            FROM message m
+            WHERE m.conversationId = ?
+                AND m.contentType = 'linkPreview'
+                AND EXISTS (
+                    SELECT 1
+                    FROM memberProfile mp
+                    WHERE mp.conversationId = m.conversationId
+                        AND mp.inboxId = m.senderId
+                        AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
+                )
+            ORDER BY m.date DESC
+            """,
+            arguments: [conversationId]
+        )
+
+        return rows.compactMap { row -> AssistantLink? in
+            guard let id: String = row["id"],
+                  let date: Date = row["date"],
+                  let senderInboxId: String = row["senderId"],
+                  let linkPreviewJson: String = row["linkPreview"],
+                  let data = linkPreviewJson.data(using: .utf8),
+                  let preview = try? JSONDecoder().decode(LinkPreview.self, from: data)
+            else { return nil }
+            return AssistantLink(
+                id: id,
+                senderInboxId: senderInboxId,
+                url: preview.url,
+                title: preview.title,
+                siteName: preview.siteName,
+                imageURL: preview.imageURL,
+                date: date
+            )
         }
     }
 

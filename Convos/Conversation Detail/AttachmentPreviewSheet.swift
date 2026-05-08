@@ -247,7 +247,7 @@ private struct AttachmentHTMLContent: UIViewRepresentable {
                   ["http", "https", "mailto"].contains(scheme) else {
                 return .cancel
             }
-            await UIApplication.shared.open(url)
+            InAppBrowser.open(url)
             return .cancel
         }
 
@@ -473,7 +473,7 @@ private struct MarkdownWebView: UIViewRepresentable {
                   ["http", "https", "mailto"].contains(scheme) else {
                 return .cancel
             }
-            await UIApplication.shared.open(url)
+            InAppBrowser.open(url)
             return .cancel
         }
     }

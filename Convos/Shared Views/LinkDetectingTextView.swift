@@ -89,7 +89,7 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
         ) -> UIAction? {
             guard case .link(let url) = textItem.content else { return defaultAction }
             return UIAction { _ in
-                UIApplication.shared.open(url)
+                InAppBrowser.open(url)
             }
         }
     }
