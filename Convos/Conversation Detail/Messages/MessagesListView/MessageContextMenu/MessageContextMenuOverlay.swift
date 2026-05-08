@@ -538,11 +538,7 @@ struct MessageContextMenuOverlay: View {
 
                 if let attachment = photoAttachment {
                     let saveAction = {
-                        if attachment.mediaType == .video {
-                            saveVideoToPhotoLibrary(key: attachment.key)
-                        } else {
-                            saveAttachmentToPhotoLibrary(key: attachment.key)
-                        }
+                        saveAttachment(attachment)
                         dismissMenu()
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
@@ -776,6 +772,17 @@ private func recoverInlineAttachmentData(fromPath path: String) async throws -> 
     }
     let messageId = String(filename[filename.startIndex..<underscoreIndex])
     return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+}
+
+private func saveAttachment(_ attachment: HydratedAttachment) {
+    switch attachment.mediaType {
+    case .image:
+        saveAttachmentToPhotoLibrary(key: attachment.key)
+    case .video:
+        saveVideoToPhotoLibrary(key: attachment.key)
+    case .file, .audio, .unknown:
+        saveFileToFiles(key: attachment.key, filename: attachment.filename)
+    }
 }
 
 private func saveAttachmentToPhotoLibrary(key: String) {
