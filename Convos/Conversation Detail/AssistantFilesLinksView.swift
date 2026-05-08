@@ -494,6 +494,7 @@ private struct StuffSearchBar: View {
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .accessibilityLabel("Filter")
+        .accessibilityValue(filter.rawValue)
         .accessibilityIdentifier("stuff-filter-button")
     }
 }
