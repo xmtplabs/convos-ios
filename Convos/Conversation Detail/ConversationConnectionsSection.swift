@@ -116,7 +116,7 @@ final class ConversationConnectionsViewModel {
             // `.read` here silently dropped the revoke event when the user revoked
             // a write-only kind.
             let anyWasEnabled = await isAnyCapabilityEnabled(kind: kind, agents: agents)
-            await forEachAgent(agents: agents, label: "set enablement \(kind.rawValue)") { agent in
+            let written = await forEachAgent(agents: agents, label: "set enablement \(kind.rawValue)") { agent in
                 for capability in ConnectionCapability.allCases {
                     await enablementStore.setEnabled(
                         newValue,
@@ -127,11 +127,11 @@ final class ConversationConnectionsViewModel {
                     )
                 }
             }
-            if newValue != anyWasEnabled {
+            if newValue != anyWasEnabled, !written.isEmpty {
                 await postRepresentativeEvent(
                     granted: newValue,
                     providerId: "device.\(kind.rawValue)",
-                    representative: agents.first
+                    representative: written.first
                 )
             }
             await MainActor.run {
@@ -152,7 +152,7 @@ final class ConversationConnectionsViewModel {
                 try await grantWriter.grantConnection(connectionId, to: conversationId, grantedToInboxId: agent)
             }
             if !written.isEmpty {
-                await postRepresentativeEvent(granted: true, providerId: providerId.rawValue, representative: agents.first)
+                await postRepresentativeEvent(granted: true, providerId: providerId.rawValue, representative: written.first)
             }
         }
     }
@@ -211,7 +211,7 @@ final class ConversationConnectionsViewModel {
                     await postRepresentativeEvent(
                         granted: true,
                         providerId: providerId.rawValue,
-                        representative: agents.first
+                        representative: written.first
                     )
                 }
             } catch let oauthError as OAuthError {
