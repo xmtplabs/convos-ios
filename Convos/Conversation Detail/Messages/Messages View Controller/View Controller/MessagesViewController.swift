@@ -16,10 +16,6 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
     }
 }
 
-/// Captures horizontal swipes on the collection view to prevent
-/// NavigationSplitView's back gesture from triggering mid-screen.
-private class HorizontalBlockerPanGestureRecognizer: UIPanGestureRecognizer {}
-
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
@@ -395,7 +391,6 @@ final class MessagesViewController: UIViewController {
         }
 
         setupImmediateTouchGesture()
-        setupHorizontalBlockerGesture()
     }
 
     private func setupImmediateTouchGesture() {
@@ -405,12 +400,6 @@ final class MessagesViewController: UIViewController {
         gesture.delaysTouchesEnded = false
         gesture.delegate = self
         collectionView.addGestureRecognizer(gesture)
-    }
-
-    private func setupHorizontalBlockerGesture() {
-        let blocker = HorizontalBlockerPanGestureRecognizer(target: self, action: nil)
-        blocker.delegate = self
-        collectionView.addGestureRecognizer(blocker)
     }
 
     @objc private func handleImmediateTouch(_ gesture: UIGestureRecognizer) {
@@ -949,15 +938,6 @@ extension MessagesViewController {
 // MARK: - UIGestureRecognizerDelegate
 
 extension MessagesViewController: UIGestureRecognizerDelegate {
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? HorizontalBlockerPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: view)
-        let location = pan.location(in: view)
-        let isHorizontal = abs(velocity.x) > abs(velocity.y)
-        let isAwayFromEdge = location.x > 30
-        return isHorizontal && isAwayFromEdge
-    }
-
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

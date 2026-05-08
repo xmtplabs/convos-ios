@@ -116,10 +116,16 @@ struct AssistantFilesLinksView: View {
     @State private var viewModel: AssistantFilesLinksViewModel
     @State private var presentingPreview: AttachmentPreviewPresentation?
     private let members: [ConversationMember]
+    private let usesInlineHeader: Bool
 
-    init(repository: AssistantFilesLinksRepository, members: [ConversationMember]) {
+    init(
+        repository: AssistantFilesLinksRepository,
+        members: [ConversationMember],
+        usesInlineHeader: Bool = false
+    ) {
         _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
         self.members = members
+        self.usesInlineHeader = usesInlineHeader
     }
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
@@ -127,11 +133,10 @@ struct AssistantFilesLinksView: View {
     }
 
     var body: some View {
-        content
+        bodyContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
-            .navigationTitle("Stuff")
-            .toolbarTitleDisplayMode(.large)
+            .applyTitle(usesInlineHeader: usesInlineHeader)
             .safeAreaBar(edge: .bottom) {
                 StuffSearchBar(
                     searchText: $viewModel.searchText,
@@ -160,6 +165,23 @@ struct AssistantFilesLinksView: View {
             } message: {
                 Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
             }
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        if usesInlineHeader {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Stuff")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.colorTextPrimary)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step2x)
+                    .padding(.bottom, DesignConstants.Spacing.step3x)
+                content
+            }
+        } else {
+            content
+        }
     }
 
     @ViewBuilder
@@ -468,6 +490,19 @@ private struct StuffRowContent<Thumbnail: View>: View {
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .contentShape(Rectangle())
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func applyTitle(usesInlineHeader: Bool) -> some View {
+        if usesInlineHeader {
+            self
+        } else {
+            self
+                .navigationTitle("Stuff")
+                .toolbarTitleDisplayMode(.large)
+        }
     }
 }
 

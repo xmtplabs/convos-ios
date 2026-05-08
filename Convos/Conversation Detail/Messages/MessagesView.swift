@@ -79,6 +79,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
+    var extraBottomInset: CGFloat = 0.0
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -119,7 +120,7 @@ struct MessagesView<BottomBarContent: View>: View {
             hasAssistant: hasAssistant,
             isAssistantJoinPending: isAssistantJoinPending,
             isAssistantEnabled: isAssistantEnabled,
-            bottomBarHeight: bottomBarHeight,
+            bottomBarHeight: bottomBarHeight + extraBottomInset,
             onBottomOverscrollChanged: onBottomOverscrollChanged,
             onBottomOverscrollReleased: onBottomOverscrollReleased,
             scrollToBottomTrigger: { scrollFn in
