@@ -90,7 +90,8 @@ struct ReplyReferenceView: View {
                     ProfileAvatarView(
                         profile: parentMessage.sender.profile,
                         profileImage: nil,
-                        useSystemPlaceholder: false
+                        useSystemPlaceholder: false,
+                        agentVerification: parentMessage.sender.agentVerification
                     )
                     .frame(width: 16.0, height: 16.0)
                 }

@@ -8,7 +8,7 @@ import WebKit
 struct AttachmentPreviewSheet: View {
     let attachment: HydratedAttachment
     let fileURL: URL
-    let sender: ConversationMember
+    var sender: ConversationMember?
     let sentAt: Date
     var profileSheetContent: ((ConversationMember) -> AnyView)?
 
@@ -33,15 +33,17 @@ struct AttachmentPreviewSheet: View {
                         .accessibilityLabel("Close")
                         .accessibilityIdentifier("attachment-preview-close")
                     }
-                    ToolbarItem(placement: .principal) {
-                        let tap: ((ConversationMember) -> Void)? = profileSheetContent == nil
-                            ? nil
-                            : { tapped in presentingProfileForMember = tapped }
-                        AttachmentSenderIndicator(
-                            sender: sender,
-                            sentAt: sentAt,
-                            onTap: tap
-                        )
+                    if let sender {
+                        ToolbarItem(placement: .principal) {
+                            let tap: ((ConversationMember) -> Void)? = profileSheetContent == nil
+                                ? nil
+                                : { tapped in presentingProfileForMember = tapped }
+                            AttachmentSenderIndicator(
+                                sender: sender,
+                                sentAt: sentAt,
+                                onTap: tap
+                            )
+                        }
                     }
                     if showsShareButton {
                         ToolbarItem(placement: .confirmationAction) {
@@ -115,7 +117,8 @@ private struct AttachmentSenderIndicator: View {
                 ProfileAvatarView(
                     profile: sender.profile,
                     profileImage: nil,
-                    useSystemPlaceholder: false
+                    useSystemPlaceholder: false,
+                    agentVerification: sender.agentVerification
                 )
                 .frame(width: 36.0, height: 36.0)
 
@@ -480,8 +483,7 @@ private struct AttachmentQuickLookContent: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UINavigationController {
         let preview = QLPreviewController()
         preview.dataSource = context.coordinator
-        let nav = UINavigationController(rootViewController: preview)
-        nav.isNavigationBarHidden = true
+        let nav = HiddenBarNavigationController(rootViewController: preview)
         nav.setToolbarHidden(true, animated: false)
         return nav
     }
@@ -512,5 +514,16 @@ private struct AttachmentQuickLookContent: UIViewControllerRepresentable {
         ) -> any QLPreviewItem {
             fileURL as NSURL
         }
+    }
+}
+
+private final class HiddenBarNavigationController: UINavigationController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        super.setNavigationBarHidden(true, animated: false)
+    }
+
+    override func setNavigationBarHidden(_ hidden: Bool, animated: Bool) {
+        super.setNavigationBarHidden(true, animated: false)
     }
 }

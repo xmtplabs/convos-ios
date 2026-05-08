@@ -249,6 +249,22 @@ struct MessageContextMenuOverlay: View {
     }
 
     @ViewBuilder
+    private func reactionsBarMask(readerHeight: CGFloat) -> some View {
+        let gradientWidth: CGFloat = readerHeight * 0.3
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: gradientWidth)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
     private func reactionsBarContent(messageId: String, width: CGFloat, height: CGFloat) -> some View {
         GeometryReader { reader in
             let readerHeight = max(reader.size.height - C.padding * 2, 0)
@@ -264,18 +280,7 @@ struct MessageContextMenuOverlay: View {
                 .frame(height: reader.size.height)
                 .scrollBounceBehavior(.basedOnSize)
                 .contentMargins(.trailing, readerHeight, for: .scrollContent)
-                .mask(
-                    HStack(spacing: 0) {
-                        Rectangle().fill(.black)
-                        LinearGradient(
-                            colors: [.black, .black.opacity(0)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: readerHeight * 0.3)
-                        Rectangle().fill(.clear)
-                            .frame(width: readerHeight)
-                    }
-                )
+                .mask(reactionsBarMask(readerHeight: readerHeight))
 
                 HStack(spacing: 0) {
                     Spacer()
@@ -676,6 +681,7 @@ struct MessageContextMenuOverlay: View {
                 attachment: attachment,
                 profile: profile,
                 reactions: [],
+                agentVerification: message?.sender.agentVerification ?? .unverified,
                 cornerRadiusOverride: radius
             )
         } else if attachment.mediaType == .file {

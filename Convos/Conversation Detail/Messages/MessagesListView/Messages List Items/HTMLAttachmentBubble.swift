@@ -7,6 +7,7 @@ struct HTMLAttachmentBubble: View {
     let attachment: HydratedAttachment
     let profile: Profile
     let reactions: [MessageReaction]
+    var agentVerification: AgentVerification = .unverified
     var onTapAvatar: (() -> Void)?
     var onTapReactions: (() -> Void)?
     var cornerRadiusOverride: CGFloat?
@@ -70,7 +71,8 @@ struct HTMLAttachmentBubble: View {
                 ProfileAvatarView(
                     profile: profile,
                     profileImage: nil,
-                    useSystemPlaceholder: false
+                    useSystemPlaceholder: false,
+                    agentVerification: agentVerification
                 )
                 .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
                 Text(profile.displayName)

@@ -16,6 +16,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
     let onPhotoRevealed: (String) -> Void
@@ -69,6 +70,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onReaction = onReaction
         messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions
+        messagesViewController.onTapReadReceipts = onTapReadReceipts
         messagesViewController.onReply = onReply
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
         messagesViewController.onPhotoRevealed = { key in
@@ -141,6 +143,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onReaction: { _, _ in },
         onToggleReaction: { _, _ in },
         onTapReactions: { _ in },
+        onTapReadReceipts: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
         onPhotoRevealed: { _ in },

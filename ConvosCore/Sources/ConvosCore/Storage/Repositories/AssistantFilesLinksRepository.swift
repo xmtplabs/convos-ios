@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 public struct AssistantFile: Sendable, Hashable, Identifiable {
     public let id: String
+    public let senderInboxId: String
     public let filename: String?
     public let mimeType: String?
     public let date: Date
@@ -21,6 +22,7 @@ public struct AssistantFile: Sendable, Hashable, Identifiable {
 
 public struct AssistantLink: Sendable, Hashable, Identifiable {
     public let id: String
+    public let senderInboxId: String
     public let url: String
     public let title: String?
     public let siteName: String?
@@ -56,7 +58,7 @@ public final class AssistantFilesLinksRepository: Sendable {
     public func fetchFiles() async throws -> [AssistantFile] {
         try await dbReader.read { [conversationId] db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT m.id, m.date, m.attachmentUrls
+                SELECT m.id, m.date, m.attachmentUrls, m.senderId
                 FROM message m
                 WHERE m.conversationId = ?
                     AND m.contentType = 'attachments'
@@ -75,6 +77,7 @@ public final class AssistantFilesLinksRepository: Sendable {
             return rows.compactMap { row -> AssistantFile? in
                 guard let id: String = row["id"],
                       let date: Date = row["date"],
+                      let senderInboxId: String = row["senderId"],
                       let attachmentUrlsJson: String = row["attachmentUrls"],
                       let keys = try? JSONDecoder().decode([String].self, from: Data(attachmentUrlsJson.utf8)),
                       let firstKey = keys.first
@@ -83,6 +86,7 @@ public final class AssistantFilesLinksRepository: Sendable {
                 let parsed = Self.parseAttachmentKey(firstKey)
                 return AssistantFile(
                     id: id,
+                    senderInboxId: senderInboxId,
                     filename: parsed.filename,
                     mimeType: parsed.mimeType,
                     date: date,
@@ -96,7 +100,7 @@ public final class AssistantFilesLinksRepository: Sendable {
     public func fetchLinks() async throws -> [AssistantLink] {
         try await dbReader.read { [conversationId] db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT m.id, m.date, m.linkPreview
+                SELECT m.id, m.date, m.linkPreview, m.senderId
                 FROM message m
                 WHERE m.conversationId = ?
                     AND m.contentType = 'linkPreview'
@@ -115,12 +119,14 @@ public final class AssistantFilesLinksRepository: Sendable {
             return rows.compactMap { row -> AssistantLink? in
                 guard let id: String = row["id"],
                       let date: Date = row["date"],
+                      let senderInboxId: String = row["senderId"],
                       let linkPreviewJson: String = row["linkPreview"],
                       let data = linkPreviewJson.data(using: .utf8),
                       let preview = try? JSONDecoder().decode(LinkPreview.self, from: data)
                 else { return nil }
                 return AssistantLink(
                     id: id,
+                    senderInboxId: senderInboxId,
                     url: preview.url,
                     title: preview.title,
                     siteName: preview.siteName,
