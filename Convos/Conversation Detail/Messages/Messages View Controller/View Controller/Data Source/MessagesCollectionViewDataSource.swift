@@ -18,6 +18,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
@@ -27,7 +28,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var onTapUpdateMember: ((ConversationMember) -> Void)?
-    var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAssistantJoin: (() -> Void)?
@@ -89,6 +90,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
             },
+            onTapReadReceipts: { [weak self] group in
+                self?.onTapReadReceipts?(group)
+            },
             onReaction: { [weak self] emoji, messageId in
                 self?.onReaction?(emoji, messageId)
             },
@@ -119,8 +123,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapUpdateMember: { [weak self] member in
                 self?.onTapUpdateMember?(member)
             },
-            onOpenFile: { [weak self] attachment in
-                self?.onOpenFile?(attachment)
+            onOpenFile: { [weak self] attachment, message in
+                self?.onOpenFile?(attachment, message)
             },
             onRetryMessage: { [weak self] message in
                 self?.onRetryMessage?(message)

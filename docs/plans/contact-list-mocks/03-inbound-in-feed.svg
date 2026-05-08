@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 693" width="320" height="693" role="img" aria-label="Inbound chats inline in main feed">
+<title>Inbound chats inline in main feed</title>
+
+  <rect x="1.5" y="1.5" width="317" height="690" rx="34" ry="34" fill="#000" stroke="#2a2a2a" stroke-width="3"/>
+  <rect x="122" y="6" width="76" height="18" rx="9" ry="9" fill="#000"/>
+
+
+  <text x="20" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#fff" text-anchor="start">4:35</text>
+  <text x="270" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#fff" text-anchor="start">SOS</text>
+  <rect x="288" y="14" width="14" height="9" rx="2" fill="none" stroke="#fff" stroke-width="0.8"/>
+  <rect x="290" y="16" width="6" height="5" fill="#fff"/>
+  <circle cx="284" cy="19" r="1" fill="#fff"/>
+  <path d="M 278 21 a 4 4 0 0 1 8 0" fill="none" stroke="#fff" stroke-width="0.8"/>
+
+
+  <rect x="14" y="36" width="92" height="32" rx="16" fill="#1c1c1e"/>
+  <circle cx="28" cy="52" r="6" fill="#fff"/>
+  <text x="42" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="400" fill="#fff" text-anchor="start">Convos</text>
+  <rect x="270" y="36" width="36" height="32" rx="16" fill="#1c1c1e"/>
+  <text x="288" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="16" font-weight="400" fill="#fff" text-anchor="middle">≡</text>
+
+<rect x="8" y="86" width="304" height="56" rx="14" fill="#0e0c06"/>
+
+  <circle cx="34" cy="114" r="17" fill="#2d4a2a"/>
+  <ellipse cx="34" cy="113" rx="9.350000000000001" ry="11.899999999999999" fill="#5a8a4a"/>
+  <circle cx="36" cy="110" r="1.6" fill="#1a2a1a"/>
+  <path d="M 42.5 113 l 7.65 2 l -7.65 2 z" fill="#d8a838"/>
+
+<circle cx="60" cy="106" r="3" fill="#f0c060"/>
+<text x="70" y="109" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">New Convo</text>
+<rect x="140" y="99" width="84" height="14" rx="7" fill="#1f180a"/>
+<text x="182" y="109" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#f0c060" text-anchor="middle">Saul added you</text>
+<text x="60" y="125" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">5h · "hey, jumping you in here"</text>
+
+    
+    
+  <circle cx="34" cy="176" r="17" fill="#5a3a2a"/>
+  <text x="34" y="180.33333333333334" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">CP</text>
+
+    <text x="60" y="172" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Cam's phones</text>
+    <text x="60" y="188" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">32s · "Done — I'm Meal Planne…</text>
+    
+  
+
+    
+    
+  <circle cx="34" cy="218" r="17" fill="#5a3a2a"/>
+  <text x="34" y="222.33333333333334" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">DC</text>
+
+    <text x="60" y="214" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">The Dev Convosation</text>
+    <text x="60" y="230" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">7m · "Quarter heart'd a message"</text>
+    <circle cx="296" cy="214" r="4" fill="#fff"/>
+  
+
+    
+    
+  <circle cx="34" cy="260" r="17" fill="#2d4a2a"/>
+  <ellipse cx="34" cy="259" rx="9.350000000000001" ry="11.899999999999999" fill="#5a8a4a"/>
+  <circle cx="36" cy="256" r="1.6" fill="#1a2a1a"/>
+  <path d="M 42.5 259 l 7.65 2 l -7.65 2 z" fill="#d8a838"/>
+
+    <text x="60" y="256" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">New Convo</text>
+    <text x="60" y="272" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">5h</text>
+    
+  
+
+    
+    
+  <circle cx="34" cy="302" r="17" fill="#2c2c2e"/>
+  <text x="34" y="306.3333333333333" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">T</text>
+
+    <text x="60" y="298" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Team weekend updates!</text>
+    <text x="60" y="314" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">5h · "You: Test"</text>
+    
+  
+
+    
+    
+  <circle cx="34" cy="344" r="17" fill="#2c2c2e"/>
+  <text x="34" y="348.3333333333333" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">S</text>
+
+    <text x="60" y="340" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Dev Convosation</text>
+    <text x="60" y="356" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">3d · "Verifying"</text>
+    
+  
+
+    
+    
+  <circle cx="34" cy="386" r="17" fill="#2c2c2e"/>
+  <text x="34" y="390.3333333333333" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">G</text>
+
+    <text x="60" y="382" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Gerald</text>
+    <text x="60" y="398" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">4d · "Email provisioning isn'…</text>
+    
+  
+</svg>

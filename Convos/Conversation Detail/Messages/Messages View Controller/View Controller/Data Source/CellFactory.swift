@@ -8,6 +8,7 @@ struct CellConfig {
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
@@ -18,7 +19,7 @@ struct CellConfig {
     let onRetryAssistantJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
-    let onOpenFile: ((HydratedAttachment) -> Void)?
+    let onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onCopyInviteLink: () -> Void

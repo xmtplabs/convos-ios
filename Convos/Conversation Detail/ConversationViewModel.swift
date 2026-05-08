@@ -424,6 +424,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
+    var presentingReadByForGroup: MessagesGroup?
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
@@ -2491,6 +2492,10 @@ extension ConversationViewModel {
 
     func onTapReactions(_ message: AnyMessage) {
         presentingReactionsForMessage = message
+    }
+
+    func onTapReadReceipts(_ group: MessagesGroup) {
+        presentingReadByForGroup = group
     }
 
     func onToggleReaction(emoji: String, messageId: String) {

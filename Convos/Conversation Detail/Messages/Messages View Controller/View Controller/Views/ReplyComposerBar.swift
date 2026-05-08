@@ -8,6 +8,8 @@ struct ReplyComposerBar: View {
     var audioTranscriptText: String?
     let onDismiss: () -> Void
 
+    @State private var resolvedHTMLTitle: String?
+
     private var senderName: String {
         message.sender.profile.displayName
     }
@@ -33,6 +35,11 @@ struct ReplyComposerBar: View {
         default:
             return ""
         }
+    }
+
+    private var htmlAttachment: HydratedAttachment? {
+        guard let attachment, attachment.isHTMLFile else { return nil }
+        return attachment
     }
 
     private var attachment: HydratedAttachment? {
@@ -67,6 +74,9 @@ struct ReplyComposerBar: View {
     }
 
     private func replyLabel(for attachment: HydratedAttachment) -> String {
+        if attachment.isHTMLFile, let title = resolvedHTMLTitle, !title.isEmpty {
+            return title
+        }
         if attachment.mediaType == .file, let filename = attachment.filename {
             return filename
         }
@@ -84,6 +94,8 @@ struct ReplyComposerBar: View {
                     .frame(width: 32, height: 32)
                     .background(Color.colorFillSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else if let htmlAttachment {
+                ReplyHTMLThumbnail(attachment: htmlAttachment)
             } else if let attachment {
                 ReplyPhotoThumbnail(
                     attachmentKey: attachment.key,
@@ -132,6 +144,70 @@ struct ReplyComposerBar: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Replying to \(senderName): \(previewText)")
         .accessibilityIdentifier("reply-composer-bar")
+        .task(id: htmlAttachment?.key) {
+            await loadHTMLTitle()
+        }
+    }
+
+    private func loadHTMLTitle() async {
+        guard let attachment = htmlAttachment else {
+            resolvedHTMLTitle = nil
+            return
+        }
+        if let cached = HTMLPageMetadata.shared.cachedTitle(for: attachment.key) {
+            resolvedHTMLTitle = cached
+            return
+        }
+        resolvedHTMLTitle = nil
+        do {
+            let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+            resolvedHTMLTitle = await HTMLPageMetadata.shared.title(for: attachment.key, fileURL: fileURL)
+        } catch {
+            Log.error("Failed to load HTML page title for reply composer: \(error)")
+            resolvedHTMLTitle = nil
+        }
+    }
+}
+
+private struct ReplyHTMLThumbnail: View {
+    let attachment: HydratedAttachment
+
+    @State private var loadedImage: UIImage?
+
+    private static let thumbnailSize: CGFloat = 40.0
+
+    init(attachment: HydratedAttachment) {
+        self.attachment = attachment
+        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key))
+    }
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 8.0))
+            } else {
+                RoundedRectangle(cornerRadius: 8.0)
+                    .fill(.quaternary)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+            }
+        }
+        .task(id: attachment.key) {
+            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key)
+            guard loadedImage == nil else { return }
+            do {
+                let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+                loadedImage = await HTMLThumbnailRenderer.shared.thumbnail(
+                    for: attachment.key,
+                    fileURL: fileURL
+                )
+            } catch {
+                Log.error("Failed to load HTML reply composer thumbnail: \(error)")
+            }
+        }
     }
 }
 

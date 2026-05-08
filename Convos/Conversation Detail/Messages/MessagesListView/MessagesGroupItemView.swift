@@ -15,7 +15,7 @@ struct MessagesGroupItemView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
-    var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
     let onToggleReaction: (String, String) -> Void
@@ -57,6 +57,7 @@ struct MessagesGroupItemView: View {
                     shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
+                    onOpenFile: onOpenFile,
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden,
                     parentAudioTranscriptText: parentAudioTranscriptText
@@ -265,8 +266,28 @@ struct MessagesGroupItemView: View {
                 onToggleReaction: onToggleReaction
             )
             .id(message.messageId)
+        } else if attachment.isHTMLFile {
+            let htmlTapAction: () -> Void = { onOpenFile?(attachment, message) }
+            let avatarTap: () -> Void = { onTapAvatar(message) }
+            let reactionsTap: () -> Void = { onTapReactions?(message) }
+            HTMLAttachmentBubble(
+                attachment: attachment,
+                profile: message.sender.profile,
+                reactions: message.reactions,
+                agentVerification: message.sender.agentVerification,
+                onTapAvatar: avatarTap,
+                onTapReactions: reactionsTap
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: htmlTapAction,
+                onReply: onReply,
+                onToggleReaction: onToggleReaction
+            )
+            .id(message.messageId)
         } else if attachment.mediaType == .file {
-            let fileTapAction: () -> Void = { onOpenFile?(attachment) }
+            let fileTapAction: () -> Void = { onOpenFile?(attachment, message) }
             FileAttachmentBubble(
                 attachment: attachment,
                 style: bubbleType,
@@ -1092,7 +1113,7 @@ private struct MediaContainerInfo: View {
     }
 }
 
-private struct MediaContainerReax: View {
+struct MediaContainerReax: View {
     let reactions: [MessageReaction]
     let onTap: () -> Void
 

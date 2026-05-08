@@ -10,6 +10,7 @@ struct MessagesListView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    let onTapReadReceipts: (MessagesGroup) -> Void
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
@@ -179,6 +180,7 @@ var body: some View {
             onTapAvatar: onTapAvatar,
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
+            onTapReadReceipts: onTapReadReceipts,
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onReply: onReply,

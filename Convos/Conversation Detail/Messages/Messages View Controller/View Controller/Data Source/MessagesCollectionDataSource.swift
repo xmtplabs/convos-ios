@@ -8,6 +8,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onTapInvite: ((MessageInvite) -> Void)? { get set }
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
+    var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }
     var onReaction: ((String, String) -> Void)? { get set }
     var onToggleReaction: ((String, String) -> Void)? { get set }
     var onReply: ((AnyMessage) -> Void)? { get set }
@@ -19,7 +20,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
     var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
-    var onOpenFile: ((HydratedAttachment) -> Void)? { get set }
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
     var onRetryAssistantJoin: (() -> Void)? { get set }

@@ -9,13 +9,14 @@ struct MessagesGroupView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
+    var onTapReadReceipts: ((MessagesGroup) -> Void)?
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
-    var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
@@ -293,9 +294,17 @@ struct MessagesGroupView: View {
                     )
                     .frame(width: 16, height: 16)
                 } else if !group.readByMembers.isEmpty {
-                    Text("Read")
-                        .font(.caption)
-                    ReadReceiptAvatarsView(members: group.readByMembers)
+                    let readReceiptTap: () -> Void = { onTapReadReceipts?(group) }
+                    Button(action: readReceiptTap) {
+                        HStack(spacing: DesignConstants.Spacing.stepX) {
+                            Text("Read")
+                                .font(.caption)
+                            ReadReceiptAvatarsView(members: group.readByMembers)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Tap to see who read this message")
                 } else {
                     Text("Sent")
                         .font(.caption)

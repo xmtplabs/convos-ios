@@ -249,6 +249,22 @@ struct MessageContextMenuOverlay: View {
     }
 
     @ViewBuilder
+    private func reactionsBarMask(readerHeight: CGFloat) -> some View {
+        let gradientWidth: CGFloat = readerHeight * 0.3
+        HStack(spacing: 0) {
+            Rectangle().fill(.black)
+            LinearGradient(
+                colors: [.black, .black.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: gradientWidth)
+            Rectangle().fill(.clear)
+                .frame(width: readerHeight)
+        }
+    }
+
+    @ViewBuilder
     private func reactionsBarContent(messageId: String, width: CGFloat, height: CGFloat) -> some View {
         GeometryReader { reader in
             let readerHeight = max(reader.size.height - C.padding * 2, 0)
@@ -685,6 +701,17 @@ struct MessageContextMenuOverlay: View {
                     isLoading: false
                 )
             }
+        } else if attachment.isHTMLFile {
+            let radius: CGFloat = state.isReplyParent
+                ? DesignConstants.CornerRadius.regular
+                : (appeared ? C.photoCornerRadius : 0)
+            HTMLAttachmentBubble(
+                attachment: attachment,
+                profile: profile,
+                reactions: [],
+                agentVerification: message?.sender.agentVerification ?? .unverified,
+                cornerRadiusOverride: radius
+            )
         } else if attachment.mediaType == .file {
             FileAttachmentBubble(
                 attachment: attachment,
