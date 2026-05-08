@@ -1011,6 +1011,27 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             // and deny — so we keep going on a resolver-side error and let the agent
             // see the user's intent. Local persistence failure is logged and surfaced
             // separately if it ever needs UI surfacing; it must not strand the agent.
+            //
+            // Snapshot the resolver's current providerIds for this (subject, verb,
+            // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
+            // is what the cloud persist path uses to decide whether to fire a
+            // connection_event — fan-in semantics are per-(provider, verb), so a
+            // second verb approval on a provider already granted at the connection
+            // level still needs its own group-update line.
+            let askerInboxId = request.askerInboxId
+            let previouslyApproved: Set<ProviderID>
+            if status == .approved {
+                previouslyApproved = await resolver.resolution(
+                    subject: request.subject,
+                    capability: request.capability,
+                    conversationId: conversationId,
+                    grantedToInboxId: askerInboxId
+                )
+            } else {
+                previouslyApproved = []
+            }
+            let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
+
             do {
                 switch status {
                 case .approved:
@@ -1018,13 +1039,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                         providerIds,
                         subject: request.subject,
                         capability: request.capability,
-                        conversationId: conversationId
+                        conversationId: conversationId,
+                        grantedToInboxId: askerInboxId
                     )
                 case .denied, .cancelled:
                     try await resolver.clearResolution(
                         subject: request.subject,
                         capability: request.capability,
-                        conversationId: conversationId
+                        conversationId: conversationId,
+                        grantedToInboxId: askerInboxId
                     )
                 }
             } catch {
@@ -1049,11 +1072,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     providerIds: sortedIds,
                     capability: request.capability,
                     conversationId: conversationId,
+                    grantedToInboxId: askerInboxId,
                     session: session
                 )
                 await Self.persistApprovedCloudCapabilities(
                     providerIds: sortedIds,
+                    newlyApprovedProviderIds: newlyApprovedProviderIds,
+                    capability: request.capability,
                     conversationId: conversationId,
+                    grantedToInboxId: askerInboxId,
                     session: session
                 )
             }
@@ -1128,19 +1155,33 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         providerIds: [ProviderID],
         capability: ConnectionCapability,
         conversationId: String,
+        grantedToInboxId: String,
         session: any SessionManagerProtocol
     ) async {
         let store = session.connectionEnablementStore()
         let eventWriter = session.messagingService().connectionEventWriter()
         for providerId in providerIds {
             guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else { continue }
-            let wasEnabled = await store.isEnabled(kind: kind, capability: capability, conversationId: conversationId)
-            await store.setEnabled(true, kind: kind, capability: capability, conversationId: conversationId)
-            if capability == .read, !wasEnabled {
-                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
-            }
-            if capability.isWrite, !wasEnabled {
-                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
+            let wasEnabled = await store.isEnabled(
+                kind: kind,
+                capability: capability,
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
+            )
+            await store.setEnabled(
+                true,
+                kind: kind,
+                capability: capability,
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
+            )
+            if !wasEnabled {
+                try? await eventWriter.sendGranted(
+                    providerId: providerId.rawValue,
+                    capability: capability,
+                    grantedToInboxId: grantedToInboxId,
+                    in: conversationId
+                )
             }
         }
     }
@@ -1153,7 +1194,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// races against that path; if we miss it the next sync corrects state.
     private static func persistApprovedCloudCapabilities(
         providerIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
+        capability: ConnectionCapability,
         conversationId: String,
+        grantedToInboxId: String,
         session: any SessionManagerProtocol
     ) async {
         let messagingService = session.messagingService()
@@ -1162,19 +1206,46 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         let repository = session.cloudConnectionRepository()
         let activeConnections = (try? await repository.connections()) ?? []
         let existingGrants = (try? await repository.grants(for: conversationId)) ?? []
-        let existingGrantedConnectionIds = Set(existingGrants.map(\.connectionId))
+        let existingGrantedKeys = Set(existingGrants.map { GrantKey(connectionId: $0.connectionId, grantedToInboxId: $0.grantedToInboxId) })
 
         for providerId in providerIds {
             guard let serviceId = providerId.cloudServiceId else { continue }
             guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else { continue }
-            guard !existingGrantedConnectionIds.contains(connection.id) else { continue }
-            do {
-                try await grantWriter.grantConnection(connection.id, to: conversationId)
-                try? await eventWriter.sendGranted(providerId: providerId.rawValue, in: conversationId)
-            } catch {
-                Log.error("Failed to persist cloud grant for \(providerId.rawValue): \(error.localizedDescription)")
+
+            // The grant row is per-(connection, conversation, agent). Two agents
+            // approved for the same connection get two rows; the same agent re-
+            // approving the same connection is a no-op for the grant write but
+            // still needs its own connection_event.
+            let grantKey = GrantKey(connectionId: connection.id, grantedToInboxId: grantedToInboxId)
+            if !existingGrantedKeys.contains(grantKey) {
+                do {
+                    try await grantWriter.grantConnection(
+                        connection.id,
+                        to: conversationId,
+                        grantedToInboxId: grantedToInboxId
+                    )
+                } catch {
+                    Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
+                    continue
+                }
             }
+
+            // Fan-in is per-(providerId, verb): if the resolver already had
+            // this providerId for this verb (re-approval after deny, picker
+            // shown twice), don't echo a duplicate group-update message.
+            guard newlyApprovedProviderIds.contains(providerId) else { continue }
+            try? await eventWriter.sendGranted(
+                providerId: providerId.rawValue,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId,
+                in: conversationId
+            )
         }
+    }
+
+    private struct GrantKey: Hashable {
+        let connectionId: String
+        let grantedToInboxId: String
     }
 
     private static func capabilityActionParameter(
@@ -2262,8 +2333,14 @@ extension ConversationViewModel {
         return value
     }
 
-    var verifiedAssistantName: String? {
-        conversation.members.first(where: \.isVerifiedAssistant)?.displayName
+    /// Resolved display name for the agent that emitted `request`, or nil if the agent
+    /// is not (or no longer) in the conversation. Used by the capability picker card to
+    /// label the asker. Connection-event summaries do their own name resolution at
+    /// processor time via `MemberProfileInfo`.
+    func askerDisplayName(for request: CapabilityRequest) -> String? {
+        conversation.members
+            .first(where: { $0.profile.inboxId == request.askerInboxId })?
+            .displayName
     }
 
     func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {
@@ -2271,13 +2348,22 @@ extension ConversationViewModel {
     }
 
     func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
-        ConversationConnectionsViewModel(
+        // Snapshot of agent inbox ids at view-model creation. Per-conversation toggles
+        // fan out one grant row per agent currently in the conversation; if membership
+        // changes mid-life of the view model, callers can recreate it (the view model is
+        // shaped per ConversationInfo presentation, so that already happens naturally).
+        let agentInboxIds = conversation.members
+            .filter { $0.isAgent }
+            .map { $0.profile.inboxId }
+        return ConversationConnectionsViewModel(
             conversationId: conversation.id,
+            agentInboxIds: agentInboxIds,
             cloudConnectionManager: session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme),
             cloudConnectionRepository: session.cloudConnectionRepository(),
             grantWriter: messagingService.connectionGrantWriter(),
             connectionEventWriter: messagingService.connectionEventWriter(),
-            enablementStore: session.connectionEnablementStore()
+            enablementStore: session.connectionEnablementStore(),
+            capabilityResolver: session.capabilityResolver()
         )
     }
 

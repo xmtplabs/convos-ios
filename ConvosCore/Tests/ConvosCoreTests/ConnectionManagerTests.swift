@@ -1,3 +1,4 @@
+import ConvosConnections
 @testable import ConvosCore
 import Foundation
 import GRDB
@@ -25,6 +26,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -152,6 +154,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -171,6 +174,71 @@ struct ConnectionManagerTests {
             try DBCloudConnectionGrant.fetchCount(db)
         }
         #expect(grantCount == 1)
+    }
+
+    @Test("refreshConnections posts revoked event and clears resolver for orphaned connections")
+    func refreshOrphanedConnectionsClearsState() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+        let eventWriter = RecordingEventWriter()
+        let resolver = RecordingResolver()
+
+        let manager = makeManager(
+            fixtures: fixtures,
+            apiClient: apiClient,
+            grantWriter: grantWriter,
+            eventWriter: eventWriter,
+            resolver: resolver
+        )
+
+        let staleId = "conn-stale"
+        let keepId = "conn-keep"
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConversation(id: "convo-a").insert(db)
+            try makeDBConversation(id: "convo-b").insert(db)
+            try makeDBConnection(id: staleId, serviceId: "google_calendar").insert(db)
+            try makeDBConnection(id: keepId, serviceId: "google_calendar").insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: staleId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: staleId,
+                conversationId: "convo-b",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+            // Grant on a kept connection — must not trigger any revoke side-effects.
+            try DBCloudConnectionGrant(
+                connectionId: keepId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+        }
+
+        apiClient.stubbedConnections = [
+            makeConnectionResponse(connectionId: keepId, serviceId: "google_calendar")
+        ]
+
+        _ = try await manager.refreshConnections()
+
+        let revokedEvents = await eventWriter.revokedEvents()
+        #expect(revokedEvents.count == 2, "Each conversation that referenced the orphan must get a revoked event")
+        #expect(Set(revokedEvents.map(\.conversationId)) == ["convo-a", "convo-b"])
+        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.google_calendar" })
+        #expect(revokedEvents.allSatisfy { $0.capability == nil })
+
+        let cleared = await resolver.removedProviders()
+        #expect(cleared == [ProviderID(rawValue: "composio.google_calendar")],
+                "Resolver must be cleared exactly once per orphaned provider")
     }
 
     // MARK: - H7: disconnect() republishes metadata
@@ -195,12 +263,14 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             try DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: "convo-b",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
             // Unrelated grant for a different connection — must not trigger republish.
@@ -208,6 +278,7 @@ struct ConnectionManagerTests {
                 connectionId: "conn-other",
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -250,6 +321,129 @@ struct ConnectionManagerTests {
         #expect(connectionRow == nil)
     }
 
+    @Test("disconnect posts ConnectionEvent.revoked in every affected conversation")
+    func disconnectPostsRevokedEvent() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+        let eventWriter = RecordingEventWriter()
+        let resolver = RecordingResolver()
+
+        let manager = makeManager(
+            fixtures: fixtures,
+            apiClient: apiClient,
+            grantWriter: grantWriter,
+            eventWriter: eventWriter,
+            resolver: resolver
+        )
+
+        let connectionId = "conn-1"
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConversation(id: "convo-a").insert(db)
+            try makeDBConversation(id: "convo-b").insert(db)
+            try makeDBConnection(id: connectionId, serviceId: "google_calendar").insert(db)
+
+            try DBCloudConnectionGrant(
+                connectionId: connectionId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: connectionId,
+                conversationId: "convo-b",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+        }
+
+        try await manager.disconnect(connectionId: connectionId)
+
+        let revokedEvents = await eventWriter.revokedEvents()
+        #expect(revokedEvents.count == 2)
+        #expect(Set(revokedEvents.map(\.conversationId)) == ["convo-a", "convo-b"])
+        #expect(revokedEvents.allSatisfy { $0.providerId == "composio.google_calendar" })
+        // App-level disconnect spans every verb, so capability stays nil.
+        #expect(revokedEvents.allSatisfy { $0.capability == nil })
+    }
+
+    @Test("disconnect clears the provider from every CapabilityResolution")
+    func disconnectClearsResolutions() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+        let resolver = RecordingResolver()
+
+        let manager = makeManager(
+            fixtures: fixtures,
+            apiClient: apiClient,
+            grantWriter: grantWriter,
+            resolver: resolver
+        )
+
+        let connectionId = "conn-1"
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConversation(id: "convo-a").insert(db)
+            try makeDBConnection(id: connectionId, serviceId: "google_calendar").insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: connectionId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+        }
+
+        try await manager.disconnect(connectionId: connectionId)
+
+        let cleared = await resolver.removedProviders()
+        #expect(cleared == [ProviderID(rawValue: "composio.google_calendar")])
+    }
+
+    @Test("disconnect tolerates event writer and resolver failures")
+    func disconnectTolerantOfEventOrResolverFailure() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        let grantWriter = RecordingGrantWriter()
+        let eventWriter = RecordingEventWriter()
+        await eventWriter.setShouldThrow(true)
+        let resolver = RecordingResolver()
+        await resolver.setShouldThrow(true)
+
+        let manager = makeManager(
+            fixtures: fixtures,
+            apiClient: apiClient,
+            grantWriter: grantWriter,
+            eventWriter: eventWriter,
+            resolver: resolver
+        )
+
+        let connectionId = "conn-1"
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConversation(id: "convo-a").insert(db)
+            try makeDBConnection(id: connectionId, serviceId: "google_calendar").insert(db)
+            try DBCloudConnectionGrant(
+                connectionId: connectionId,
+                conversationId: "convo-a",
+                serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
+                grantedAt: Date()
+            ).insert(db)
+        }
+
+        try await manager.disconnect(connectionId: connectionId)
+
+        let connectionRow = try await fixtures.dbReader.read { db in
+            try DBCloudConnection.fetchOne(db, key: connectionId)
+        }
+        #expect(connectionRow == nil, "Local connection row must still be deleted when side-effect writers throw")
+    }
+
     @Test("disconnect still deletes the local row when the grant writer throws")
     func disconnectTolerantOfGrantWriterFailure() async throws {
         let fixtures = try await makeTestFixtures()
@@ -268,6 +462,7 @@ struct ConnectionManagerTests {
                 connectionId: connectionId,
                 conversationId: "convo-a",
                 serviceId: "google_calendar",
+                grantedToInboxId: "agent-1",
                 grantedAt: Date()
             ).insert(db)
         }
@@ -297,14 +492,18 @@ private extension ConnectionManagerTests {
     func makeManager(
         fixtures: TestFixtures,
         apiClient: any ConvosAPIClientProtocol,
-        grantWriter: RecordingGrantWriter
+        grantWriter: RecordingGrantWriter,
+        eventWriter: RecordingEventWriter? = nil,
+        resolver: RecordingResolver? = nil
     ) -> CloudConnectionManager {
         CloudConnectionManager(
             apiClient: apiClient,
             oauthProvider: StubOAuthSessionProvider(),
             databaseWriter: fixtures.dbWriter,
             callbackURLScheme: "convos",
-            grantWriterProvider: { grantWriter }
+            grantWriterProvider: { grantWriter },
+            eventWriterProvider: { eventWriter },
+            resolverProvider: { resolver }
         )
     }
 
@@ -457,6 +656,7 @@ private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
     struct Call: Sendable, Equatable {
         let connectionId: String
         let conversationId: String
+        let grantedToInboxId: String
     }
 
     private var calls: [Call] = []
@@ -470,10 +670,24 @@ private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
         calls
     }
 
-    nonisolated func grantConnection(_ connectionId: String, to conversationId: String) async throws {}
+    nonisolated func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
 
-    func revokeGrant(connectionId: String, from conversationId: String) async throws {
-        calls.append(Call(connectionId: connectionId, conversationId: conversationId))
+    func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
+        calls.append(
+            Call(
+                connectionId: connectionId,
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
+            )
+        )
         if shouldThrow {
             throw StubError.republishFailed
         }
@@ -487,5 +701,118 @@ private actor RecordingGrantWriter: CloudConnectionGrantWriterProtocol {
 private struct StubOAuthSessionProvider: OAuthSessionProvider {
     func authenticate(url: URL, callbackURLScheme: String) async throws -> URL {
         url
+    }
+}
+
+private actor RecordingEventWriter: ConnectionEventWriterProtocol {
+    struct Call: Sendable, Equatable {
+        let providerId: String
+        let capability: ConnectionCapability?
+        let grantedToInboxId: String?
+        let conversationId: String
+    }
+
+    private var grants: [Call] = []
+    private var revocations: [Call] = []
+    private var shouldThrow: Bool = false
+
+    func setShouldThrow(_ value: Bool) {
+        shouldThrow = value
+    }
+
+    func grantedEvents() -> [Call] { grants }
+    func revokedEvents() -> [Call] { revocations }
+
+    func sendGranted(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {
+        grants.append(
+            Call(
+                providerId: providerId,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId
+            )
+        )
+        if shouldThrow { throw StubError.sendFailed }
+    }
+
+    func sendRevoked(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {
+        revocations.append(
+            Call(
+                providerId: providerId,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId,
+                conversationId: conversationId
+            )
+        )
+        if shouldThrow { throw StubError.sendFailed }
+    }
+
+    enum StubError: Error {
+        case sendFailed
+    }
+}
+
+private actor RecordingResolver: CapabilityResolver {
+    private var removed: [ProviderID] = []
+    private var shouldThrow: Bool = false
+
+    func setShouldThrow(_ value: Bool) {
+        shouldThrow = value
+    }
+
+    func removedProviders() -> [ProviderID] { removed }
+
+    func availableProviders(for subject: CapabilitySubject) async -> [any CapabilityProvider] { [] }
+
+    func resolution(
+        subject: CapabilitySubject,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async -> Set<ProviderID> { [] }
+
+    func setResolution(
+        _ providerIds: Set<ProviderID>,
+        subject: CapabilitySubject,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
+
+    func clearResolution(
+        subject: CapabilitySubject,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
+
+    func clearAllResolutions(
+        subject: CapabilitySubject,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async throws {}
+
+    func removeProviderFromAllResolutions(_ providerId: ProviderID) async throws {
+        removed.append(providerId)
+        if shouldThrow { throw StubError.removeFailed }
+    }
+
+    func removeProvider(_ providerId: ProviderID, fromConversation conversationId: String) async throws {
+        removed.append(providerId)
+        if shouldThrow { throw StubError.removeFailed }
+    }
+
+    enum StubError: Error {
+        case removeFailed
     }
 }

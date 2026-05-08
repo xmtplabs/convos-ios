@@ -1,12 +1,13 @@
 import ConvosConnections
 import Foundation
 
-/// `EnablementStore` backed by `UserDefaults`. Keeps per-(connection, capability, conversation)
-/// toggle state and the per-(connection, conversation) always-confirm flag across app
-/// relaunches so users don't have to re-toggle every session.
+/// `EnablementStore` backed by `UserDefaults`. Keeps per-(connection, capability,
+/// conversation, agent) toggle state and the per-(connection, conversation)
+/// always-confirm flag across app relaunches so users don't have to re-toggle every
+/// session.
 ///
-/// The example app uses this instead of `InMemoryEnablementStore` so toggle state survives
-/// backgrounding, relaunches, and reinstalls with the same bundle id.
+/// The example app uses this instead of `InMemoryEnablementStore` so toggle state
+/// survives backgrounding, relaunches, and reinstalls with the same bundle id.
 final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
     private struct PersistedShape: Codable {
         var enablements: [Enablement]
@@ -22,23 +23,44 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
     private let key: String
     private let lock: NSLock = NSLock()
 
-    init(defaults: UserDefaults = .standard, key: String = "ConvosConnectionsExample.enablements.v2") {
+    init(defaults: UserDefaults = .standard, key: String = "ConvosConnectionsExample.enablements.v3") {
         self.defaults = defaults
         self.key = key
     }
 
-    func isEnabled(kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async -> Bool {
+    func isEnabled(
+        kind: ConnectionKind,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return read().enablements.contains(Enablement(kind: kind, capability: capability, conversationId: conversationId))
+        return read().enablements.contains(Enablement(
+            kind: kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        ))
     }
 
-    func setEnabled(_ enabled: Bool, kind: ConnectionKind, capability: ConnectionCapability, conversationId: String) async {
+    func setEnabled(
+        _ enabled: Bool,
+        kind: ConnectionKind,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String
+    ) async {
         lock.lock()
         defer { lock.unlock() }
         var shape = read()
         var enablementSet = Set(shape.enablements)
-        let enablement = Enablement(kind: kind, capability: capability, conversationId: conversationId)
+        let enablement = Enablement(
+            kind: kind,
+            capability: capability,
+            conversationId: conversationId,
+            grantedToInboxId: grantedToInboxId
+        )
         if enabled {
             enablementSet.insert(enablement)
         } else {
@@ -47,7 +69,8 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
         shape.enablements = enablementSet.sorted(by: { lhs, rhs in
             if lhs.kind.rawValue != rhs.kind.rawValue { return lhs.kind.rawValue < rhs.kind.rawValue }
             if lhs.capability.rawValue != rhs.capability.rawValue { return lhs.capability.rawValue < rhs.capability.rawValue }
-            return lhs.conversationId < rhs.conversationId
+            if lhs.conversationId != rhs.conversationId { return lhs.conversationId < rhs.conversationId }
+            return lhs.grantedToInboxId < rhs.grantedToInboxId
         })
         write(shape)
     }
@@ -55,10 +78,11 @@ final class UserDefaultsEnablementStore: EnablementStore, @unchecked Sendable {
     func conversationIds(enabledFor kind: ConnectionKind, capability: ConnectionCapability) async -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        return read().enablements
-            .filter { $0.kind == kind && $0.capability == capability }
-            .map(\.conversationId)
-            .sorted()
+        var ids: Set<String> = []
+        for e in read().enablements where e.kind == kind && e.capability == capability {
+            ids.insert(e.conversationId)
+        }
+        return ids.sorted()
     }
 
     func allEnablements() async -> [Enablement] {

@@ -356,6 +356,7 @@ private extension CapabilityRequest {
     ) -> CapabilityRequest {
         CapabilityRequest(
             requestId: "preview-1",
+            askerInboxId: "preview-asker",
             subject: subject,
             capability: capability,
             rationale: rationale

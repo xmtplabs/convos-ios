@@ -31,7 +31,7 @@ struct MessagesListView: View {
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
     @State private var lastItemIndex: Int?
 
-    var body: some View {
+var body: some View {
         ScrollViewReader { _ in
             ScrollView {
                 LazyVStack(spacing: 0.0) {

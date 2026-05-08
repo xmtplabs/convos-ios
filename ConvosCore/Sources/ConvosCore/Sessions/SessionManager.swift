@@ -670,6 +670,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             callbackURLScheme: callbackURLScheme,
             grantWriterProvider: { [weak self] in
                 self?.messagingService().connectionGrantWriter()
+            },
+            eventWriterProvider: { [weak self] in
+                self?.messagingService().connectionEventWriter()
+            },
+            resolverProvider: { [weak self] in
+                self?.capabilityResolver()
             }
         )
     }

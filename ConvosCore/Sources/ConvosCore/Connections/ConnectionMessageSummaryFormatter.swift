@@ -5,18 +5,22 @@ public enum ConnectionMessageSummaryFormatter {
     public static func eventSummary(_ event: ConnectionEvent) -> ConnectionEventSummary {
         switch event.action {
         case .granted:
+            let actor: ConnectionEventSummary.Actor? = event.grantedToInboxId == nil ? nil : .grantedAgent
             return .init(
-                text: grantedText(forProviderId: event.providerId),
+                text: grantedText(forProviderId: event.providerId, capability: event.capability),
                 outcome: .success,
                 icon: icon(forProviderId: event.providerId),
-                actor: .verifiedAssistant
+                actor: actor,
+                grantedToInboxId: event.grantedToInboxId
             )
         case .revoked:
+            let actor: ConnectionEventSummary.Actor? = event.grantedToInboxId == nil ? nil : .grantedAgent
             return .init(
-                text: revokedText(forProviderId: event.providerId),
+                text: revokedText(forProviderId: event.providerId, capability: event.capability),
                 outcome: .success,
                 icon: icon(forProviderId: event.providerId),
-                actor: nil
+                actor: actor,
+                grantedToInboxId: event.grantedToInboxId
             )
         }
     }
@@ -110,31 +114,116 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func grantedText(forProviderId providerId: String) -> String {
+    private static func grantedText(forProviderId providerId: String, capability: ConnectionCapability?) -> String {
         let id = ProviderID(rawValue: providerId)
         if let kind = ConnectionKind.fromDeviceProviderId(id) {
-            return grantedText(forDeviceKind: kind)
+            return grantedText(forDeviceKind: kind, capability: capability)
         }
         if let serviceId = id.cloudServiceId,
            let subject = CloudCapabilityProvider.serviceSubjectMap[serviceId] {
-            return grantedText(forSubject: subject)
+            return grantedText(forSubject: subject, capability: capability)
         }
         return "has access to connection data"
     }
 
-    private static func revokedText(forProviderId providerId: String) -> String {
+    private static func revokedText(forProviderId providerId: String, capability: ConnectionCapability?) -> String {
         let id = ProviderID(rawValue: providerId)
         if let kind = ConnectionKind.fromDeviceProviderId(id) {
-            return revokedText(forDeviceKind: kind)
+            return revokedText(forDeviceKind: kind, capability: capability)
         }
         if let serviceId = id.cloudServiceId,
            let subject = CloudCapabilityProvider.serviceSubjectMap[serviceId] {
-            return revokedText(forSubject: subject)
+            return revokedText(forSubject: subject, capability: capability)
         }
         return "Connection removed"
     }
 
-    private static func grantedText(forDeviceKind kind: ConnectionKind) -> String {
+    private static func grantedText(forDeviceKind kind: ConnectionKind, capability: ConnectionCapability?) -> String {
+        guard let capability else { return defaultGrantedText(forDeviceKind: kind) }
+        return "can \(verb(for: capability)) \(noun(forDeviceKind: kind))"
+    }
+
+    private static func revokedText(forDeviceKind kind: ConnectionKind, capability: ConnectionCapability?) -> String {
+        guard let capability else { return defaultRevokedText(forDeviceKind: kind) }
+        return "\(noun(forDeviceKind: kind, capitalized: true)) \(capability.displayName.lowercased()) access removed"
+    }
+
+    private static func grantedText(forSubject subject: CapabilitySubject, capability: ConnectionCapability?) -> String {
+        guard let capability else { return defaultGrantedText(forSubject: subject) }
+        return "can \(verb(for: capability)) \(noun(forSubject: subject))"
+    }
+
+    private static func revokedText(forSubject subject: CapabilitySubject, capability: ConnectionCapability?) -> String {
+        guard let capability else { return defaultRevokedText(forSubject: subject) }
+        return "\(noun(forSubject: subject, capitalized: true)) \(capability.displayName.lowercased()) access removed"
+    }
+
+    private static func verb(for capability: ConnectionCapability) -> String {
+        switch capability {
+        case .read:
+            return "read"
+        case .writeCreate:
+            return "create"
+        case .writeUpdate:
+            return "edit"
+        case .writeDelete:
+            return "delete"
+        }
+    }
+
+    private static func noun(forDeviceKind kind: ConnectionKind, capitalized: Bool = false) -> String {
+        let value: String
+        switch kind {
+        case .health:
+            value = "health data"
+        case .calendar:
+            value = "calendar events"
+        case .contacts:
+            value = "contacts"
+        case .photos:
+            value = "photos"
+        case .music:
+            value = "music"
+        case .homeKit:
+            value = "home devices"
+        case .location:
+            value = "location data"
+        case .screenTime:
+            value = "Screen Time data"
+        case .motion:
+            value = "motion data"
+        }
+        return capitalized ? value.prefix(1).uppercased() + value.dropFirst() : value
+    }
+
+    private static func noun(forSubject subject: CapabilitySubject, capitalized: Bool = false) -> String {
+        let value: String
+        switch subject {
+        case .calendar:
+            value = "calendar events"
+        case .contacts:
+            value = "contacts"
+        case .tasks:
+            value = "tasks"
+        case .mail:
+            value = "emails"
+        case .photos:
+            value = "photos"
+        case .fitness:
+            value = "fitness data"
+        case .music:
+            value = "music"
+        case .location:
+            value = "location data"
+        case .home:
+            value = "home devices"
+        case .screenTime:
+            value = "Screen Time data"
+        }
+        return capitalized ? value.prefix(1).uppercased() + value.dropFirst() : value
+    }
+
+    private static func defaultGrantedText(forDeviceKind kind: ConnectionKind) -> String {
         switch kind {
         case .health:
             return "has access to health data"
@@ -157,7 +246,7 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func revokedText(forDeviceKind kind: ConnectionKind) -> String {
+    private static func defaultRevokedText(forDeviceKind kind: ConnectionKind) -> String {
         switch kind {
         case .health:
             return "Health data connection removed"
@@ -180,7 +269,7 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func grantedText(forSubject subject: CapabilitySubject) -> String {
+    private static func defaultGrantedText(forSubject subject: CapabilitySubject) -> String {
         switch subject {
         case .calendar:
             return "has access to calendar data"
@@ -205,7 +294,7 @@ public enum ConnectionMessageSummaryFormatter {
         }
     }
 
-    private static func revokedText(forSubject subject: CapabilitySubject) -> String {
+    private static func defaultRevokedText(forSubject subject: CapabilitySubject) -> String {
         switch subject {
         case .calendar:
             return "Calendar connection removed"
