@@ -130,6 +130,11 @@ final class ConversationOnboardingCoordinator {
     private var pendingConversationId: String?
     private var currentConversationId: String?
     private var isConversationCreator: Bool = false
+    /// Re-entrancy guard for `handleDisplayNameEndedEditing`. The `state` check alone
+    /// passes synchronously while `saveAndAwait()` is in flight, so a second tap could
+    /// kick off a concurrent save (and a duplicate `profile_saved` QAEvent). The class
+    /// is `@MainActor`, so a plain Bool is sufficient.
+    private var isSavingProfile: Bool = false
 
     // MARK: - Persistence
 
@@ -431,11 +436,13 @@ final class ConversationOnboardingCoordinator {
         // checking `profileSettings.isDefault` would block legitimate retries after a
         // failed save (the first attempt mutates editingDisplayName and flips
         // isDefault to false even though persistence didn't land).
-        guard state == .settingUpProfile else { return }
+        guard state == .settingUpProfile, !isSavingProfile else { return }
+        isSavingProfile = true
 
         let conversationId = currentConversationId
         Task { [weak self] in
             guard let self else { return }
+            defer { self.isSavingProfile = false }
             // Mutating inside the Task means a failed save leaves the previous
             // editing state intact for the SwiftUI binding to repaint, and the next
             // tap re-enters with whatever the user just typed.
