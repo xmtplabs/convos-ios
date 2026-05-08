@@ -422,17 +422,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(memberKind: priorMemberKind)
                 }
 
-                try profile.save(db)
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
                 try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
-                // Mirror the profile change onto the contact row if this
-                // inbox is a known contact. No-op otherwise.
-                try ContactsWriter.applyMemberProfileInTransaction(
-                    db: db,
-                    inboxId: senderInboxId,
-                    name: profile.name,
-                    avatarURL: profile.avatar,
-                    receivedAt: receivedAt
-                )
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -506,17 +497,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try profile.save(db)
+                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
                     try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
-                    // Mirror the profile onto the contact row if this
-                    // inbox is a known contact. No-op otherwise.
-                    try ContactsWriter.applyMemberProfileInTransaction(
-                        db: db,
-                        inboxId: inboxId,
-                        name: profile.name,
-                        avatarURL: profile.avatar,
-                        receivedAt: receivedAt
-                    )
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
