@@ -452,8 +452,8 @@ struct ContactsWriterTests {
         #expect(stored?.agentVerification == .verified(.convos))
     }
 
-    @Test("applyMemberProfileInTransaction promotes a contact's verification when passed in")
-    func testApplyMemberProfilePromotesAgentVerification() async throws {
+    @Test("mirrorMemberProfileToContactInTransaction promotes a contact's verification when passed in")
+    func testMirrorMemberProfilePromotesAgentVerification() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
         let inboxId = "inbox-1"
@@ -465,7 +465,7 @@ struct ContactsWriterTests {
         )
 
         try await dbManager.dbWriter.write { db in
-            try ContactsWriter.applyMemberProfileInTransaction(
+            try ContactsWriter.mirrorMemberProfileToContactInTransaction(
                 db: db,
                 inboxId: inboxId,
                 name: "Agent",

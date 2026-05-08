@@ -526,10 +526,27 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             preservedInviteTag = nil
         }
 
+        // Preserve fields from the existing row that the caller did not
+        // explicitly carry forward:
+        //   - `hasHadVerifiedAssistant` is sticky-on (once true, stays true).
+        //   - `quarantinedAt` / `quarantineReleasedAt`: sync paths
+        //     (`store(...)`, push-driven `storeWithLatestMessages`) pass
+        //     `quarantinedAt: nil`, and `createDBConversation` does not
+        //     thread `quarantineReleasedAt` at all. Without this merge a
+        //     refresh would silently un-quarantine a held conversation.
+        //     Explicit non-nil values come from the stream processor's
+        //     quarantine path; the sweeper writes release timestamps
+        //     directly to the DB and never flows through this writer.
         if let existingConversation {
-            conversationToSave = conversationToSave.with(
-                hasHadVerifiedAssistant: existingConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
-            )
+            let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
+            let preservedQuarantinedAt: Date? = dbConversation.quarantinedAt ?? existingConversation.quarantinedAt
+            let preservedQuarantineReleasedAt: Date? = dbConversation.quarantineReleasedAt ?? existingConversation.quarantineReleasedAt
+            conversationToSave = conversationToSave
+                .with(hasHadVerifiedAssistant: mergedHasAgent)
+                .with(
+                    quarantinedAt: preservedQuarantinedAt,
+                    quarantineReleasedAt: preservedQuarantineReleasedAt
+                )
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
