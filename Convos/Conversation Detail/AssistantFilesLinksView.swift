@@ -330,6 +330,7 @@ private struct FileRow: View {
 
     @State private var renderedHTMLPreview: UIImage?
     @State private var resolvedHTMLTitle: String?
+    @State private var renderedFilePreview: UIImage?
 
     var body: some View {
         Button(action: onTap) {
@@ -359,6 +360,10 @@ private struct FileRow: View {
             Image(uiImage: renderedHTMLPreview)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
+        } else if let renderedFilePreview {
+            Image(uiImage: renderedFilePreview)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
         } else if let base64 = file.thumbnailDataBase64,
                   let data = Data(base64Encoded: base64),
                   let uiImage = UIImage(data: data) {
@@ -384,12 +389,18 @@ private struct FileRow: View {
     }
 
     private func loadHTMLMetadataIfNeeded() async {
-        guard isHTML else { return }
+        if isHTML {
+            renderedHTMLPreview = HTMLThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey)
+            resolvedHTMLTitle = HTMLPageMetadata.shared.cachedTitle(for: file.attachmentKey)
+        } else if let cached = FileThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey),
+                  cached.isContentThumbnail {
+            renderedFilePreview = cached.image
+        }
 
-        renderedHTMLPreview = HTMLThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey)
-        resolvedHTMLTitle = HTMLPageMetadata.shared.cachedTitle(for: file.attachmentKey)
-
-        if renderedHTMLPreview != nil, resolvedHTMLTitle != nil { return }
+        guard renderedHTMLPreview == nil
+            || resolvedHTMLTitle == nil
+            || (!isHTML && renderedFilePreview == nil)
+        else { return }
 
         do {
             let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
@@ -397,20 +408,30 @@ private struct FileRow: View {
                 filename: file.filename
             )
 
-            if renderedHTMLPreview == nil {
-                renderedHTMLPreview = await HTMLThumbnailRenderer.shared.thumbnail(
+            if isHTML {
+                if renderedHTMLPreview == nil {
+                    renderedHTMLPreview = await HTMLThumbnailRenderer.shared.thumbnail(
+                        for: file.attachmentKey,
+                        fileURL: url
+                    )
+                }
+                if resolvedHTMLTitle == nil {
+                    resolvedHTMLTitle = await HTMLPageMetadata.shared.title(
+                        for: file.attachmentKey,
+                        fileURL: url
+                    )
+                }
+            } else if renderedFilePreview == nil {
+                let result = await FileThumbnailRenderer.shared.thumbnail(
                     for: file.attachmentKey,
                     fileURL: url
                 )
-            }
-            if resolvedHTMLTitle == nil {
-                resolvedHTMLTitle = await HTMLPageMetadata.shared.title(
-                    for: file.attachmentKey,
-                    fileURL: url
-                )
+                if let result, result.isContentThumbnail {
+                    renderedFilePreview = result.image
+                }
             }
         } catch {
-            Log.error("Failed to load Stuff list HTML metadata: \(error)")
+            Log.error("Failed to load Stuff list file metadata: \(error)")
         }
     }
 }
