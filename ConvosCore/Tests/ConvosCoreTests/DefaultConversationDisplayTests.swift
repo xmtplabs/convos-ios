@@ -47,7 +47,7 @@ struct DefaultConversationDisplayTests {
     @Test("Empty array returns empty string")
     func emptyArrayReturnsEmptyString() {
         let profiles: [Profile] = []
-        #expect(profiles.formattedNamesString == "")
+        #expect(profiles.formattedNamesString.isEmpty)
     }
 
     @Test("Single named profile returns name")

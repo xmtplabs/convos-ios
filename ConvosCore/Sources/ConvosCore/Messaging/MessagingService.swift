@@ -26,7 +26,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
     internal let deviceInfoProvider: any DeviceInfoProviding
-    private let environment: AppEnvironment
+    let environment: AppEnvironment
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
 
@@ -245,13 +245,21 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                                           databaseReader: databaseReader)
     }
 
-    func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
-        ConnectionGrantWriter(
+    func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
+        CloudConnectionGrantWriter(
             sessionStateManager: sessionStateManager,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             myProfileWriter: myProfileWriter()
         )
+    }
+
+    func connectionEventWriter() -> any ConnectionEventWriterProtocol {
+        ConnectionEventWriter(sessionStateManager: sessionStateManager)
+    }
+
+    func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
+        CapabilityRequestResultWriter(sessionStateManager: sessionStateManager)
     }
 
     func uploadImage(data: Data, filename: String) async throws -> String {

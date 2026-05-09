@@ -1,7 +1,7 @@
 import Combine
-import XCTest
-import ConvosCore
 @testable import Convos
+import ConvosCore
+import XCTest
 
 @MainActor
 final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
@@ -268,11 +268,31 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.makeAssetRenewalManager()
     }
 
-    func connectionManager(callbackURLScheme: String) -> any ConnectionManagerProtocol {
-        base.connectionManager(callbackURLScheme: callbackURLScheme)
+    func cloudConnectionManager(callbackURLScheme: String) -> any CloudConnectionManagerProtocol {
+        base.cloudConnectionManager(callbackURLScheme: callbackURLScheme)
     }
 
-    func connectionRepository() -> any ConnectionRepositoryProtocol {
-        base.connectionRepository()
+    func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        base.cloudConnectionRepository()
+    }
+
+    func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        base.capabilityProviderRegistry()
+    }
+
+    func capabilityResolver() -> any CapabilityResolver {
+        base.capabilityResolver()
+    }
+
+    func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        base.capabilityRequestRepository(for: conversationId)
+    }
+
+    func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        base.deviceConnectionAuthorizer()
+    }
+
+    func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        base.capabilityResolutionsRepository(for: conversationId)
     }
 }

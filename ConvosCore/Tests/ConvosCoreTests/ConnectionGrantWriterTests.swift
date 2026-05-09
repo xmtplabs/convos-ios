@@ -3,14 +3,14 @@ import Foundation
 import GRDB
 import Testing
 
-/// Tests for ConnectionGrantWriter
+/// Tests for CloudConnectionGrantWriter
 ///
 /// Covers the atomicity/rollback correctness of grant and revoke flows:
 /// - grant succeeds → DB row present, metadata was published
 /// - metadata publish fails → no DB row committed, error propagates
 /// - revoke succeeds → DB row removed, metadata was published with reduced set
 /// - revoke publish fails → DB row remains, error propagates
-@Suite("ConnectionGrantWriter Tests")
+@Suite("CloudConnectionGrantWriter Tests")
 struct ConnectionGrantWriterTests {
     // MARK: - Fixtures
 
@@ -18,7 +18,7 @@ struct ConnectionGrantWriterTests {
         let databaseManager: MockDatabaseManager
         let sessionStateManager: MockSessionStateManager
         let profileWriter: MockMyProfileWriter
-        let writer: ConnectionGrantWriter
+        let writer: CloudConnectionGrantWriter
 
         init(inboxId: String = "mock-inbox-id") {
             let databaseManager = MockDatabaseManager.makeTestDatabase()
@@ -28,7 +28,7 @@ struct ConnectionGrantWriterTests {
             self.databaseManager = databaseManager
             self.sessionStateManager = sessionStateManager
             self.profileWriter = profileWriter
-            self.writer = ConnectionGrantWriter(
+            self.writer = CloudConnectionGrantWriter(
                 sessionStateManager: sessionStateManager,
                 databaseWriter: databaseManager.dbWriter,
                 databaseReader: databaseManager.dbReader,
@@ -38,14 +38,14 @@ struct ConnectionGrantWriterTests {
 
         func seedConnection(
             id: String = "conn_google_cal",
-            serviceId: String = "google_calendar",
-            status: ConnectionStatus = .active
-        ) throws -> DBConnection {
-            let connection = DBConnection(
+            serviceId: String = "googlecalendar",
+            status: CloudConnectionStatus = .active
+        ) throws -> DBCloudConnection {
+            let connection = DBCloudConnection(
                 id: id,
                 serviceId: serviceId,
                 serviceName: "Google Calendar",
-                provider: ConnectionProvider.composio.rawValue,
+                provider: CloudConnectionProvider.composio.rawValue,
                 composioEntityId: "entity_abc",
                 composioConnectionId: "ca_abc",
                 status: status.rawValue,
@@ -90,12 +90,14 @@ struct ConnectionGrantWriterTests {
         func seedGrant(
             connectionId: String,
             conversationId: String,
-            serviceId: String
+            serviceId: String,
+            grantedToInboxId: String = "agent-1"
         ) throws {
-            let grant = DBConnectionGrant(
+            let grant = DBCloudConnectionGrant(
                 connectionId: connectionId,
                 conversationId: conversationId,
                 serviceId: serviceId,
+                grantedToInboxId: grantedToInboxId,
                 grantedAt: Date()
             )
             try databaseManager.dbWriter.write { db in
@@ -103,10 +105,10 @@ struct ConnectionGrantWriterTests {
             }
         }
 
-        func storedGrants(for conversationId: String) throws -> [DBConnectionGrant] {
+        func storedGrants(for conversationId: String) throws -> [DBCloudConnectionGrant] {
             try databaseManager.dbReader.read { db in
-                try DBConnectionGrant
-                    .filter(DBConnectionGrant.Columns.conversationId == conversationId)
+                try DBCloudConnectionGrant
+                    .filter(DBCloudConnectionGrant.Columns.conversationId == conversationId)
                     .fetchAll(db)
             }
         }
@@ -127,7 +129,7 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_1"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(connection.id, to: conversationId)
+        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.count == 1)
@@ -142,7 +144,7 @@ struct ConnectionGrantWriterTests {
             Issue.record("connections entry was not a string")
             return
         }
-        let payload = try ConnectionsMetadataPayload.fromJsonString(grantsJson)
+        let payload = try CloudConnectionsMetadataPayload.fromJsonString(grantsJson)
         #expect(payload.grants.count == 1)
         #expect(payload.grants.first?.composioConnectionId == connection.composioConnectionId)
         #expect(payload.grants.first?.service == connection.serviceId)
@@ -162,7 +164,7 @@ struct ConnectionGrantWriterTests {
 
         var caughtExpectedError: Bool = false
         do {
-            try await fixture.writer.grantConnection(connection.id, to: conversationId)
+            try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
             Issue.record("Expected grantConnection to throw")
         } catch is PublishFailure {
             caughtExpectedError = true
@@ -180,8 +182,8 @@ struct ConnectionGrantWriterTests {
         let fixture = Fixture()
         defer { fixture.cleanup() }
 
-        await #expect(throws: ConnectionGrantError.self) {
-            try await fixture.writer.grantConnection("missing", to: "conv_x")
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection("missing", to: "conv_x", grantedToInboxId: "agent-1")
         }
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
         let stored = try fixture.storedGrants(for: "conv_x")
@@ -195,8 +197,8 @@ struct ConnectionGrantWriterTests {
 
         let connection = try fixture.seedConnection(id: "conn_inactive", status: .revoked)
 
-        await #expect(throws: ConnectionGrantError.self) {
-            try await fixture.writer.grantConnection(connection.id, to: "conv_x")
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection(connection.id, to: "conv_x", grantedToInboxId: "agent-1")
         }
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
     }
@@ -217,7 +219,7 @@ struct ConnectionGrantWriterTests {
             serviceId: connection.serviceId
         )
 
-        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId)
+        try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.isEmpty)
@@ -249,7 +251,7 @@ struct ConnectionGrantWriterTests {
 
         var caughtExpectedError: Bool = false
         do {
-            try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId)
+            try await fixture.writer.revokeGrant(connectionId: connection.id, from: conversationId, grantedToInboxId: "agent-1")
             Issue.record("Expected revokeGrant to throw")
         } catch is PublishFailure {
             caughtExpectedError = true
@@ -268,7 +270,7 @@ struct ConnectionGrantWriterTests {
         let fixture = Fixture()
         defer { fixture.cleanup() }
 
-        try await fixture.writer.revokeGrant(connectionId: "nope", from: "conv_nope")
+        try await fixture.writer.revokeGrant(connectionId: "nope", from: "conv_nope", grantedToInboxId: "agent-1")
 
         #expect(fixture.profileWriter.publishedMetadata.isEmpty)
         let stored = try fixture.storedGrants(for: "conv_nope")
@@ -282,13 +284,13 @@ struct ConnectionGrantWriterTests {
         let fixture = Fixture()
         defer { fixture.cleanup() }
 
-        let first = try fixture.seedConnection(id: "conn_a", serviceId: "google_calendar")
-        let second = try fixture.seedConnection(id: "conn_b", serviceId: "google_drive")
+        let first = try fixture.seedConnection(id: "conn_a", serviceId: "googlecalendar")
+        let second = try fixture.seedConnection(id: "conn_b", serviceId: "googledrive")
         let conversationId = "conv_multi"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(first.id, to: conversationId)
-        try await fixture.writer.grantConnection(second.id, to: conversationId)
+        try await fixture.writer.grantConnection(first.id, to: conversationId, grantedToInboxId: "agent-1")
+        try await fixture.writer.grantConnection(second.id, to: conversationId, grantedToInboxId: "agent-1")
 
         let stored = try fixture.storedGrants(for: conversationId)
         #expect(stored.count == 2)
@@ -300,9 +302,9 @@ struct ConnectionGrantWriterTests {
             Issue.record("connections entry was not a string")
             return
         }
-        let payload = try ConnectionsMetadataPayload.fromJsonString(grantsJson)
+        let payload = try CloudConnectionsMetadataPayload.fromJsonString(grantsJson)
         #expect(payload.grants.count == 2)
         let serviceIds = Set(payload.grants.map(\.service))
-        #expect(serviceIds == ["google_calendar", "google_drive"])
+        #expect(serviceIds == ["googlecalendar", "googledrive"])
     }
 }

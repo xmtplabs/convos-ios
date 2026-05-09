@@ -289,7 +289,7 @@ private struct ConversationsSheetModifier: ViewModifier {
             }
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }
-                ConnectionGrantRequestSheet(
+                CloudConnectionGrantRequestSheet(
                     viewModel: viewModel.makeGrantRequestSheetViewModel(for: request),
                     onDismiss: dismissAction
                 )

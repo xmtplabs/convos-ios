@@ -130,12 +130,21 @@ final class ConversationOnboardingCoordinator {
     private var pendingConversationId: String?
     private var currentConversationId: String?
     private var isConversationCreator: Bool = false
+    /// Re-entrancy guard for `handleDisplayNameEndedEditing`. The `state` check alone
+    /// passes synchronously while `saveAndAwait()` is in flight, so a second tap could
+    /// kick off a concurrent save (and a duplicate `profile_saved` QAEvent). The class
+    /// is `@MainActor`, so a plain Bool is sufficient.
+    private var isSavingProfile: Bool = false
 
     // MARK: - Persistence
 
     private static let hasShownProfileEditorKey: String = "hasShownProfileEditor"
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
     private static let hasSetProfilePrefix: String = "hasSetProfileForConversation_"
+    /// Prior name of `hasSetProfilePrefix` from the Quickname era. Read-only fallback
+    /// during the user's first launch on the renamed flow so users who already completed
+    /// setup before the rename don't get a redundant profile prompt.
+    private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
@@ -147,7 +156,7 @@ final class ConversationOnboardingCoordinator {
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) {
+        for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
@@ -165,7 +174,19 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func hasSetProfile(for conversationId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: Self.hasSetProfilePrefix + conversationId)
+        let defaults = UserDefaults.standard
+        let key = Self.hasSetProfilePrefix + conversationId
+        if defaults.bool(forKey: key) { return true }
+        // Lazy migration: if the user completed setup under the legacy Quickname key,
+        // promote it to the new key on first read so subsequent calls hit the fast path
+        // and a single-key reset (e.g. account deletion) clears it cleanly.
+        let legacyKey = Self.legacyHasSetQuicknamePrefix + conversationId
+        if defaults.bool(forKey: legacyKey) {
+            defaults.set(true, forKey: key)
+            defaults.removeObject(forKey: legacyKey)
+            return true
+        }
+        return false
     }
 
     private func setHasSetProfile(_ value: Bool, for conversationId: String) {
@@ -410,15 +431,38 @@ final class ConversationOnboardingCoordinator {
     ///   - didChangeProfile: Whether the profile was actually changed
     ///   - isSavingAsProfile: Whether the user is saving this as their profile
     func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
-        let profileSettings = profileSettingsViewModel.profileSettings
-        guard state == .settingUpProfile, profileSettings.isDefault else { return }
+        // We deliberately only gate on `state == .settingUpProfile` here. Once the
+        // setup flow is active, the user is explicitly replacing their profile, so
+        // checking `profileSettings.isDefault` would block legitimate retries after a
+        // failed save (the first attempt mutates editingDisplayName and flips
+        // isDefault to false even though persistence didn't land).
+        guard state == .settingUpProfile, !isSavingProfile else { return }
+        isSavingProfile = true
 
-        profileSettingsViewModel.editingDisplayName = displayName
-        profileSettingsViewModel.profileImage = profileImage
-        profileSettingsViewModel.save()
-        QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
-        state = .savedProfileSuccess
-        handleStateChange()
+        let conversationId = currentConversationId
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isSavingProfile = false }
+            // Mutating inside the Task means a failed save leaves the previous
+            // editing state intact for the SwiftUI binding to repaint, and the next
+            // tap re-enters with whatever the user just typed.
+            self.profileSettingsViewModel.editingDisplayName = displayName
+            self.profileSettingsViewModel.profileImage = profileImage
+            do {
+                try await self.profileSettingsViewModel.saveAndAwait()
+                QAEvent.emit(.onboarding, "profile_saved", ["name": displayName])
+                if let conversationId {
+                    self.setHasSetProfile(true, for: conversationId)
+                }
+                self.state = .savedProfileSuccess
+                self.handleStateChange()
+            } catch {
+                Log.error("Failed saving onboarding profile: \(error.localizedDescription)")
+                // Stay in `.settingUpProfile` so the user can retry; emit a QA event so
+                // the failure path is observable.
+                QAEvent.emit(.onboarding, "profile_save_failed", ["error": error.localizedDescription])
+            }
+        }
     }
 
     /// Request notification permission from the user

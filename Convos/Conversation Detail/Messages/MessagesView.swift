@@ -80,6 +80,8 @@ struct MessagesView<BottomBarContent: View>: View {
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
+    /// Only wired up in DEBUG builds; nil in Release so the testtube button stays hidden.
+    var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -168,6 +170,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 voiceMemoRecorder: voiceMemoRecorder,
                 onSendVoiceMemo: onSendVoiceMemo,
                 onConvosAction: onConvosAction,
+                onDebugAttachmentTap: onDebugAttachmentTap,
                 onBaseHeightChanged: { height in
                     bottomBarHeight = height
                 },

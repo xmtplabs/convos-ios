@@ -130,6 +130,8 @@ claude-code-resources/
 # Claude Code local files
 .claude/.simulator_id
 .derivedData/
+.derivedData-device/
+**/.build/
 .claude/task-simulator.json
 *.profraw
 .simulator-setup.log

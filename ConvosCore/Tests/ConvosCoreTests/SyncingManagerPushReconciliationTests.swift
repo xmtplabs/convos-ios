@@ -176,7 +176,7 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         let topics: [String]
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
+    private let state: OSAllocatedUnfairLock<[SubscribeCall]> = OSAllocatedUnfairLock(initialState: [SubscribeCall]())
 
     var subscribeCalls: [SubscribeCall] {
         state.withLock { $0 }
@@ -233,15 +233,15 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         .init(success: true, joined: true)
     }
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

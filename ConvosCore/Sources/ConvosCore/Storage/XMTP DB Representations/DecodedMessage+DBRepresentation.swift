@@ -1,4 +1,6 @@
 import ConvosAppData
+import ConvosConnections
+import ConvosConnectionsXMTP
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
@@ -67,8 +69,20 @@ extension XMTPiOS.DecodedMessage {
             components = try handleExplodeSettingsContent()
         case ContentTypeAssistantJoinRequest:
             components = try handleAssistantJoinRequestContent()
-        case ContentTypeConnectionGrantRequest:
+        case ContentTypeCloudConnectionGrantRequest:
             components = try handleConnectionGrantRequestContent()
+        case ContentTypeCapabilityRequest:
+            components = try handleCapabilityRequestContent()
+        case ContentTypeCapabilityRequestResult:
+            components = try handleCapabilityRequestResultContent()
+        case ContentTypeConnectionEvent:
+            components = try handleConnectionEventContent()
+        case ContentTypeConnectionInvocation:
+            components = try handleConnectionInvocationContent()
+        case ContentTypeConnectionInvocationResult:
+            components = try handleConnectionInvocationResultContent()
+        case ContentTypeConnectionPayload:
+            components = try handleConnectionPayloadContent()
         case ContentTypeReadReceipt:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
@@ -468,7 +482,7 @@ extension XMTPiOS.DecodedMessage {
 
     private func handleConnectionGrantRequestContent() throws -> DBMessageComponents {
         let content = try content() as Any
-        guard let request = content as? ConnectionGrantRequest else {
+        guard let request = content as? CloudConnectionGrantRequest else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         try Self.validateConnectionGrantRequest(
@@ -489,22 +503,141 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    /// Validates a `ConnectionGrantRequest` against its actual sender. Throws
+    /// Validates a `CloudConnectionGrantRequest` against its actual sender. Throws
     /// `untrustedSender` when the payload's `requestedByInboxId` does not match
     /// the XMTP-attested sender — a hostile member could otherwise attribute
     /// the request to the assistant and trick the user into running a grant
     /// flow for services the real assistant never asked for.
     static func validateConnectionGrantRequest(
-        _ request: ConnectionGrantRequest,
+        _ request: CloudConnectionGrantRequest,
         senderInboxId: String,
         messageId: String
     ) throws {
         guard request.requestedByInboxId == senderInboxId else {
             Log.warning(
-                "Dropping ConnectionGrantRequest \(messageId): sender \(senderInboxId) does not match requestedByInboxId \(request.requestedByInboxId)"
+                "Dropping CloudConnectionGrantRequest \(messageId): sender \(senderInboxId) does not match requestedByInboxId \(request.requestedByInboxId)"
             )
             throw DecodedMessageDBRepresentationError.untrustedSender
         }
+    }
+
+    private func handleCapabilityRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? CapabilityRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(request)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .capabilityRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleCapabilityRequestResultContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let result = content as? CapabilityRequestResult else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let json = try JSONEncoder().encode(result)
+        let text = String(data: json, encoding: .utf8)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .capabilityRequestResult,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionEventContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let event = content as? ConnectionEvent else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let summary = ConnectionMessageSummaryFormatter.eventSummary(event)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionEvent,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionInvocationContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let invocation = content as? ConnectionInvocation else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let summary = ConnectionMessageSummaryFormatter.invocationSummary(invocation)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionInvocation,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionInvocationResultContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let result = content as? ConnectionInvocationResult else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let summary = ConnectionMessageSummaryFormatter.resultSummary(result)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionInvocationResult,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
+    }
+
+    private func handleConnectionPayloadContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let payload = content as? ConnectionPayload else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        // Sender display name is resolved at processor time — the formatter sets
+        // `actor: .messageSender` so the processor knows to prepend the underlying
+        // message's sender before rendering.
+        let summary = ConnectionMessageSummaryFormatter.payloadSummary(payload)
+        guard let text = String(data: try JSONEncoder().encode(summary), encoding: .utf8) else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .connectionPayload,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: text,
+            update: nil
+        )
     }
 
     private func handleExplodeSettingsContent() throws -> DBMessageComponents {

@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 import GRDB
 import os
@@ -27,6 +28,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
+    private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
 
     /// Tracks the user's current screen context. Used by
@@ -41,8 +43,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         var isOnConversationsList: Bool = false
     }
 
-    private let databaseWriter: any DatabaseWriter
-    private let databaseReader: any DatabaseReader
+    let databaseWriter: any DatabaseWriter
+    let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private var initializationTask: Task<Void, Never>?
@@ -136,8 +138,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
 
             await self.prewarmUnusedConversation()
-
             guard !Task.isCancelled else { return }
+
+            await self.bootstrapCapabilityProviders()
+            guard !Task.isCancelled else { return }
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -155,6 +160,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
@@ -429,17 +435,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 .deleteAll(db)
             try DBInbox.deleteAll(db)
 
-            // DBConnection has no FK to DBInbox or DBConversation, so the MLS
+            // DBCloudConnection has no FK to DBInbox or DBConversation, so the MLS
             // cleanup path and the deletes above both miss it. Wipe it here so
             // "Delete All Data" doesn't leave the next identity holding stale
             // Composio entity/connection ids from the previous user. The FK
-            // cascade from DBConnection removes DBConnectionGrant as well.
+            // cascade from DBCloudConnection removes DBCloudConnectionGrant as well.
             //
             // Server-side revoke is intentionally skipped: by the time this
             // runs, identityStore.delete() has already nuked the JWT signer
-            // so apiClient.revokeConnection would fail auth, and the abandoned
+            // so apiClient.revokeCloudConnection would fail auth, and the abandoned
             // entity ids aren't reachable from any new identity anyway.
-            try DBConnection.deleteAll(db)
+            try DBCloudConnection.deleteAll(db)
         }
     }
 
@@ -646,21 +652,110 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Connections
 
-    public func connectionManager(
+    public func cloudConnectionManager(
         callbackURLScheme: String
-    ) -> any ConnectionManagerProtocol {
-        ConnectionManager(
+    ) -> any CloudConnectionManagerProtocol {
+        CloudConnectionManager(
             apiClient: apiClient,
             oauthProvider: platformProviders.oauthSessionProvider,
             databaseWriter: databaseWriter,
             callbackURLScheme: callbackURLScheme,
             grantWriterProvider: { [weak self] in
                 self?.messagingService().connectionGrantWriter()
+            },
+            eventWriterProvider: { [weak self] in
+                self?.messagingService().connectionEventWriter()
+            },
+            resolverProvider: { [weak self] in
+                self?.capabilityResolver()
             }
         )
     }
 
-    public func connectionRepository() -> any ConnectionRepositoryProtocol {
-        ConnectionRepository(databaseReader: databaseReader)
+    public func cloudConnectionRepository() -> any CloudConnectionRepositoryProtocol {
+        CloudConnectionRepository(databaseReader: databaseReader)
+    }
+
+    // MARK: - Capability resolution
+
+    /// Lazily-constructed singleton registry. Multiple subsystems register providers
+    /// concurrently (device sinks at boot, cloud OAuth at link/unlink), so we want one
+    /// shared registry per session instead of per-callsite copies.
+    private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
+    private let connectionEnablementStoreLock: OSAllocatedUnfairLock<(any EnablementStore)?> = .init(initialState: nil)
+
+    public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
+        capabilityRegistryLock.withLock { registry in
+            if let registry { return registry }
+            let new: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
+            registry = new
+            return new
+        }
+    }
+
+    public func capabilityResolver() -> any CapabilityResolver {
+        GRDBCapabilityResolver(
+            database: databaseWriter,
+            registry: capabilityProviderRegistry()
+        )
+    }
+
+    public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
+        CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
+        DefaultDeviceConnectionAuthorizer()
+    }
+
+    public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
+        CapabilityResolutionsRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func connectionEnablementStore() -> any EnablementStore {
+        connectionEnablementStoreLock.withLock { store in
+            if let store { return store }
+            let new: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+            store = new
+            return new
+        }
+    }
+
+    /// Registers the default device-provider catalog and starts observing cloud
+    /// connections. Device providers report their live OS-authorization state via
+    /// the shared `DeviceConnectionAuthorizer`, so the manifest reflects current
+    /// permissions on every launch (including kinds the user previously authorized
+    /// in another session). Cloud providers are synced reactively from the
+    /// `CloudConnection` table — every status flip rebuilds the registry's
+    /// `composio.*` entries.
+    private func bootstrapCapabilityProviders() async {
+        let registry = capabilityProviderRegistry()
+        let authorizer = deviceConnectionAuthorizer()
+        let supportedDeviceSpecs = DeviceCapabilityProvider.defaultSpecs.filter {
+            SupportedConnections.isSupported($0.kind)
+        }
+        await CapabilityProviderBootstrap.registerDeviceProviders(
+            specs: supportedDeviceSpecs,
+            registry: registry,
+            linkedByUser: { kind in
+                { await authorizer.currentAuthorization(for: kind).canDeliverData }
+            }
+        )
+
+        cloudConnectionsCancellable?.cancel()
+        let publisher = cloudConnectionRepository().connectionsPublisher()
+        let seedServiceIds = SupportedConnections.supportedCloudServiceIds
+        // GRDB's `.immediate` scheduler requires subscription on the main thread.
+        await MainActor.run {
+            self.cloudConnectionsCancellable = publisher.sink { connections in
+                Task { [registry] in
+                    await CapabilityProviderBootstrap.syncCloudProviders(
+                        connections: connections,
+                        seedServiceIds: seedServiceIds,
+                        registry: registry
+                    )
+                }
+            }
+        }
     }
 }

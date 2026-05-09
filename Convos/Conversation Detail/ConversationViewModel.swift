@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
 import Observation
@@ -189,6 +190,14 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
+    @ObservationIgnored
+    private var capabilityRequestsCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var observedCapabilityRequestsConversationId: String?
+    @ObservationIgnored
+    private var latestObservedCapabilityRequest: CapabilityRequest?
+    @ObservationIgnored
+    private var locallyHandledCapabilityRequestIds: Set<String> = []
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
@@ -401,6 +410,14 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
+
+    /// The agent's most-recent unresolved `capability_request` for this conversation.
+    /// When non-nil, `ConversationView` renders the picker card in the same slot the
+    /// `ConversationOnboardingView` would otherwise occupy. Cleared on Approve / Deny /
+    /// dismiss; replaced wholesale when a newer request arrives (per the "only show the
+    /// last request" rule).
+    var pendingCapabilityPickerLayout: CapabilityPickerLayout?
+    var showsCapabilityApprovedToast: Bool = false
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
@@ -723,6 +740,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
         setupVoiceMemoPlaybackObserver()
+        observeCapabilityRequests()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -752,6 +770,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
+                    self.observeCapabilityRequests(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
                         self.sendReadReceiptIfNeeded()
@@ -773,6 +792,61 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             }
             .store(in: &cancellables)
         observePhotoPreferences(for: conversation.id)
+    }
+
+    private func observeCapabilityRequests() {
+        observeCapabilityRequests(for: conversation.id)
+    }
+
+    private func observeCapabilityRequests(for conversationId: String) {
+        guard conversationId != observedCapabilityRequestsConversationId else { return }
+        observedCapabilityRequestsConversationId = conversationId
+
+        let registry = session.capabilityProviderRegistry()
+        let resolver = session.capabilityResolver()
+        let handler = CapabilityRequestHandler()
+        pendingCapabilityPickerLayout = nil
+        latestObservedCapabilityRequest = nil
+        locallyHandledCapabilityRequestIds.removeAll()
+        capabilityRequestsCancellable?.cancel()
+        capabilityRequestsCancellable = session.capabilityRequestRepository(for: conversationId)
+            .pendingRequestPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] request in
+                guard let self else { return }
+                // The user already approved/denied this request locally — keep the picker
+                // hidden until the result row lands and the publisher emits a different
+                // request (or nil). Without this guard, an unrelated DB change between the
+                // tap and the result write re-emits the same pending request and revives
+                // the card.
+                if let request, self.locallyHandledCapabilityRequestIds.contains(request.requestId) {
+                    return
+                }
+                self.latestObservedCapabilityRequest = request
+                guard let request else {
+                    self.pendingCapabilityPickerLayout = nil
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let layout = await handler.computeLayout(
+                        request: request,
+                        registry: registry,
+                        resolver: resolver,
+                        conversationId: conversationId
+                    )
+                    // Discard if a newer request arrived while we were computing —
+                    // otherwise an out-of-order completion can stomp the latest UI.
+                    guard self.latestObservedCapabilityRequest == request else { return }
+                    // Also discard if the user already approved/denied this exact request
+                    // locally between when this Task was spawned and now. The early-return
+                    // on re-emission at the top of `sink` doesn't update
+                    // `latestObservedCapabilityRequest`, so the staleness check above can't
+                    // see that the user already answered.
+                    guard !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else { return }
+                    self.pendingCapabilityPickerLayout = layout
+                }
+            }
     }
 
     private func observePhotoPreferences(for conversationId: String) {
@@ -857,6 +931,486 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     func inviteWasAccepted() {
         Task { @MainActor in
             await onboardingCoordinator.inviteWasAccepted(for: conversation.id)
+        }
+    }
+
+    // MARK: - Capability picker
+
+    /// Replaces any pending capability request with `layout`. When the agent sends a new
+    /// `capability_request` and we want the picker to display, the host computes the
+    /// layout via `CapabilityRequestHandler.computeLayout` and calls this. Setting nil
+    /// hides the picker and lets the onboarding view take its slot back.
+    func presentCapabilityPicker(_ layout: CapabilityPickerLayout?) {
+        pendingCapabilityPickerLayout = layout
+    }
+
+    /// User tapped Approve in the picker card with this provider selection.
+    /// Persists the resolution so future tool calls route to the same set, then
+    /// posts a `capability_request_result(.approved)` reply for the agent.
+    func onCapabilityApprove(providerIds: Set<ProviderID>) {
+        guard let request = pendingCapabilityPickerLayout?.request else {
+            pendingCapabilityPickerLayout = nil
+            return
+        }
+        approveCapabilityRequest(request, providerIds: providerIds, conversationId: conversation.id)
+    }
+
+    /// User tapped Deny. Clears any prior resolution for this verb so a subsequent
+    /// tool call doesn't silently route through stale state, then posts a
+    /// `capability_request_result(.denied)` reply for the agent.
+    func onCapabilityDeny() {
+        guard let request = pendingCapabilityPickerLayout?.request else {
+            pendingCapabilityPickerLayout = nil
+            return
+        }
+        denyCapabilityRequest(request, conversationId: conversation.id)
+    }
+
+    private func approveCapabilityRequest(
+        _ request: CapabilityRequest,
+        providerIds: Set<ProviderID>,
+        conversationId: String
+    ) {
+        locallyHandledCapabilityRequestIds.insert(request.requestId)
+        // Only dismiss the picker if it's still showing *this* request — a newer
+        // request might have arrived during the async hop and replaced the layout,
+        // and we mustn't blow that one away on the old request's behalf.
+        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+            pendingCapabilityPickerLayout = nil
+        }
+        sendCapabilityResult(
+            request: request,
+            status: .approved,
+            providerIds: providerIds,
+            conversationId: conversationId
+        )
+    }
+
+    private func denyCapabilityRequest(_ request: CapabilityRequest, conversationId: String) {
+        locallyHandledCapabilityRequestIds.insert(request.requestId)
+        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+            pendingCapabilityPickerLayout = nil
+        }
+        sendCapabilityResult(
+            request: request,
+            status: .denied,
+            providerIds: [],
+            conversationId: conversationId
+        )
+    }
+
+    private func sendCapabilityResult(
+        request: CapabilityRequest,
+        status: CapabilityRequestResult.Status,
+        providerIds: Set<ProviderID>,
+        conversationId: String
+    ) {
+        let resolver = session.capabilityResolver()
+        let writer = messagingService.capabilityRequestResultWriter()
+        Task {
+            // The agent's contract is that a result is *always* posted — even cancel
+            // and deny — so we keep going on a resolver-side error and let the agent
+            // see the user's intent. Local persistence failure is logged and surfaced
+            // separately if it ever needs UI surfacing; it must not strand the agent.
+            //
+            // Snapshot the resolver's current providerIds for this (subject, verb,
+            // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
+            // is what the cloud persist path uses to decide whether to fire a
+            // connection_event — fan-in semantics are per-(provider, verb), so a
+            // second verb approval on a provider already granted at the connection
+            // level still needs its own group-update line.
+            let askerInboxId = request.askerInboxId
+            let previouslyApproved: Set<ProviderID>
+            if status == .approved {
+                previouslyApproved = await resolver.resolution(
+                    subject: request.subject,
+                    capability: request.capability,
+                    conversationId: conversationId,
+                    grantedToInboxId: askerInboxId
+                )
+            } else {
+                previouslyApproved = []
+            }
+            let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
+
+            do {
+                switch status {
+                case .approved:
+                    try await resolver.setResolution(
+                        providerIds,
+                        subject: request.subject,
+                        capability: request.capability,
+                        conversationId: conversationId,
+                        grantedToInboxId: askerInboxId
+                    )
+                case .denied, .cancelled:
+                    try await resolver.clearResolution(
+                        subject: request.subject,
+                        capability: request.capability,
+                        conversationId: conversationId,
+                        grantedToInboxId: askerInboxId
+                    )
+                }
+            } catch {
+                Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
+            }
+
+            let availableActions = await self.availableActions(
+                for: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
+                capability: request.capability
+            )
+            let result = CapabilityRequestResult(
+                requestId: request.requestId,
+                status: status,
+                subject: request.subject,
+                capability: request.capability,
+                providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
+                availableActions: availableActions
+            )
+            if status == .approved {
+                let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
+                await Self.persistApprovedDeviceCapabilities(
+                    providerIds: sortedIds,
+                    capability: request.capability,
+                    conversationId: conversationId,
+                    grantedToInboxId: askerInboxId,
+                    session: session
+                )
+                await Self.persistApprovedCloudCapabilities(
+                    providerIds: sortedIds,
+                    newlyApprovedProviderIds: newlyApprovedProviderIds,
+                    capability: request.capability,
+                    conversationId: conversationId,
+                    grantedToInboxId: askerInboxId,
+                    session: session
+                )
+            }
+
+            do {
+                try await writer.sendResult(result, in: conversationId)
+                if status == .approved {
+                    await MainActor.run { [weak self] in
+                        self?.flashCapabilityApprovedToast()
+                    }
+                }
+            } catch {
+                Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func availableActions(
+        for providerIds: [ProviderID],
+        capability: ConnectionCapability
+    ) async -> [CapabilityRequestResult.AvailableAction] {
+        var actions: [CapabilityRequestResult.AvailableAction] = []
+
+        for providerId in providerIds {
+            if let kind = ConnectionKind.fromDeviceProviderId(providerId),
+               let source = await Self.deviceActionSchemas(for: kind) {
+                let schemas = source
+                    .filter { $0.capability == capability }
+                    .sorted(by: { $0.actionName < $1.actionName })
+                actions.append(contentsOf: schemas.map {
+                    CapabilityRequestResult.AvailableAction(
+                        providerId: providerId,
+                        kind: kind,
+                        actionName: $0.actionName,
+                        summary: $0.summary,
+                        inputs: $0.inputs.map(Self.capabilityActionParameter(from:)),
+                        outputs: $0.outputs.map(Self.capabilityActionParameter(from:))
+                    )
+                })
+                continue
+            }
+        }
+
+        return actions.sorted {
+            if $0.providerId.rawValue != $1.providerId.rawValue {
+                return $0.providerId.rawValue < $1.providerId.rawValue
+            }
+            return $0.actionName < $1.actionName
+        }
+    }
+
+    private static func deviceActionSchemas(for kind: ConnectionKind) async -> [ActionSchema]? {
+        switch kind {
+        case .calendar:
+            return await CalendarDataSink().actionSchemas()
+        case .contacts:
+            return await ContactsDataSink().actionSchemas()
+        case .photos:
+            return await PhotosDataSink().actionSchemas()
+        case .health:
+            return await HealthDataSink().actionSchemas()
+        case .music:
+            return await MusicDataSink().actionSchemas()
+        case .homeKit:
+            return await HomeKitDataSink().actionSchemas()
+        case .location, .motion, .screenTime:
+            return nil
+        }
+    }
+
+    private static func persistApprovedDeviceCapabilities(
+        providerIds: [ProviderID],
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String,
+        session: any SessionManagerProtocol
+    ) async {
+        let store = session.connectionEnablementStore()
+        let eventWriter = session.messagingService().connectionEventWriter()
+        for providerId in providerIds {
+            guard let kind = ConnectionKind.fromDeviceProviderId(providerId) else { continue }
+            let wasEnabled = await store.isEnabled(
+                kind: kind,
+                capability: capability,
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
+            )
+            await store.setEnabled(
+                true,
+                kind: kind,
+                capability: capability,
+                conversationId: conversationId,
+                grantedToInboxId: grantedToInboxId
+            )
+            if !wasEnabled {
+                try? await eventWriter.sendGranted(
+                    providerId: providerId.rawValue,
+                    capability: capability,
+                    grantedToInboxId: grantedToInboxId,
+                    in: conversationId
+                )
+            }
+        }
+    }
+
+    /// For each approved `composio.<service>` provider, ensure a per-conversation
+    /// `CloudConnectionGrant` exists against the matching active `CloudConnection` and
+    /// emit a `connection_event granted` if the grant is newly created. Skips providers
+    /// whose CloudConnection isn't active locally — those would have been created by the
+    /// caller (e.g. picker → connectCloudProvider) and the publisher snapshot taken here
+    /// races against that path; if we miss it the next sync corrects state.
+    private static func persistApprovedCloudCapabilities(
+        providerIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String,
+        session: any SessionManagerProtocol
+    ) async {
+        let messagingService = session.messagingService()
+        let grantWriter = messagingService.connectionGrantWriter()
+        let eventWriter = messagingService.connectionEventWriter()
+        let repository = session.cloudConnectionRepository()
+        let activeConnections = (try? await repository.connections()) ?? []
+        let existingGrants = (try? await repository.grants(for: conversationId)) ?? []
+        let existingGrantedKeys = Set(existingGrants.map { GrantKey(connectionId: $0.connectionId, grantedToInboxId: $0.grantedToInboxId) })
+
+        for providerId in providerIds {
+            guard let serviceId = providerId.cloudServiceId else { continue }
+            guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else { continue }
+
+            // The grant row is per-(connection, conversation, agent). Two agents
+            // approved for the same connection get two rows; the same agent re-
+            // approving the same connection is a no-op for the grant write but
+            // still needs its own connection_event.
+            let grantKey = GrantKey(connectionId: connection.id, grantedToInboxId: grantedToInboxId)
+            if !existingGrantedKeys.contains(grantKey) {
+                do {
+                    try await grantWriter.grantConnection(
+                        connection.id,
+                        to: conversationId,
+                        grantedToInboxId: grantedToInboxId
+                    )
+                } catch {
+                    Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
+                    continue
+                }
+            }
+
+            // Fan-in is per-(providerId, verb): if the resolver already had
+            // this providerId for this verb (re-approval after deny, picker
+            // shown twice), don't echo a duplicate group-update message.
+            guard newlyApprovedProviderIds.contains(providerId) else { continue }
+            try? await eventWriter.sendGranted(
+                providerId: providerId.rawValue,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId,
+                in: conversationId
+            )
+        }
+    }
+
+    private struct GrantKey: Hashable {
+        let connectionId: String
+        let grantedToInboxId: String
+    }
+
+    private static func capabilityActionParameter(
+        from parameter: ActionParameter
+    ) -> CapabilityRequestResult.Parameter {
+        CapabilityRequestResult.Parameter(
+            name: parameter.name,
+            type: capabilityActionParameterType(parameter.type),
+            description: parameter.description,
+            isRequired: parameter.isRequired
+        )
+    }
+
+    private static func capabilityActionParameterType(_ type: ActionParameter.ParameterType) -> String {
+        switch type {
+        case .string:
+            return "string"
+        case .bool:
+            return "bool"
+        case .int:
+            return "int"
+        case .double:
+            return "double"
+        case .date:
+            return "date"
+        case .iso8601DateTime:
+            return "iso8601"
+        case .enumValue(let allowed):
+            return "enum(\(allowed.joined(separator: ",")))"
+        case .arrayOf(let element):
+            return "array<\(capabilityActionParameterType(element))>"
+        }
+    }
+
+    private func flashCapabilityApprovedToast() {
+        showsCapabilityApprovedToast = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.0))
+            await MainActor.run { [weak self] in
+                self?.showsCapabilityApprovedToast = false
+            }
+        }
+    }
+
+    /// User tapped a Connect row. Routes to the matching path for the provider's
+    /// kind: device providers go through `DeviceConnectionAuthorizer` for the iOS
+    /// permission prompt, cloud providers run OAuth via `CloudConnectionManager`.
+    /// On success either path treats the connect tap itself as the user's approval —
+    /// they came to this card from a `capability_request`, just granted access, and
+    /// would otherwise have to tap Approve again on the same card. On cancel/decline
+    /// the picker recomputes so the user can pick a different provider or deny.
+    func onCapabilityConnect(providerId: ProviderID) {
+        if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
+            connectDeviceProvider(kind: kind, providerId: providerId)
+            return
+        }
+        if let serviceId = providerId.cloudServiceId {
+            connectCloudProvider(serviceId: serviceId, providerId: providerId)
+            return
+        }
+        Log.warning("Unsupported provider for Connect: \(providerId.rawValue)")
+    }
+
+    private func connectDeviceProvider(kind: ConnectionKind, providerId: ProviderID) {
+        guard let request = pendingCapabilityPickerLayout?.request else { return }
+        let conversationId = conversation.id
+        let session = self.session
+        let registry = session.capabilityProviderRegistry()
+        let authorizer = session.deviceConnectionAuthorizer()
+        Task { [weak self] in
+            do {
+                _ = try await authorizer.requestAuthorization(for: kind)
+            } catch {
+                Log.error("Authorization request failed for \(kind.rawValue): \(error.localizedDescription)")
+            }
+            let status = await authorizer.currentAuthorization(for: kind)
+            let isLinked = status.canDeliverData
+            if let spec = DeviceCapabilityProvider.defaultSpecs.first(where: { $0.kind == kind }) {
+                // Capture authorizer + kind, not a fixed Bool — the user can revoke
+                // permission in Settings later, and the registry needs the live state.
+                let updated = DeviceCapabilityProvider(
+                    id: spec.id,
+                    subject: spec.subject,
+                    displayName: spec.displayName,
+                    iconName: spec.iconName,
+                    capabilities: spec.capabilities,
+                    subjectNounPhrase: spec.subjectNounPhrase,
+                    linkedByUser: {
+                        await authorizer.currentAuthorization(for: kind).canDeliverData
+                    }
+                )
+                await registry.register(updated)
+            }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if isLinked {
+                    // Always approve the *captured* request — a newer request might
+                    // have arrived during the OS prompt and replaced the picker
+                    // layout's request, and we must not approve it on its behalf.
+                    // Also pass the captured conversationId so the result lands in
+                    // the conversation that originated the request even if the user
+                    // navigated away during the prompt.
+                    self.approveCapabilityRequest(request, providerIds: [providerId], conversationId: conversationId)
+                } else {
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
+            }
+        }
+    }
+
+    private func connectCloudProvider(serviceId: String, providerId: ProviderID) {
+        guard let request = pendingCapabilityPickerLayout?.request else { return }
+        let conversationId = conversation.id
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { [weak self] in
+            do {
+                _ = try await manager.connect(serviceId: serviceId)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    // The cloud-connection observer in SessionManager will register the
+                    // newly-linked provider; approving here is safe even if that hasn't
+                    // ticked yet because the resolver only stores the providerId.
+                    self.approveCapabilityRequest(request, providerIds: [providerId], conversationId: conversationId)
+                }
+            } catch let oauthError as OAuthError {
+                if case .cancelled = oauthError {
+                    // User backed out of the OAuth sheet — leave the picker open so they
+                    // can pick a different provider.
+                } else {
+                    Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
+                }
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
+            } catch {
+                Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                }
+            }
+        }
+    }
+
+    private func recomputeCapabilityPickerLayout(for request: CapabilityRequest, conversationId: String) {
+        let registry = session.capabilityProviderRegistry()
+        let resolver = session.capabilityResolver()
+        let handler = CapabilityRequestHandler()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let layout = await handler.computeLayout(
+                request: request,
+                registry: registry,
+                resolver: resolver,
+                conversationId: conversationId
+            )
+            // If a newer request arrived OR the user already approved/denied this one,
+            // don't revive the picker with a stale layout.
+            guard self.latestObservedCapabilityRequest == request,
+                  !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else {
+                return
+            }
+            self.pendingCapabilityPickerLayout = layout
         }
     }
 
@@ -1786,15 +2340,37 @@ extension ConversationViewModel {
         return value
     }
 
+    /// Resolved display name for the agent that emitted `request`, or nil if the agent
+    /// is not (or no longer) in the conversation. Used by the capability picker card to
+    /// label the asker. Connection-event summaries do their own name resolution at
+    /// processor time via `MemberProfileInfo`.
+    func askerDisplayName(for request: CapabilityRequest) -> String? {
+        conversation.members
+            .first(where: { $0.profile.inboxId == request.askerInboxId })?
+            .displayName
+    }
+
     func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {
         session.assistantFilesLinksRepository(for: conversation.id)
     }
 
     func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
-        ConversationConnectionsViewModel(
+        // Snapshot of agent inbox ids at view-model creation. Per-conversation toggles
+        // fan out one grant row per agent currently in the conversation; if membership
+        // changes mid-life of the view model, callers can recreate it (the view model is
+        // shaped per ConversationInfo presentation, so that already happens naturally).
+        let agentInboxIds = conversation.members
+            .filter { $0.isAgent }
+            .map { $0.profile.inboxId }
+        return ConversationConnectionsViewModel(
             conversationId: conversation.id,
-            connectionRepository: session.connectionRepository(),
-            grantWriter: messagingService.connectionGrantWriter()
+            agentInboxIds: agentInboxIds,
+            cloudConnectionManager: session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme),
+            cloudConnectionRepository: session.cloudConnectionRepository(),
+            grantWriter: messagingService.connectionGrantWriter(),
+            connectionEventWriter: messagingService.connectionEventWriter(),
+            enablementStore: session.connectionEnablementStore(),
+            capabilityResolver: session.capabilityResolver()
         )
     }
 

@@ -136,6 +136,63 @@ public final class MessagesListProcessor: Sendable {
                 continue
             }
 
+            if case .connectionEvent(let eventSummary) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let resolvedSummary = resolvingActor(in: eventSummary, sender: msg.sender, memberProfiles: memberProfiles)
+                items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
+            if case .connectionInvocationResult(let resultSummary) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let resolvedSummary = resolvingActor(in: resultSummary, sender: msg.sender, memberProfiles: memberProfiles)
+                items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
+            if case .connectionInvocation = content {
+                lastMessageDate = msg.date
+                lastWasAttachment = false
+                continue
+            }
+
+            if case .connectionPayload(let payloadSummary) = content {
+                lastMessageDate = msg.date
+                if !currentGroupMessages.isEmpty, currentSenderId != nil {
+                    flush(
+                        &items, currentGroupMessages,
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
+                    )
+                    currentGroupMessages.removeAll(keepingCapacity: true)
+                    currentSenderId = nil
+                }
+                let resolvedSummary = resolvingActor(in: payloadSummary, sender: msg.sender, memberProfiles: memberProfiles)
+                items.append(.connectionEvent(id: msg.messageId, summary: resolvedSummary, origin: msg.origin))
+                lastWasAttachment = false
+                continue
+            }
+
             let messageDate = msg.date
             var addedDateSeparator = false
             if let lastDate = lastMessageDate {
@@ -350,5 +407,45 @@ public final class MessagesListProcessor: Sendable {
         }
 
         items.append(.messages(group))
+    }
+
+    /// Materialize the actor for a `ConnectionEventSummary` whose `text` is an
+    /// actor-less phrase.
+    ///
+    /// - `.messageSender` is resolved using the message's own sender snapshot. That
+    ///   snapshot is per-message and stable.
+    /// - `.grantedAgent` is resolved by inbox-id-keyed lookup against `memberProfiles`.
+    ///   The lookup is by stable inbox id (not the verification flag), so it doesn't
+    ///   flap during attestation re-verification; ProfileUpdates that rename the agent
+    ///   trigger a `memberProfiles` change which re-runs the processor and re-bakes the
+    ///   text — same path `.messageSender` uses.
+    /// - `nil` actor (no actor expected) is returned unchanged.
+    private static func resolvingActor(
+        in summary: ConnectionEventSummary,
+        sender: ConversationMember,
+        memberProfiles: [String: MemberProfileInfo]
+    ) -> ConnectionEventSummary {
+        let actorName: String
+        switch summary.actor {
+        case .messageSender:
+            actorName = sender.isCurrentUser ? "You" : sender.profile.displayName
+        case .grantedAgent:
+            guard let inboxId = summary.grantedToInboxId,
+                  let name = memberProfiles[inboxId]?.name,
+                  !name.isEmpty else {
+                return summary
+            }
+            actorName = name
+        case .none:
+            return summary
+        }
+        guard !actorName.isEmpty else { return summary }
+        return ConnectionEventSummary(
+            text: "\(actorName) \(summary.text)",
+            outcome: summary.outcome,
+            icon: summary.icon,
+            actor: summary.actor,
+            grantedToInboxId: summary.grantedToInboxId
+        )
     }
 }

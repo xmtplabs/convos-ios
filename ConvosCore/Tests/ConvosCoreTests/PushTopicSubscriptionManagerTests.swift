@@ -236,7 +236,7 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         var unsubscribeCalls: [UnsubscribeCall] = []
     }
 
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state: OSAllocatedUnfairLock<State> = OSAllocatedUnfairLock(initialState: State())
 
     var subscribeCalls: [SubscribeCall] {
         state.withLock { $0.subscribeCalls }
@@ -247,7 +247,10 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
     }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        URLRequest(url: URL(string: "https://example.com")!)
+        guard let url = URL(string: "https://example.com") else {
+            throw URLError(.badURL)
+        }
+        return URLRequest(url: url)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {
@@ -296,19 +299,19 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         .init(success: true, joined: true)
     }
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] {
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] {
         []
     }
 
-    func revokeConnection(connectionId: String) async throws {
+    func revokeCloudConnection(connectionId: String) async throws {
     }
 }
 
@@ -322,12 +325,15 @@ private enum ThrowingPushAPIClientError: Error {
 }
 
 private final class ThrowingPushAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
-    private let counter = OSAllocatedUnfairLock(initialState: 0)
+    private let counter: OSAllocatedUnfairLock<Int> = OSAllocatedUnfairLock(initialState: 0)
 
     var subscribeCallCount: Int { counter.withLock { $0 } }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        URLRequest(url: URL(string: "https://example.com")!)
+        guard let url = URL(string: "https://example.com") else {
+            throw URLError(.badURL)
+        }
+        return URLRequest(url: url)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
@@ -365,17 +371,17 @@ private final class ThrowingPushAPIClient: ConvosAPIClientProtocol, @unchecked S
         .init(success: true, joined: true)
     }
 
-    func initiateConnection(serviceId: String, redirectUri: String) async throws -> ConnectionsAPI.InitiateResponse {
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         .init(connectionRequestId: "", redirectUrl: "")
     }
 
-    func completeConnection(connectionRequestId: String) async throws -> ConnectionsAPI.CompleteResponse {
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
         .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
     }
 
-    func listConnections() async throws -> [ConnectionsAPI.ConnectionResponse] { [] }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
-    func revokeConnection(connectionId: String) async throws {}
+    func revokeCloudConnection(connectionId: String) async throws {}
 }
 
 private final class RecordingPushConversationLister: PushTopicConversationListing, @unchecked Sendable {

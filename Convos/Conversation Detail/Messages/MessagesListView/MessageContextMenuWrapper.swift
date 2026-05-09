@@ -41,8 +41,38 @@ struct MessageGestureModifier: ViewModifier {
         return uniqueEmoji.count == 1 ? uniqueEmoji.first ?? "❤️" : "❤️"
     }
 
+    func body(content: Content) -> some View {
+        content
+            .environment(\.messagePressed, isPressed)
+            .scaleEffect(
+                isPressed && hasAppeared ? 1.03 : 1.0,
+                anchor: message.sender.isCurrentUser ? .trailing : .leading
+            )
+            .opacity(isSourceBubble ? 0 : 1)
+            .onAppear { hasAppeared = true }
+            .background { sourceBubbleFrameTracker }
+            .onPreferenceChange(SourceFrameKey.self) { frame in
+                if isSourceBubble, let frame {
+                    contextMenuState.currentSourceFrame = frame
+                }
+            }
+            .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
+                interactiveExclusionFrames = frames
+            }
+            .animation(.easeInOut(duration: 0.25), value: isPressed)
+            .offset(x: swipeOffset)
+            .background(alignment: .leading) { swipeReplyIndicator }
+            .overlay { gestureOverlay }
+            .accessibilityAction(named: "React") {
+                onToggleReaction(doubleTapEmoji, message.messageId)
+            }
+            .accessibilityAction(named: "Reply") {
+                onReply(message)
+            }
+    }
+
     @ViewBuilder
-    private func sourceFrameBackground() -> some View {
+    private var sourceBubbleFrameTracker: some View {
         if isSourceBubble {
             GeometryReader { geo in
                 Color.clear
@@ -52,7 +82,7 @@ struct MessageGestureModifier: ViewModifier {
     }
 
     @ViewBuilder
-    private func swipeReplyIndicator() -> some View {
+    private var swipeReplyIndicator: some View {
         if swipeOffset > 0 {
             let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
             Image(systemName: "arrowshape.turn.up.left.fill")
@@ -64,41 +94,17 @@ struct MessageGestureModifier: ViewModifier {
         }
     }
 
-    private func gestureOverlay() -> some View {
+    private var gestureOverlay: some View {
         GeometryReader { geometry in
             GestureOverlayView(
                 contextMenuState: contextMenuState,
                 hasSingleTap: onSingleTap != nil,
                 excludedFrames: interactiveExclusionFrames,
                 onSingleTap: { onSingleTap?() },
-                onDoubleTap: {
-                    if let onDoubleTap {
-                        onDoubleTap()
-                    } else {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        onToggleReaction(doubleTapEmoji, message.messageId)
-                    }
-                },
-                onLongPress: {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    let frame = geometry.frame(in: .global)
-                    contextMenuState.present(
-                        message: message,
-                        bubbleFrame: frame,
-                        bubbleStyle: bubbleStyle
-                    )
-                },
-                onSwipeOffsetChanged: { offset in
-                    swipeOffset = offset
-                    externalSwipeOffset?.wrappedValue = offset
-                },
-                onSwipeEnded: { triggered in
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                        swipeOffset = 0
-                        externalSwipeOffset?.wrappedValue = 0
-                    }
-                    if triggered { onReply(message) }
-                },
+                onDoubleTap: handleDoubleTap,
+                onLongPress: { handleLongPress(geometry: geometry) },
+                onSwipeOffsetChanged: handleSwipeOffsetChanged,
+                onSwipeEnded: handleSwipeEnded,
                 onPressChanged: { pressed in
                     isPressed = pressed
                 }
@@ -106,34 +112,36 @@ struct MessageGestureModifier: ViewModifier {
         }
     }
 
-    func body(content: Content) -> some View {
-        content
-            .environment(\.messagePressed, isPressed)
-            .scaleEffect(
-                isPressed && hasAppeared ? 1.03 : 1.0,
-                anchor: message.sender.isCurrentUser ? .trailing : .leading
-            )
-            .opacity(isSourceBubble ? 0 : 1)
-            .onAppear { hasAppeared = true }
-            .background { sourceFrameBackground() }
-            .onPreferenceChange(SourceFrameKey.self) { frame in
-                if isSourceBubble, let frame {
-                    contextMenuState.currentSourceFrame = frame
-                }
-            }
-            .onPreferenceChange(MessageGestureExclusionFrameKey.self) { frames in
-                interactiveExclusionFrames = frames
-            }
-            .animation(.easeInOut(duration: 0.25), value: isPressed)
-            .offset(x: swipeOffset)
-            .background(alignment: .leading) { swipeReplyIndicator() }
-            .overlay { gestureOverlay() }
-            .accessibilityAction(named: "React") {
-                onToggleReaction(doubleTapEmoji, message.messageId)
-            }
-            .accessibilityAction(named: "Reply") {
-                onReply(message)
-            }
+    private func handleDoubleTap() {
+        if let onDoubleTap {
+            onDoubleTap()
+        } else {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onToggleReaction(doubleTapEmoji, message.messageId)
+        }
+    }
+
+    private func handleLongPress(geometry: GeometryProxy) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        let frame = geometry.frame(in: .global)
+        contextMenuState.present(
+            message: message,
+            bubbleFrame: frame,
+            bubbleStyle: bubbleStyle
+        )
+    }
+
+    private func handleSwipeOffsetChanged(_ offset: CGFloat) {
+        swipeOffset = offset
+        externalSwipeOffset?.wrappedValue = offset
+    }
+
+    private func handleSwipeEnded(_ triggered: Bool) {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            swipeOffset = 0
+            externalSwipeOffset?.wrappedValue = 0
+        }
+        if triggered { onReply(message) }
     }
 
     private enum Constant {

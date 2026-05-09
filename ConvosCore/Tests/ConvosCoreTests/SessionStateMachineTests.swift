@@ -118,14 +118,17 @@ struct SessionStateMachineTests {
             break
         }
 
-        #expect(result != nil, "Should reach ready state")
+        guard let result else {
+            Issue.record("Should reach ready state")
+            return
+        }
 
         // Verify identity was saved to keychain
         guard let savedIdentity = try await fixtures.identityStore.load() else {
             Issue.record("No singleton identity saved")
             return
         }
-        #expect(savedIdentity.inboxId == result!.client.inboxId)
+        #expect(savedIdentity.inboxId == result.client.inboxId)
         #expect(savedIdentity.clientId == clientId)
 
         // Verify saved to database
@@ -136,7 +139,7 @@ struct SessionStateMachineTests {
         #expect(dbInboxes.first?.clientId == clientId)
 
         // Clean up
-        try? result?.client.deleteLocalDatabase()
+        try? result.client.deleteLocalDatabase()
         try? await fixtures.cleanup()
     }
 

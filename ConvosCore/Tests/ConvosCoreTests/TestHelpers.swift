@@ -78,10 +78,8 @@ func waitForState(
     condition: @escaping @Sendable (SessionStateMachine.State) -> Bool
 ) async throws -> SessionStateMachine.State {
     try await withTimeout(seconds: timeout) {
-        for await state in await stateMachine.stateSequence {
-            if condition(state) {
-                return state
-            }
+        for await state in await stateMachine.stateSequence where condition(state) {
+            return state
         }
         throw TimeoutError()
     }
@@ -122,7 +120,8 @@ class TestFixtures {
         _ = _configureXMTPLogging
     }
 
-    /// Create a new XMTP client for testing
+    // Create a new XMTP client for testing
+    // swiftlint:disable:next large_tuple
     func createClient() async throws -> (client: any XMTPClientProvider, clientId: String, keys: KeychainIdentityKeys) {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
@@ -240,12 +239,12 @@ class MockInvitesRepository: InvitesRepositoryProtocol {
 
 /// Mock implementation of SyncingManagerProtocol for testing
 actor MockSyncingManager: SyncingManagerProtocol {
-    var isStarted = false
-    var isPaused = false
-    var startCallCount = 0
-    var stopCallCount = 0
-    var pauseCallCount = 0
-    var resumeCallCount = 0
+    var isStarted: Bool = false
+    var isPaused: Bool = false
+    var startCallCount: Int = 0
+    var stopCallCount: Int = 0
+    var pauseCallCount: Int = 0
+    var resumeCallCount: Int = 0
 
     var isSyncReady: Bool {
         isStarted && !isPaused

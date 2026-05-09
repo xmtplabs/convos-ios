@@ -452,12 +452,6 @@ struct ConversationInfoView: View {
 
             assistantSection
 
-            if FeatureFlags.shared.isCloudConnectionsEnabled,
-               let connectionsViewModel,
-               connectionsViewModel.hasConnections {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
-            }
-
             convoCodeSection
 
             if viewModel.canRemoveMembers {
@@ -471,6 +465,11 @@ struct ConversationInfoView: View {
             }
 
             preferencesSection
+
+            if viewModel.conversation.hasAgent,
+               let connectionsViewModel {
+                ConversationConnectionsSection(viewModel: connectionsViewModel)
+            }
 
             convoRulesSection
 
@@ -622,7 +621,7 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if FeatureFlags.shared.isCloudConnectionsEnabled, connectionsViewModel == nil {
+                    if viewModel.conversation.hasAgent, connectionsViewModel == nil {
                         connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
                     }
                 }
@@ -729,8 +728,12 @@ struct DebugLogsTextView: View {
     }
 }
 
+@MainActor
+private func makeConversationInfoPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
+    ConversationInfoView(viewModel: makeConversationInfoPreviewViewModel(), focusCoordinator: focusCoordinator)
 }

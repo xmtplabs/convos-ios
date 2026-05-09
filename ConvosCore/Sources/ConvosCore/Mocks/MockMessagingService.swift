@@ -2,6 +2,7 @@
 import UIKit
 #endif
 import Combine
+import ConvosConnections
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -128,8 +129,16 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationPermissionsRepository
     }
 
-    public func connectionGrantWriter() -> any ConnectionGrantWriterProtocol {
+    public func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol {
         MockConnectionGrantWriter()
+    }
+
+    public func connectionEventWriter() -> any ConnectionEventWriterProtocol {
+        MockConnectionEventWriter()
+    }
+
+    public func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
+        MockCapabilityRequestResultWriter()
     }
 
     public func uploadImage(data: Data, filename: String) async throws -> String {
@@ -151,5 +160,36 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
+    }
+
+    public func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
+    }
+}
+
+public final class MockConnectionEventWriter: ConnectionEventWriterProtocol, @unchecked Sendable {
+    public init() {}
+
+    public func sendGranted(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {}
+
+    public func sendRevoked(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {}
+}
+
+public final class MockCapabilityRequestResultWriter: CapabilityRequestResultWriterProtocol, @unchecked Sendable {
+    public private(set) var sentResults: [(result: CapabilityRequestResult, conversationId: String)] = []
+
+    public init() {}
+
+    public func sendResult(_ result: CapabilityRequestResult, in conversationId: String) async throws {
+        sentResults.append((result: result, conversationId: conversationId))
     }
 }

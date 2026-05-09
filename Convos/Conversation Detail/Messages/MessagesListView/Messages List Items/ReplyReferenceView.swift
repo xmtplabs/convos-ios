@@ -33,6 +33,11 @@ struct ReplyReferenceView: View {
             return preview.title ?? preview.displayHost
         case .update, .assistantJoinRequest, .connectionGrantRequest:
             return ""
+        case .connectionEvent(let summary),
+             .connectionInvocation(let summary),
+             .connectionInvocationResult(let summary),
+             .connectionPayload(let summary):
+            return String(summary.text.prefix(80))
         }
     }
 

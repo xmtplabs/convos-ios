@@ -9,6 +9,8 @@ struct MessagesMediaButtonsView: View {
     var isMediaCapacityFull: Bool = false
     var isVoiceMemoDisabled: Bool = false
     var isSideConvoDisabled: Bool = false
+    /// Only rendered in DEBUG builds — the button is hidden when nil or in Release.
+    var onDebugAttachmentTap: (() -> Void)?
 
     private var mediaTint: Color {
         isMediaCapacityFull ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary
@@ -92,6 +94,23 @@ struct MessagesMediaButtonsView: View {
             .disabled(isSideConvoDisabled)
             .accessibilityLabel("Side convo")
             .accessibilityIdentifier("side-convo-button")
+
+            #if DEBUG
+            if let onDebugAttachmentTap {
+                Button {
+                    onDebugAttachmentTap()
+                } label: {
+                    Image(systemName: "testtube.2")
+                        .font(.system(size: 18.0, weight: .medium))
+                        .foregroundStyle(Color.colorTextPrimary)
+                        .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Debug test attachment")
+                .accessibilityIdentifier("debug-test-attachment-button")
+            }
+            #endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Media buttons")

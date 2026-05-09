@@ -51,6 +51,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case agentOutOfCredits(Profile)
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
     case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
+    case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -71,6 +72,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "assistant-join"
         case .assistantPresentInfo:
             return "assistant-present-info"
+        case .connectionEvent(let id, _, _):
+            return "connection-event-\(id)"
         case .typingIndicator:
             return "typing-indicator"
         }
@@ -111,6 +114,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return group.messages.last?.origin
         case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator:
             return nil
+        case .connectionEvent(_, _, let origin):
+            return origin
         }
     }
 
@@ -147,6 +152,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-assistantJoinStatus"
         case .assistantPresentInfo:
             return "MessagesListItemTypeCell-assistantPresentInfo"
+        case .connectionEvent:
+            return "MessagesListItemTypeCell-connectionEvent"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
         }
@@ -162,6 +169,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-agentOutOfCredits",
             "MessagesListItemTypeCell-assistantJoinStatus",
             "MessagesListItemTypeCell-assistantPresentInfo",
+            "MessagesListItemTypeCell-connectionEvent",
             "TypingIndicatorCollectionCell",
         ]
     }

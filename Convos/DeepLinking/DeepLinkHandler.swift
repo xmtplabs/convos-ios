@@ -33,14 +33,6 @@ final class DeepLinkHandler {
 
     @MainActor
     private static func parseConnectionGrant(from url: URL) -> DeepLinkDestination? {
-        // Cloud Connections feature flag — with the flag off, treat connection
-        // grant URLs as unrecognized so they fall through to invite parsing
-        // (and ultimately get rejected). Prevents soft-launch leak via universal
-        // links the user never explicitly opted into.
-        guard FeatureFlags.shared.isCloudConnectionsEnabled else {
-            return nil
-        }
-
         guard isConnectionGrantURL(url) else {
             return nil
         }
@@ -49,7 +41,7 @@ final class DeepLinkHandler {
             return nil
         }
 
-        guard ConnectionServiceCatalog.info(for: service) != nil else {
+        guard CloudConnectionServiceCatalog.info(for: service) != nil else {
             Log.warning("Connection grant deep link references unknown service; dropping")
             return nil
         }

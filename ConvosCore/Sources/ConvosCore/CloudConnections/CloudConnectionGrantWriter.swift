@@ -1,0 +1,283 @@
+import Foundation
+import GRDB
+@preconcurrency import XMTPiOS
+
+public protocol CloudConnectionGrantWriterProtocol: Sendable {
+    func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws
+    func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws
+}
+
+final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unchecked Sendable {
+    private let sessionStateManager: any SessionStateManagerProtocol
+    private let databaseWriter: any DatabaseWriter
+    private let databaseReader: any DatabaseReader
+    private let myProfileWriter: any MyProfileWriterProtocol
+
+    init(
+        sessionStateManager: any SessionStateManagerProtocol,
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        myProfileWriter: any MyProfileWriterProtocol
+    ) {
+        self.sessionStateManager = sessionStateManager
+        self.databaseWriter = databaseWriter
+        self.databaseReader = databaseReader
+        self.myProfileWriter = myProfileWriter
+    }
+
+    func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
+        guard !grantedToInboxId.isEmpty else {
+            throw CloudConnectionGrantError.missingGrantedToInboxId
+        }
+        let connection = try await databaseReader.read { db in
+            try DBCloudConnection.fetchOne(db, key: connectionId)
+        }
+        guard let connection else {
+            throw CloudConnectionGrantError.connectionNotFound(connectionId)
+        }
+        guard connection.status == CloudConnectionStatus.active.rawValue else {
+            throw CloudConnectionGrantError.connectionNotActive(connectionId, status: connection.status)
+        }
+
+        let grant = DBCloudConnectionGrant(
+            connectionId: connectionId,
+            conversationId: conversationId,
+            serviceId: connection.serviceId,
+            grantedToInboxId: grantedToInboxId,
+            grantedAt: Date()
+        )
+
+        // Publish before persisting. If the publish fails we never commit the grant
+        // locally, so there is no way for a partially-completed operation to leave a
+        // local grant that was never announced to the group.
+        let targetGrants = try await projectedGrants(
+            for: conversationId,
+            addingOrReplacing: grant,
+            removing: nil
+        )
+        try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
+
+        try await databaseWriter.write { db in
+            try grant.save(db)
+        }
+    }
+
+    func revokeGrant(
+        connectionId: String,
+        from conversationId: String,
+        grantedToInboxId: String
+    ) async throws {
+        guard !grantedToInboxId.isEmpty else {
+            throw CloudConnectionGrantError.missingGrantedToInboxId
+        }
+        let existing = try await databaseReader.read { db in
+            try DBCloudConnectionGrant
+                .filter(
+                    DBCloudConnectionGrant.Columns.connectionId == connectionId
+                        && DBCloudConnectionGrant.Columns.conversationId == conversationId
+                        && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
+                )
+                .fetchOne(db)
+        }
+        guard existing != nil else {
+            // Nothing to revoke, no-op.
+            return
+        }
+
+        // Publish the reduced grant set first; only delete locally after the agent sees
+        // the removal. If publish fails we leave the row intact so the UI/agent stay
+        // consistent.
+        let targetGrants = try await projectedGrants(
+            for: conversationId,
+            addingOrReplacing: nil,
+            removing: GrantKey(connectionId: connectionId, conversationId: conversationId, grantedToInboxId: grantedToInboxId)
+        )
+        try await syncGrantsToMetadata(for: conversationId, desiredGrants: targetGrants)
+
+        try await databaseWriter.write { db in
+            try DBCloudConnectionGrant
+                .filter(
+                    DBCloudConnectionGrant.Columns.connectionId == connectionId
+                        && DBCloudConnectionGrant.Columns.conversationId == conversationId
+                        && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
+                )
+                .deleteAll(db)
+        }
+    }
+
+    private struct GrantKey {
+        let connectionId: String
+        let conversationId: String
+        let grantedToInboxId: String
+    }
+
+    private func projectedGrants(
+        for conversationId: String,
+        addingOrReplacing addition: DBCloudConnectionGrant?,
+        removing removal: GrantKey?
+    ) async throws -> [DBCloudConnectionGrant] {
+        let existing = try await databaseReader.read { db in
+            try DBCloudConnectionGrant
+                .filter(DBCloudConnectionGrant.Columns.conversationId == conversationId)
+                .fetchAll(db)
+        }
+
+        var projected = existing
+        if let removal {
+            projected.removeAll {
+                $0.connectionId == removal.connectionId
+                    && $0.conversationId == removal.conversationId
+                    && $0.grantedToInboxId == removal.grantedToInboxId
+            }
+        }
+        if let addition {
+            projected.removeAll {
+                $0.connectionId == addition.connectionId
+                    && $0.conversationId == addition.conversationId
+                    && $0.grantedToInboxId == addition.grantedToInboxId
+            }
+            projected.append(addition)
+        }
+        return projected
+    }
+
+    private func syncGrantsToMetadata(
+        for conversationId: String,
+        desiredGrants: [DBCloudConnectionGrant]
+    ) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let senderId = inboxReady.client.inboxId
+
+        let connections = try await databaseReader.read { db in
+            try DBCloudConnection
+                .filter(DBCloudConnection.Columns.status == CloudConnectionStatus.active.rawValue)
+                .fetchAll(db)
+        }
+        let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
+
+        let iso8601 = ISO8601DateFormatter()
+        let entries: [CloudConnectionGrantEntry] = desiredGrants.compactMap { grant in
+            guard let conn = connectionsById[grant.connectionId] else { return nil }
+            return CloudConnectionGrantEntry(
+                id: "grant_\(grant.connectionId)_\(conversationId)_\(grant.grantedToInboxId)",
+                senderId: senderId,
+                grantedToInboxId: grant.grantedToInboxId,
+                service: conn.serviceId,
+                provider: conn.provider,
+                scope: "conversation",
+                composioEntityId: conn.composioEntityId,
+                composioConnectionId: conn.composioConnectionId,
+                grantedAt: iso8601.string(from: grant.grantedAt)
+            )
+        }
+
+        let payload = CloudConnectionsMetadataPayload(grants: entries)
+        let grantsJson = payload.isEmpty ? nil : try payload.toJsonString()
+
+        if let grantsJson {
+            Log.info("[CloudConnections] writing grants for groupId=\(conversationId) senderId=\(senderId) entryCount=\(entries.count) bytes=\(grantsJson.utf8.count)\n\(prettyPrint(grantsJson))")
+        } else {
+            Log.info("[CloudConnections] clearing grants for groupId=\(conversationId) senderId=\(senderId)")
+        }
+
+        // Primary: send a ProfileUpdate message with metadata["connections"]. This is
+        // the CLI's (and therefore the agent's) current read path. We use the throwing
+        // variant so a send failure propagates to the caller, which then declines to
+        // persist the local grant change. We run this before the best-effort appData
+        // write so a ProfileUpdate failure can't leave a stale grant in appData.
+        try await sendProfileUpdateWithConnections(
+            conversationId: conversationId,
+            senderId: senderId,
+            grantsJson: grantsJson
+        )
+
+        // Best-effort: stash on the sender's ConversationProfile in appData (field 5).
+        // Forward-compat hedge for any CLI reader that looks at appData — failures are logged only,
+        // including failure to locate the group (appData isn't on the critical path).
+        do {
+            guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+                  case .group(let group) = conversation else {
+                Log.warning("[CloudConnections] appData write skipped (best-effort), conversation not found: \(conversationId)")
+                return
+            }
+            if let grantsJson {
+                try await group.updateSenderConnections(grantsJson, senderInboxId: senderId)
+            } else {
+                try await group.clearSenderConnections(senderInboxId: senderId)
+            }
+        } catch {
+            Log.warning("[CloudConnections] appData write failed (best-effort), continuing: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendProfileUpdateWithConnections(
+        conversationId: String,
+        senderId: String,
+        grantsJson: String?
+    ) async throws {
+        let existingMetadata = try await databaseReader.read { db in
+            try DBMemberProfile.fetchOne(
+                db,
+                conversationId: conversationId,
+                inboxId: senderId
+            )?.metadata
+        }
+        var merged: ProfileMetadata = existingMetadata ?? [:]
+        if let grantsJson {
+            merged[Constant.connectionsKey] = .string(grantsJson)
+        } else {
+            merged.removeValue(forKey: Constant.connectionsKey)
+        }
+
+        try await myProfileWriter.updateAndPublish(
+            metadata: merged.isEmpty ? nil : merged,
+            conversationId: conversationId
+        )
+    }
+
+    private func prettyPrint(_ json: String) -> String {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let string = String(data: pretty, encoding: .utf8) else {
+            return json
+        }
+        return string
+    }
+
+    private enum Constant {
+        static let connectionsKey: String = "connections"
+    }
+}
+
+enum CloudConnectionGrantError: LocalizedError {
+    case connectionNotFound(String)
+    case connectionNotActive(String, status: String)
+    case conversationNotFound(String)
+    case missingGrantedToInboxId
+
+    var errorDescription: String? {
+        switch self {
+        case .connectionNotFound(let id):
+            "CloudConnection not found: \(id)"
+        case let .connectionNotActive(id, status):
+            "CloudConnection not active (\(status)): \(id)"
+        case .conversationNotFound(let id):
+            "Conversation not found: \(id)"
+        case .missingGrantedToInboxId:
+            "grantedToInboxId is required and cannot be empty"
+        }
+    }
+}

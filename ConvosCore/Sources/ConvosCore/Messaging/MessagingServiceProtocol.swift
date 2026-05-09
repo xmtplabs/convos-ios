@@ -1,4 +1,5 @@
 import Combine
+import ConvosConnections
 import Foundation
 
 public enum MessagingServiceState {
@@ -47,7 +48,9 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
-    func connectionGrantWriter() -> any ConnectionGrantWriterProtocol
+    func connectionGrantWriter() -> any CloudConnectionGrantWriterProtocol
+    func connectionEventWriter() -> any ConnectionEventWriterProtocol
+    func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol
 
     func uploadImage(data: Data, filename: String) async throws -> String
     func uploadImageAndExecute(
@@ -58,4 +61,11 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
+
+    /// Injection point used by the in-app debug attachment tool to dispatch a synthesized
+    /// `ConnectionPayload` (e.g. a fake HealthKit background update) to a conversation.
+    /// Mirrors what `HealthBackgroundObserverRoutine` would send when a real observer
+    /// fires, so the agent's incoming-payload handler can be exercised end-to-end. The UI
+    /// entry point is `#if DEBUG`-gated in the main app target.
+    func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws
 }

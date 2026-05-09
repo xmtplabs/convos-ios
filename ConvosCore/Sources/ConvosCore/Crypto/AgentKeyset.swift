@@ -94,6 +94,12 @@ public actor AgentKeyset: AgentKeysetProviding {
         self.endpointURL = endpointURL
         self.fallbackKey = fallbackKey
         self.urlSession = urlSession
+        if let fallbackKey, let key = fallbackKey.publicKey {
+            let expired = fallbackKey.expirationDate.map { $0 < Date() } ?? false
+            if !expired {
+                keyCache.set(fallbackKey.kid, resolved: ResolvedKey(publicKey: key, issuer: fallbackKey.resolvedIssuer))
+            }
+        }
     }
 
     public func resolveKey(for kid: String) async -> ResolvedKey? {
@@ -111,7 +117,9 @@ public actor AgentKeyset: AgentKeysetProviding {
             if let expDate = fallbackKey.expirationDate, expDate < Date() {
                 return nil
             }
-            return ResolvedKey(publicKey: key, issuer: fallbackKey.resolvedIssuer)
+            let resolved = ResolvedKey(publicKey: key, issuer: fallbackKey.resolvedIssuer)
+            keyCache.set(kid, resolved: resolved)
+            return resolved
         }
 
         return nil

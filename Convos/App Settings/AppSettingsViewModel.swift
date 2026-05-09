@@ -21,14 +21,15 @@ final class AppSettingsViewModel {
 
         let callbackScheme = ConfigManager.shared.appUrlScheme
 
-        let manager = session.connectionManager(
+        let manager = session.cloudConnectionManager(
             callbackURLScheme: callbackScheme
         )
-        let repository = session.connectionRepository()
+        let repository = session.cloudConnectionRepository()
 
         self.connectionsListViewModel = ConnectionsListViewModel(
-            connectionManager: manager,
-            connectionRepository: repository
+            cloudConnectionManager: manager,
+            cloudConnectionRepository: repository,
+            deviceConnectionAuthorizer: session.deviceConnectionAuthorizer()
         )
     }
 
@@ -44,12 +45,34 @@ final class AppSettingsViewModel {
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
+    }
 
+    private func resetLocalState() {
+        Self.resetProfile()
+        Self.resetGlobalDefaults()
+        Self.resetConversationDefaults()
+        Self.resetConversationsDefaults()
+        Self.resetOnboardingDefaults()
+    }
+
+    private static func resetProfile() {
         ProfileSettingsViewModel.shared.delete()
-        ConversationViewModel.resetUserDefaults()
-        ConversationsViewModel.resetUserDefaults()
-        ConversationOnboardingCoordinator.resetUserDefaults()
+    }
+
+    private static func resetGlobalDefaults() {
         GlobalConvoDefaults.shared.reset()
+    }
+
+    private static func resetConversationDefaults() {
+        ConversationViewModel.resetUserDefaults()
+    }
+
+    private static func resetConversationsDefaults() {
+        ConversationsViewModel.resetUserDefaults()
+    }
+
+    private static func resetOnboardingDefaults() {
+        ConversationOnboardingCoordinator.resetUserDefaults()
     }
 
     private func runDeletion(onComplete: @escaping () -> Void) async {
@@ -57,6 +80,10 @@ final class AppSettingsViewModel {
             for try await progress in session.deleteAllInboxesWithProgress() {
                 deletionProgress = progress
             }
+            // Wipe local UI state only after the on-disk deletion succeeded — otherwise
+            // a failure mid-stream would leave settings appearing reset while the
+            // underlying inboxes are still on device.
+            resetLocalState()
             isDeleting = false
             onComplete()
         } catch {

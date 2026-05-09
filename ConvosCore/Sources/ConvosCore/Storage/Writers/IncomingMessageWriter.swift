@@ -78,12 +78,12 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 senderInboxId: message.senderInboxId
             )
 
-            // Defense against unverified or spoofed ConnectionGrantRequest senders:
+            // Defense against unverified or spoofed CloudConnectionGrantRequest senders:
             // only persist grant requests whose sender is a verified Convos assistant
             // in this conversation. Anything else gets dropped silently with a warning
             // so the UI never has a chance to render the deep-link card.
-            if encodedContentType == ContentTypeConnectionGrantRequest, !senderVerified {
-                Log.warning("Dropping ConnectionGrantRequest from unverified sender \(message.senderInboxId) in \(conversation.id)")
+            if encodedContentType == ContentTypeCloudConnectionGrantRequest, !senderVerified {
+                Log.warning("Dropping CloudConnectionGrantRequest from unverified sender \(message.senderInboxId) in \(conversation.id)")
                 return nil
             }
 

@@ -95,7 +95,143 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("createCapabilityResolution") { db in
+            // Per-(subject, conversation, capability) routing decision. Set cardinality is
+            // enforced in CapabilityResolutionValidator, not the schema, because the
+            // schema needs to support both single and multi-provider rows uniformly.
+            try db.create(table: "capabilityResolution") { t in
+                t.column("subject", .text).notNull()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("capability", .text).notNull()
+                t.column("providerIds", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["subject", "conversationId", "capability"])
+            }
+
+            try db.create(
+                index: "capabilityResolution_conversationId",
+                on: "capabilityResolution",
+                columns: ["conversationId"]
+            )
+        }
+
+        migrator.registerMigration("createConnectionEnablement") { db in
+            try db.create(table: "connectionEnablement") { t in
+                t.column("kind", .text).notNull()
+                t.column("capability", .text).notNull()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["kind", "capability", "conversationId"])
+            }
+
+            try db.create(
+                index: "connectionEnablement_conversationId",
+                on: "connectionEnablement",
+                columns: ["conversationId"]
+            )
+
+            try db.create(table: "connectionAlwaysConfirm") { t in
+                t.column("kind", .text).notNull()
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("alwaysConfirm", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["kind", "conversationId"])
+            }
+        }
+
+        migrator.registerMigration("createHealthBackgroundSubscriptions") { db in
+            // Per-(conversation, agent, HealthSampleType) subscription rows. The
+            // observer-query anchor is an NSKeyed-archived `HKQueryAnchor` produced by
+            // anchored object queries; nil until the first delta is delivered for the
+            // subscription. See docs/plans/healthkit-background-subscriptions.md.
+            try db.create(table: "healthBackgroundSubscription") { t in
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("agentInboxId", .text).notNull()
+                t.column("typeIdentifier", .text).notNull()
+                t.column("frequency", .text).notNull()
+                t.column("historyDays", .integer).notNull()
+                t.column("anchor", .blob)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+                t.primaryKey(["conversationId", "agentInboxId", "typeIdentifier"])
+            }
+
+            try db.create(
+                index: "healthBackgroundSubscription_typeIdentifier",
+                on: "healthBackgroundSubscription",
+                columns: ["typeIdentifier"]
+            )
+        }
+
+        migrator.registerMigration("scopeGrantsToAgentInboxId", migrate: Self.scopeGrantsToAgentInboxId)
+
         return migrator
+    }
+
+    /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
+    /// is bound to a specific agent's inboxId instead of being conversation-wide. Two
+    /// agents in the same conversation now have independent rows; one's grant doesn't
+    /// authorize the other. Drop+recreate is acceptable here because no production data
+    /// exists for these tables yet (the connections feature is still on a feature branch).
+    private static func scopeGrantsToAgentInboxId(_ db: Database) throws {
+        try db.drop(table: "capabilityResolution")
+        try db.create(table: "capabilityResolution") { t in
+            t.column("subject", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("capability", .text).notNull()
+            t.column("grantedToInboxId", .text).notNull()
+            t.column("providerIds", .text).notNull()
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+            t.primaryKey(["subject", "conversationId", "capability", "grantedToInboxId"])
+        }
+        try db.create(
+            index: "capabilityResolution_conversationId",
+            on: "capabilityResolution",
+            columns: ["conversationId"]
+        )
+
+        try db.drop(table: "connectionEnablement")
+        try db.create(table: "connectionEnablement") { t in
+            t.column("kind", .text).notNull()
+            t.column("capability", .text).notNull()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("grantedToInboxId", .text).notNull()
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+            t.primaryKey(["kind", "capability", "conversationId", "grantedToInboxId"])
+        }
+        try db.create(
+            index: "connectionEnablement_conversationId",
+            on: "connectionEnablement",
+            columns: ["conversationId"]
+        )
+
+        try db.drop(table: "connectionGrant")
+        try db.create(table: "connectionGrant") { t in
+            t.column("connectionId", .text).notNull()
+                .references("connection", onDelete: .cascade)
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("serviceId", .text).notNull()
+            t.column("grantedToInboxId", .text).notNull()
+            t.column("grantedAt", .datetime).notNull()
+            t.primaryKey(["connectionId", "conversationId", "grantedToInboxId"])
+        }
+        try db.create(
+            index: "connectionGrant_conversationId",
+            on: "connectionGrant",
+            columns: ["conversationId"]
+        )
     }
 
     // swiftlint:disable:next function_body_length

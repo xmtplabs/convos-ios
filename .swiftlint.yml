@@ -138,7 +138,9 @@ custom_rules:
 excluded:
   - .build/
   - "**/.build"
+  - "**/.build/**"
   - .derivedData/
+  - .derivedData-device/
   - .claude/worktrees/
   - ConvosCore/Tests
   - ConvosTests

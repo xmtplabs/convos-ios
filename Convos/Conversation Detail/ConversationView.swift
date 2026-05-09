@@ -22,6 +22,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
+    #if DEBUG
+    @State private var showingDebugInjector: Bool = false
+    #endif
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private var showPullToAddAssistant: Bool {
@@ -140,6 +143,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onConvosAction: { viewModel.onConvosButtonTapped() },
+            onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
@@ -158,17 +162,42 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     bottomBarContent()
 
-                    ConversationOnboardingView(
-                        coordinator: onboardingCoordinator,
-                        focusCoordinator: focusCoordinator,
-                        scrollOverscrollAmount: scrollOverscrollAmount,
-                        onTapSetupProfile: {
-                            onboardingCoordinator.didTapProfilePhoto()
-                            viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
-                        },
-                        onUseProfile: viewModel.onUseProfile(_:_:),
-                        onPresentProfileSettings: viewModel.onProfileSettings
-                    )
+                    Group {
+                        if viewModel.showsCapabilityApprovedToast {
+                            CapabilityApprovedToastView()
+                                .transition(.blurReplace)
+                        } else if let layout = viewModel.pendingCapabilityPickerLayout {
+                            CapabilityPickerCardView(
+                                layout: layout,
+                                assistantName: viewModel.askerDisplayName(for: layout.request),
+                                onApprove: { providerIds in
+                                    viewModel.onCapabilityApprove(providerIds: providerIds)
+                                },
+                                onDeny: {
+                                    viewModel.onCapabilityDeny()
+                                },
+                                onConnect: { providerId in
+                                    viewModel.onCapabilityConnect(providerId: providerId)
+                                }
+                            )
+                            .transition(.blurReplace)
+                        } else {
+                            ConversationOnboardingView(
+                                coordinator: onboardingCoordinator,
+                                focusCoordinator: focusCoordinator,
+                                scrollOverscrollAmount: scrollOverscrollAmount,
+                                onTapSetupProfile: {
+                                    onboardingCoordinator.didTapProfilePhoto()
+                                    viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
+                                },
+                                onUseProfile: viewModel.onUseProfile(_:_:),
+                                onPresentProfileSettings: viewModel.onProfileSettings
+                            )
+                            .transition(.blurReplace)
+                        }
+                    }
+                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.pendingCapabilityPickerLayout)
+                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
@@ -233,6 +262,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .disabled(!messagesTopBarTrailingItemEnabled)
         .accessibilityLabel("Scan invite code")
         .accessibilityIdentifier("scan-invite-button")
+    }
+
+    private var debugAttachmentTapHandler: (() -> Void)? {
+        #if DEBUG
+        return { showingDebugInjector = true }
+        #else
+        return nil
+        #endif
+    }
+
+    private var debugInjectorBinding: Binding<Bool> {
+        #if DEBUG
+        return $showingDebugInjector
+        #else
+        return .constant(false)
+        #endif
     }
 
     private var stuffPage: some View {
@@ -314,6 +359,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
         }
         .toolbar { topBarTrailing }
+        .debugConnectionInjectorSheet(
+            isPresented: debugInjectorBinding,
+            conversationId: viewModel.conversation.id,
+            messagingService: viewModel.messagingService
+        )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,
@@ -398,6 +448,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 }
 
+@MainActor
+private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
+    .mock
+}
+
 struct AttachmentProfileSheetCloseButton: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -408,7 +463,7 @@ struct AttachmentProfileSheetCloseButton: View {
 }
 
 #Preview {
-    @Previewable @State var viewModel: ConversationViewModel = .mock
+    @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)

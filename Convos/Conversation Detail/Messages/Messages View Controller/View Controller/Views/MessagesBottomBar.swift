@@ -72,6 +72,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Bindable var voiceMemoRecorder: VoiceMemoRecorder
     let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
+    /// Only wired up in DEBUG builds; nil in Release so the testtube button stays hidden.
+    var onDebugAttachmentTap: (() -> Void)?
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -403,7 +405,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     },
                     isMediaCapacityFull: mediaButtonsDisabled,
                     isVoiceMemoDisabled: voiceMemoDisabled,
-                    isSideConvoDisabled: sideConvoDisabled
+                    isSideConvoDisabled: sideConvoDisabled,
+                    onDebugAttachmentTap: onDebugAttachmentTap
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)

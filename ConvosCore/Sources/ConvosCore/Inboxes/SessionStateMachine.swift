@@ -1,3 +1,4 @@
+import ConvosConnectionsXMTP
 import ConvosInvites
 import Foundation
 import GRDB
@@ -933,10 +934,13 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec(),
-                ConnectionGrantRequestCodec(),
+                CloudConnectionGrantRequestCodec(),
+                ConnectionEventCodec(),
+                CapabilityRequestCodec(),
+                CapabilityRequestResultCodec(),
                 TypingIndicatorCodec(),
                 ReadReceiptCodec()
-            ],
+            ] + ConvosConnectionsXMTP.codecs(),
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
             deviceSyncEnabled: true,
