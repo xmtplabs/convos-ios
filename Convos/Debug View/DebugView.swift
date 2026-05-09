@@ -65,6 +65,8 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
 
+            Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
+
             let showInfoAction = { showingAssistantsInfoSheet = true }
             Button(action: showInfoAction) {
                 Text("Show Assistants Info Sheet")

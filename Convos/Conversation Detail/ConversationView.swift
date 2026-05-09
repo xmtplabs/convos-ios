@@ -266,6 +266,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var debugAttachmentTapHandler: (() -> Void)? {
         #if DEBUG
+        guard FeatureFlags.shared.isDebugInjectorEnabled else { return nil }
         return { showingDebugInjector = true }
         #else
         return nil
