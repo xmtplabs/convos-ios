@@ -363,6 +363,7 @@ private struct FileRow: View {
     let subtitle: String
     let onTap: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var renderedHTMLPreview: UIImage?
     @State private var resolvedHTMLTitle: String?
     @State private var renderedFilePreview: UIImage?
@@ -377,7 +378,7 @@ private struct FileRow: View {
             )
         }
         .buttonStyle(.plain)
-        .task(id: file.attachmentKey) {
+        .task(id: AttachmentColorSchemeKey(key: file.attachmentKey, scheme: colorScheme)) {
             await loadHTMLMetadataIfNeeded()
         }
     }
@@ -420,8 +421,12 @@ private struct FileRow: View {
     }
 
     private func loadHTMLMetadataIfNeeded() async {
+        let appearance = colorScheme.uiUserInterfaceStyle
         if isHTML {
-            renderedHTMLPreview = HTMLThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey)
+            renderedHTMLPreview = HTMLThumbnailRenderer.shared.cachedThumbnail(
+                for: file.attachmentKey,
+                appearance: appearance
+            )
             resolvedHTMLTitle = HTMLPageMetadata.shared.cachedTitle(for: file.attachmentKey)
         } else if let cached = FileThumbnailRenderer.shared.cachedThumbnail(for: file.attachmentKey),
                   cached.isContentThumbnail {
@@ -443,7 +448,8 @@ private struct FileRow: View {
                 if renderedHTMLPreview == nil {
                     renderedHTMLPreview = await HTMLThumbnailRenderer.shared.thumbnail(
                         for: file.attachmentKey,
-                        fileURL: url
+                        fileURL: url,
+                        appearance: appearance
                     )
                 }
                 if resolvedHTMLTitle == nil {

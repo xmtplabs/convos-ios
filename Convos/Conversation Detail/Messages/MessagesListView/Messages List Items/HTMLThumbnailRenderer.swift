@@ -24,35 +24,46 @@ final class HTMLThumbnailRenderer {
 
     private var inflight: [String: Task<UIImage?, Never>] = [:]
 
-    static func cacheKey(for attachmentKey: String) -> String {
-        cacheKeyPrefix + attachmentKey
+    static func cacheKey(for attachmentKey: String, appearance: UIUserInterfaceStyle) -> String {
+        cacheKeyPrefix + attachmentKey + "-" + appearanceSuffix(for: appearance)
     }
 
-    func cachedThumbnail(for attachmentKey: String) -> UIImage? {
-        ImageCache.shared.image(for: Self.cacheKey(for: attachmentKey))
+    private static func appearanceSuffix(for appearance: UIUserInterfaceStyle) -> String {
+        switch appearance {
+        case .dark: return "dark"
+        case .light, .unspecified: return "light"
+        @unknown default: return "light"
+        }
     }
 
-    func thumbnail(for attachmentKey: String, fileURL: URL) async -> UIImage? {
-        let cacheKey = Self.cacheKey(for: attachmentKey)
+    func cachedThumbnail(for attachmentKey: String, appearance: UIUserInterfaceStyle) -> UIImage? {
+        ImageCache.shared.image(for: Self.cacheKey(for: attachmentKey, appearance: appearance))
+    }
+
+    func thumbnail(for attachmentKey: String, fileURL: URL, appearance: UIUserInterfaceStyle) async -> UIImage? {
+        let cacheKey = Self.cacheKey(for: attachmentKey, appearance: appearance)
         if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
             return cached
         }
 
-        if let existing = inflight[attachmentKey] {
+        // Inflight key includes appearance so a concurrent dark-mode request
+        // doesn't await a light-mode render (or vice versa).
+        let inflightKey = attachmentKey + "-" + Self.appearanceSuffix(for: appearance)
+        if let existing = inflight[inflightKey] {
             return await existing.value
         }
 
         let task = Task<UIImage?, Never> { [weak self] in
             guard let self else { return nil }
-            let image = await self.renderSnapshot(fileURL: fileURL)
+            let image = await self.renderSnapshot(fileURL: fileURL, appearance: appearance)
             if let image {
                 ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
             }
             return image
         }
-        inflight[attachmentKey] = task
+        inflight[inflightKey] = task
         let result = await task.value
-        inflight.removeValue(forKey: attachmentKey)
+        inflight.removeValue(forKey: inflightKey)
         return result
     }
 
@@ -61,7 +72,7 @@ final class HTMLThumbnailRenderer {
     /// object: it loads the HTML, hands a vector PDF to PDFKit on
     /// `didFinish`, and is deallocated. There is no scene attachment and no
     /// `UIWindowScene.keyboardLayoutGuide` reservation to leak.
-    private func renderSnapshot(fileURL: URL) async -> UIImage? {
+    private func renderSnapshot(fileURL: URL, appearance: UIUserInterfaceStyle) async -> UIImage? {
         let config = WKWebViewConfiguration()
         let userScript = WKUserScript(
             source: Self.injectionScript,
@@ -78,6 +89,10 @@ final class HTMLThumbnailRenderer {
         webView.scrollView.bounces = false
         webView.isOpaque = true
         webView.isUserInteractionEnabled = false
+        // Drives `@media (prefers-color-scheme: ...)` resolution inside the
+        // loaded HTML — the WebView's traitCollection determines what
+        // matchMedia returns regardless of view-hierarchy attachment.
+        webView.overrideUserInterfaceStyle = appearance
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
             let coordinator = LoadCoordinator(renderSize: Self.renderSize) { result in
