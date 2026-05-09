@@ -95,9 +95,6 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Side convo")
             .accessibilityIdentifier("side-convo-button")
 
-            // Gated at the source: `onDebugAttachmentTap` is only non-nil when
-            // FeatureFlags.isDebugInjectorEnabled is on, which is hard-locked off
-            // in production. No #if DEBUG needed.
             if let onDebugAttachmentTap {
                 Button {
                     onDebugAttachmentTap()
