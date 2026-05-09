@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosLogging
+import PDFKit
 import UIKit
 import WebKit
 
@@ -8,9 +9,9 @@ final class HTMLThumbnailRenderer {
     static let shared: HTMLThumbnailRenderer = HTMLThumbnailRenderer()
 
     private static let renderSize: CGSize = CGSize(width: 720, height: 1200)
-    private static let paintDelay: TimeInterval = 0.5
+    fileprivate static let paintDelay: TimeInterval = 0.5
     private static let loadTimeout: TimeInterval = 15.0
-    private static let cacheKeyPrefix: String = "html-thumb-v2-"
+    private static let cacheKeyPrefix: String = "html-thumb-v3-"
     private static let injectionScript: String = """
     (function() {
         var css = 'html, body { margin-top: 0 !important; padding-top: 0 !important; } ' +
@@ -22,25 +23,6 @@ final class HTMLThumbnailRenderer {
     """
 
     private var inflight: [String: Task<UIImage?, Never>] = [:]
-    private var cachedRenderWindow: UIWindow?
-
-    private var renderWindow: UIWindow? {
-        if let cachedRenderWindow, cachedRenderWindow.windowScene != nil {
-            return cachedRenderWindow
-        }
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState != .background }
-        guard let scene else { return nil }
-        let window = UIWindow(windowScene: scene)
-        window.frame = CGRect(origin: .zero, size: Self.renderSize)
-        window.windowLevel = UIWindow.Level(rawValue: -1)
-        window.alpha = 0.01
-        window.rootViewController = UIViewController()
-        window.isHidden = false
-        cachedRenderWindow = window
-        return window
-    }
 
     static func cacheKey(for attachmentKey: String) -> String {
         cacheKeyPrefix + attachmentKey
@@ -74,12 +56,12 @@ final class HTMLThumbnailRenderer {
         return result
     }
 
+    /// Renders the file at `fileURL` to a `UIImage` without ever attaching a
+    /// `WKWebView` to a `UIWindow`. The WebView lives only as an in-memory
+    /// object: it loads the HTML, hands a vector PDF to PDFKit on
+    /// `didFinish`, and is deallocated. There is no scene attachment and no
+    /// `UIWindowScene.keyboardLayoutGuide` reservation to leak.
     private func renderSnapshot(fileURL: URL) async -> UIImage? {
-        guard let window = renderWindow, let rootView = window.rootViewController?.view else {
-            Log.error("HTMLThumbnailRenderer: no render window available")
-            return nil
-        }
-
         let config = WKWebViewConfiguration()
         let userScript = WKUserScript(
             source: Self.injectionScript,
@@ -96,12 +78,9 @@ final class HTMLThumbnailRenderer {
         webView.scrollView.bounces = false
         webView.isOpaque = true
         webView.isUserInteractionEnabled = false
-        rootView.addSubview(webView)
-
-        defer { webView.removeFromSuperview() }
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
-            let coordinator = LoadCoordinator { result in
+            let coordinator = LoadCoordinator(renderSize: Self.renderSize) { result in
                 continuation.resume(returning: result)
             }
             // Retain coordinator for the duration of the load via objc association.
@@ -111,11 +90,11 @@ final class HTMLThumbnailRenderer {
             let readAccessURL = fileURL.deletingLastPathComponent()
             webView.loadFileURL(fileURL, allowingReadAccessTo: readAccessURL)
 
-            // Safety net: if the load never finishes or fails, resume with nil so the
-            // webView can be torn down by the surrounding `defer` rather than living
-            // forever as a subview of the render window.
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.loadTimeout) { [weak coordinator] in
-                coordinator?.resumeIfNeeded(image: nil, reason: "load timed out")
+            // Safety net: if the load never finishes or fails, resume with nil so
+            // the WebView is released by the surrounding closure rather than
+            // living forever.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.loadTimeout) { [weak coordinator, weak webView] in
+                coordinator?.resumeIfNeeded(webView: webView, image: nil, reason: "load timed out")
             }
         }
     }
@@ -125,25 +104,32 @@ final class HTMLThumbnailRenderer {
 
 private final class LoadCoordinator: NSObject, WKNavigationDelegate {
     private let completion: (UIImage?) -> Void
+    private let renderSize: CGSize
     private var hasResumed: Bool = false
 
-    init(completion: @escaping (UIImage?) -> Void) {
+    init(renderSize: CGSize, completion: @escaping (UIImage?) -> Void) {
+        self.renderSize = renderSize
         self.completion = completion
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak webView] in
+        let renderSize = renderSize
+        DispatchQueue.main.asyncAfter(deadline: .now() + HTMLThumbnailRenderer.paintDelay) { [weak self, weak webView] in
             guard let self, !self.hasResumed, let webView else {
                 self?.resume(image: nil)
                 return
             }
-            let config = WKSnapshotConfiguration()
-            config.rect = webView.bounds
-            webView.takeSnapshot(with: config) { image, error in
-                if let error {
-                    Log.error("HTMLThumbnailRenderer snapshot failed: \(error)")
+            let pdfConfig = WKPDFConfiguration()
+            pdfConfig.rect = CGRect(origin: .zero, size: renderSize)
+            webView.createPDF(configuration: pdfConfig) { result in
+                switch result {
+                case .success(let data):
+                    let image = Self.rasterize(pdfData: data, at: renderSize)
+                    self.resume(image: image)
+                case .failure(let error):
+                    Log.error("HTMLThumbnailRenderer createPDF failed: \(error)")
+                    self.resume(image: nil)
                 }
-                self.resume(image: image)
             }
         }
     }
@@ -162,15 +148,30 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
         resume(image: nil)
     }
 
+    private static func rasterize(pdfData: Data, at size: CGSize) -> UIImage? {
+        guard let document = PDFDocument(data: pdfData), let page = document.page(at: 0) else {
+            Log.error("HTMLThumbnailRenderer PDF had no first page")
+            return nil
+        }
+        // page.thumbnail draws onto an opaque white background, which matches
+        // the prior takeSnapshot behavior for HTML that doesn't set its own
+        // body background.
+        let image = page.thumbnail(of: size, for: .mediaBox)
+        return image
+    }
+
     private func resume(image: UIImage?) {
         guard !hasResumed else { return }
         hasResumed = true
         completion(image)
     }
 
-    func resumeIfNeeded(image: UIImage?, reason: String) {
+    func resumeIfNeeded(webView: WKWebView?, image: UIImage?, reason: String) {
         guard !hasResumed else { return }
         Log.error("HTMLThumbnailRenderer resuming early: \(reason)")
+        // Stop loading so the in-memory WebView releases its network/JS work
+        // before the closure releases it.
+        webView?.stopLoading()
         resume(image: image)
     }
 }
