@@ -95,7 +95,9 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Side convo")
             .accessibilityIdentifier("side-convo-button")
 
-            #if DEBUG
+            // Gated at the source: `onDebugAttachmentTap` is only non-nil when
+            // FeatureFlags.isDebugInjectorEnabled is on, which is hard-locked off
+            // in production. No #if DEBUG needed.
             if let onDebugAttachmentTap {
                 Button {
                     onDebugAttachmentTap()
@@ -110,7 +112,6 @@ struct MessagesMediaButtonsView: View {
                 .accessibilityLabel("Debug test attachment")
                 .accessibilityIdentifier("debug-test-attachment-button")
             }
-            #endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Media buttons")

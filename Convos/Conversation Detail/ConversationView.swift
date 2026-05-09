@@ -22,9 +22,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
-    #if DEBUG
     @State private var showingDebugInjector: Bool = false
-    #endif
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private var showPullToAddAssistant: Bool {
@@ -265,20 +263,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private var debugAttachmentTapHandler: (() -> Void)? {
-        #if DEBUG
         guard FeatureFlags.shared.isDebugInjectorEnabled else { return nil }
         return { showingDebugInjector = true }
-        #else
-        return nil
-        #endif
     }
 
     private var debugInjectorBinding: Binding<Bool> {
-        #if DEBUG
+        guard FeatureFlags.shared.isDebugInjectorEnabled else { return .constant(false) }
         return $showingDebugInjector
-        #else
-        return .constant(false)
-        #endif
     }
 
     private var stuffPage: some View {
