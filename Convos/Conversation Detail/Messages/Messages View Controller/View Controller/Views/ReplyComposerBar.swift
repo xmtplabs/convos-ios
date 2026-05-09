@@ -172,13 +172,17 @@ struct ReplyComposerBar: View {
 private struct ReplyHTMLThumbnail: View {
     let attachment: HydratedAttachment
 
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var loadedImage: UIImage?
 
     private static let thumbnailSize: CGFloat = 40.0
 
     init(attachment: HydratedAttachment) {
         self.attachment = attachment
-        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key))
+        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(
+            for: attachment.key,
+            appearance: .light
+        ))
     }
 
     var body: some View {
@@ -195,14 +199,19 @@ private struct ReplyHTMLThumbnail: View {
                     .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
             }
         }
-        .task(id: attachment.key) {
-            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key)
+        .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
+            let appearance = colorScheme.uiUserInterfaceStyle
+            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(
+                for: attachment.key,
+                appearance: appearance
+            )
             guard loadedImage == nil else { return }
             do {
                 let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
                 loadedImage = await HTMLThumbnailRenderer.shared.thumbnail(
                     for: attachment.key,
-                    fileURL: fileURL
+                    fileURL: fileURL,
+                    appearance: appearance
                 )
             } catch {
                 Log.error("Failed to load HTML reply composer thumbnail: \(error)")

@@ -13,6 +13,7 @@ struct HTMLAttachmentBubble: View {
     var cornerRadiusOverride: CGFloat?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var renderedImage: UIImage?
     @State private var hasLoadFailed: Bool = false
     @State private var bottomEdgeColor: Color?
@@ -39,7 +40,7 @@ struct HTMLAttachmentBubble: View {
         }
         .accessibilityIdentifier("html-attachment-bubble")
         .accessibilityLabel("HTML page from \(profile.displayName)")
-        .task(id: attachment.key) {
+        .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
             await loadThumbnail()
         }
     }
@@ -142,10 +143,14 @@ struct HTMLAttachmentBubble: View {
     }
 
     private func loadThumbnail() async {
+        let appearance = colorScheme.uiUserInterfaceStyle
         renderedImage = nil
         bottomEdgeColor = nil
         hasLoadFailed = false
-        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key) {
+        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(
+            for: attachment.key,
+            appearance: appearance
+        ) {
             renderedImage = cached
             bottomEdgeColor = cached.convos_bottomCenterColor()
             return
@@ -154,7 +159,8 @@ struct HTMLAttachmentBubble: View {
             let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
             let image = await HTMLThumbnailRenderer.shared.thumbnail(
                 for: attachment.key,
-                fileURL: fileURL
+                fileURL: fileURL,
+                appearance: appearance
             )
             renderedImage = image
             bottomEdgeColor = image?.convos_bottomCenterColor()
@@ -170,6 +176,24 @@ struct HTMLAttachmentBubble: View {
         static let cellHeight: CGFloat = 500.0
         static let fadeHeight: CGFloat = 68.0
         static let borderHeight: CGFloat = 1.0
+    }
+}
+
+/// Composite key so `.task(id:)` re-fires when either the attachment or the
+/// SwiftUI color scheme changes — the renderer keys its cache on appearance
+/// too, so toggling dark mode swaps to a freshly-rendered thumbnail.
+struct AttachmentColorSchemeKey: Hashable {
+    let key: String
+    let scheme: ColorScheme
+}
+
+extension ColorScheme {
+    var uiUserInterfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .dark: return .dark
+        case .light: return .light
+        @unknown default: return .light
+        }
     }
 }
 

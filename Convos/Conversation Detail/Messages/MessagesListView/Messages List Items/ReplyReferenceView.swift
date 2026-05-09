@@ -538,6 +538,7 @@ private struct ReplyReferenceHTMLPreview: View {
     let attachment: HydratedAttachment
     let onTap: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var loadedImage: UIImage?
 
     private static let maxHeight: CGFloat = 80.0
@@ -545,7 +546,12 @@ private struct ReplyReferenceHTMLPreview: View {
     init(attachment: HydratedAttachment, onTap: @escaping () -> Void) {
         self.attachment = attachment
         self.onTap = onTap
-        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key))
+        // Seed from light cache; the .task below will swap in the correct
+        // appearance variant once the environment is read.
+        _loadedImage = State(initialValue: HTMLThumbnailRenderer.shared.cachedThumbnail(
+            for: attachment.key,
+            appearance: .light
+        ))
     }
 
     var body: some View {
@@ -565,14 +571,19 @@ private struct ReplyReferenceHTMLPreview: View {
                 .buttonStyle(.plain)
             }
         }
-        .task(id: attachment.key) {
-            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key)
+        .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
+            let appearance = colorScheme.uiUserInterfaceStyle
+            loadedImage = HTMLThumbnailRenderer.shared.cachedThumbnail(
+                for: attachment.key,
+                appearance: appearance
+            )
             guard loadedImage == nil else { return }
             do {
                 let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
                 let image = await HTMLThumbnailRenderer.shared.thumbnail(
                     for: attachment.key,
-                    fileURL: fileURL
+                    fileURL: fileURL,
+                    appearance: appearance
                 )
                 loadedImage = image
             } catch {
