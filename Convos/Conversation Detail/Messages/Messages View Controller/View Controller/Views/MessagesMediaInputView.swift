@@ -95,7 +95,6 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Side convo")
             .accessibilityIdentifier("side-convo-button")
 
-            #if DEBUG
             if let onDebugAttachmentTap {
                 Button {
                     onDebugAttachmentTap()
@@ -110,7 +109,6 @@ struct MessagesMediaButtonsView: View {
                 .accessibilityLabel("Debug test attachment")
                 .accessibilityIdentifier("debug-test-attachment-button")
             }
-            #endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Media buttons")
