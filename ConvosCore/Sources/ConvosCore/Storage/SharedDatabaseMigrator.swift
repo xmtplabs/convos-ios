@@ -172,10 +172,6 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("scopeGrantsToAgentInboxId", migrate: Self.scopeGrantsToAgentInboxId)
 
-        migrator.registerMigration("v2-inactive-conversations") { db in
-            try SharedDatabaseMigrator.addInactiveConversationsColumn(db)
-        }
-
         migrator.registerMigration("createContactTable") { db in
             try SharedDatabaseMigrator.createContactSchema(db)
         }
