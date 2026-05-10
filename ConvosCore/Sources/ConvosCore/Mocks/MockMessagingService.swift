@@ -140,7 +140,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     public func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {
         MockCapabilityRequestResultWriter()
     }
-    
+
     // MARK: - Contacts
 
     public func contactsRepository() -> any ContactsRepositoryProtocol {
