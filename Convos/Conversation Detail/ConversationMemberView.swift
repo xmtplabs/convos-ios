@@ -27,7 +27,7 @@ struct ConversationMemberView: View {
         ) {
             let cancelAction = { presentingBlockConfirmation = false }
             Button("Cancel", role: .cancel, action: cancelAction)
-            let confirmAction = { viewModel.blockAndLeaveConvo() }
+            let confirmAction = { viewModel.blockAndLeaveConvo(inboxId: member.profile.inboxId) }
             Button("Confirm", role: .destructive, action: confirmAction)
         } message: {
             Text("They won't know they're blocked, and you'll leave this conversation so they can't reach you here.")
