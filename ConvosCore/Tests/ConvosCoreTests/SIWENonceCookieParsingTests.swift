@@ -52,6 +52,22 @@ struct SIWENonceCookieParsingTests {
         #expect(challenge.cookieHeader == "__Host-convos_nonce=hmac+slash/value.\(hex)")
     }
 
+    @Test("Does not split on commas inside Expires= dates")
+    func doesNotSplitOnExpiresDate() throws {
+        // RFC 822 dates inside `Expires=` contain a comma+space after
+        // the weekday (`Wed, 01 Jan 2026 ...`). Our manual splitter
+        // must NOT split there: the lookahead after the comma is
+        // `01 Jan ...` — `01` is name-like but the next char is a
+        // space, which isn't in the cookie-name grammar, so we
+        // correctly refuse to split.
+        let hex = String(repeating: "ab", count: 32)
+        let setCookie = "__Host-convos_nonce=hmac.\(hex); Path=/; Expires=Wed, 01 Jan 2026 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict"
+        let response = makeResponse(setCookie: setCookie)
+        let challenge = try ConvosAPIClient.extractNonceCookie(from: response, requestURL: requestURL)
+        #expect(challenge.nonce == hex)
+        #expect(challenge.cookieHeader == "__Host-convos_nonce=hmac.\(hex)")
+    }
+
     @Test("Throws missingNonceCookie when the response has no recognized cookie")
     func throwsWhenAbsent() {
         let response = makeResponse(setCookie: "other_cookie=whatever; Path=/")

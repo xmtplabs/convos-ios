@@ -342,9 +342,19 @@ extension ConvosAPIClient {
 
     static func jwtCarriesAccountId(_ token: String) -> Bool {
         let parts = token.split(separator: ".")
-        guard parts.count == 3 else { return false }
-        guard let payloadData = try? String(parts[1]).base64URLDecoded(),
-              let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+        guard parts.count == 3 else {
+            Log.warning("jwtCarriesAccountId: token does not have 3 segments")
+            return false
+        }
+        let payloadData: Data
+        do {
+            payloadData = try String(parts[1]).base64URLDecoded()
+        } catch {
+            Log.warning("jwtCarriesAccountId: base64url decode failed: \(error.localizedDescription)")
+            return false
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+            Log.warning("jwtCarriesAccountId: payload is not a JSON object")
             return false
         }
         if let id = json["accountId"] as? String, !id.isEmpty { return true }
