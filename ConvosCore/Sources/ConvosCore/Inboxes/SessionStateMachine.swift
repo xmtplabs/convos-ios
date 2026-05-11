@@ -1054,12 +1054,15 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
                 // Default path: SIWE auth. Loads the on-device identity,
                 // signs an EIP-4361 message with its Ethereum private key,
-                // exchanges for a JWT containing `accountId`. The JWT is
-                // stored under an address-scoped Keychain slot so an NSE
-                // device-only token can't pollute the SIWE token (and
-                // vice versa).
+                // exchanges for a JWT containing `accountId`. Registering
+                // the signing context with the API client BEFORE the call
+                // is what makes the 401 re-auth path and every subsequent
+                // authenticated request use the SIWE slot — without this
+                // the API client would silently fall back to legacy
+                // device-only auth on token expiry.
                 if let identity = try await identityStore.load() {
                     let signing = BackendAuthSigningContext.make(from: identity.keys.privateKey)
+                    apiClient.updateSIWESigningContext(signing)
                     Log.debug("Authenticating with backend via SIWE (address \(signing.address))...")
                     _ = try await apiClient.authenticateWithSIWE(
                         appCheckToken: appCheckToken,
@@ -1068,10 +1071,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                     )
                     Log.info("Successfully authenticated with backend (SIWE)")
                 } else {
-                    // No on-device identity yet: fall back to the legacy
-                    // device-only path so things like NSE/auth-check stay
-                    // unblocked. SIWE will run on the next attempt once
-                    // an identity is provisioned.
+                    // No on-device identity yet: clear any stale signing
+                    // context and fall back to the legacy device-only
+                    // path. SIWE will run on the next attempt once an
+                    // identity is provisioned.
+                    apiClient.updateSIWESigningContext(nil)
                     Log.debug("No identity yet; falling back to legacy device-only auth...")
                     _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
                     Log.info("Successfully authenticated with backend (legacy)")

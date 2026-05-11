@@ -5,11 +5,19 @@ enum KeychainAccount {
     /// Account for storing JWT tokens, keyed by device ID.
     ///
     /// This slot is used by the legacy device-only auth path
-    /// (`POST /v2/auth/token` with body `{ deviceId }`) and by the
-    /// Notification Service Extension. SIWE-bound JWTs must NOT be
-    /// written here — they go to `siweJwt(deviceId:address:)` — so an
-    /// NSE refresh (which mints a device-only token) can't accidentally
-    /// stomp the main app's SIWE token, and vice versa.
+    /// (`POST /v2/auth/token` with body `{ deviceId }`, no SIWE). It's
+    /// what `ConvosAPIClient.authenticate(appCheckToken:)` reads/writes
+    /// when no SIWE signing context is configured (e.g. during early
+    /// boot before the on-device identity is loaded).
+    ///
+    /// Notes on the Notification Service Extension:
+    /// - NSE itself does not read from this slot — it consumes the
+    ///   `apiJWT` injected via the APNS payload and routes it through
+    ///   `ConvosAPIClient.overrideJWTToken`.
+    /// - The slot is still kept disjoint from
+    ///   `siweJwt(deviceId:address:)` so a legacy `authenticate()`
+    ///   call (e.g. fallback when SIWE isn't available yet) can't
+    ///   stomp a SIWE-bound token stored under the address-scoped slot.
     static func jwt(deviceId: String) -> String {
         return deviceId
     }

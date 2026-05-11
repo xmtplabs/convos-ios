@@ -2,14 +2,17 @@
 import Foundation
 import Testing
 
-/// Invariants that keep the SIWE rollout from regressing NSE.
+/// Invariants that keep the SIWE rollout from polluting the legacy
+/// device-only JWT slot.
 ///
-/// The Notification Service Extension reads its JWT from
-/// `KeychainAccount.jwt(deviceId:)` and expects it to be a device-only
-/// (legacy) token that passes `/v2/auth-check` (the
-/// `authMiddlewareAllowNSE` route). The main app's SIWE JWT lives in a
-/// separate, address-scoped slot. Neither side may stomp the other.
-@Suite("SIWE/NSE compatibility")
+/// The legacy slot (`KeychainAccount.jwt(deviceId:)`) is the
+/// fallback path `ConvosAPIClient.authenticate(appCheckToken:)` uses
+/// when no SIWE signing context is configured. The NSE itself does
+/// not read this slot — it consumes an APNS-injected JWT via
+/// `overrideJWTToken` — but the slot still needs to stay disjoint
+/// from the SIWE slot so a legacy auth call can't stomp a SIWE-bound
+/// token and vice versa. These tests pin that disjointness.
+@Suite("SIWE/legacy slot disjointness")
 struct SIWENSECompatibilityTests {
     @Test("Legacy and SIWE Keychain accounts are different strings")
     func slotsAreDisjoint() {
@@ -31,7 +34,7 @@ struct SIWENSECompatibilityTests {
         #expect(a != b)
     }
 
-    @Test("KeychainServiceProtocol writes to legacy and SIWE slots are independent")
+    @Test("Keychain writes to legacy and SIWE slots are independent")
     func keychainWritesDoNotCollide() throws {
         // Use the in-memory mock — the simulator unit-test keychain
         // can be flaky without an entitlements file, and this test is
@@ -44,21 +47,21 @@ struct SIWENSECompatibilityTests {
         let deviceId = "test-disjoint-device"
         let address = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa"
 
-        try svc.saveString("nse-token", account: KeychainAccount.jwt(deviceId: deviceId))
+        try svc.saveString("legacy-token", account: KeychainAccount.jwt(deviceId: deviceId))
         try svc.saveString("siwe-token", account: KeychainAccount.siweJwt(deviceId: deviceId, address: address))
 
-        #expect(try svc.retrieveString(account: KeychainAccount.jwt(deviceId: deviceId)) == "nse-token")
+        #expect(try svc.retrieveString(account: KeychainAccount.jwt(deviceId: deviceId)) == "legacy-token")
         #expect(try svc.retrieveString(account: KeychainAccount.siweJwt(deviceId: deviceId, address: address)) == "siwe-token")
 
         // Sanity: deleting one doesn't touch the other.
         try svc.delete(account: KeychainAccount.siweJwt(deviceId: deviceId, address: address))
-        #expect(try svc.retrieveString(account: KeychainAccount.jwt(deviceId: deviceId)) == "nse-token")
+        #expect(try svc.retrieveString(account: KeychainAccount.jwt(deviceId: deviceId)) == "legacy-token")
         #expect(try svc.retrieveString(account: KeychainAccount.siweJwt(deviceId: deviceId, address: address)) == nil)
     }
 
-    @Test("jwtCarriesAccountId() identifies SIWE vs device-only JWTs")
+    @Test("jwtCarriesAccountId() identifies SIWE vs non-SIWE JWTs")
     func jwtAccountIdDetection() throws {
-        // Device-only payload (legacy path) — no accountId.
+        // Legacy device-only payload — no accountId.
         let devicePayload = try jwtFromClaims(["sub": "device-1", "deviceId": "device-1"])
         #expect(ConvosAPIClient.jwtCarriesAccountId(devicePayload) == false)
 
@@ -71,7 +74,13 @@ struct SIWENSECompatibilityTests {
         #expect(ConvosAPIClient.jwtCarriesAccountId(siwePayload) == true)
 
         // NSE-flavoured payload — has metadata.notificationExtensionOnly,
-        // no accountId. Must be classified as "not SIWE".
+        // no accountId. Classified as "not SIWE" (the SIWE slot writer
+        // refuses to store it). Note: the backend's
+        // /api/v2/account-auth-check route rejects this token at
+        // authMiddleware time with 403 "NSE tokens not allowed on this
+        // route", not at requireAccount with "Account required" — but
+        // either way the iOS-side classifier here just needs to refuse
+        // to treat it as SIWE.
         let nsePayload = try jwtFromClaims([
             "sub": "device-1",
             "deviceId": "device-1",

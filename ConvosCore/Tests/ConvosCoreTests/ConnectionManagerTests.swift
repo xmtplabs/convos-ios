@@ -590,6 +590,8 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         "stub-siwe-jwt"
     }
 
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
         .init(success: jwt != nil)
     }

@@ -155,6 +155,7 @@ private final class ThrowawayPushAPIClient: ConvosAPIClientProtocol, @unchecked 
 
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
     func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext, retryCount: Int) async throws -> String { "siwe-token" }
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
 
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }

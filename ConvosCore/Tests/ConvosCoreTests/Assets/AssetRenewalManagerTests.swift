@@ -473,6 +473,7 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
     func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext, retryCount: Int) async throws -> String { "siwe-token" }
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
     func uploadAttachmentAndExecute(data: Data, filename: String, afterUpload: @escaping (String) async throws -> Void) async throws -> String { "" }

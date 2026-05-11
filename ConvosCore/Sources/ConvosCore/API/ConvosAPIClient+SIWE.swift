@@ -4,6 +4,13 @@ import Foundation
 extension ConvosAPIClient {
     // MARK: - Public SIWE entry points
 
+    /// Max number of fresh-nonce retries on 401 from `/auth/token`. The
+    /// backend burns the nonce on every attempt regardless of signature
+    /// validity, so a retry must restart from `/auth/nonce`. One retry
+    /// covers the typical race (nonce TTL expired between fetch and
+    /// exchange) without masking a real signing bug.
+    static let maxSIWENonceRetries: Int = 1
+
     func authenticateWithSIWE(
         appCheckToken: String,
         signing: BackendAuthSigningContext,
@@ -22,6 +29,41 @@ extension ConvosAPIClient {
             return existing
         }
 
+        var lastError: (any Error)?
+        for attempt in 0...Self.maxSIWENonceRetries {
+            do {
+                return try await singleSIWEExchange(
+                    appCheckToken: appCheckToken,
+                    signing: signing,
+                    deviceId: deviceId,
+                    slot: slot
+                )
+            } catch SIWEAuthError.invalidNonceOrSignature(let msg) {
+                lastError = SIWEAuthError.invalidNonceOrSignature(msg)
+                if attempt < Self.maxSIWENonceRetries {
+                    Log.info("SIWE 401 on attempt \(attempt + 1); retrying with a fresh nonce")
+                    continue
+                }
+            } catch SIWEAuthError.rateLimited {
+                lastError = SIWEAuthError.rateLimited
+                if attempt < Self.maxSIWENonceRetries {
+                    let delay = TimeInterval.calculateExponentialBackoff(for: attempt)
+                    Log.info("SIWE rate-limited; sleeping \(delay)s and retrying from nonce")
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    continue
+                }
+            }
+            break
+        }
+        throw lastError ?? SIWEAuthError.invalidNonceOrSignature(nil)
+    }
+
+    private func singleSIWEExchange(
+        appCheckToken: String,
+        signing: BackendAuthSigningContext,
+        deviceId: String,
+        slot: String
+    ) async throws -> String {
         let challenge = try await requestAuthNonce(appCheckToken: appCheckToken, retryCount: 0)
 
         let siweConfig = environment.siweConfiguration
@@ -43,8 +85,7 @@ extension ConvosAPIClient {
             deviceId: deviceId,
             message: message,
             signatureHex: signature,
-            cookieHeader: challenge.cookieHeader,
-            retryCount: retryCount
+            cookieHeader: challenge.cookieHeader
         )
 
         guard Self.jwtCarriesAccountId(token) else {
@@ -138,8 +179,7 @@ extension ConvosAPIClient {
         deviceId: String,
         message: String,
         signatureHex: String,
-        cookieHeader: String,
-        retryCount: Int
+        cookieHeader: String
     ) async throws -> String {
         let url = baseURL.appendingPathComponent("v2/auth/token")
         var request = URLRequest(url: url)
@@ -166,16 +206,13 @@ extension ConvosAPIClient {
             throw APIError.badRequest(parseErrorMessage(from: data))
         case 401:
             // Per backend, the nonce is burned even on signature failure.
-            // The caller must restart from /auth/nonce.
+            // Signal the caller to restart from /auth/nonce.
             throw SIWEAuthError.invalidNonceOrSignature(parseErrorMessage(from: data))
         case 403:
             throw SIWEAuthError.deviceDisabled(parseErrorMessage(from: data))
         case 429:
-            guard retryCount < maxRetryCount else { throw APIError.rateLimitExceeded }
-            let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
-            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            // 429 retry: don't reuse a possibly-consumed nonce; signal
-            // caller to restart from /auth/nonce.
+            // Same here: nonce is burned. Caller decides whether to
+            // sleep + retry; we just signal.
             throw SIWEAuthError.rateLimited
         default:
             throw APIError.serverError(parseErrorMessage(from: data))

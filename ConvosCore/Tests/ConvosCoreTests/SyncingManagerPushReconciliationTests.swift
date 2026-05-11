@@ -203,6 +203,8 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         "mock-siwe-jwt-token"
     }
 
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
         .init(success: jwt != nil)
     }

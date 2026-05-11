@@ -32,10 +32,17 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// SIWE auth path. Fetches a nonce, has the caller sign an EIP-4361
     /// message, exchanges `(message, signature)` for a JWT containing
     /// `accountId`. Stores the JWT in an address-scoped Keychain slot so
-    /// it doesn't collide with the legacy device-only JWT used by NSE.
+    /// it doesn't collide with the legacy device-only slot.
     func authenticateWithSIWE(appCheckToken: String,
                               signing: BackendAuthSigningContext,
                               retryCount: Int) async throws -> String
+
+    /// Updates (or clears) the SIWE signing context the client uses for
+    /// outgoing authenticated requests and for 401 re-auth. Must be
+    /// called by the session layer after the on-device identity is
+    /// loaded — until then the client falls back to the legacy
+    /// device-only auth path.
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?)
 
     /// Hits `GET /api/v2/account-auth-check` with the supplied JWT
     /// injected directly as `X-Convos-AuthToken` — no Keychain lookup,
@@ -99,6 +106,26 @@ extension ConvosAPIClientProtocol {
 ///
 /// The client automatically re-authenticates on 401 responses up to a maximum
 /// retry count and stores JWT tokens in keychain for persistence.
+/// Thread-safe slot for the active SIWE signing context. ConvosAPIClient
+/// is otherwise immutable + Sendable; this is the one piece of mutable
+/// state we need so the authenticated request path and the 401 refresh
+/// path can pick up the same context the session-level auth call used,
+/// without exposing libxmtp / KeychainIdentity through the protocol.
+final class LockedSigningContext: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var value: BackendAuthSigningContext?
+
+    func set(_ ctx: BackendAuthSigningContext?) {
+        lock.lock(); defer { lock.unlock() }
+        value = ctx
+    }
+
+    func get() -> BackendAuthSigningContext? {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+}
+
 final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     let baseURL: URL
     private let session: URLSession
@@ -106,6 +133,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     let keychainService: any KeychainServiceProtocol = KeychainService()
     private let overrideJWTToken: String?  // Immutable JWT override from APNS payload
     let maxRetryCount: Int = 3
+    let siweSigningContext: LockedSigningContext = LockedSigningContext()
 
     fileprivate init(environment: AppEnvironment, overrideJWTToken: String? = nil) {
         guard let apiBaseURL = URL(string: environment.apiBaseURL) else {
@@ -184,8 +212,24 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Private Helpers
 
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {
+        siweSigningContext.set(context)
+    }
+
     private func reAuthenticate() async throws -> String {
         let firebaseAppCheckToken = try await FirebaseHelperCore.getAppCheckToken()
+        // If a SIWE signing context is configured for this session,
+        // re-auth must reissue a SIWE-bound JWT. Falling back to
+        // legacy `{ deviceId }` here would silently downgrade the
+        // session to a token missing `accountId`, breaking any
+        // route gated by `requireAccount`.
+        if let context = siweSigningContext.get() {
+            return try await authenticateWithSIWE(
+                appCheckToken: firebaseAppCheckToken,
+                signing: context,
+                retryCount: 0
+            )
+        }
         return try await authenticate(
             appCheckToken: firebaseAppCheckToken,
             retryCount: 0
@@ -296,30 +340,55 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     ) throws -> URLRequest {
         var request = try request(for: path, method: method, queryParameters: queryParameters)
 
-        let deviceId = DeviceInfo.deviceIdentifier
-
-        // Prioritize override JWT token (from notification payload) over keychain JWT
+        // JWT selection precedence:
+        //   1. overrideJWTToken (APNS-injected, NSE flow)
+        //   2. SIWE-bound JWT in the address-scoped slot, when a signing
+        //      context is configured for this session
+        //   3. Legacy device-only JWT slot (only reachable when no
+        //      signing context is set yet — e.g. early boot before the
+        //      XMTP identity is loaded)
         if let overrideJWT = overrideJWTToken {
             Log.debug("Using override JWT token from notification payload")
             request.setValue(overrideJWT, forHTTPHeaderField: "X-Convos-AuthToken")
+        } else if let jwt = retrieveCurrentJWT() {
+            request.setValue(jwt, forHTTPHeaderField: "X-Convos-AuthToken")
         } else {
-            // No override JWT - try keychain
-            do {
-                if let keychainJWT = try keychainService.retrieveString(
-                    account: KeychainAccount.jwt(deviceId: deviceId)
-                ) {
-                    Log.debug("Using JWT token from keychain")
-                    request.setValue(keychainJWT, forHTTPHeaderField: "X-Convos-AuthToken")
-                } else {
-                    Log.debug("No JWT token found - request will trigger re-authentication")
-                }
-            } catch {
-                Log.warning("Failed to retrieve JWT from keychain: \(error.localizedDescription)")
-                // In main app context, continue without JWT - will trigger re-authentication
-            }
+            Log.debug("No JWT token found - request will trigger re-authentication")
         }
 
         return request
+    }
+
+    /// Returns the JWT we'd attach to a fresh authenticated request,
+    /// honoring the SIWE slot when a signing context is set. Used by
+    /// `authenticatedRequest` and by the SIWE accountAuthCheck path.
+    func retrieveCurrentJWT() -> String? {
+        let deviceId = DeviceInfo.deviceIdentifier
+
+        if let context = siweSigningContext.get() {
+            let siweSlot = KeychainAccount.siweJwt(deviceId: deviceId, address: context.address)
+            do {
+                if let siweJWT = try keychainService.retrieveString(account: siweSlot),
+                   !siweJWT.isEmpty {
+                    Log.debug("Using SIWE JWT from address-scoped keychain slot")
+                    return siweJWT
+                }
+            } catch {
+                Log.warning("Failed to retrieve SIWE JWT: \(error.localizedDescription)")
+            }
+        }
+
+        do {
+            if let legacy = try keychainService.retrieveString(account: KeychainAccount.jwt(deviceId: deviceId)),
+               !legacy.isEmpty {
+                Log.debug("Using legacy JWT from keychain (no SIWE context configured)")
+                return legacy
+            }
+        } catch {
+            Log.warning("Failed to retrieve legacy JWT: \(error.localizedDescription)")
+        }
+
+        return nil
     }
 
     private func performRequest<T: Decodable>(_ request: URLRequest) async throws -> T {
