@@ -3,7 +3,7 @@
 > Backend branch reviewed from `../convos-backend`: `fbac/authentication-api`.
 > iOS target repo: `convos-ios`.
 
-## Friday proof goal
+## Next-step proof goal
 
 Show, from the Swift app/debug build, that we can:
 
@@ -62,7 +62,7 @@ Token details:
 - Expires in 15 minutes.
 - Payload includes `deviceId`; SIWE path also includes `accountId`.
 
-Errors to surface in debug proof:
+Errors to surface during the proof run:
 
 - `400` invalid request body.
 - `401` invalid nonce or invalid SIWE. Nonce may already be burned; retry must restart from `/auth/nonce`.
@@ -86,7 +86,7 @@ This route should:
 - return `403 { "error": "Account required" }` for legacy device-only JWTs,
 - reject NSE-only JWTs because it uses `authMiddleware`, not `authMiddlewareAllowNSE`.
 
-Technically this checks “account-authenticated JWT”, not the SIWE message itself. In the current backend, `accountId` implies SIWE because SIWE is the only account creation method. If more account auth methods are added later, consider renaming/generalizing to `/api/v2/account-auth-check`.
+Technically this checks “account-authenticated JWT”, not the SIWE message itself. In the current backend, `accountId` implies SIWE because SIWE is the only account creation method. **As a next step: ship `/api/v2/siwe-auth-check`. Longer term: rename to `/api/v2/account-auth-check`** since it actually checks for `accountId`, not the SIWE signature itself — the moment a second account auth method is added (passkey, Sign-In with Solana, etc.) the SIWE-named route becomes misleading. Either alias the new name to the old one or stage a deprecation; iOS only consumes the route via one method, so the swap is cheap on this side.
 
 ## Current iOS gaps
 
@@ -95,7 +95,7 @@ Technically this checks “account-authenticated JWT”, not the SIWE message it
 3. `ConvosAPIClient` currently has no access to the XMTP identity/private key when it refreshes a token after a `401`.
 4. JWTs are stored by device ID only (`KeychainAccount.jwt(deviceId:)`). With SIWE this can reuse a stale token from a previous identity on the same device.
 5. The app config has no explicit `siweDomain`, `siweURI`, or `chainId`; backend SIWE verification is exact-match.
-6. Default `HTTPCookieStorage` silently drops the prod cookie on `http://localhost` because the `__Host-` prefix requires `Secure`. Coordination with backend: in non-prod modes the cookie is emitted as plain `convos_nonce` without `Secure` (HMAC binding unchanged) so the default URLSession round-trips it transparently. No manual cookie handling needed in iOS.
+6. Default `HTTPCookieStorage` silently drops the prod cookie on `http://localhost` because the `__Host-` prefix requires `Secure`. The current backend on `fbac/authentication-api` still emits `__Host-convos_nonce; Secure` unconditionally — relaxing it to `convos_nonce` (no `Secure`) outside prod is a **proposed backend coordination item, not yet landed**. iOS must therefore build the SIWE flow assuming the strict prod cookie, i.e. raw-parse `Set-Cookie` and send the `Cookie` header manually on `/auth/token` rather than relying on `HTTPCookieStorage`. If the backend relaxation lands, this code keeps working unchanged.
 
 ## Implementation plan
 
@@ -180,13 +180,13 @@ func requestAuthNonce(appCheckToken: String) async throws -> AuthNonceChallenge
 
 Implementation details:
 
-- `POST v2/auth/nonce`
-- Parse `Set-Cookie` using `HTTPCookie.cookies(withResponseHeaderFields:for:)`. The cookie name is `__Host-convos_nonce` in prod and `convos_nonce` in non-prod (backend strips the `__Host-` prefix and `Secure` flag outside production so the default URLSession can round-trip it on HTTP).
-- The raw hex nonce is `value.split(".").last` (the part after the HMAC separator); the full `name=value` becomes the `Cookie` header sent on `/auth/token`.
+- `POST v2/auth/nonce`.
+- Raw-parse the `Set-Cookie` response header rather than relying on `HTTPCookieStorage`. As of the reviewed backend, the cookie is emitted unconditionally as `__Host-convos_nonce=<hmac>.<nonce>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=300`, and `HTTPCookieStorage` will silently drop it on `http://localhost` because of `Secure`. Use `HTTPURLResponse.value(forHTTPHeaderField: "Set-Cookie")` plus `HTTPCookie.cookies(withResponseHeaderFields:for:)` so commas inside `Expires=...` don't corrupt parsing, then look up the cookie by exact name. Accept both `__Host-convos_nonce` and the proposed dev form `convos_nonce` so the same code keeps working if/when the backend relaxes the attributes.
+- The raw hex nonce is `value.split(".").last` (the part after the HMAC separator); the full `name=value` is what we send back as the `Cookie` header on `/auth/token`.
 - Validate nonce with `^[0-9a-f]{64}$`.
 - Do **not** log the cookie value or signature.
 
-Default `URLSession` (with the shared `HTTPCookieStorage`) is sufficient — no `ephemeral` session needed — because the backend's dev-mode cookie attributes are HTTP-compatible. We still construct the `Cookie` header explicitly on `/auth/token` so the flow is robust to future cookie-policy changes and easy to reason about in logs.
+Use a dedicated `URLSession` configured with `httpCookieStorage = nil, httpShouldSetCookies = false` for the SIWE auth flow. The manually-carried `Cookie` header is the source of truth; this also keeps SIWE auth state from leaking into any other request via shared cookie storage.
 
 ### 4. Add SIWE token exchange
 
@@ -211,18 +211,25 @@ struct AuthTokenResponse: Decodable {
 Implement:
 
 ```swift
+public struct BackendAuthSigningContext: Sendable {
+    public let address: String
+    public let sign: @Sendable (_ message: String) async throws -> Data  // 65-byte r||s||v
+}
+
 func authenticateWithSIWE(
     appCheckToken: String,
-    identity: KeychainIdentity,
+    signing: BackendAuthSigningContext,
     retryCount: Int
 ) async throws -> String
 ```
 
+**Architecture note**: do not let `ConvosAPIClientProtocol` depend on `KeychainIdentity`. The API client should know nothing about the keychain or libxmtp types. Instead, the caller (SessionStateMachine / AuthorizeInboxOperation) loads the identity, builds a `BackendAuthSigningContext` that closes over the private key, and hands it to the API client. The API client treats it as an opaque "sign this string, return 65 bytes" capability. This keeps the protocol surface small and lets the 401-retry path inside `ConvosAPIClient` re-call the closure for a fresh SIWE auth without ever needing to reach into the identity store itself — critical so refresh doesn't silently downgrade to legacy `{ deviceId }` auth when the closure isn't around.
+
 Flow:
 
 1. Request nonce.
-2. Build SIWE message with current environment SIWE config.
-3. Sign message with `identity.keys.privateKey.sign(message)`.
+2. Build SIWE message with current environment SIWE config and `signing.address`.
+3. Sign message via `try await signing.sign(message)` (the closure encapsulates `privateKey.sign(message).rawData` and the v-byte normalization).
 4. `POST v2/auth/token` with AppCheck, JSON body, and `Cookie` header from nonce challenge.
 5. Save returned JWT only if payload contains `accountId`.
 6. On `401`, discard the challenge and start again from nonce; do not reuse nonce.
@@ -252,7 +259,7 @@ Then:
 - On successful SIWE token exchange, delete the legacy device-only JWT if present.
 - On account deletion / Delete All Data, delete SIWE JWT for the current identity before deleting identity keys.
 
-This prevents a stale token from a prior identity being reused during the Friday proof.
+This prevents a stale token from a prior identity being reused during the proof run.
 
 ### 6. Wire SessionStateMachine to SIWE auth
 
@@ -270,7 +277,24 @@ During `authenticateBackend()`:
 
 Also update `ConvosAPIClient` re-authentication after `401` so refresh uses the same SIWE signer. Otherwise the client will silently downgrade to a legacy device-only token after expiry.
 
-### 7. Add a debug proof action
+### 7. NSE (Notification Service Extension) compatibility
+
+The Notification Service Extension stays **outside SIWE**. It cannot run the SIWE flow at all — no XMTP identity unlock in an extension process, no interactive signing, and the extension's strict CPU/time budget rules out a per-push SIWE round-trip even if it could. The contract for NSE is:
+
+- NSE uses the existing backend-minted `metadata.notificationExtensionOnly: true` JWT path (no SIWE, no `accountId`). The backend already supports this; the iOS side already stores and refreshes the NSE token via the legacy device-id JWT slot.
+- NSE-issued JWTs **must keep passing** `GET /api/v2/auth-check` (which uses `authMiddlewareAllowNSE`). This is the existing liveness probe and the SIWE rollout must not regress it.
+- NSE-issued JWTs **must fail** `GET /api/v2/siwe-auth-check` with `403 Account required` — the new gated route is mounted with `authMiddleware + requireAccount`, which rejects tokens without `accountId`. This is the desired guardrail: SIWE-gated functionality is never reachable from a notification extension.
+- The token cache change in §5 (address-scoped SIWE JWT key) must not touch the legacy `KeychainAccount.jwt(deviceId:)` slot that NSE reads from. NSE and the main app keep using disjoint cache entries.
+
+If NSE later needs additional backend cleanup routes (e.g. unregistering a stale push token), expose them as a narrow NSE-safe surface with an explicit allowlist — not broad `/notifications/*` access. The pattern is: tag those routes with `authMiddlewareAllowNSE`, require explicit per-route opt-in to NSE, and do not bypass `requireAccount` for anything that mutates account-owned state.
+
+iOS tests to add alongside the SIWE suite:
+
+- An NSE-flavoured JWT (manually constructed with `metadata.notificationExtensionOnly: true` against the test ES256 key) hits `/auth-check` and gets `200`.
+- The same JWT hits `/siwe-auth-check` and gets `403 Account required`.
+- The SIWE JWT cache writer (§5) never overwrites the NSE token slot.
+
+### 8. Add a debug proof action
 
 Files:
 
@@ -292,7 +316,7 @@ For gated route:
 - Use `/api/v2/siwe-auth-check` once backend adds it.
 - Keep `/api/v2/auth-check` only as a legacy/NSE JWT liveness check; do not use it to prove SIWE/account auth.
 
-### 8. Tests
+### 9. Tests
 
 Add ConvosCore tests:
 
@@ -307,7 +331,7 @@ Add ConvosCore tests:
   - body with `deviceId`, `siwe.message`, `siwe.signature`,
   - `X-Convos-AuthToken` for gated route.
 
-### 9. Manual proof checklist
+### 10. Manual proof checklist
 
 Prereqs:
 
@@ -334,7 +358,7 @@ Negative path:
 
 - Same screen, tap **Probe without auth** → `401 Missing auth token` on `/siwe-auth-check`.
 
-Failure-mode probes (optional; prove robustness, not required for Friday):
+Failure-mode probes (optional; prove robustness, not required for the initial proof):
 
 - Flip one hex char in the signature before sending → expect `401 Invalid SIWE`, and a follow-up clean run must still succeed (the failed signature already burned the previous nonce; the new run fetches a fresh one).
 - Delay 6 minutes between `/auth/nonce` and `/auth/token` → expect `401 Invalid nonce` (TTL expired).
