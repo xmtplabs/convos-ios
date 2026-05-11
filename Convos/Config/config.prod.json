@@ -9,5 +9,8 @@
     "popup.convos.org",
     "app.convos.org"
   ],
-  "appUrlScheme": "convos"
+  "appUrlScheme": "convos",
+  "siweDomain": "convos.app",
+  "siweUri": "https://convos.app",
+  "siweChainId": 1
 }

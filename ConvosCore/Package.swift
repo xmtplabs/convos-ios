@@ -30,6 +30,7 @@ let package = Package(
             revision: "ios-4.10.0-nightly.20260516.42c6bd1"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
+        .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", from: "1.8.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
@@ -94,6 +95,9 @@ let package = Package(
                 "ConvosCore",
                 "ConvosAppData",
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+                .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
+                .product(name: "CryptoSwift", package: "CryptoSwift"),
             ]
         ),
         .testTarget(

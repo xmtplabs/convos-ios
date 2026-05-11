@@ -7,6 +7,37 @@ public enum ConvosAPI {
         public let token: String
     }
 
+    // MARK: - v2/auth/token (SIWE)
+
+    /// Request body for `POST /api/v2/auth/token`. Omit `siwe` for the
+    /// legacy device-only path; include it to bind the JWT to an
+    /// Ethereum account.
+    public struct AuthTokenRequest: Encodable {
+        public let deviceId: String
+        public let siwe: SIWEPayload?
+
+        public init(deviceId: String, siwe: SIWEPayload?) {
+            self.deviceId = deviceId
+            self.siwe = siwe
+        }
+    }
+
+    public struct SIWEPayload: Encodable {
+        public let message: String
+        public let signature: String
+
+        public init(message: String, signature: String) {
+            self.message = message
+            self.signature = signature
+        }
+    }
+
+    public struct AuthTokenResponse: Decodable {
+        public let token: String
+
+        public init(token: String) { self.token = token }
+    }
+
     // MARK: - Device Update Models
 
     struct DeviceUpdateRequest: Codable {

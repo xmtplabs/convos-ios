@@ -260,6 +260,14 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         "token"
     }
 
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext, retryCount: Int) async throws -> String {
+        "siwe-token"
+    }
+
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        .init(success: jwt != nil)
+    }
+
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String {
         ""
     }
@@ -339,6 +347,8 @@ private final class ThrowingPushAPIClient: ConvosAPIClientProtocol, @unchecked S
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
 
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext, retryCount: Int) async throws -> String { "siwe-token" }
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
 
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
 

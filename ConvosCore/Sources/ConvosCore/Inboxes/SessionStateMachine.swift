@@ -1052,9 +1052,30 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
                 try Task.checkCancellation()
 
-                Log.debug("Authenticating with backend and storing JWT...")
-                _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
-                Log.info("Successfully authenticated with backend")
+                // Default path: SIWE auth. Loads the on-device identity,
+                // signs an EIP-4361 message with its Ethereum private key,
+                // exchanges for a JWT containing `accountId`. The JWT is
+                // stored under an address-scoped Keychain slot so an NSE
+                // device-only token can't pollute the SIWE token (and
+                // vice versa).
+                if let identity = try await identityStore.load() {
+                    let signing = BackendAuthSigningContext.make(from: identity.keys.privateKey)
+                    Log.debug("Authenticating with backend via SIWE (address \(signing.address))...")
+                    _ = try await apiClient.authenticateWithSIWE(
+                        appCheckToken: appCheckToken,
+                        signing: signing,
+                        retryCount: 0
+                    )
+                    Log.info("Successfully authenticated with backend (SIWE)")
+                } else {
+                    // No on-device identity yet: fall back to the legacy
+                    // device-only path so things like NSE/auth-check stay
+                    // unblocked. SIWE will run on the next attempt once
+                    // an identity is provisioned.
+                    Log.debug("No identity yet; falling back to legacy device-only auth...")
+                    _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
+                    Log.info("Successfully authenticated with backend (legacy)")
+                }
                 return
             } catch is CancellationError {
                 throw CancellationError()

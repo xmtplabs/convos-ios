@@ -29,6 +29,23 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func authenticate(appCheckToken: String,
                       retryCount: Int) async throws -> String
 
+    /// SIWE auth path. Fetches a nonce, has the caller sign an EIP-4361
+    /// message, exchanges `(message, signature)` for a JWT containing
+    /// `accountId`. Stores the JWT in an address-scoped Keychain slot so
+    /// it doesn't collide with the legacy device-only JWT used by NSE.
+    func authenticateWithSIWE(appCheckToken: String,
+                              signing: BackendAuthSigningContext,
+                              retryCount: Int) async throws -> String
+
+    /// Hits `GET /api/v2/account-auth-check` with the supplied JWT
+    /// injected directly as `X-Convos-AuthToken` — no Keychain lookup,
+    /// no read of the legacy device-id slot, so an NSE token sitting in
+    /// `KeychainAccount.jwt(deviceId:)` can't pollute the result. Pass
+    /// `nil` to probe the 401 (missing token) path.
+    ///
+    /// SIWE-bound JWT → 200. Legacy device-only JWT → 403. Missing → 401.
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse
+
     func uploadAttachment(
         data: Data,
         filename: String,
@@ -83,12 +100,12 @@ extension ConvosAPIClientProtocol {
 /// The client automatically re-authenticates on 401 responses up to a maximum
 /// retry count and stores JWT tokens in keychain for persistence.
 final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
-    private let baseURL: URL
+    let baseURL: URL
     private let session: URLSession
-    private let environment: AppEnvironment
-    private let keychainService: any KeychainServiceProtocol = KeychainService()
+    let environment: AppEnvironment
+    let keychainService: any KeychainServiceProtocol = KeychainService()
     private let overrideJWTToken: String?  // Immutable JWT override from APNS payload
-    private let maxRetryCount: Int = 3
+    let maxRetryCount: Int = 3
 
     fileprivate init(environment: AppEnvironment, overrideJWTToken: String? = nil) {
         guard let apiBaseURL = URL(string: environment.apiBaseURL) else {
@@ -175,7 +192,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
-    private func isJWTValid(_ token: String) -> Bool {
+    func isJWTValid(_ token: String) -> Bool {
         // JWT format: header.payload.signature
         let parts = token.split(separator: ".")
         guard parts.count == 3 else { return false }
@@ -632,7 +649,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Helper Methods
 
-    private func parseErrorMessage(from data: Data) -> String? {
+    func parseErrorMessage(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let message = json["message"] as? String {
                 return message

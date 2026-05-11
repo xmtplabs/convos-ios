@@ -10,5 +10,8 @@
     "app-dev.convos.org"
   ],
   "appUrlScheme": "convos-pr",
-  "firebaseConfig": "GoogleService-Info.PR"
+  "firebaseConfig": "GoogleService-Info.PR",
+  "siweDomain": "convos.app",
+  "siweUri": "https://convos.app",
+  "siweChainId": 1
 }

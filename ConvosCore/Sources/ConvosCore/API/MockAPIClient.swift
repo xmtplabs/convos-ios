@@ -32,6 +32,18 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return "mock-jwt-token"
     }
 
+    func authenticateWithSIWE(
+        appCheckToken: String,
+        signing: BackendAuthSigningContext,
+        retryCount: Int = 0
+    ) async throws -> String {
+        "mock-siwe-jwt-token"
+    }
+
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        .init(success: jwt != nil)
+    }
+
     func uploadAttachment(
         data: Data,
         filename: String,

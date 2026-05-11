@@ -100,6 +100,15 @@ public enum AppEnvironment: Sendable {
         }
     }
 
+    public var siweConfiguration: SIWEConfiguration {
+        switch self {
+        case .local(let config), .dev(let config), .production(let config):
+            return config.siweConfiguration
+        case .tests:
+            return SIWEConfiguration(domain: "convos.app", uri: "https://convos.app", chainId: 1)
+        }
+    }
+
     public var appGroupIdentifier: String {
         switch self {
         case .local(config: let config), .dev(config: let config), .production(config: let config):

@@ -48,6 +48,7 @@ struct DebugViewSection: View {
             featuresSection
             pushNotificationsSection
             debugSection
+            authProbeSection
             sentryTestingSection
             pendingInvitesSection
             assetRenewalSection
@@ -175,6 +176,18 @@ struct DebugViewSection: View {
                 } else {
                     ProgressView()
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var authProbeSection: some View {
+        Section("SIWE Auth") {
+            NavigationLink {
+                DebugAuthProbeView(environment: environment)
+            } label: {
+                Text("Run SIWE Auth Probe")
+                    .foregroundStyle(.colorTextPrimary)
             }
         }
     }
