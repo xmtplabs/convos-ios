@@ -279,34 +279,60 @@ extension ConvosAPIClient {
     /// Splits a concatenated Set-Cookie header value into individual
     /// cookies. URLSession's `allHeaderFields` joins duplicate
     /// `Set-Cookie` lines with ", ", but commas can also appear inside
-    /// `Expires=...` values, so we split on `, ` only when the next
-    /// segment looks like the start of a new cookie (name=...).
+    /// cookie *values* (e.g. base64 with `/`, `+`, `=`, or our nonce
+    /// cookie's `<hmac>.<hex>` separator) and inside `Expires=...`
+    /// dates. We split on `, ` only when the next segment looks like
+    /// the start of a new cookie: `name=` where `name` matches the
+    /// RFC 6265 cookie-name token grammar (letters, digits, `_`, `-`,
+    /// `.`). The value side of `name=value` is intentionally not
+    /// validated — anything between `=` and the next `;`/`,` may
+    /// appear there.
     private static func splitSetCookieEntries(_ raw: String) -> [String] {
-        // Cheap & correct enough: split on the `(?<!Expires=)(?<!Max-Age=)... , (?=[A-Za-z0-9_-]+=)`
-        // pattern by looking at the next 1–80 chars for `=`.
         var entries: [String] = []
         var current = ""
         let scalars = Array(raw)
         var i = 0
         while i < scalars.count {
-            let c = scalars[i]
-            if c == "," && i + 1 < scalars.count && scalars[i + 1] == " " {
-                // Look ahead: do we see `name=` before the next `;` or `,`?
-                let lookahead = scalars[(i + 2)..<min(i + 82, scalars.count)]
-                let asString = String(lookahead)
-                let upToBreak = asString.prefix(while: { $0 != ";" && $0 != "," })
-                if upToBreak.contains("=") && upToBreak.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == "=" }) {
-                    entries.append(current)
-                    current = ""
-                    i += 2
-                    continue
-                }
+            if scalars[i] == ",",
+               i + 1 < scalars.count,
+               scalars[i + 1] == " ",
+               Self.headerSeparatorStartsNewCookie(in: scalars, at: i + 2) {
+                entries.append(current)
+                current = ""
+                i += 2
+                continue
             }
-            current.append(c)
+            current.append(scalars[i])
             i += 1
         }
         if !current.isEmpty { entries.append(current) }
         return entries
+    }
+
+    /// Returns `true` if `scalars[start...]` begins with at least one
+    /// cookie-name char followed by `=` within a reasonable lookahead.
+    /// Cookie name grammar (RFC 6265 §4.1.1): a `token`, which we
+    /// approximate here as `[A-Za-z0-9_\-\.]+` — covers every cookie
+    /// name the backend emits today (`__Host-convos_nonce`,
+    /// `convos_nonce`) and any reasonable future neighbor.
+    private static func headerSeparatorStartsNewCookie(
+        in scalars: [Character],
+        at start: Int
+    ) -> Bool {
+        let limit = min(scalars.count, start + 80)
+        var j = start
+        while j < limit {
+            let c = scalars[j]
+            if c == "=" {
+                return j > start
+            }
+            if c.isLetter || c.isNumber || c == "_" || c == "-" || c == "." {
+                j += 1
+                continue
+            }
+            return false
+        }
+        return false
     }
 
     private static let nonceRegex: NSRegularExpression = {

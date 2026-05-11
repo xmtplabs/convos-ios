@@ -30,6 +30,28 @@ struct SIWENonceCookieParsingTests {
         #expect(challenge.cookieHeader == "convos_nonce=hmac.\(hex)")
     }
 
+    @Test("Finds the nonce cookie when URLSession coalesces multiple Set-Cookie headers and the nonce is second")
+    func parsesNonceWhenCoalescedSecond() throws {
+        // URLSession concatenates duplicate Set-Cookie headers with
+        // ", " when surfacing them through `value(forHTTPHeaderField:)`.
+        // The nonce cookie's value contains a `.` separator
+        // (`<hmac>.<hex-nonce>`), so any splitter that validates the
+        // *value* part of the next chunk against a restricted char set
+        // will miss the boundary and parse both cookies as one entry —
+        // ending up unable to find the nonce. This regression test
+        // pins the fix from the macroscope review on PR #827.
+        let hex = String(repeating: "ab", count: 32)
+        let coalesced = [
+            "analytics_id=abc-123-def; Path=/; HttpOnly",
+            "__Host-convos_nonce=hmac+slash/value.\(hex); Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=300",
+        ].joined(separator: ", ")
+
+        let response = makeResponse(setCookie: coalesced)
+        let challenge = try ConvosAPIClient.extractNonceCookie(from: response, requestURL: requestURL)
+        #expect(challenge.nonce == hex)
+        #expect(challenge.cookieHeader == "__Host-convos_nonce=hmac+slash/value.\(hex)")
+    }
+
     @Test("Throws missingNonceCookie when the response has no recognized cookie")
     func throwsWhenAbsent() {
         let response = makeResponse(setCookie: "other_cookie=whatever; Path=/")
