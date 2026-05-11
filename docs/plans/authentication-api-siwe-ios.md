@@ -69,13 +69,13 @@ Errors to surface during the proof run:
 - `403` disabled device.
 - `429` rate limited.
 
-### SIWE/account auth-check route recommendation
+### Account auth-check route
 
 Do **not** change existing `/api/v2/auth-check` yet. iOS/NSE already use it as a backward-compatible JWT liveness check, and backend intentionally mounts it with `authMiddlewareAllowNSE`.
 
-Add a separate account-bound check route for the SIWE rollout:
+Add a separate account-bound check route:
 
-- preferred semantics: `GET /api/v2/siwe-auth-check`
+- name: `GET /api/v2/account-auth-check`
 - backend middleware: `authMiddleware, requireAccount`
 - success body: `{ "success": true }` (optionally include `accountId` for debug builds only)
 
@@ -86,7 +86,7 @@ This route should:
 - return `403 { "error": "Account required" }` for legacy device-only JWTs,
 - reject NSE-only JWTs because it uses `authMiddleware`, not `authMiddlewareAllowNSE`.
 
-Technically this checks “account-authenticated JWT”, not the SIWE message itself. In the current backend, `accountId` implies SIWE because SIWE is the only account creation method. **As a next step: ship `/api/v2/siwe-auth-check`. Longer term: rename to `/api/v2/account-auth-check`** since it actually checks for `accountId`, not the SIWE signature itself — the moment a second account auth method is added (passkey, Sign-In with Solana, etc.) the SIWE-named route becomes misleading. Either alias the new name to the old one or stage a deprecation; iOS only consumes the route via one method, so the swap is cheap on this side.
+The route is named after what it actually checks (`accountId`), not after the auth method that produced the token. In the current backend, `accountId` implies SIWE because SIWE is the only account creation method, but when a second method is added (passkey, Sign-In with Solana, etc.) the route stays correct without a rename.
 
 ## Current iOS gaps
 
@@ -283,7 +283,7 @@ The Notification Service Extension stays **outside SIWE**. It cannot run the SIW
 
 - NSE uses the existing backend-minted `metadata.notificationExtensionOnly: true` JWT path (no SIWE, no `accountId`). The backend already supports this; the iOS side already stores and refreshes the NSE token via the legacy device-id JWT slot.
 - NSE-issued JWTs **must keep passing** `GET /api/v2/auth-check` (which uses `authMiddlewareAllowNSE`). This is the existing liveness probe and the SIWE rollout must not regress it.
-- NSE-issued JWTs **must fail** `GET /api/v2/siwe-auth-check` with `403 Account required` — the new gated route is mounted with `authMiddleware + requireAccount`, which rejects tokens without `accountId`. This is the desired guardrail: SIWE-gated functionality is never reachable from a notification extension.
+- NSE-issued JWTs **must fail** `GET /api/v2/account-auth-check` with `403 Account required` — the new gated route is mounted with `authMiddleware + requireAccount`, which rejects tokens without `accountId`. This is the desired guardrail: SIWE-gated functionality is never reachable from a notification extension.
 - The token cache change in §5 (address-scoped SIWE JWT key) must not touch the legacy `KeychainAccount.jwt(deviceId:)` slot that NSE reads from. NSE and the main app keep using disjoint cache entries.
 
 If NSE later needs additional backend cleanup routes (e.g. unregistering a stale push token), expose them as a narrow NSE-safe surface with an explicit allowlist — not broad `/notifications/*` access. The pattern is: tag those routes with `authMiddlewareAllowNSE`, require explicit per-route opt-in to NSE, and do not bypass `requireAccount` for anything that mutates account-owned state.
@@ -291,7 +291,7 @@ If NSE later needs additional backend cleanup routes (e.g. unregistering a stale
 iOS tests to add alongside the SIWE suite:
 
 - An NSE-flavoured JWT (manually constructed with `metadata.notificationExtensionOnly: true` against the test ES256 key) hits `/auth-check` and gets `200`.
-- The same JWT hits `/siwe-auth-check` and gets `403 Account required`.
+- The same JWT hits `/account-auth-check` and gets `403 Account required`.
 - The SIWE JWT cache writer (§5) never overwrites the NSE token slot.
 
 ### 8. Add a debug proof action
@@ -313,7 +313,7 @@ Probe output should show:
 
 For gated route:
 
-- Use `/api/v2/siwe-auth-check` once backend adds it.
+- Use `/api/v2/account-auth-check` once backend adds it.
 - Keep `/api/v2/auth-check` only as a legacy/NSE JWT liveness check; do not use it to prove SIWE/account auth.
 
 ### 9. Tests
@@ -336,7 +336,7 @@ Add ConvosCore tests:
 Prereqs:
 
 - Backend on `fbac/authentication-api`, local or dev. Required env: `SIWE_DOMAIN=convos.app`, `SIWE_URI=https://convos.app`, `SIWE_ALLOWED_CHAIN_IDS=1`, `NONCE_HMAC_SECRET`, ES256 `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY`, App Check debug token configured (or `app_attest_enabled=false`).
-- Backend has `/api/v2/siwe-auth-check` mounted with `authMiddleware + requireAccount`.
+- Backend has `/api/v2/account-auth-check` mounted with `authMiddleware + requireAccount`.
 - Backend is emitting the non-prod cookie form on local/dev (`convos_nonce`, no `Secure`).
 - iOS `config.local.json` siwe fields exactly match backend env.
 - App is signed-in with an XMTP identity.
@@ -351,12 +351,12 @@ Building SIWE message…     → 8-line EIP-4361 message
 Signing…                   → 0x<130 hex>  (v normalized to 27/28)
 POST /api/v2/auth/token …  → 200 { token: eyJ… }
 Decoded JWT                → sub=<deviceId>, accountId=<uuid>, exp=+15m
-GET /api/v2/siwe-auth-check → 200 { success: true }
+GET /api/v2/account-auth-check → 200 { success: true }
 ```
 
 Negative path:
 
-- Same screen, tap **Probe without auth** → `401 Missing auth token` on `/siwe-auth-check`.
+- Same screen, tap **Probe without auth** → `401 Missing auth token` on `/account-auth-check`.
 
 Failure-mode probes (optional; prove robustness, not required for the initial proof):
 
