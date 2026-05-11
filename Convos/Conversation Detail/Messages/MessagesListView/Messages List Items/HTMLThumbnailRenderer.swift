@@ -8,10 +8,15 @@ import WebKit
 final class HTMLThumbnailRenderer {
     static let shared: HTMLThumbnailRenderer = HTMLThumbnailRenderer()
 
-    private static let renderSize: CGSize = CGSize(width: 720, height: 1200)
+    // Matches the artifact's design viewport so `<meta name="viewport">`
+    // resolves to its intended logical width without WebKit's auto-scale
+    // kicking in. The PDF stays vector, so we rasterize at 2× below for
+    // retina sharpness in the chat cell.
+    private static let renderSize: CGSize = CGSize(width: 393, height: 655)
+    fileprivate static let rasterScale: CGFloat = 2.0
     fileprivate static let paintDelay: TimeInterval = 0.5
     private static let loadTimeout: TimeInterval = 15.0
-    private static let cacheKeyPrefix: String = "html-thumb-v3-"
+    private static let cacheKeyPrefix: String = "html-thumb-v4-"
     private static let injectionScript: String = """
     (function() {
         var css = 'html, body { margin-top: 0 !important; padding-top: 0 !important; } ' +
@@ -170,8 +175,11 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
         }
         // page.thumbnail draws onto an opaque white background, which matches
         // the prior takeSnapshot behavior for HTML that doesn't set its own
-        // body background.
-        let image = page.thumbnail(of: size, for: .mediaBox)
+        // body background. The PDF is vector, so 2× rasterization is free
+        // quality for retina displays.
+        let scale = HTMLThumbnailRenderer.rasterScale
+        let rasterSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let image = page.thumbnail(of: rasterSize, for: .mediaBox)
         return image
     }
 
