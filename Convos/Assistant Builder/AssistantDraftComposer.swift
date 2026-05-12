@@ -78,10 +78,9 @@ struct AssistantDraftComposer: View {
         }
         .selfSizingSheet(
             isPresented: $isConnectionsSheetPresented,
-            onDismiss: { focusState.wrappedValue = .assistantBuilder }
-        ) {
-            AssistantBuilderConnectionsSheet(viewModel: viewModel)
-        }
+            onDismiss: { focusState.wrappedValue = .assistantBuilder },
+            content: { AssistantBuilderConnectionsSheet(viewModel: viewModel) }
+        )
     }
 
     @ViewBuilder

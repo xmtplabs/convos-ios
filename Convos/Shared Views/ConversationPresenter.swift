@@ -9,11 +9,11 @@ struct ConversationPresenter<Content: View>: View {
     /// `ConversationViewModel.untitledConversationPlaceholder`). Used by
     /// flows where the underlying conversation is a draft and the indicator
     /// wants a flow-specific label (e.g. "New assistant").
-    var indicatorPlaceholderOverride: String? = nil
+    var indicatorPlaceholderOverride: String?
     /// Overrides the indicator's subtitle (otherwise falls back to
     /// `ConversationViewModel.conversationInfoSubtitle`). E.g. "Draft" for
     /// the assistant builder.
-    var indicatorSubtitleOverride: String? = nil
+    var indicatorSubtitleOverride: String?
     /// When false, taps still register on the indicator (so the liquid-glass
     /// touch feedback fires) but the expand-to-QuickEditor and info-view
     /// actions are no-ops. Used in draft flows where the conversation isn't
@@ -23,7 +23,7 @@ struct ConversationPresenter<Content: View>: View {
     /// that fires whenever the conversation id changes. Lets flows like the
     /// Assistant Builder pin focus on their composer field even after the
     /// underlying conversation flips from `draft-...` to a real XMTP id.
-    var defaultFocusOverride: MessagesViewInputFocus? = nil
+    var defaultFocusOverride: MessagesViewInputFocus?
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
     @FocusState private var focusState: MessagesViewInputFocus?

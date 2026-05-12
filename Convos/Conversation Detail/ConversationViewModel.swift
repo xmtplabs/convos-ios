@@ -1612,6 +1612,19 @@ extension ConversationViewModel {
         cleanupAttachment(attachment)
     }
 
+    /// Iterates every pending attachment and runs the same cleanup as the
+    /// per-attachment X-button path: cancels in-flight uploads, removes temp
+    /// files left in `FileManager.default.temporaryDirectory`. Used by the
+    /// Assistant Builder's discard flow so file picks (which copy into temp
+    /// at stage-time) don't accumulate after the user cancels the draft.
+    func cleanupPendingMediaAttachments() {
+        let attachments: [PendingMediaAttachment] = pendingMediaAttachments
+        pendingMediaAttachments.removeAll()
+        for attachment in attachments {
+            cleanupAttachment(attachment)
+        }
+    }
+
     private func cleanupAttachment(_ attachment: PendingMediaAttachment) {
         switch attachment {
         case .photo(let photo):

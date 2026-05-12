@@ -120,6 +120,17 @@ final class AssistantBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var cloudConnectionsCancellable: AnyCancellable?
 
+    /// `CloudConnection.id` snapshotted at the moment a connection toggle
+    /// flips on — either captured from `cloudConnectionManager.connect`'s
+    /// return value on the OAuth path, or read out of `cloudConnections`
+    /// for the already-globally-connected path. Used by
+    /// `fireConnectionGrants` so the post-Make grant doesn't lose to the
+    /// freshly-constructed `ConversationConnectionsViewModel`'s
+    /// `.receive(on:.main)` hop (which leaves `cloudRows` empty for one
+    /// runloop tick).
+    @ObservationIgnored
+    private var capturedCloudConnectionIds: [AssistantBuilderConnection: String] = [:]
+
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
     @ObservationIgnored
@@ -212,6 +223,7 @@ final class AssistantBuilderViewModel: Identifiable {
     func toggleConnection(_ connection: AssistantBuilderConnection) {
         if enabledConnections.contains(connection) {
             enabledConnections.remove(connection)
+            capturedCloudConnectionIds.removeValue(forKey: connection)
             return
         }
         guard !isConnectingCloud else { return }
@@ -219,7 +231,9 @@ final class AssistantBuilderViewModel: Identifiable {
         case .appleHealth:
             enabledConnections.insert(connection)
         case .googleCalendar:
-            if hasGlobalCloudConnection(serviceId: AssistantBuilderConnection.googleCalendarServiceId) {
+            let serviceId: String = AssistantBuilderConnection.googleCalendarServiceId
+            if let existing = cloudConnections.first(where: { $0.serviceId == serviceId }) {
+                capturedCloudConnectionIds[connection] = existing.id
                 enabledConnections.insert(connection)
             } else {
                 startCloudOAuth(for: connection)
@@ -229,10 +243,7 @@ final class AssistantBuilderViewModel: Identifiable {
 
     func removeConnection(_ connection: AssistantBuilderConnection) {
         enabledConnections.remove(connection)
-    }
-
-    private func hasGlobalCloudConnection(serviceId: String) -> Bool {
-        cloudConnections.contains { $0.serviceId == serviceId }
+        capturedCloudConnectionIds.removeValue(forKey: connection)
     }
 
     private func startCloudOAuth(for connection: AssistantBuilderConnection) {
@@ -242,7 +253,8 @@ final class AssistantBuilderViewModel: Identifiable {
         Task { @MainActor [weak self] in
             defer { self?.isConnectingCloud = false }
             do {
-                _ = try await manager.connect(serviceId: serviceId)
+                let cloudConnection = try await manager.connect(serviceId: serviceId)
+                self?.capturedCloudConnectionIds[connection] = cloudConnection.id
                 self?.enabledConnections.insert(connection)
             } catch let oauthError as OAuthError {
                 if case .cancelled = oauthError { return }
@@ -348,21 +360,35 @@ final class AssistantBuilderViewModel: Identifiable {
     private func scheduleConnectionGrants() {
         guard !enabledConnections.isEmpty else { return }
         let connections = enabledConnections
+        let capturedIds = capturedCloudConnectionIds
         pendingConnectionGrantTask?.cancel()
         pendingConnectionGrantTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
+            let deadline: Date = Date().addingTimeInterval(Constant.agentJoinTimeoutS)
+            while !Task.isCancelled, Date() < deadline {
                 if let convoVM = self?.newConversationViewModel.conversationViewModel,
                    convoVM.conversation.hasAgent {
-                    self?.fireConnectionGrants(connections, in: convoVM)
+                    self?.fireConnectionGrants(connections, capturedIds: capturedIds, in: convoVM)
                     return
                 }
                 try? await Task.sleep(for: .milliseconds(Constant.agentPollIntervalMs))
             }
+            guard !Task.isCancelled else { return }
+            Log.error("AssistantBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for assistant to join — \(connections.count) connection grant(s) skipped")
         }
     }
 
+    /// Fires the user-enabled connection grants against the now-real conversation.
+    /// Device kinds go through `ConversationConnectionsViewModel.toggleDeviceConnection`
+    /// (it owns the `EnablementStore` write + per-agent fanout + connection event).
+    /// Cloud kinds bypass that VM's `cloudRows` lookup — the freshly-constructed VM's
+    /// `.receive(on:.main)` subscription leaves rows empty for one runloop tick, racy
+    /// when we tap Make right after OAuth completes. We use the
+    /// `CloudConnection.id` we captured at toggle-on time and fan out the grant
+    /// directly via the messaging service's writers, mirroring what
+    /// `ConversationConnectionsViewModel.grant(connectionId:providerId:)` does.
     private func fireConnectionGrants(
         _ connections: Set<AssistantBuilderConnection>,
+        capturedIds: [AssistantBuilderConnection: String],
         in convoVM: ConversationViewModel
     ) {
         let connectionsVM = convoVM.makeConversationConnectionsViewModel()
@@ -371,11 +397,50 @@ final class AssistantBuilderViewModel: Identifiable {
             case .appleHealth:
                 connectionsVM.toggleDeviceConnection(.health)
             case .googleCalendar:
-                if let row = connectionsVM.cloudRows.first(where: { $0.serviceId == AssistantBuilderConnection.googleCalendarServiceId }) {
-                    connectionsVM.toggleCloud(row)
-                } else {
-                    Log.warning("AssistantBuilder: no Google Calendar cloud row available — user has not connected the service globally")
+                guard let connectionId = capturedIds[connection] else {
+                    Log.warning("AssistantBuilder: no captured CloudConnection.id for \(connection.id) — grant skipped")
+                    continue
                 }
+                fireCloudGrant(
+                    connectionId: connectionId,
+                    serviceId: AssistantBuilderConnection.googleCalendarServiceId,
+                    in: convoVM
+                )
+            }
+        }
+    }
+
+    private func fireCloudGrant(
+        connectionId: String,
+        serviceId: String,
+        in convoVM: ConversationViewModel
+    ) {
+        let agentInboxIds: [String] = convoVM.conversation.members
+            .filter(\.isAgent)
+            .map(\.profile.inboxId)
+        guard !agentInboxIds.isEmpty else { return }
+        let messagingService = session.messagingService()
+        let grantWriter = messagingService.connectionGrantWriter()
+        let connectionEventWriter = messagingService.connectionEventWriter()
+        let conversationId: String = convoVM.conversation.id
+        let providerId: String = "composio.\(serviceId)"
+        Task {
+            var grantedAgents: [String] = []
+            for agent in agentInboxIds {
+                do {
+                    try await grantWriter.grantConnection(connectionId, to: conversationId, grantedToInboxId: agent)
+                    grantedAgents.append(agent)
+                } catch {
+                    Log.error("AssistantBuilder: grantConnection failed for \(serviceId) agent \(agent): \(error.localizedDescription)")
+                }
+            }
+            if let representative = grantedAgents.first {
+                try? await connectionEventWriter.sendGranted(
+                    providerId: providerId,
+                    capability: nil,
+                    grantedToInboxId: representative,
+                    in: conversationId
+                )
             }
         }
     }
@@ -383,6 +448,7 @@ final class AssistantBuilderViewModel: Identifiable {
     private enum Constant {
         static let contentFadeMs: Int = 180
         static let agentPollIntervalMs: Int = 250
+        static let agentJoinTimeoutS: TimeInterval = 30
     }
 
     // MARK: - Dismiss cleanup
@@ -399,6 +465,10 @@ final class AssistantBuilderViewModel: Identifiable {
         pendingConnectionGrantTask?.cancel()
         didRequestAgentJoin = true // suppress any late retries
         voiceMemoRecorder?.cancelRecording()
+        // File picker stages copies into `FileManager.default.temporaryDirectory`;
+        // those temp copies are otherwise orphaned because `dismissWithDeletion`
+        // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.
+        newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation
         let assistantJoined = conversation?.hasAgent ?? false
