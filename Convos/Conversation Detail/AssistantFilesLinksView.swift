@@ -40,15 +40,21 @@ class AssistantFilesLinksViewModel {
     var isLoading: Bool = true
     var fileOpenError: String?
 
-    private let repository: AssistantFilesLinksRepository
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
-    init(repository: AssistantFilesLinksRepository) {
-        self.repository = repository
-        subscribe()
-    }
+    /// Rebind to a repository. Cancels any existing subscriptions, resets the
+    /// view-facing state, and resubscribes. Safe to call repeatedly — the view
+    /// drives this from `.onChange(of: conversationId)` so the same view model
+    /// instance follows the active conversation.
+    func observe(_ repository: AssistantFilesLinksRepository) {
+        cancellables.removeAll()
+        files = []
+        links = []
+        filter = .all
+        searchText = ""
+        fileOpenError = nil
+        isLoading = true
 
-    private func subscribe() {
         // Both publishers wrap GRDB ValueObservation with replaceError(with: [])
         // so they cannot fail and each emits an initial value (possibly empty).
         // First emission from either is enough to leave the loading state — the
@@ -132,26 +138,15 @@ struct AttachmentPreviewPresentation: Identifiable {
 }
 
 struct AssistantFilesLinksView: View {
-    @State private var viewModel: AssistantFilesLinksViewModel
-    @State private var presentingPreview: AttachmentPreviewPresentation?
-    private let members: [ConversationMember]
-    private let usesInlineHeader: Bool
-    private let profileSheetContent: ((ConversationMember) -> AnyView)?
-    private let externalFocusBinding: FocusState<MessagesViewInputFocus?>.Binding?
+    let conversationId: String
+    let repository: AssistantFilesLinksRepository
+    let members: [ConversationMember]
+    var usesInlineHeader: Bool = false
+    var profileSheetContent: ((ConversationMember) -> AnyView)?
+    var focusBinding: FocusState<MessagesViewInputFocus?>.Binding?
 
-    init(
-        repository: AssistantFilesLinksRepository,
-        members: [ConversationMember],
-        usesInlineHeader: Bool = false,
-        profileSheetContent: ((ConversationMember) -> AnyView)? = nil,
-        focusBinding: FocusState<MessagesViewInputFocus?>.Binding? = nil
-    ) {
-        _viewModel = State(initialValue: AssistantFilesLinksViewModel(repository: repository))
-        self.members = members
-        self.usesInlineHeader = usesInlineHeader
-        self.profileSheetContent = profileSheetContent
-        self.externalFocusBinding = focusBinding
-    }
+    @State private var viewModel: AssistantFilesLinksViewModel = .init()
+    @State private var presentingPreview: AttachmentPreviewPresentation?
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
         members.first { $0.profile.inboxId == inboxId }
@@ -166,7 +161,7 @@ struct AssistantFilesLinksView: View {
                 StuffSearchBar(
                     searchText: $viewModel.searchText,
                     filter: $viewModel.filter,
-                    focusBinding: externalFocusBinding
+                    focusBinding: focusBinding
                 )
             }
             .sheet(item: $presentingPreview) { preview in
@@ -188,6 +183,13 @@ struct AssistantFilesLinksView: View {
                 }
             } message: {
                 Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
+            }
+            // `initial: true` runs the binding once on first appear and then again
+            // whenever the active conversation changes — the same view model
+            // instance follows the selection instead of being torn down via `.id`.
+            .onChange(of: conversationId, initial: true) {
+                viewModel.observe(repository)
+                presentingPreview = nil
             }
     }
 

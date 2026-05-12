@@ -274,6 +274,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var stuffPage: some View {
         AssistantFilesLinksView(
+            conversationId: viewModel.conversation.id,
             repository: viewModel.makeAssistantFilesLinksRepository(),
             members: viewModel.conversation.members,
             usesInlineHeader: true,
