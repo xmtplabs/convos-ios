@@ -297,12 +297,15 @@ private struct ConversationsSheetModifier: ViewModifier {
                 )
             }
             .sheet(item: $viewModel.assistantBuilderViewModel) { builderViewModel in
-                AssistantBuilderView(viewModel: builderViewModel)
-                    .background(.colorBackgroundSurfaceless)
-                    .presentationSizing(.page)
-                    .navigationTransition(
-                        .zoom(sourceID: "assistant-builder-transition-source", in: namespace)
-                    )
+                AssistantBuilderView(
+                    viewModel: builderViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel
+                )
+                .background(.colorBackgroundSurfaceless)
+                .presentationSizing(.page)
+                .navigationTransition(
+                    .zoom(sourceID: "assistant-builder-transition-source", in: namespace)
+                )
             }
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }

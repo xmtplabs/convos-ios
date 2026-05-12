@@ -325,6 +325,16 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
+    /// Send a first message through the state machine. Used by wrapping
+    /// flows (e.g. AssistantBuilderViewModel) that commit a draft before
+    /// the user sees the chat view. If the state machine hasn't reached
+    /// `.ready` yet, the existing message-stream queue inside
+    /// `ConversationStateMachine.sendMessage` holds the send until it does.
+    func send(text: String) async throws {
+        guard let conversationStateManager else { return }
+        try await conversationStateManager.send(text: text)
+    }
+
     func deleteConversation() {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()

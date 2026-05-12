@@ -28,6 +28,8 @@ struct AssistantDraftComposer: View {
         .onTapGesture {
             focusState.wrappedValue = .message
         }
+        .opacity(viewModel.isCommitting ? 0 : 1)
+        .animation(.easeOut(duration: 0.18), value: viewModel.isCommitting)
     }
 
     private var textField: some View {

@@ -65,6 +65,55 @@ final class AssistantBuilderViewModel: Identifiable {
     /// post-morph `ConversationView`, not here).
     var hasCommitted: Bool = false
 
+    /// Phase A of the Make animation: text/attachments inside the composer
+    /// fade out before the rounded rect itself disappears. Set true at the
+    /// moment of Make tap, true through the rest of the commit (so the
+    /// content stays hidden if the user re-enters the view somehow).
+    var isCommitting: Bool = false
+
+    // MARK: - Commit
+
+    /// Tap-Make handler. Drives the staged commit animation:
+    /// - Phase A (immediately): `isCommitting = true` so the composer's
+    ///   content (text, attachments) fades out inside the rounded rect.
+    /// - Phase B (after `Constant.contentFadeMs`): `hasCommitted = true`
+    ///   so the overlay (rect + backdrop) fades and the underlying
+    ///   `ConversationView` is revealed.
+    ///
+    /// The composer text is sent fire-and-forget at the start of Phase A —
+    /// if the state machine hasn't reached `.ready`, the existing message-
+    /// stream queue inside `ConversationStateMachine.sendMessage` holds
+    /// the message until it does, so this never blocks the UI.
+    func commit() {
+        guard !hasCommitted, !isCommitting else { return }
+        isCommitting = true
+
+        let textToSend = composerText
+        composerText = ""
+
+        if !textToSend.isEmpty {
+            Task { [newConversationViewModel] in
+                do {
+                    try await newConversationViewModel.send(text: textToSend)
+                } catch {
+                    Log.error("AssistantBuilder commit: send failed: \(error.localizedDescription)")
+                }
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Constant.contentFadeMs))
+            guard let self else { return }
+            withAnimation(.easeInOut(duration: 0.35)) {
+                self.hasCommitted = true
+            }
+        }
+    }
+
+    private enum Constant {
+        static let contentFadeMs: Int = 180
+    }
+
     // MARK: - Dismiss cleanup
 
     /// Tear down the in-flight draft. Cancels conversation-creation tasks
