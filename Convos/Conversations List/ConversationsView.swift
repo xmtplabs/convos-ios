@@ -157,6 +157,10 @@ struct ConversationsView: View {
         .matchedTransitionSource(id: "app-settings-transition-source", in: namespace)
 
         ToolbarItem(placement: .topBarTrailing) {
+            CreditsBadge()
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
             filterMenu
         }
         .matchedTransitionSource(id: "filter-view-transition-source", in: namespace)

@@ -9,13 +9,14 @@ struct TierCard: View {
     let onPurchase: (PaywallProduct) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             header
-            Divider()
             bullets
-            cta
+            if !isCurrent {
+                purchaseButton
+            }
         }
-        .padding(16)
+        .padding(DesignConstants.Spacing.step5x)
         .background(background)
         .overlay(border)
     }
@@ -23,24 +24,26 @@ struct TierCard: View {
     @ViewBuilder
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(SubscriptionCopy.displayName(for: tier))
                     .font(.title3.bold())
+                    .foregroundStyle(.colorTextPrimary)
                 if isCurrent {
                     Text("Current plan")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(.colorRed)
                 }
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(priceText)
                     .font(.title3.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
                     .monospacedDigit()
                 if let perMonth = product?.pricePerMonthDisplay {
                     Text(perMonth)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.colorTextSecondary)
                 }
             }
         }
@@ -48,22 +51,22 @@ struct TierCard: View {
 
     @ViewBuilder
     private var bullets: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             ForEach(SubscriptionCopy.bullets(for: tier), id: \.self) { bullet in
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(.colorRed)
                     Text(bullet)
                         .font(.subheadline)
+                        .foregroundStyle(.colorTextPrimary)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private var cta: some View {
-        let label: String = ctaLabel
-        let isDisabled: Bool = product == nil || isCurrent || isPurchasing
+    private var purchaseButton: some View {
+        let isDisabled: Bool = product == nil || isPurchasing
         let purchaseAction = {
             if let product { onPurchase(product) }
         }
@@ -71,38 +74,32 @@ struct TierCard: View {
             ZStack {
                 if isPurchasing {
                     ProgressView()
+                        .tint(.colorTextPrimaryInverted)
                 } else {
-                    Text(label)
+                    Text("Subscribe")
                 }
             }
-            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorRed))
         .disabled(isDisabled)
     }
 
     @ViewBuilder
     private var background: some View {
-        RoundedRectangle(cornerRadius: 16)
-            .fill(.thinMaterial)
+        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+            .fill(Color.colorBackgroundRaised)
     }
 
     @ViewBuilder
     private var border: some View {
-        let strokeColor: Color = isCurrent ? Color.accentColor : Color.clear
-        RoundedRectangle(cornerRadius: 16)
-            .stroke(strokeColor, lineWidth: 2)
+        let strokeColor: Color = isCurrent ? Color.colorRed : Color.colorBorderSubtle
+        let lineWidth: CGFloat = isCurrent ? 2 : 1
+        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+            .stroke(strokeColor, lineWidth: lineWidth)
     }
 
     private var priceText: String {
         product?.displayPrice ?? "—"
-    }
-
-    private var ctaLabel: String {
-        if isCurrent { return "Current" }
-        if isPurchasing { return "Purchasing…" }
-        return "Subscribe"
     }
 }
 

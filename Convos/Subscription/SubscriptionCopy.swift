@@ -2,7 +2,7 @@ import ConvosCore
 import Foundation
 
 enum SubscriptionCopy {
-    static let heroTitle: String = "Power your agents"
+    static let heroTitle: String = "Power your assistants"
     static let heroSubtitle: String = "Subscribe to keep your assistants sharp."
     static let legalDisclaimer: String = """
         Auto-renewing subscription. You'll be charged at the rate shown until you cancel. \

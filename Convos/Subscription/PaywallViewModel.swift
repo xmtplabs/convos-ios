@@ -1,9 +1,11 @@
+import Combine
 import ConvosCore
 import Foundation
 
 @MainActor @Observable
 final class PaywallViewModel {
     private let subscriptionService: any SubscriptionServiceProtocol
+    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
     var selectedPeriod: SubscriptionPeriod = .monthly
     var purchasingProductId: String?
@@ -11,17 +13,27 @@ final class PaywallViewModel {
     var errorMessage: String?
     private(set) var products: [PaywallProduct] = []
     private(set) var isLoadingProducts: Bool = false
+    private(set) var currentSubscription: Subscription?
 
     init(subscriptionService: any SubscriptionServiceProtocol) {
         self.subscriptionService = subscriptionService
+        self.currentSubscription = subscriptionService.currentSubscription
+        subscriptionService.subscriptionPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sub in
+                Task { @MainActor [weak self] in
+                    self?.currentSubscription = sub
+                }
+            }
+            .store(in: &cancellables)
     }
 
     var currentTier: SubscriptionTier? {
-        subscriptionService.currentSubscription?.tier
+        currentSubscription?.tier
     }
 
     var hasActiveSubscription: Bool {
-        subscriptionService.currentSubscription != nil
+        currentSubscription != nil
     }
 
     var legalDisclaimer: String {

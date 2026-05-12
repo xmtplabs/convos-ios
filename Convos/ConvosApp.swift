@@ -76,6 +76,15 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
+        // Sync the mock credits/subscription state from the persisted picker
+        // preset so HOME pill + paywall reflect the operator's last selection.
+        // Non-production only; production builds will swap in real services.
+        if !environment.isProduction {
+            let persistedPreset = FeatureFlags.shared.mockCreditsPreset
+            MockCreditsService.shared.setPreset(persistedPreset)
+            MockSubscriptionService.shared.setPreset(persistedPreset)
+        }
+
         let dbWriter = convos.databaseWriter
         Task {
             await agentKeyset.prefetch()

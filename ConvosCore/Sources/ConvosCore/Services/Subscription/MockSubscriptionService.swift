@@ -2,6 +2,9 @@ import Combine
 import Foundation
 
 public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchecked Sendable {
+    /// Process-wide singleton — see `MockCreditsService.shared` for rationale.
+    public static let shared: MockSubscriptionService = MockSubscriptionService()
+
     private let subscriptionSubject: CurrentValueSubject<Subscription?, Never>
     private let queue: DispatchQueue = DispatchQueue(label: "convos.mock-subscription-service")
     private var currentPreset: CreditsStatePreset
