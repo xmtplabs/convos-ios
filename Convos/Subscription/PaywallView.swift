@@ -3,7 +3,7 @@ import SwiftUI
 
 struct PaywallView: View {
     @State private var viewModel: PaywallViewModel
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var dismiss: DismissAction
 
     init(viewModel: PaywallViewModel) {
         self._viewModel = State(initialValue: viewModel)

@@ -5,7 +5,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     /// Process-wide singleton — see `MockCreditsService.shared` for rationale.
     public static let shared: MockSubscriptionService = MockSubscriptionService()
 
-    private let subscriptionSubject: CurrentValueSubject<Subscription?, Never>
+    private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
     private let queue: DispatchQueue = DispatchQueue(label: "convos.mock-subscription-service")
     private var currentPreset: CreditsStatePreset
     private let mockProducts: [PaywallProduct]
@@ -16,11 +16,11 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
         self.mockProducts = Self.defaultMockProducts()
     }
 
-    public var subscriptionPublisher: AnyPublisher<Subscription?, Never> {
+    public var subscriptionPublisher: AnyPublisher<UserSubscription?, Never> {
         subscriptionSubject.eraseToAnyPublisher()
     }
 
-    public var currentSubscription: Subscription? {
+    public var currentSubscription: UserSubscription? {
         subscriptionSubject.value
     }
 
@@ -37,7 +37,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
         let now = Date()
         let component: Calendar.Component = product.period == .monthly ? .month : .year
         let nextRenew = Calendar.current.date(byAdding: component, value: 1, to: now) ?? now
-        let updated = Subscription(
+        let updated = UserSubscription(
             tier: product.tier,
             period: product.period,
             status: .active,
