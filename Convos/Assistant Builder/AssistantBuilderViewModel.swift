@@ -52,11 +52,48 @@ final class AssistantBuilderViewModel: Identifiable {
         !composerText.isEmpty
     }
 
+    /// True when the user has typed something or attached anything.
+    /// The X button uses this to decide whether to confirm dismissal
+    /// (Continue / Discard) or to silently discard.
+    var hasContent: Bool {
+        !composerText.isEmpty || !pendingMediaAttachments.isEmpty
+    }
+
     /// Set to true when the user taps Make. Until then the builder is in
     /// "draft" mode: the conversation indicator is non-interactive
     /// (renaming/re-imaging the draft happens *after* commit, in the
     /// post-morph `ConversationView`, not here).
     var hasCommitted: Bool = false
+
+    // MARK: - Dismiss cleanup
+
+    /// Tear down the in-flight draft. Cancels conversation-creation tasks
+    /// and the agent-join request, and — if the conversation became real
+    /// and the assistant has already joined — sets consent to denied so
+    /// the assistant sees us depart. Local conversation row cleanup is
+    /// handled by the draft repository when this VM deallocates.
+    func discard() {
+        assistantJoinTask?.cancel()
+        didRequestAgentJoin = true // suppress any late retries
+
+        let conversation = newConversationViewModel.conversationViewModel?.conversation
+        let assistantJoined = conversation?.hasAgent ?? false
+
+        newConversationViewModel.dismissWithDeletion()
+
+        guard let conversation,
+              !conversation.isDraft,
+              assistantJoined else { return }
+
+        Task { [session] in
+            do {
+                let writer = session.messagingService().conversationConsentWriter()
+                try await writer.delete(conversation: conversation)
+            } catch {
+                Log.error("AssistantBuilder discard: failed to leave conversation \(conversation.id): \(error.localizedDescription)")
+            }
+        }
+    }
 
     // MARK: - Assistant join
 

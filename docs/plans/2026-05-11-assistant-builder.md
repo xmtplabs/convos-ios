@@ -422,18 +422,20 @@ None. The builder uses existing:
 
 ### Phase 5: X-button menu + dismissal cleanup
 
-- [ ] X button in top-left with `contextMenu` anchored to it
-- [ ] Two paths:
-  - **No text + no attachments**: silent dismiss + cleanup → leave
-    group (if `assistantHasJoined`) → delete conversation
-  - **Has content**: show menu with Continue / Discard.
-    - **Continue**: no-op (close the menu, stay on the builder).
-    - **Discard** (destructive): same cleanup as the silent path
-      above.
-- [ ] `AssistantBuilderViewModel.discard()` encapsulates the cleanup
-      (leave-then-delete when assistant joined, direct delete
-      otherwise). Continue maps to nothing — the menu just
-      dismisses.
+- [x] X button in top-left. Tap behaviour branches on `hasContent`:
+      empty composer → silent discard + dismiss; non-empty composer →
+      `confirmationDialog` with Continue (cancel role) / Discard
+      (destructive). Confirmation dialog presents from the close button
+      via the standard SwiftUI dialog plumbing — same visual treatment
+      as native iOS destructive confirmations.
+- [x] `AssistantBuilderViewModel.discard()` encapsulates the cleanup:
+      cancels the in-flight `assistantJoinTask`, calls
+      `newConversationViewModel.dismissWithDeletion()` to cancel the
+      conversation-creation tasks, and — if the conversation has
+      already transitioned out of draft state AND the assistant has
+      joined — fires `conversationConsentWriter.delete(conversation:)`
+      so the assistant sees us leave. Local DB cleanup is handled by
+      the draft repository on VM dealloc.
 
 ### Phase 6: Voice memo adaptation
 

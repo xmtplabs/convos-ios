@@ -14,9 +14,11 @@ struct ConversationPresenter<Content: View>: View {
     /// `ConversationViewModel.conversationInfoSubtitle`). E.g. "Draft" for
     /// the assistant builder.
     var indicatorSubtitleOverride: String? = nil
-    /// When false, the indicator is shown but visually dimmed and rejects
-    /// taps/long-presses (used while the conversation is still spinning up).
-    var isIndicatorEnabled: Bool = true
+    /// When false, taps still register on the indicator (so the liquid-glass
+    /// touch feedback fires) but the expand-to-QuickEditor and info-view
+    /// actions are no-ops. Used in draft flows where the conversation isn't
+    /// the user's to edit yet — the visual affordance stays alive.
+    var allowsIndicatorEditing: Bool = true
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
     @FocusState private var focusState: MessagesViewInputFocus?
@@ -39,7 +41,7 @@ struct ConversationPresenter<Content: View>: View {
                         viewModel: viewModel,
                         placeholderOverride: indicatorPlaceholderOverride,
                         subtitleOverride: indicatorSubtitleOverride,
-                        isEnabled: isIndicatorEnabled,
+                        allowsEditing: allowsIndicatorEditing,
                         focusState: $focusState,
                         focusCoordinator: focusCoordinator
                     )
@@ -103,7 +105,7 @@ private struct ConversationIndicatorWrapper: View {
     @Bindable var viewModel: ConversationViewModel
     let placeholderOverride: String?
     let subtitleOverride: String?
-    let isEnabled: Bool
+    let allowsEditing: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
 
@@ -126,8 +128,14 @@ private struct ConversationIndicatorWrapper: View {
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
-            onConversationInfoTapped: { viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator) },
-            onConversationInfoLongPressed: { viewModel.onConversationInfoLongPress(focusCoordinator: focusCoordinator) },
+            onConversationInfoTapped: {
+                guard allowsEditing else { return }
+                viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator)
+            },
+            onConversationInfoLongPressed: {
+                guard allowsEditing else { return }
+                viewModel.onConversationInfoLongPress(focusCoordinator: focusCoordinator)
+            },
             onConversationNameEndedEditing: {
                 viewModel.onConversationNameEndedEditing(
                     focusCoordinator: focusCoordinator,
@@ -140,8 +148,6 @@ private struct ConversationIndicatorWrapper: View {
                 ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
             }
         )
-        .disabled(!isEnabled)
-        .allowsHitTesting(isEnabled)
     }
 }
 

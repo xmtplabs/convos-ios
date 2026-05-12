@@ -8,6 +8,7 @@ struct AssistantBuilderView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
+    @State private var presentingDiscardConfirmation: Bool = false
 
     var body: some View {
         ConversationPresenter(
@@ -17,7 +18,7 @@ struct AssistantBuilderView: View {
             sidebarColumnWidth: $sidebarWidth,
             indicatorPlaceholderOverride: "New assistant",
             indicatorSubtitleOverride: "Draft",
-            isIndicatorEnabled: viewModel.hasCommitted
+            allowsIndicatorEditing: viewModel.hasCommitted
         ) { focusState, coordinator in
             NavigationStack {
                 VStack(spacing: 0) {
@@ -38,7 +39,22 @@ struct AssistantBuilderView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(role: .close) {
-                            dismiss()
+                            if viewModel.hasContent {
+                                presentingDiscardConfirmation = true
+                            } else {
+                                viewModel.discard()
+                                dismiss()
+                            }
+                        }
+                        .confirmationDialog(
+                            "",
+                            isPresented: $presentingDiscardConfirmation
+                        ) {
+                            Button("Discard", role: .destructive) {
+                                viewModel.discard()
+                                dismiss()
+                            }
+                            Button("Continue") {}
                         }
                         .accessibilityIdentifier("close-assistant-builder")
                     }
