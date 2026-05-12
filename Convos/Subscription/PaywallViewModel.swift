@@ -13,7 +13,7 @@ final class PaywallViewModel {
     var errorMessage: String?
     private(set) var products: [PaywallProduct] = []
     private(set) var isLoadingProducts: Bool = false
-    private(set) var currentSubscription: Subscription?
+    private(set) var currentSubscription: UserSubscription?
 
     init(subscriptionService: any SubscriptionServiceProtocol) {
         self.subscriptionService = subscriptionService

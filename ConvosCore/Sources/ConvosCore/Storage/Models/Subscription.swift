@@ -14,12 +14,16 @@ public enum SubscriptionStatus: String, Codable, Hashable, Sendable {
     case trial
     case active
     case grace
+    // swiftlint:disable:next raw_value_for_camel_cased_codable_enum
     case billingRetry
     case expired
     case revoked
 }
 
-public struct Subscription: Codable, Equatable, Hashable, Sendable {
+/// User-facing subscription state. Named `UserSubscription` (not `Subscription`)
+/// to avoid a name collision with `Combine.Subscription` in any file that
+/// imports both ConvosCore and Combine.
+public struct UserSubscription: Codable, Equatable, Hashable, Sendable {
     public let tier: SubscriptionTier
     public let period: SubscriptionPeriod
     public let status: SubscriptionStatus

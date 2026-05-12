@@ -96,7 +96,7 @@ public enum CreditsStatePreset: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    public func subscription() -> Subscription? {
+    public func subscription() -> UserSubscription? {
         let now = Date()
         let monthEnd = Calendar.current.date(byAdding: .day, value: 14, to: now) ?? now
         let trialEnd = Calendar.current.date(byAdding: .day, value: 4, to: now) ?? now
@@ -104,7 +104,7 @@ public enum CreditsStatePreset: String, CaseIterable, Identifiable, Sendable {
 
         switch self {
         case .builderAmple, .builderLow, .builderDepleted:
-            return Subscription(
+            return UserSubscription(
                 tier: .builder,
                 period: .monthly,
                 status: .active,
@@ -114,7 +114,7 @@ public enum CreditsStatePreset: String, CaseIterable, Identifiable, Sendable {
                 isInTrial: false
             )
         case .proAmple:
-            return Subscription(
+            return UserSubscription(
                 tier: .pro,
                 period: .monthly,
                 status: .active,
@@ -124,7 +124,7 @@ public enum CreditsStatePreset: String, CaseIterable, Identifiable, Sendable {
                 isInTrial: false
             )
         case .trialActive:
-            return Subscription(
+            return UserSubscription(
                 tier: .builder,
                 period: .monthly,
                 status: .trial,
@@ -134,7 +134,7 @@ public enum CreditsStatePreset: String, CaseIterable, Identifiable, Sendable {
                 isInTrial: true
             )
         case .billingRetry:
-            return Subscription(
+            return UserSubscription(
                 tier: .pro,
                 period: .monthly,
                 status: .billingRetry,
@@ -144,7 +144,7 @@ public enum CreditsStatePreset: String, CaseIterable, Identifiable, Sendable {
                 isInTrial: false
             )
         case .gracePeriod:
-            return Subscription(
+            return UserSubscription(
                 tier: .builder,
                 period: .monthly,
                 status: .grace,

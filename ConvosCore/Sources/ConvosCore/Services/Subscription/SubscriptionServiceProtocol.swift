@@ -2,8 +2,8 @@ import Combine
 import Foundation
 
 public protocol SubscriptionServiceProtocol: AnyObject, Sendable {
-    var subscriptionPublisher: AnyPublisher<Subscription?, Never> { get }
-    var currentSubscription: Subscription? { get }
+    var subscriptionPublisher: AnyPublisher<UserSubscription?, Never> { get }
+    var currentSubscription: UserSubscription? { get }
 
     func availableProducts() async throws -> [PaywallProduct]
     func purchase(productId: String) async throws
