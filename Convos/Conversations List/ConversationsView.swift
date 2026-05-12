@@ -152,6 +152,15 @@ struct ConversationsView: View {
         .matchedTransitionSource(id: "filter-view-transition-source", in: namespace)
 
         ToolbarItem(placement: .bottomBar) {
+            Button("Make assistant", systemImage: "hammer") {
+                viewModel.onStartAssistant()
+            }
+            .accessibilityLabel("Make a new assistant")
+            .accessibilityIdentifier("assistant-builder-button")
+        }
+        .matchedTransitionSource(id: "assistant-builder-transition-source", in: namespace)
+
+        ToolbarItem(placement: .bottomBar) {
             Spacer()
         }
 
@@ -163,15 +172,6 @@ struct ConversationsView: View {
             .accessibilityIdentifier("scan-button")
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
-
-        ToolbarItem(placement: .bottomBar) {
-            Button("Make assistant", systemImage: "hammer") {
-                viewModel.onStartAssistant()
-            }
-            .accessibilityLabel("Make a new assistant")
-            .accessibilityIdentifier("assistant-builder-button")
-        }
-        .matchedTransitionSource(id: "assistant-builder-transition-source", in: namespace)
 
         ToolbarItem(placement: .bottomBar) {
             Button("Compose", systemImage: "square.and.pencil") {

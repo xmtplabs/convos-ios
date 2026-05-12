@@ -16,12 +16,37 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
     }
 }
 
+/// Controls how the messages list's leading "empty state" content is presented.
+/// `.standard` shows either the invite QR (for the creator of an unlocked,
+/// non-full conversation) or the `ConversationInfoPreview`. `.hidden` suppresses
+/// the leading view entirely — used by the Assistant Builder so the
+/// underlying chat doesn't flash a QR while the user is still drafting.
+enum MessagesHeaderMode {
+    case standard
+    case hidden
+}
+
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
         let messages: [MessagesListItemType]
         let invite: Invite
         let hasLoadedAllMessages: Bool
+        let headerMode: MessagesHeaderMode
+
+        init(
+            conversation: Conversation,
+            messages: [MessagesListItemType],
+            invite: Invite,
+            hasLoadedAllMessages: Bool,
+            headerMode: MessagesHeaderMode = .standard
+        ) {
+            self.conversation = conversation
+            self.messages = messages
+            self.invite = invite
+            self.hasLoadedAllMessages = hasLoadedAllMessages
+            self.headerMode = headerMode
+        }
     }
 
     private enum ReactionTypes {
@@ -94,6 +119,7 @@ final class MessagesViewController: UIViewController {
 
             let animated = oldValue?.conversation.id == state.conversation.id
             dataSource.conversationId = state.conversation.id
+            headerMode = state.headerMode
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -196,6 +222,10 @@ final class MessagesViewController: UIViewController {
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
+
+    var headerMode: MessagesHeaderMode = .standard {
+        didSet { dataSource.headerMode = headerMode }
+    }
 
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
@@ -547,11 +577,14 @@ extension MessagesViewController {
 
         var cells: [MessagesListItemType] = messages
 
-        // Add invite or conversation info at the beginning if all messages are loaded
+        // Add invite or conversation info at the beginning if all messages are loaded.
+        // In `.hidden` header mode the `.invite` cell still renders the "Invite members"
+        // affordance but suppresses the QR; the non-creator branch is skipped entirely so
+        // we don't surface `ConversationInfoPreview` / `assistantPresentInfo` either.
         if hasLoadedAllMessages, !conversation.isDraft {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
-            } else {
+            } else if headerMode == .standard {
                 cells.insert(.conversationInfo(conversation), at: 0)
                 if let agent = conversation.members.first(where: \.isAgent) {
                     let inviterName: String? = agent.invitedBy.map { inviter in

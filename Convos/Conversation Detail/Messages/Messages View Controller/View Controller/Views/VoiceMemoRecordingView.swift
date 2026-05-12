@@ -4,6 +4,10 @@ import SwiftUI
 
 struct VoiceMemoRecordingView: View {
     @Bindable var recorder: VoiceMemoRecorder
+    /// When false, hide the inline stop button so the caller can render
+    /// its own stop affordance elsewhere (used by the Assistant Builder,
+    /// which renders a large stop button beneath the composer rect).
+    var showsInlineStopButton: Bool = true
 
     private let barWidth: CGFloat = 2
     private let barSpacing: CGFloat = 1.5
@@ -46,20 +50,22 @@ struct VoiceMemoRecordingView: View {
                     .frame(minWidth: 32, alignment: .trailing)
             }
 
-            Button {
-                withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                    recorder.stopRecording()
+            if showsInlineStopButton {
+                Button {
+                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                        recorder.stopRecording()
+                    }
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.colorCaution)
+                        .frame(width: 32, height: 32)
+                        .background(Color.colorCaution.opacity(0.15), in: Circle())
                 }
-            } label: {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.colorCaution)
-                    .frame(width: 32, height: 32)
-                    .background(Color.colorCaution.opacity(0.15), in: Circle())
+                .frame(width: 48, height: 48)
+                .accessibilityLabel("Stop recording")
+                .accessibilityIdentifier("voice-memo-stop-button")
             }
-            .frame(width: 48, height: 48)
-            .accessibilityLabel("Stop recording")
-            .accessibilityIdentifier("voice-memo-stop-button")
         }
         .padding(.leading, DesignConstants.Spacing.step5x)
         .padding(.trailing, DesignConstants.Spacing.step2x)

@@ -1,7 +1,64 @@
+import Combine
+import ConvosConnections
 import ConvosCore
+import ConvosCoreiOS
 import Foundation
 import Observation
 import SwiftUI
+
+/// User-toggleable connections offered by the Assistant Builder's connection
+/// sheet. v1 surfaces Apple Health (device) and Google Calendar (cloud); the
+/// grant fires post-commit once the assistant has joined the conversation.
+enum AssistantBuilderConnection: String, CaseIterable, Identifiable {
+    case appleHealth
+    case googleCalendar
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .appleHealth: return "Health"
+        case .googleCalendar: return "Google Calendar"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .appleHealth: return "Shared from this device"
+        case .googleCalendar: return "Share your calendar with conversation"
+        }
+    }
+
+    /// Row icon shown in the connections sheet (matches the existing
+    /// ConversationConnectionsSection styling — black symbol on a minimal-fill
+    /// rounded square).
+    var rowSymbolName: String {
+        switch self {
+        case .appleHealth: return "heart.fill"
+        case .googleCalendar: return "calendar"
+        }
+    }
+
+    /// 80×80 brand image rendered as the attachment chip in the composer.
+    var chipImageName: String {
+        switch self {
+        case .appleHealth: return "connectionAppleHealth"
+        case .googleCalendar: return "connectionGoogleCalendar"
+        }
+    }
+
+    /// Composio service id for cloud connections — `nil` for device kinds.
+    /// Matches the `serviceId` field on `CloudConnection` and the row id
+    /// used in `ConversationConnectionsViewModel.cloudRows`.
+    var cloudServiceId: String? {
+        switch self {
+        case .appleHealth: return nil
+        case .googleCalendar: return Self.googleCalendarServiceId
+        }
+    }
+
+    static let googleCalendarServiceId: String = "googlecalendar"
+}
 
 @MainActor
 @Observable
@@ -12,12 +69,70 @@ final class AssistantBuilderViewModel: Identifiable {
     let newConversationViewModel: NewConversationViewModel
 
     var composerText: String = ""
-    var pendingMediaAttachments: [PendingMediaAttachment] = []
+
+    /// Routes attachment state through the underlying conversation view
+    /// model so eager upload + thumbnail generation are reused. The view
+    /// reads these via SwiftUI's Observation tracking through the chain.
+    var pendingMediaAttachments: [PendingMediaAttachment] {
+        newConversationViewModel.conversationViewModel?.pendingMediaAttachments ?? []
+    }
+
+    /// Shares the inner conversation VM's voice-memo recorder so the same
+    /// audio file flows through to `sendVoiceMemo()` on commit. The
+    /// builder's UI reacts to recorder state changes via Observation.
+    var voiceMemoRecorder: VoiceMemoRecorder? {
+        newConversationViewModel.conversationViewModel?.voiceMemoRecorder
+    }
+
+    var isRecordingVoiceMemo: Bool {
+        guard let recorder = voiceMemoRecorder else { return false }
+        if case .recording = recorder.state { return true }
+        return false
+    }
+
+    var recordedVoiceMemo: (url: URL, duration: TimeInterval)? {
+        guard let recorder = voiceMemoRecorder else { return nil }
+        if case let .recorded(url, duration) = recorder.state { return (url, duration) }
+        return nil
+    }
+
+    var voiceMemoAudioLevels: [Float] {
+        voiceMemoRecorder?.audioLevels ?? []
+    }
+
+    /// Connection toggles set in the connections sheet. Drives chip rendering
+    /// in the attachments row pre-commit; the actual grants fan out post-Make
+    /// (see `commit(focusCoordinator:)`) once the assistant has joined.
+    var enabledConnections: Set<AssistantBuilderConnection> = []
+
+    /// `true` while a cloud OAuth flow is in flight (e.g. tapping Google
+    /// Calendar without an existing global `CloudConnection`). The sheet
+    /// disables toggles while this is true so the user can't queue another
+    /// OAuth on top.
+    var isConnectingCloud: Bool = false
+
+    /// Snapshot of the user's existing global cloud connections — read
+    /// synchronously to decide whether toggling a row needs to kick off
+    /// OAuth or can short-circuit to "enabled" directly. Refreshed via
+    /// `cloudConnectionRepository.connectionsPublisher()` in `init`.
+    @ObservationIgnored
+    private var cloudConnections: [CloudConnection] = []
+    @ObservationIgnored
+    private var cloudConnectionsCancellable: AnyCancellable?
 
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
     @ObservationIgnored
     private var didRequestAgentJoin: Bool = false
+    @ObservationIgnored
+    private var didDiscard: Bool = false
+    @ObservationIgnored
+    private var pendingConnectionGrantTask: Task<Void, Never>?
+    /// Whether the composer text field was focused at the moment the user
+    /// kicked off a voice memo. Read by the stop-recording action so we can
+    /// return the keyboard to the composer where the user left off.
+    @ObservationIgnored
+    private var restoreComposerFocusAfterRecording: Bool = false
 
     init(session: any SessionManagerProtocol) {
         self.session = session
@@ -28,16 +143,114 @@ final class AssistantBuilderViewModel: Identifiable {
         self.newConversationViewModel.onReachedReady = { [weak self] in
             self?.requestAgentJoinIfNeeded()
         }
+        cloudConnectionsCancellable = session.cloudConnectionRepository().connectionsPublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] connections in
+                self?.cloudConnections = connections.filter { $0.provider == .composio }
+            }
     }
 
     deinit {
         assistantJoinTask?.cancel()
+        pendingConnectionGrantTask?.cancel()
     }
 
     // MARK: - Composer mutations
 
+    func addPhotoAttachment(_ image: UIImage) {
+        newConversationViewModel.conversationViewModel?.addPhotoAttachment(image)
+    }
+
+    func addVideoAttachment(url: URL) {
+        newConversationViewModel.conversationViewModel?.addVideoAttachment(url: url)
+    }
+
+    func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
+        newConversationViewModel.conversationViewModel?.addFileAttachment(
+            url: url,
+            filename: filename,
+            mimeType: mimeType,
+            fileSize: fileSize
+        )
+    }
+
     func removeAttachment(id: UUID) {
-        pendingMediaAttachments.removeAll { $0.id == id }
+        newConversationViewModel.conversationViewModel?.removeMediaAttachment(id: id)
+    }
+
+    func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {
+        guard let recorder = voiceMemoRecorder else { return }
+        do {
+            try recorder.startRecording()
+            restoreComposerFocusAfterRecording = restoreComposerFocusAfter
+        } catch {
+            Log.error("AssistantBuilder: failed to start voice memo recording: \(error.localizedDescription)")
+        }
+    }
+
+    /// Stops the active voice memo recording. Returns true if the composer
+    /// text field should regain focus — i.e. it was focused when the user
+    /// kicked off the recording.
+    @discardableResult
+    func stopVoiceMemoRecording() -> Bool {
+        voiceMemoRecorder?.stopRecording()
+        let shouldRestore = restoreComposerFocusAfterRecording
+        restoreComposerFocusAfterRecording = false
+        return shouldRestore
+    }
+
+    func cancelRecordedVoiceMemo() {
+        voiceMemoRecorder?.cancelRecording()
+    }
+
+    /// Toggle a connection. Device kinds (Apple Health) are local-only —
+    /// the actual `EnablementStore` write happens post-Make in
+    /// `fireConnectionGrants`. Cloud kinds (Google Calendar) check for a
+    /// pre-existing global `CloudConnection`; if absent, we kick off the
+    /// OAuth flow now and only flip the toggle once it succeeds. Cancelled
+    /// or failed OAuth leaves the toggle off.
+    func toggleConnection(_ connection: AssistantBuilderConnection) {
+        if enabledConnections.contains(connection) {
+            enabledConnections.remove(connection)
+            return
+        }
+        guard !isConnectingCloud else { return }
+        switch connection {
+        case .appleHealth:
+            enabledConnections.insert(connection)
+        case .googleCalendar:
+            if hasGlobalCloudConnection(serviceId: AssistantBuilderConnection.googleCalendarServiceId) {
+                enabledConnections.insert(connection)
+            } else {
+                startCloudOAuth(for: connection)
+            }
+        }
+    }
+
+    func removeConnection(_ connection: AssistantBuilderConnection) {
+        enabledConnections.remove(connection)
+    }
+
+    private func hasGlobalCloudConnection(serviceId: String) -> Bool {
+        cloudConnections.contains { $0.serviceId == serviceId }
+    }
+
+    private func startCloudOAuth(for connection: AssistantBuilderConnection) {
+        guard let serviceId = connection.cloudServiceId else { return }
+        isConnectingCloud = true
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { @MainActor [weak self] in
+            defer { self?.isConnectingCloud = false }
+            do {
+                _ = try await manager.connect(serviceId: serviceId)
+                self?.enabledConnections.insert(connection)
+            } catch let oauthError as OAuthError {
+                if case .cancelled = oauthError { return }
+                Log.error("AssistantBuilder: OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
+            } catch {
+                Log.error("AssistantBuilder: connect failed for \(serviceId): \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Derived state
@@ -50,13 +263,21 @@ final class AssistantBuilderViewModel: Identifiable {
     /// serializes against `.ready`).
     var isMakeEnabled: Bool {
         !composerText.isEmpty
+            || !pendingMediaAttachments.isEmpty
+            || recordedVoiceMemo != nil
+            || !enabledConnections.isEmpty
     }
 
-    /// True when the user has typed something or attached anything.
-    /// The X button uses this to decide whether to confirm dismissal
+    /// True when the user has typed something, attached anything, or is
+    /// in the middle of recording / has a recorded voice memo. The X
+    /// button uses this to decide whether to confirm dismissal
     /// (Continue / Discard) or to silently discard.
     var hasContent: Bool {
-        !composerText.isEmpty || !pendingMediaAttachments.isEmpty
+        !composerText.isEmpty
+            || !pendingMediaAttachments.isEmpty
+            || isRecordingVoiceMemo
+            || recordedVoiceMemo != nil
+            || !enabledConnections.isEmpty
     }
 
     /// Set to true when the user taps Make. Until then the builder is in
@@ -80,24 +301,32 @@ final class AssistantBuilderViewModel: Identifiable {
     ///   so the overlay (rect + backdrop) fades and the underlying
     ///   `ConversationView` is revealed.
     ///
-    /// The composer text is sent fire-and-forget at the start of Phase A —
-    /// if the state machine hasn't reached `.ready`, the existing message-
+    /// At Phase A the composer text is copied into the inner conversation
+    /// VM's `messageText` and `onSendMessage(...)` fires — that path also
+    /// dispatches any pending media attachments (the picker / camera have
+    /// already staged them onto the inner VM's `pendingMediaAttachments`).
+    /// If the state machine hasn't reached `.ready`, the existing message-
     /// stream queue inside `ConversationStateMachine.sendMessage` holds
-    /// the message until it does, so this never blocks the UI.
-    func commit() {
+    /// each message until it does, so this never blocks the UI.
+    func commit(focusCoordinator: FocusCoordinator) {
         guard !hasCommitted, !isCommitting else { return }
         isCommitting = true
 
         let textToSend = composerText
         composerText = ""
 
-        if !textToSend.isEmpty {
-            Task { [newConversationViewModel] in
-                do {
-                    try await newConversationViewModel.send(text: textToSend)
-                } catch {
-                    Log.error("AssistantBuilder commit: send failed: \(error.localizedDescription)")
-                }
+        if let innerVM = newConversationViewModel.conversationViewModel {
+            // Send the voice memo first if one's recorded — sendVoiceMemo
+            // clears the recorder state, so by the time the chat is revealed
+            // the bottom bar won't flash a review UI for the same memo.
+            if recordedVoiceMemo != nil {
+                innerVM.sendVoiceMemo()
+            }
+            // Send text + any pending photo/video/file attachments together
+            // via onSendMessage's existing pipeline.
+            if !textToSend.isEmpty || !innerVM.pendingMediaAttachments.isEmpty {
+                innerVM.messageText = textToSend
+                innerVM.onSendMessage(focusCoordinator: focusCoordinator)
             }
         }
 
@@ -108,10 +337,52 @@ final class AssistantBuilderViewModel: Identifiable {
                 self.hasCommitted = true
             }
         }
+
+        scheduleConnectionGrants()
+    }
+
+    /// Fires the toggled connections once the assistant has joined. Polls
+    /// `conversation.hasAgent` because the agent join is async (the join
+    /// request goes out on `.ready`; the actual member event arrives later
+    /// via XMTP). The polling task is cancelled by `discard()` and `deinit`.
+    private func scheduleConnectionGrants() {
+        guard !enabledConnections.isEmpty else { return }
+        let connections = enabledConnections
+        pendingConnectionGrantTask?.cancel()
+        pendingConnectionGrantTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                if let convoVM = self?.newConversationViewModel.conversationViewModel,
+                   convoVM.conversation.hasAgent {
+                    self?.fireConnectionGrants(connections, in: convoVM)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(Constant.agentPollIntervalMs))
+            }
+        }
+    }
+
+    private func fireConnectionGrants(
+        _ connections: Set<AssistantBuilderConnection>,
+        in convoVM: ConversationViewModel
+    ) {
+        let connectionsVM = convoVM.makeConversationConnectionsViewModel()
+        for connection in connections {
+            switch connection {
+            case .appleHealth:
+                connectionsVM.toggleDeviceConnection(.health)
+            case .googleCalendar:
+                if let row = connectionsVM.cloudRows.first(where: { $0.serviceId == AssistantBuilderConnection.googleCalendarServiceId }) {
+                    connectionsVM.toggleCloud(row)
+                } else {
+                    Log.warning("AssistantBuilder: no Google Calendar cloud row available — user has not connected the service globally")
+                }
+            }
+        }
     }
 
     private enum Constant {
         static let contentFadeMs: Int = 180
+        static let agentPollIntervalMs: Int = 250
     }
 
     // MARK: - Dismiss cleanup
@@ -122,8 +393,12 @@ final class AssistantBuilderViewModel: Identifiable {
     /// the assistant sees us depart. Local conversation row cleanup is
     /// handled by the draft repository when this VM deallocates.
     func discard() {
+        guard !didDiscard else { return }
+        didDiscard = true
         assistantJoinTask?.cancel()
+        pendingConnectionGrantTask?.cancel()
         didRequestAgentJoin = true // suppress any late retries
+        voiceMemoRecorder?.cancelRecording()
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation
         let assistantJoined = conversation?.hasAgent ?? false

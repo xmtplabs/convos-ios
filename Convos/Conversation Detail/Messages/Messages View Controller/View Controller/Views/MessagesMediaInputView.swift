@@ -11,6 +11,9 @@ struct MessagesMediaButtonsView: View {
     var isSideConvoDisabled: Bool = false
     var showsSideConvoButton: Bool = true
     var buttonSpacing: CGFloat = DesignConstants.Spacing.step2x
+    /// Connections button (Assistant Builder only). Nil hides the button — the
+    /// regular chat composer doesn't surface a connections affordance here.
+    var onConnectionsTap: (() -> Void)?
     /// Only rendered in DEBUG builds — the button is hidden when nil or in Release.
     var onDebugAttachmentTap: (() -> Void)?
 
@@ -79,6 +82,22 @@ struct MessagesMediaButtonsView: View {
             .disabled(isMediaCapacityFull)
             .accessibilityLabel("Attach file")
             .accessibilityIdentifier("file-picker-button")
+
+            if let onConnectionsTap {
+                Button {
+                    onConnectionsTap()
+                } label: {
+                    Image(systemName: "batteryblock.fill")
+                        .font(.system(size: 18.0, weight: .medium))
+                        .foregroundStyle(mediaTint)
+                        .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(isMediaCapacityFull)
+                .accessibilityLabel("Connections")
+                .accessibilityIdentifier("connections-button")
+            }
 
             if showsSideConvoButton {
                 Button {

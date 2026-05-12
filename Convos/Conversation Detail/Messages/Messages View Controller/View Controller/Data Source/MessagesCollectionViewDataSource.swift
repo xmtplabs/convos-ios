@@ -39,6 +39,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var hasAssistant: Bool = false
     var isAssistantJoinPending: Bool = false
     var isAssistantEnabled: Bool = false
+    var headerMode: MessagesHeaderMode = .standard
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -147,7 +148,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
             hasAssistant: hasAssistant,
             isAssistantJoinPending: isAssistantJoinPending,
-            isAssistantEnabled: isAssistantEnabled
+            isAssistantEnabled: isAssistantEnabled,
+            headerMode: headerMode
         )
         return CellFactory.createCell(
             in: collectionView,

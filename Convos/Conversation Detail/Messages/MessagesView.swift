@@ -74,6 +74,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
+    var headerMode: MessagesHeaderMode = .standard
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
     let onVoiceMemoTap: () -> Void
@@ -126,6 +127,7 @@ struct MessagesView<BottomBarContent: View>: View {
             hasAssistant: hasAssistant,
             isAssistantJoinPending: isAssistantJoinPending,
             isAssistantEnabled: isAssistantEnabled,
+            headerMode: headerMode,
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             onBottomOverscrollChanged: onBottomOverscrollChanged,
             onBottomOverscrollReleased: onBottomOverscrollReleased,

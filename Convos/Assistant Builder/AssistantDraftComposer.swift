@@ -1,5 +1,11 @@
 import ConvosCore
+import ConvosCoreiOS
+import PhotosUI
+import QuickLookThumbnailing
 import SwiftUI
+import UniformTypeIdentifiers
+
+private let maxAssistantFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
 
 struct AssistantDraftComposer: View {
     @Bindable var viewModel: AssistantBuilderViewModel
@@ -8,37 +14,201 @@ struct AssistantDraftComposer: View {
 
     @State private var isPhotoPickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
+    @State private var isFilePickerPresented: Bool = false
+    @State private var isConnectionsSheetPresented: Bool = false
+    @State private var showFileTooLargeAlert: Bool = false
+    @State private var showFileTruncatedAlert: Bool = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
 
     private var makeButtonEnabled: Bool {
         viewModel.isMakeEnabled
     }
 
+    private var photoPickerMaxSelectionCount: Int {
+        max(1, maxPendingMediaAttachments - viewModel.pendingMediaAttachments.count)
+    }
+
     var body: some View {
+        Group {
+            if viewModel.isRecordingVoiceMemo, let recorder = viewModel.voiceMemoRecorder {
+                recordingLayout(recorder: recorder)
+            } else {
+                standardLayout
+            }
+        }
+        .padding(DesignConstants.Spacing.step4x)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
+        .clipShape(.rect(cornerRadius: 24))
+        .contentShape(RoundedRectangle(cornerRadius: 24))
+        .onTapGesture {
+            if !viewModel.isRecordingVoiceMemo {
+                focusState.wrappedValue = .assistantBuilder
+            }
+        }
+        .opacity(viewModel.isCommitting ? 0 : 1)
+        .animation(.easeOut(duration: 0.18), value: viewModel.isCommitting)
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $selectedPhotos,
+            maxSelectionCount: photoPickerMaxSelectionCount,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: selectedPhotos) { _, newValue in
+            handleSelectedPhotosChanged(to: newValue)
+        }
+        .fullScreenCover(isPresented: $isCameraPresented) {
+            cameraPickerCover
+        }
+        .fileImporter(
+            isPresented: $isFilePickerPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true,
+            onCompletion: handleFilePickerResult
+        )
+        .alert("File too large", isPresented: $showFileTooLargeAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Files must be 20 MB or smaller.")
+        }
+        .alert("Some files weren't added", isPresented: $showFileTruncatedAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You can attach up to \(maxPendingMediaAttachments) photos, videos, and files in one message.")
+        }
+        .selfSizingSheet(
+            isPresented: $isConnectionsSheetPresented,
+            onDismiss: { focusState.wrappedValue = .assistantBuilder }
+        ) {
+            AssistantBuilderConnectionsSheet(viewModel: viewModel)
+        }
+    }
+
+    @ViewBuilder
+    private var cameraPickerCover: some View {
+        CameraPickerView(
+            onImageCaptured: { image in
+                viewModel.addPhotoAttachment(image)
+                isCameraPresented = false
+                focusState.wrappedValue = .assistantBuilder
+            },
+            onVideoCaptured: { url in
+                viewModel.addVideoAttachment(url: url)
+                isCameraPresented = false
+                focusState.wrappedValue = .assistantBuilder
+            }
+        )
+        .ignoresSafeArea()
+    }
+
+    private func handleFilePickerResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            let remaining: Int = maxPendingMediaAttachments - viewModel.pendingMediaAttachments.count
+            guard remaining > 0 else { return }
+            let toStage: [URL] = Array(urls.prefix(remaining))
+            if urls.count > toStage.count {
+                showFileTruncatedAlert = true
+            }
+            for url in toStage {
+                stageFile(at: url)
+            }
+            focusState.wrappedValue = .assistantBuilder
+        case .failure(let error):
+            Log.error("Assistant builder file picker error: \(error.localizedDescription)")
+        }
+    }
+
+    private func stageFile(at sourceURL: URL) {
+        let didStartAccess: Bool = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: sourceURL.path)
+        let fileSize: Int = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        guard fileSize > 0 else {
+            Log.error("Assistant builder file picker: failed to read size for \(sourceURL.lastPathComponent)")
+            return
+        }
+        guard fileSize <= maxAssistantFileAttachmentSizeBytes else {
+            showFileTooLargeAlert = true
+            return
+        }
+        let tempURL: URL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString)-\(sourceURL.lastPathComponent)")
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+        } catch {
+            Log.error("Assistant builder file picker: failed to copy file to temp: \(error.localizedDescription)")
+            return
+        }
+        let mimeType: String = UTType(filenameExtension: sourceURL.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        viewModel.addFileAttachment(
+            url: tempURL,
+            filename: sourceURL.lastPathComponent,
+            mimeType: mimeType,
+            fileSize: fileSize
+        )
+    }
+
+    private func handleSelectedPhotosChanged(to newValue: [PhotosPickerItem]) {
+        guard !newValue.isEmpty else { return }
+        let items = newValue
+        selectedPhotos = []
+        isPhotoPickerPresented = false
+        focusState.wrappedValue = .assistantBuilder
+        Task {
+            for item in items {
+                if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
+                    await MainActor.run { viewModel.addVideoAttachment(url: videoFile.url) }
+                } else if let data = try? await item.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) {
+                    await MainActor.run { viewModel.addPhotoAttachment(image) }
+                }
+            }
+        }
+    }
+
+    private var hasAnyAttachment: Bool {
+        !viewModel.pendingMediaAttachments.isEmpty
+            || viewModel.recordedVoiceMemo != nil
+            || !viewModel.enabledConnections.isEmpty
+    }
+
+    private var standardLayout: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             textField
-            if !viewModel.pendingMediaAttachments.isEmpty {
+            if hasAnyAttachment {
                 attachmentsRow
             }
             bottomRow
         }
-        .padding(DesignConstants.Spacing.step4x)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(.colorBackgroundRaised, in: RoundedRectangle(cornerRadius: 24))
-        .contentShape(RoundedRectangle(cornerRadius: 24))
-        .onTapGesture {
-            focusState.wrappedValue = .message
+    }
+
+    @ViewBuilder
+    private func recordingLayout(recorder: VoiceMemoRecorder) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            textField
+            Spacer(minLength: 0)
+            VoiceMemoRecordingView(recorder: recorder, showsInlineStopButton: false)
+                .frame(minHeight: 32)
         }
-        .opacity(viewModel.isCommitting ? 0 : 1)
-        .animation(.easeOut(duration: 0.18), value: viewModel.isCommitting)
+    }
+
+    private var textFieldPlaceholder: String {
+        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existance" : "Make a new little agent"
     }
 
     private var textField: some View {
         TextField(
-            "Make a new little agent",
+            textFieldPlaceholder,
             text: $viewModel.composerText,
             axis: .vertical
         )
-        .focused(focusState, equals: .message)
+        .focused(focusState, equals: .assistantBuilder)
         .font(.body)
         .foregroundStyle(.colorTextPrimary)
         .tint(.colorTextPrimary)
@@ -50,30 +220,90 @@ struct AssistantDraftComposer: View {
     private var attachmentsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
+                if let memo = viewModel.recordedVoiceMemo {
+                    VoiceMemoAttachmentChip(
+                        url: memo.url,
+                        duration: memo.duration,
+                        levels: viewModel.voiceMemoAudioLevels
+                    ) {
+                        viewModel.cancelRecordedVoiceMemo()
+                    }
+                }
                 ForEach(viewModel.pendingMediaAttachments) { attachment in
                     PendingMediaAttachmentChip(attachment: attachment) { id in
                         viewModel.removeAttachment(id: id)
                     }
                 }
+                ForEach(Array(viewModel.enabledConnections).sorted { $0.id < $1.id }) { connection in
+                    ConnectionAttachmentChip(connection: connection) {
+                        viewModel.removeConnection(connection)
+                    }
+                }
             }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
         .scrollClipDisabled()
+        .padding(.horizontal, -DesignConstants.Spacing.step4x)
     }
 
     private var bottomRow: some View {
         HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+            scrollableMediaButtons
+            makeButton
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    /// Horizontally scrolling media-button strip with fade caps on both ends.
+    /// Lets the Make button keep its intrinsic width on narrow screens (iPhone
+    /// mini) without truncating to "M…" — the icons scroll instead. Mirrors
+    /// the pattern used by `ReadReceiptAvatarsView`.
+    private var scrollableMediaButtons: some View {
+        let fadeWidth: CGFloat = DesignConstants.Spacing.step3x
+        return ScrollView(.horizontal, showsIndicators: false) {
             MessagesMediaButtonsView(
                 isPhotoPickerPresented: $isPhotoPickerPresented,
                 isCameraPresented: $isCameraPresented,
-                onVoiceMemoTap: {},
-                onFilePickerTap: {},
+                onVoiceMemoTap: {
+                    let composerWasFocused = focusState.wrappedValue == .assistantBuilder
+                    focusState.wrappedValue = nil
+                    viewModel.startVoiceMemoRecording(restoreComposerFocusAfter: composerWasFocused)
+                },
+                onFilePickerTap: {
+                    focusState.wrappedValue = nil
+                    isFilePickerPresented = true
+                },
                 onConvosAction: {},
+                isVoiceMemoDisabled: viewModel.recordedVoiceMemo != nil,
                 showsSideConvoButton: false,
-                buttonSpacing: DesignConstants.Spacing.step5x
+                buttonSpacing: DesignConstants.Spacing.step4x,
+                onConnectionsTap: {
+                    focusState.wrappedValue = nil
+                    isConnectionsSheetPresented = true
+                }
             )
-            Spacer(minLength: 0)
-            makeButton
+            .padding(.horizontal, fadeWidth)
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .mask(
+            HStack(spacing: 0) {
+                LinearGradient(
+                    colors: [.black.opacity(0), .black],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: fadeWidth)
+                Rectangle().fill(.black)
+                LinearGradient(
+                    colors: [.black, .black.opacity(0)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: fadeWidth)
+            }
+        )
+        .padding(.leading, -DesignConstants.Spacing.step2x)
     }
 
     private var makeButton: some View {
@@ -100,11 +330,24 @@ struct PendingMediaAttachmentChip: View {
     let onClear: (UUID) -> Void
 
     private let chipSize: CGFloat = 80.0
+    @State private var isPoofing: Bool = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             chipContent
             removeButton
+        }
+        .scaleEffect(isPoofing ? 1.3 : 1.0)
+        .blur(radius: isPoofing ? 12.0 : 0.0)
+        .opacity(isPoofing ? 0.0 : 1.0)
+    }
+
+    private func triggerRemoval() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            isPoofing = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            onClear(attachment.id)
         }
     }
 
@@ -150,23 +393,14 @@ struct PendingMediaAttachmentChip: View {
 
     @ViewBuilder
     private func fileChip(file: PendingFileAttachment) -> some View {
-        FileAttachmentRow(
-            filename: file.filename,
-            mimeType: file.mimeType,
-            fileSize: file.fileSize
-        )
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .frame(maxWidth: 240.0)
-        .background(.colorFillSubtle)
-        .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("assistant-file-attachment-preview")
+        FileAttachmentChipPreview(file: file, size: chipSize)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("assistant-file-attachment-preview")
     }
 
     private var removeButton: some View {
         Button {
-            onClear(attachment.id)
+            triggerRemoval()
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 10.0, weight: .bold))
@@ -180,6 +414,111 @@ struct PendingMediaAttachmentChip: View {
         .padding(.trailing, DesignConstants.Spacing.step2x)
         .accessibilityLabel("Remove attachment")
         .accessibilityIdentifier("remove-assistant-attachment-button")
+    }
+}
+
+private struct ConnectionAttachmentChip: View {
+    let connection: AssistantBuilderConnection
+    let onRemove: () -> Void
+
+    @State private var isPoofing: Bool = false
+
+    private let chipSize: CGFloat = 80.0
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(connection.chipImageName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: chipSize, height: chipSize)
+                .accessibilityLabel("\(connection.displayName) connection attachment")
+                .accessibilityIdentifier("connection-attachment-\(connection.id)")
+
+            Button {
+                triggerRemoval()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10.0, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20.0, height: 20.0)
+                    .background(.black)
+                    .clipShape(.circle)
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
+            }
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step2x)
+            .accessibilityLabel("Remove \(connection.displayName) connection")
+            .accessibilityIdentifier("remove-connection-\(connection.id)-button")
+        }
+        .scaleEffect(isPoofing ? 1.3 : 1.0)
+        .blur(radius: isPoofing ? 12.0 : 0.0)
+        .opacity(isPoofing ? 0.0 : 1.0)
+    }
+
+    private func triggerRemoval() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            isPoofing = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            onRemove()
+        }
+    }
+}
+
+private struct FileAttachmentChipPreview: View {
+    let file: PendingFileAttachment
+    let size: CGFloat
+
+    @Environment(\.displayScale) private var displayScale: CGFloat
+    @State private var thumbnail: UIImage?
+
+    var body: some View {
+        Group {
+            if let thumbnail {
+                Image(uiImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                fallback
+            }
+        }
+        .frame(width: size, height: size)
+        .background(.colorFillSubtle)
+        .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+        .task(id: file.id) {
+            await loadThumbnail()
+        }
+    }
+
+    private var fallback: some View {
+        VStack(spacing: DesignConstants.Spacing.stepX) {
+            Image(systemName: "doc.fill")
+                .font(.system(size: 28))
+                .foregroundStyle(.colorTextSecondary)
+            Text(file.filename)
+                .font(.caption2)
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+    }
+
+    @MainActor
+    private func loadThumbnail() async {
+        let request: QLThumbnailGenerator.Request = QLThumbnailGenerator.Request(
+            fileAt: file.url,
+            size: CGSize(width: size, height: size),
+            scale: displayScale,
+            representationTypes: .thumbnail
+        )
+        do {
+            let result = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
+            thumbnail = result.uiImage
+        } catch {
+            // no preview available — keep fallback
+        }
     }
 }
 

@@ -30,6 +30,7 @@ struct CellConfig {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
+    let headerMode: MessagesHeaderMode
 }
 
 // swiftlint:disable force_cast

@@ -12,11 +12,28 @@ struct AssistantBuilderView: View {
     @State private var presentingDiscardConfirmation: Bool = false
 
     private var indicatorPlaceholder: String? {
-        viewModel.hasCommitted ? nil : "New assistant"
+        viewModel.hasCommitted ? nil : "New Assistant"
     }
 
     private var indicatorSubtitle: String? {
         viewModel.hasCommitted ? nil : "Draft"
+    }
+
+    /// Force the indicator/avatar to render with the Convos-verified
+    /// assistant style from the first frame — the conversation itself
+    /// is still a draft with no members, so without this override the
+    /// avatar would default to the unverified grey style.
+    private var forcedVerification: AgentVerification? {
+        viewModel.hasCommitted ? nil : .verified(.convos)
+    }
+
+    private var composerHintText: String {
+        let hasText: Bool = !viewModel.composerText.isEmpty
+        let hasAttachment: Bool = !viewModel.pendingMediaAttachments.isEmpty || viewModel.recordedVoiceMemo != nil
+        if hasText && hasAttachment {
+            return "The more info, the better"
+        }
+        return "Start with a pic, screenshot, voice note or connection"
     }
 
     var body: some View {
@@ -27,21 +44,51 @@ struct AssistantBuilderView: View {
             sidebarColumnWidth: $sidebarWidth,
             indicatorPlaceholderOverride: indicatorPlaceholder,
             indicatorSubtitleOverride: indicatorSubtitle,
-            allowsIndicatorEditing: viewModel.hasCommitted
+            allowsIndicatorEditing: viewModel.hasCommitted,
+            defaultFocusOverride: viewModel.hasCommitted ? nil : .assistantBuilder
         ) { focusState, coordinator in
+            content(focusState: focusState, coordinator: coordinator)
+        }
+        .environment(\.forcedAgentVerification, forcedVerification)
+        .interactiveDismissDisabled(!viewModel.hasCommitted && viewModel.hasContent)
+        .onAppear {
+            focusCoordinator.horizontalSizeClass = horizontalSizeClass
+        }
+        .onDisappear {
+            if !viewModel.hasCommitted {
+                viewModel.discard()
+            }
+        }
+        .onChange(of: horizontalSizeClass) { _, newSizeClass in
+            focusCoordinator.horizontalSizeClass = newSizeClass
+        }
+    }
+
+    @ViewBuilder
+    private func content(
+        focusState: FocusState<MessagesViewInputFocus?>.Binding,
+        coordinator: FocusCoordinator
+    ) -> some View {
             NavigationStack {
-                ZStack {
+                ZStack(alignment: .top) {
                     underlyingConversationView(focusState: focusState, coordinator: coordinator)
 
                     if !viewModel.hasCommitted {
-                        composerOverlay(focusState: focusState)
+                        Color.colorBackgroundRaisedSecondary
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                            .zIndex(1)
+                    }
+
+                    if !viewModel.hasCommitted {
+                        composerRect(focusState: focusState)
                             .transition(.asymmetric(
                                 insertion: .opacity,
                                 removal: .move(edge: .bottom)
                                     .combined(with: .opacity)
                                     .combined(with: .scale(scale: 0.85, anchor: .bottom))
                             ))
-                            .zIndex(1)
+                            .zIndex(2)
                     }
                 }
                 .animation(.spring(response: 0.42, dampingFraction: 0.85), value: viewModel.hasCommitted)
@@ -50,15 +97,8 @@ struct AssistantBuilderView: View {
                 }
                 .toolbarTitleDisplayMode(.inline)
                 .onAppear {
-                    coordinator.moveFocus(to: .message)
+                    coordinator.moveFocus(to: .assistantBuilder)
                 }
-            }
-        }
-        .onAppear {
-            focusCoordinator.horizontalSizeClass = horizontalSizeClass
-        }
-        .onChange(of: horizontalSizeClass) { _, newSizeClass in
-            focusCoordinator.horizontalSizeClass = newSizeClass
         }
     }
 
@@ -81,6 +121,8 @@ struct AssistantBuilderView: View {
                 messagesTopBarTrailingItem: viewModel.newConversationViewModel.messagesTopBarTrailingItem,
                 messagesTopBarTrailingItemEnabled: viewModel.newConversationViewModel.messagesTopBarTrailingItemEnabled,
                 messagesTextFieldEnabled: viewModel.newConversationViewModel.messagesTextFieldEnabled,
+                topBarTrailingHidden: !viewModel.hasCommitted,
+                headerMode: .hidden,
                 bottomBarContent: { EmptyView() }
             )
         } else {
@@ -88,7 +130,7 @@ struct AssistantBuilderView: View {
         }
     }
 
-    private func composerOverlay(
+    private func composerRect(
         focusState: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
         VStack(spacing: 0) {
@@ -96,19 +138,81 @@ struct AssistantBuilderView: View {
                 viewModel: viewModel,
                 focusState: focusState,
                 onMakeTap: {
+                    // Hand focus over to the chat's text field BEFORE
+                    // collapsing the composer, so the keyboard stays up
+                    // and MessagesBottomBar's expanded state animates in
+                    // on the next focus-change tick.
+                    if focusState.wrappedValue == .assistantBuilder {
+                        focusCoordinator.moveFocus(to: .message)
+                    }
                     withAnimation(.easeInOut(duration: 0.35)) {
-                        viewModel.commit()
+                        viewModel.commit(focusCoordinator: focusCoordinator)
                     }
                 }
             )
-            .frame(height: Constant.composerHeight)
+            .frame(maxHeight: Constant.composerHeight)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step4x)
 
-            Spacer(minLength: 0)
+            if !viewModel.isRecordingVoiceMemo {
+                Text(composerHintText)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step2x)
+                    .padding(.bottom, DesignConstants.Spacing.step3x)
+            }
+
+            if viewModel.isRecordingVoiceMemo {
+                Spacer(minLength: 0)
+                recordingControls(focusState: focusState)
+                    .transition(.blurReplace)
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.colorBackgroundRaisedSecondary.ignoresSafeArea())
+        .animation(.easeInOut(duration: 0.25), value: viewModel.isRecordingVoiceMemo)
+    }
+
+    @ViewBuilder
+    private func recordingControls(
+        focusState: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            Button {
+                let shouldRestore = viewModel.stopVoiceMemoRecording()
+                if shouldRestore {
+                    focusState.wrappedValue = .assistantBuilder
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.colorCaution)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(.white)
+                        .frame(width: 26, height: 26)
+                }
+                .frame(width: 120, height: 120)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop voice memo recording")
+            .accessibilityIdentifier("assistant-builder-stop-recording-button")
+
+            VStack(spacing: DesignConstants.Spacing.step2x) {
+                Text("What should this little agent do?")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Tip: Rambling is fine!")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ToolbarContentBuilder

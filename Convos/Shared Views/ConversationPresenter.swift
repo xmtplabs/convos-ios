@@ -19,6 +19,11 @@ struct ConversationPresenter<Content: View>: View {
     /// actions are no-ops. Used in draft flows where the conversation isn't
     /// the user's to edit yet — the visual affordance stays alive.
     var allowsIndicatorEditing: Bool = true
+    /// Replaces `FocusCoordinator.defaultFocus` for the `task(id:)` reset
+    /// that fires whenever the conversation id changes. Lets flows like the
+    /// Assistant Builder pin focus on their composer field even after the
+    /// underlying conversation flips from `draft-...` to a real XMTP id.
+    var defaultFocusOverride: MessagesViewInputFocus? = nil
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
     @FocusState private var focusState: MessagesViewInputFocus?
@@ -96,7 +101,7 @@ struct ConversationPresenter<Content: View>: View {
         }
         .task(id: viewModel?.conversation.id) {
             // Set default focus when conversation changes
-            focusState = focusCoordinator.defaultFocus
+            focusState = defaultFocusOverride ?? focusCoordinator.defaultFocus
         }
     }
 }

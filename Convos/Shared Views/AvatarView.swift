@@ -80,11 +80,18 @@ struct ConversationAvatarView: View {
     let conversation: Conversation
     let conversationImage: UIImage?
 
+    @Environment(\.forcedAgentVerification) private var forcedVerification: AgentVerification?
     @State private var cachedImage: UIImage?
+
+    private var hasForcedAssistantStyle: Bool {
+        forcedVerification?.isVerified == true
+    }
 
     var body: some View {
         Group {
-            if let conversationImage {
+            if hasForcedAssistantStyle {
+                MonogramView(name: "Assistant", agentVerification: forcedVerification ?? .unverified)
+            } else if let conversationImage {
                 Image(uiImage: conversationImage)
                     .resizable()
                     .scaledToFill()

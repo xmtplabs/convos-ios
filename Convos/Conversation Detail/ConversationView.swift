@@ -12,6 +12,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
+    /// Hide the trailing toolbar item (the "+" add menu / scan button)
+    /// without removing the rest of the toolbar. Used by the Assistant
+    /// Builder to keep the bar clean during the draft phase, then bring
+    /// the item in once the user commits via Make.
+    var topBarTrailingHidden: Bool = false
+    /// Controls the messages list's leading empty-state view (QR invite +
+    /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
+    /// in normal chat. The Assistant Builder passes `.hidden` so the
+    /// underlying chat doesn't flash a QR while the user is still drafting.
+    var headerMode: MessagesHeaderMode = .standard
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -125,6 +135,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
+            headerMode: headerMode,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
                 if overscroll == 0 {
@@ -204,13 +215,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            if viewModel.isLocked {
-                lockedInfoButton
-            } else {
-                switch messagesTopBarTrailingItem {
-                case .share: addToConversationMenu
-                case .scan: scanInviteButton
+        if !topBarTrailingHidden {
+            ToolbarItem(placement: .topBarTrailing) {
+                if viewModel.isLocked {
+                    lockedInfoButton
+                } else {
+                    switch messagesTopBarTrailingItem {
+                    case .share: addToConversationMenu
+                    case .scan: scanInviteButton
+                    }
                 }
             }
         }
