@@ -42,10 +42,12 @@ struct DebugViewSection: View {
     @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
     @State private var showingAssistantsInfoSheet: Bool = false
     @State private var showingSafariTestSheet: Bool = false
+    @State private var presentingPaywall: Bool = false
 
     var body: some View {
         Group {
             featuresSection
+            subscriptionSection
             pushNotificationsSection
             debugSection
             sentryTestingSection
@@ -82,6 +84,28 @@ struct DebugViewSection: View {
             }
             .sheet(isPresented: $showingSafariTestSheet) {
                 SafariTestSheet()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var subscriptionSection: some View {
+        Section("Subscription (mock)") {
+            Picker("Credits state", selection: Bindable(FeatureFlags.shared).mockCreditsPreset) {
+                ForEach(CreditsStatePreset.allCases) { preset in
+                    Text(preset.displayName).tag(preset)
+                }
+            }
+
+            let openPaywallAction = { presentingPaywall = true }
+            Button(action: openPaywallAction) {
+                Text("Show Paywall")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .sheet(isPresented: $presentingPaywall) {
+                let mockService = MockSubscriptionService(initialPreset: FeatureFlags.shared.mockCreditsPreset)
+                let viewModel = PaywallViewModel(subscriptionService: mockService)
+                PaywallView(viewModel: viewModel)
             }
         }
     }

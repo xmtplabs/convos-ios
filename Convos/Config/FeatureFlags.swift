@@ -32,8 +32,22 @@ final class FeatureFlags {
         }
     }
 
+    /// Mock credits/subscription state used by the in-app paywall preview surface
+    /// in the Debug menu. Non-production only; defaults to `.builderAmple`.
+    var mockCreditsPreset: CreditsStatePreset {
+        get {
+            let raw = UserDefaults.standard.string(forKey: Constant.mockCreditsPresetKey)
+                ?? CreditsStatePreset.builderAmple.rawValue
+            return CreditsStatePreset(rawValue: raw) ?? .builderAmple
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: Constant.mockCreditsPresetKey)
+        }
+    }
+
     private enum Constant {
         static let assistantEnabledKey: String = "featureFlags.assistantEnabled"
         static let debugInjectorEnabledKey: String = "featureFlags.debugInjectorEnabled"
+        static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
     }
 }
