@@ -12,14 +12,16 @@ struct PaywallView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 32) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
                     hero
                     periodPicker
                     tierStack
                     legal
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 32)
+                .padding(.horizontal, DesignConstants.Spacing.step6x)
+                .padding(.top, DesignConstants.Spacing.step6x)
+                .padding(.bottom, DesignConstants.Spacing.step10x)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -39,16 +41,19 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var hero: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            Text("Subscription")
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+
             Text(SubscriptionCopy.heroTitle)
-                .font(.largeTitle.bold())
-                .multilineTextAlignment(.center)
+                .font(.convosTitle)
+                .tracking(Font.convosTitleTracking)
+                .foregroundStyle(.colorTextPrimary)
+
             Text(SubscriptionCopy.heroSubtitle)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .font(.body)
+                .foregroundStyle(.colorTextSecondary)
         }
     }
 
@@ -63,7 +68,7 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var tierStack: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
             ForEach(SubscriptionTier.allCases, id: \.self) { tier in
                 tierCard(for: tier)
             }
@@ -89,25 +94,29 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var legal: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 24) {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            HStack(spacing: DesignConstants.Spacing.step6x) {
                 if let url = URL(string: "https://convos.org/terms") {
                     Link("Terms", destination: url)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
                 }
                 if let url = URL(string: "https://convos.org/privacy") {
                     Link("Privacy", destination: url)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
                 }
                 Button("Restore", action: viewModel.restoreTapped)
+                    .convosButtonStyle(.text)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
 
             Text(viewModel.legalDisclaimer)
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.colorTextTertiary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal)
         }
+        .padding(.top, DesignConstants.Spacing.step2x)
     }
 
     @ToolbarContentBuilder
@@ -116,6 +125,7 @@ struct PaywallView: View {
             let dismissAction = { dismiss() }
             Button(action: dismissAction) {
                 Image(systemName: "xmark")
+                    .foregroundStyle(.colorTextPrimary)
             }
         }
     }
