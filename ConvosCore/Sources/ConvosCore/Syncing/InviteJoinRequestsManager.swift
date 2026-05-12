@@ -216,6 +216,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             logAccepted(result)
             await persistJoinerProfile(result)
             await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
+            await sendConversationSnapshotAfterJoin(conversationId: result.conversationId, client: client)
             return .accepted(
                 JoinRequestResult(
                     conversationId: result.conversationId,
@@ -265,9 +266,53 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 group: group,
                 memberInboxIds: allMemberInboxIds
             )
-            Log.debug("Sent ProfileSnapshot after join request for \(conversationId)")
+            Log.info("Sent ProfileSnapshot after join request for \(conversationId)")
         } catch {
             Log.warning("Failed to send ProfileSnapshot after join: \(error.localizedDescription)")
+        }
+    }
+
+    /// Broadcasts the latest convo-level state to the group right after a new
+    /// member is admitted. Mirrors `sendProfileSnapshotAfterJoin` but for
+    /// silent codecs (focus mode today, room for more later) — XMTP streams
+    /// are forward-only, so a member who joins after a `FocusModeControl`
+    /// has already been sent would never see it without this catch-up.
+    private func sendConversationSnapshotAfterJoin(conversationId: String, client: AnyClientProvider) async {
+        do {
+            guard let conversation = try await client.conversationsProvider.findConversation(
+                conversationId: conversationId
+            ), case .group(let group) = conversation else {
+                return
+            }
+            let focusBlock = try? await loadLatestFocusSession(conversationId: conversationId)
+            let snapshot = ConversationSnapshot(focusSession: focusBlock)
+            let codec = ConversationSnapshotCodec()
+            let encoded = try codec.encode(content: snapshot)
+            _ = try await group.send(encodedContent: encoded)
+            Log.info("Sent ConversationSnapshot after join request for \(conversationId) (focusSession: \(focusBlock != nil))")
+        } catch {
+            Log.warning("Failed to send ConversationSnapshot after join: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadLatestFocusSession(conversationId: String) async throws -> ConversationSnapshot.FocusSession? {
+        try await databaseWriter.read { db in
+            guard let session = try DBFocusSession
+                .filter(Column("conversationId") == conversationId)
+                .order(Column("startedAt").desc)
+                .fetchOne(db) else {
+                return nil
+            }
+            let state: FocusModeControl.State
+            switch session.state {
+            case .started: state = .start
+            case .stopped: state = .stop
+            }
+            return ConversationSnapshot.FocusSession(
+                sessionId: session.sessionId,
+                state: state,
+                focusedInboxId: session.focusedInboxId
+            )
         }
     }
 }

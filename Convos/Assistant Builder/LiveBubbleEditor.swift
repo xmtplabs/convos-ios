@@ -1,61 +1,104 @@
 import ConvosCore
 import SwiftUI
+import UIKit
 
 /// User's own live bubble that doubles as a text field. The keyboard types
 /// directly into the bubble — there is no separate composer field below.
+///
+/// Backed by `HonkTextView` (a `UITextView` wrapper) rather than SwiftUI's
+/// `TextField(axis: .vertical)` because the latter sizes itself to its
+/// intrinsic content height and won't honor a tall frame's vertical
+/// alignment — short text gets pinned near the bottom of the bubble and
+/// the placeholder gets clipped.
 struct LiveBubbleEditor: View {
     @Binding var text: String
     let placeholder: String
     let tailCorner: BubbleCorner
     let onSubmit: () -> Void
-    var isFocusedExternally: FocusState<Bool>.Binding?
+    var isFocusedExternally: Binding<Bool>?
+    var size: LiveBubbleSize = .full
 
-    @FocusState private var isInternallyFocused: Bool
+    @State private var internalIsFocused: Bool = false
 
     private let cornerRadius: CGFloat = Constant.bubbleCornerRadius
 
     var body: some View {
+        let isCompact: Bool = size == .singleLine
         ZStack {
             Color.colorBubble
             editor
+                .opacity(isCompact ? 0 : 1)
+            if isCompact, !text.isEmpty {
+                staticDotsOverlay
+                    .allowsHitTesting(false)
+            }
         }
         .compositingGroup()
         .mask(maskShape)
-        .onTapGesture { focusEditor(true) }
+    }
+
+    private var staticDotsOverlay: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { _ in
+                Circle()
+                    .fill(Color.colorTextPrimaryInverted.opacity(0.7))
+                    .frame(width: 8, height: 8)
+            }
+        }
     }
 
     @ViewBuilder
     private var editor: some View {
-        let editorView = TextField(
-            "",
+        let isCompact: Bool = size == .singleLine
+        let font: UIFont = isCompact
+            ? UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize, weight: .medium)
+            : UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .title1).pointSize, weight: .semibold)
+        let horizontalPadding: CGFloat = isCompact
+            ? DesignConstants.Spacing.step4x
+            : DesignConstants.Spacing.step6x
+        let verticalPadding: CGFloat = isCompact
+            ? DesignConstants.Spacing.step3x
+            : DesignConstants.Spacing.step6x
+        let alignment: NSTextAlignment = isCompact ? .left : .center
+        HonkTextView(
             text: $text,
-            prompt: Text(placeholder)
-                .foregroundStyle(Color.colorTextPrimaryInverted.opacity(0.6)),
-            axis: .vertical
+            placeholder: placeholder,
+            font: font,
+            textColor: UIColor(.colorTextPrimaryInverted),
+            placeholderColor: UIColor(.colorTextPrimaryInverted).withAlphaComponent(0.6),
+            cursorColor: UIColor(.colorTextPrimaryInverted),
+            textAlignment: alignment,
+            onSubmit: onSubmit,
+            isFocused: focusBinding
         )
-        .font(.system(.title, weight: .semibold))
-        .foregroundStyle(.colorTextPrimaryInverted)
-        .multilineTextAlignment(.center)
-        .lineLimit(nil)
-        .submitLabel(.return)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .padding(.vertical, DesignConstants.Spacing.step6x)
-        .onSubmit(onSubmit)
-        .tint(.colorTextPrimaryInverted)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
+    }
 
-        if let isFocusedExternally {
-            editorView.focused(isFocusedExternally)
-        } else {
-            editorView.focused($isInternallyFocused)
-        }
+    /// Route HonkTextView's focus binding to either the caller-supplied
+    /// `Binding<Bool>` or our internal `@State`. We do not use `@FocusState`
+    /// here because there's no SwiftUI `.focused()` consumer for it — the
+    /// editor is a `UITextView` via `UIViewRepresentable`, and an unattached
+    /// `@FocusState` auto-reverts to `false` on every render, which breaks
+    /// our "stay focused" behavior.
+    private var focusBinding: Binding<Bool> {
+        Binding(
+            get: { isFocusedExternally?.wrappedValue ?? internalIsFocused },
+            set: { newValue in
+                if let isFocusedExternally {
+                    isFocusedExternally.wrappedValue = newValue
+                } else {
+                    internalIsFocused = newValue
+                }
+            }
+        )
     }
 
     private func focusEditor(_ focused: Bool) {
         if let isFocusedExternally {
             isFocusedExternally.wrappedValue = focused
         } else {
-            isInternallyFocused = focused
+            internalIsFocused = focused
         }
     }
 

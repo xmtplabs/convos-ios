@@ -17,6 +17,12 @@ public protocol FocusSessionWriterProtocol: Sendable {
         _ payload: StreamingClear,
         receivedAt: Date
     ) async throws
+
+    func applyConversationSnapshot(
+        _ snapshot: ConversationSnapshot,
+        conversationId: String,
+        receivedAt: Date
+    ) async throws
 }
 
 public extension FocusSessionWriterProtocol {
@@ -30,6 +36,10 @@ public extension FocusSessionWriterProtocol {
 
     func applyStreamingClear(_ payload: StreamingClear) async throws {
         try await applyStreamingClear(payload, receivedAt: Date())
+    }
+
+    func applyConversationSnapshot(_ snapshot: ConversationSnapshot, conversationId: String) async throws {
+        try await applyConversationSnapshot(snapshot, conversationId: conversationId, receivedAt: Date())
     }
 }
 
@@ -134,6 +144,23 @@ public final class FocusSessionWriter: FocusSessionWriterProtocol, Sendable {
             )
             try cleared.save(db, onConflict: .replace)
         }
+    }
+
+    public func applyConversationSnapshot(
+        _ snapshot: ConversationSnapshot,
+        conversationId: String,
+        receivedAt: Date
+    ) async throws {
+        // Translate the embedded focus block into the same write the receiver
+        // would have performed for a real `FocusModeControl` message — gives
+        // late-joiners the focus state without diverging code paths.
+        guard let focus = snapshot.focusSession else { return }
+        let virtualControl = FocusModeControl(
+            state: focus.state,
+            focusedInboxId: focus.focusedInboxId,
+            sessionId: focus.sessionId
+        )
+        try await applyFocusModeControl(virtualControl, conversationId: conversationId, receivedAt: receivedAt)
     }
 
     private static func sessionIsActive(_ sessionId: String, db: Database) throws -> Bool {

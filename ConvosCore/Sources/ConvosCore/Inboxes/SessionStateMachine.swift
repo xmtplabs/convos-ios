@@ -932,6 +932,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 FocusModeControlCodec(),
                 StreamingTextCodec(),
                 StreamingClearCodec(),
+                ConversationSnapshotCodec(),
                 ReadReceiptCodec()
             ],
             dbEncryptionKey: keys.databaseKey,

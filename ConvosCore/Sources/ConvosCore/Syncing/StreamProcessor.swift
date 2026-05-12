@@ -392,6 +392,20 @@ actor StreamProcessor: StreamProcessorProtocol {
             return true
         }
 
+        if contentType.authorityID == ContentTypeConversationSnapshot.authorityID
+            && contentType.typeID == ContentTypeConversationSnapshot.typeID {
+            guard let snapshot = try? ConversationSnapshotCodec().decode(content: message.encodedContent) else {
+                Log.warning("Failed to decode ConversationSnapshot from message \(message.id)")
+                return true
+            }
+            do {
+                try await focusSessionWriter.applyConversationSnapshot(snapshot, conversationId: conversationId)
+            } catch {
+                Log.warning("Failed applying ConversationSnapshot: \(error.localizedDescription)")
+            }
+            return true
+        }
+
         return false
     }
 

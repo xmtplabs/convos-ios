@@ -301,6 +301,30 @@ final class ConversationsViewModel {
         assistantBuilderViewModel = AssistantBuilderViewModel(session: session)
     }
 
+    /// Pairs with `onStartAssistantBuilder` for the second human in the convo —
+    /// reads an invite from the system pasteboard and opens the Assistant
+    /// Builder view in join-by-invite mode. Use when one sim creates the
+    /// convo (hammer button) and copies the invite link from the `+` menu, then
+    /// the other sim pastes via this button to participate in the live focus
+    /// session as a peer typer (not as the focused assistant).
+    func onPasteAssistantBuilderInvite() {
+        let raw = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        let inviteCode: String
+        if let url = URL(string: raw),
+           let destination = DeepLinkHandler.destination(for: url),
+           case .joinConversation(let code) = destination {
+            inviteCode = code
+        } else {
+            inviteCode = raw
+        }
+        guard !inviteCode.isEmpty else { return }
+        assistantBuilderViewModel = AssistantBuilderViewModel(
+            session: session,
+            joiningInviteCode: inviteCode
+        )
+    }
+
     private func join(from inviteCode: String) {
         newConversationViewModel = NewConversationViewModel(
             session: session,

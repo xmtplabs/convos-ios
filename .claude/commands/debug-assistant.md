@@ -12,9 +12,12 @@ Spin up a locally-running CLI agent that the iOS app trusts as a verified Convos
 /debug-assistant
 /debug-assistant "Fitness Trainer"
 /debug-assistant "Travel Agent" --conv 0xabc123…
-/debug-assistant --focus <invite-slug>           # Assistant Builder focus mode
-/debug-assistant "Travel Buddy" --focus <invite> # focus mode with custom persona
+/debug-assistant --focus <invite-slug>                  # Assistant Builder focus mode
+/debug-assistant "Travel Buddy" --focus <invite>        # focus mode with custom persona
+/debug-assistant --focus <invite> --quick               # focus mode with tightened pacing
 ```
+
+**`--quick`** (focus mode only) collapses the test transcript to its bare essentials so iteration is fast: one snapshot per bubble (no per-character build-up), 1.5 s holds instead of 3.5 s, 1 s rest detection instead of 2 s, no announce sentence after the persona rename. Use this when you're debugging a regression and want to cycle through the flow in ~10 s instead of ~30 s. Skip it for first-time / pre-merge testing where you want the realistic typing cadence.
 
 If no persona name is passed, ask the user: "What kind of assistant should I fake? (default: 'Assistant'; suggestions: Fitness Trainer, Travel Agent, Calendar Buddy, Training Buddy, Meal Planner)". Use the default if they hit enter.
 
@@ -139,17 +142,122 @@ CONV_ID="<existing-id>"
 
 For testing the iOS hammer-toolbar / live-co-typing flow. `convos agent focus` does the join itself, then waits for `FocusModeControl(.start)` from iOS and enters the streaming-text loop. There is no separate `conversations join` step and no follow-up `agent serve` — focus mode is a single command.
 
+**Important:** for the standard test sequence (described below) **omit `--profile-name`** so the agent joins nameless. The script renames the profile mid-session via a separate `convos conversation update-profile` call, which is the actual UI behavior we want to exercise (iOS indicator transitions from "New assistant" → chosen name when the assistant decides what kind of agent it is).
+
 ```bash
 INVITE="$2"   # the slug after --focus
-PERSONA_NAME="$PERSONA"
-
+# Drive via FIFO so this Claude session can stream stdin commands to the running process.
+rm -f /tmp/convos-focus-in /tmp/convos-focus-out
+mkfifo /tmp/convos-focus-in
+sleep 86400 > /tmp/convos-focus-in &        # holder keeps the fifo writable
+HOLDER_PID=$!
 CONVOS_HOME="$AGENT_HOME" convos agent focus "$INVITE" --env dev \
-    --profile-name "$PERSONA_NAME" \
+    --profile-metadata "emoji=🔨" \
     --attestation-private-key "$KEY_PATH" \
-    --attestation-kid "$KID"
+    --attestation-kid "$KID" \
+    < /tmp/convos-focus-in > /tmp/convos-focus-out 2>&1 &
+FOCUS_PID=$!
 ```
 
-Skip Step 6 entirely — the focus loop runs inline. iOS auto-promotes the agent to focused once it sees the join, and the indicator's avatar should render with the verified ring (`agentVerification == .verified(.convos)`) since the ProfileUpdate carries the attestation triple.
+iOS auto-promotes the agent to focused once it sees the join, and the indicator's avatar should render with the verified ring (`agentVerification == .verified(.convos)`) since the ProfileUpdate carries the attestation triple.
+
+Skip Step 6 entirely — the focus loop runs inline. Continue to the **Test sequence** section below for the standard exchange we run on every test.
+
+### Test sequence (focus mode)
+
+When the user invokes `--focus`, run this canonical exchange so the iOS side gets the same coverage every time. It exercises: nameless-join → "New assistant" placeholder → live typing → clear → user-text-rest detection → mid-session profile rename → indicator-name transition → follow-up loop → graceful stop.
+
+There are two pacings — the variables below switch between them based on whether `--quick` was passed:
+
+| Variable | Default | `--quick` | What it controls |
+| --- | --- | --- | --- |
+| `TYPING_SNAPSHOTS` | 4 build-up snapshots per bubble | 1 (final only) | "Real typing" cadence vs single shot |
+| `SNAPSHOT_DELAY` | `0.4` | `0` | Sleep between intermediate snapshots |
+| `HOLD` | `3.5` | `1.5` | Sleep after final snapshot before clear |
+| `REST_GAP` | `2` | `1` | Seconds with no new rev = user finished typing |
+| `WRAP_PAUSE` | `1.5` | `0.6` | Sleep around the closing wrap-up snapshot |
+| Announce sentence | "Got it — sounds like you need a Travel Buddy." sent as own bubble | **skipped** | Default mode says it; quick mode jumps straight to follow-up |
+
+Set them up at the top of the run so each step can reference them:
+
+```bash
+if [[ "$ARGS" == *--quick* ]]; then
+    QUICK=1
+    HOLD=1.5; REST_GAP=1; WRAP_PAUSE=0.6
+else
+    QUICK=0
+    HOLD=3.5; REST_GAP=2; WRAP_PAUSE=1.5
+fi
+```
+
+**Pre-conditions:** focus process running with FIFO stdin (snippet above), `/tmp/convos-focus-out` collecting events. Read the `conversationId` and `inboxId` from the `joined` event.
+
+**Steps:**
+
+1. **Hammer emoji is set in the launch flags** (`--profile-metadata "emoji=🔨"` in the focus snippet above) so iOS renders the hammer the moment it sees the agent's startup `ProfileUpdate`. No follow-up `update-profile` call needed.
+
+2. **Wait for `focused` with `isUs: true`** in `/tmp/convos-focus-out` (use Monitor with `until grep -q '"focused"'`). Until that event lands, iOS hasn't promoted us — typing on stdin would arrive too early.
+
+3. **Type the welcome.** Snapshots are full bubble text (not deltas).
+   - **Default:** send a few intermediate snapshots to look like real typing, finishing on the full sentence.
+   - **Quick:** send only the final sentence.
+   ```bash
+   if [ "$QUICK" = "1" ]; then
+       echo '{"type":"text","text":"Hey! What can I do for you?"}' > /tmp/convos-focus-in
+   else
+       for line in "Hey! " "Hey! What " "Hey! What can " "Hey! What can I do for you?"; do
+           echo "{\"type\":\"text\",\"text\":\"$line\"}" > /tmp/convos-focus-in
+           sleep 0.4
+       done
+   fi
+   ```
+
+4. **Pause then clear.**
+   ```bash
+   sleep "$HOLD"
+   echo '{"type":"clear"}' > /tmp/convos-focus-in
+   ```
+   Default `HOLD=3.5` gives a comfortable read; quick `HOLD=1.5` is the minimum that still lets the receiver-side 600 ms clear delay land cleanly.
+
+5. **Wait for the user's reply to rest.** "Rest" = at least one `streaming_text` from a non-self sender, then `$REST_GAP` seconds with no newer revision from that sender. Use a Monitor with a poll loop that tails the event log; treat empty-text snapshots as "user cleared" rather than as a reply.
+
+6. **Pick a persona from their reply.** Heuristic — match keywords:
+
+   | If user mentions… | Set `--name` to |
+   | --- | --- |
+   | trip / travel / vacation / itinerary | `Travel Buddy` |
+   | workout / fitness / exercise / training | `Fitness Trainer` |
+   | calendar / schedule / meetings | `Calendar Buddy` |
+   | meal / cook / recipe / food | `Meal Planner` |
+   | (anything else) | `Assistant` |
+
+7. **Rename the agent first**, then (default mode only) announce it. The indicator should transition to the new name *before* the assistant says the words — otherwise the bubble reads "Travel Buddy" while the indicator still says "New assistant," which feels off. From a fresh shell (the focus process can't change its own name from stdin):
+   ```bash
+   CONVOS_HOME="$AGENT_HOME" convos conversation update-profile "$CONV_ID" --name "Travel Buddy"
+   ```
+   - **Default:** speak the choice into the next bubble (typed + cleared like step 3/4): `"Got it — sounds like you need a Travel Buddy."`
+   - **Quick:** skip the announce sentence — go straight to the follow-up question in step 8. Renaming is enough to confirm the persona pick.
+
+8. **Ask a follow-up** (same snapshot/clear pattern as step 3 — single shot in quick mode), e.g. `"Where are you headed and when?"`.
+
+9. **Wait for the user's follow-up to rest** (same poll as step 5, using `$REST_GAP`).
+
+10. **Wrap up + stop.** Send a closing snapshot, clear, brief pause, then send the focus-mode stop:
+    ```bash
+    echo '{"type":"text","text":"Okay, I have enough to go off of."}' > /tmp/convos-focus-in
+    sleep "$WRAP_PAUSE"
+    echo '{"type":"clear"}' > /tmp/convos-focus-in
+    sleep "$WRAP_PAUSE"
+    echo '{"type":"stop"}' > /tmp/convos-focus-in
+    ```
+
+11. **Tear down** the FIFO holder once the process has exited (look for `shutdown` in the event log):
+    ```bash
+    kill "$HOLDER_PID" 2>/dev/null || true
+    rm -f /tmp/convos-focus-in /tmp/convos-focus-out
+    ```
+
+When the user just says "test focus mode" with nothing else, run the sequence above end-to-end without asking for clarification on persona, message phrasing, or pacing — those are fixed.
 
 ### Step 6: Serve (skip for focus mode)
 

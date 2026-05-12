@@ -17,6 +17,14 @@ enum LiveBubbleStyle: Hashable {
     case otherMember
 }
 
+/// Two height modes for any bubble. `.full` is the Honk-canvas presentation.
+/// `.singleLine` is the compact "I'm here / I have text" pill — text gets
+/// head-truncated to one line, dot indicators (if any) sit on the same row.
+enum LiveBubbleSize: Hashable {
+    case full
+    case singleLine
+}
+
 /// Read-only Honk-style live bubble. Renders a single block of text inside
 /// a rounded shape with one tail corner. Used for the focused member's
 /// bubble (top region) and for the chorus of other members (bottom region).
@@ -29,22 +37,33 @@ struct LiveBubble: View {
     let style: LiveBubbleStyle
     let tailCorner: BubbleCorner
     let cornerRadius: CGFloat
+    let agentVerification: AgentVerification
+    let size: LiveBubbleSize
+    let isPlaceholder: Bool
+
+    @State private var placeholderPulsed: Bool = false
 
     init(
         text: String,
         style: LiveBubbleStyle,
         tailCorner: BubbleCorner,
-        cornerRadius: CGFloat = Constant.bubbleCornerRadius
+        cornerRadius: CGFloat = Constant.bubbleCornerRadius,
+        agentVerification: AgentVerification = .unverified,
+        size: LiveBubbleSize = .full,
+        isPlaceholder: Bool = false
     ) {
         self.text = text
         self.style = style
         self.tailCorner = tailCorner
         self.cornerRadius = cornerRadius
+        self.agentVerification = agentVerification
+        self.size = size
+        self.isPlaceholder = isPlaceholder
     }
 
     var body: some View {
         ZStack {
-            background
+            backgroundColor
             content
         }
         .compositingGroup()
@@ -53,13 +72,19 @@ struct LiveBubble: View {
 
     // MARK: - Background
 
-    @ViewBuilder
-    private var background: some View {
+    /// Verified `.convos` agents render in lava when they're the focused
+    /// member — the same accent the avatar already uses, mirrored into the
+    /// bubble so the assistant's presence reads at a glance.
+    private var backgroundColor: Color {
         switch style {
         case .user:
-            Color.colorBubble
-        case .focusedMember, .otherMember:
-            Color.colorBubbleIncoming
+            return .colorBubble
+        case .focusedMember:
+            return agentVerification.isConvosAssistant
+                ? .colorLava
+                : .colorBubbleIncoming
+        case .otherMember:
+            return .colorBubbleIncoming
         }
     }
 
@@ -67,23 +92,53 @@ struct LiveBubble: View {
 
     @ViewBuilder
     private var content: some View {
+        let isCompact: Bool = size == .singleLine
+        let lineLimit: Int? = isCompact ? 1 : 8
+        let alignment: Alignment = isCompact ? .leading : .center
+        let textAlignment: TextAlignment = isCompact ? .leading : .center
+        let font: Font = isCompact
+            ? .system(.body, weight: .medium)
+            : .system(.title, weight: .semibold)
+        let minScale: CGFloat = isCompact ? 1.0 : 0.4
+        let truncation: Text.TruncationMode = isCompact ? .head : .tail
+        let horizontalPadding: CGFloat = isCompact
+            ? DesignConstants.Spacing.step4x
+            : DesignConstants.Spacing.step6x
+        let verticalPadding: CGFloat = isCompact
+            ? DesignConstants.Spacing.step3x
+            : DesignConstants.Spacing.step6x
+        let pulseOpacity: Double = isPlaceholder && placeholderPulsed ? 0.5 : 1.0
         Text(text)
-            .font(.system(.title, weight: .semibold))
+            .font(font)
             .foregroundStyle(textColor)
-            .multilineTextAlignment(.center)
-            .lineLimit(nil)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .padding(.horizontal, DesignConstants.Spacing.step6x)
-            .padding(.vertical, DesignConstants.Spacing.step6x)
+            .multilineTextAlignment(textAlignment)
+            .lineLimit(lineLimit)
+            .minimumScaleFactor(minScale)
+            .truncationMode(truncation)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .opacity(pulseOpacity)
             .contentTransition(.numericText())
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: text)
+            .onAppear {
+                guard isPlaceholder else { return }
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    placeholderPulsed = true
+                }
+            }
     }
 
     private var textColor: Color {
+        if isPlaceholder {
+            return .colorTextSecondary
+        }
         switch style {
         case .user:
             return .colorTextPrimaryInverted
-        case .focusedMember, .otherMember:
+        case .focusedMember:
+            return agentVerification.isConvosAssistant ? .colorTextPrimaryInverted : .colorTextPrimary
+        case .otherMember:
             return .colorTextPrimary
         }
     }

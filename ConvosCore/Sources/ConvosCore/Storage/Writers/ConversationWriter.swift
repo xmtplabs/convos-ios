@@ -29,7 +29,9 @@ extension DecodedMessage {
             && contentType.typeID == ContentTypeStreamingText.typeID
         let isStreamingClear = contentType.authorityID == ContentTypeStreamingClear.authorityID
             && contentType.typeID == ContentTypeStreamingClear.typeID
-        return isFocusControl || isStreamingText || isStreamingClear
+        let isConversationSnapshot = contentType.authorityID == ContentTypeConversationSnapshot.authorityID
+            && contentType.typeID == ContentTypeConversationSnapshot.typeID
+        return isFocusControl || isStreamingText || isStreamingClear || isConversationSnapshot
     }
 }
 
@@ -280,9 +282,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
         }
 
-        // Store last message (skip profile messages and read receipts which aren't stored as DB messages)
+        // Store last message (skip ephemeral types that aren't persisted as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt {
+        if let lastMessage,
+           !lastMessage.isProfileMessage,
+           !lastMessage.isTypingIndicator,
+           !lastMessage.isReadReceipt,
+           !lastMessage.isFocusEphemeral {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation

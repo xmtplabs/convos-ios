@@ -161,6 +161,14 @@ struct ConversationsView: View {
         .matchedTransitionSource(id: "assistant-builder-transition-source", in: namespace)
 
         ToolbarItem(placement: .bottomBar) {
+            Button("Join from clipboard", systemImage: "clipboard.fill") {
+                viewModel.onPasteAssistantBuilderInvite()
+            }
+            .accessibilityLabel("Join an assistant builder session from clipboard")
+            .accessibilityIdentifier("assistant-builder-join-from-clipboard-button")
+        }
+
+        ToolbarItem(placement: .bottomBar) {
             Spacer()
         }
 
