@@ -94,6 +94,11 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+    var assistantBuilderViewModel: AssistantBuilderViewModel? {
+        didSet {
+            updateListVisibility()
+        }
+    }
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -250,6 +255,7 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
+            && assistantBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -300,6 +306,10 @@ final class ConversationsViewModel {
             session: session,
             mode: .scanner
         )
+    }
+
+    func onStartAssistant() {
+        assistantBuilderViewModel = AssistantBuilderViewModel(session: session)
     }
 
     private func join(from inviteCode: String) {

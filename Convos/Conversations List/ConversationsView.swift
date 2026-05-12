@@ -165,6 +165,15 @@ struct ConversationsView: View {
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
 
         ToolbarItem(placement: .bottomBar) {
+            Button("Make assistant", systemImage: "hammer") {
+                viewModel.onStartAssistant()
+            }
+            .accessibilityLabel("Make a new assistant")
+            .accessibilityIdentifier("assistant-builder-button")
+        }
+        .matchedTransitionSource(id: "assistant-builder-transition-source", in: namespace)
+
+        ToolbarItem(placement: .bottomBar) {
             Button("Compose", systemImage: "square.and.pencil") {
                 viewModel.onStartConvo()
             }
@@ -286,6 +295,14 @@ private struct ConversationsSheetModifier: ViewModifier {
                 .navigationTransition(
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
+            }
+            .sheet(item: $viewModel.assistantBuilderViewModel) { builderViewModel in
+                AssistantBuilderView(viewModel: builderViewModel)
+                    .background(.colorBackgroundSurfaceless)
+                    .presentationSizing(.page)
+                    .navigationTransition(
+                        .zoom(sourceID: "assistant-builder-transition-source", in: namespace)
+                    )
             }
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }

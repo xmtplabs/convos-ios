@@ -5,6 +5,18 @@ struct ConversationPresenter<Content: View>: View {
     let focusCoordinator: FocusCoordinator
     let insetsTopSafeArea: Bool
     @Binding var sidebarColumnWidth: CGFloat
+    /// Overrides the indicator's placeholder name (otherwise falls back to
+    /// `ConversationViewModel.untitledConversationPlaceholder`). Used by
+    /// flows where the underlying conversation is a draft and the indicator
+    /// wants a flow-specific label (e.g. "New assistant").
+    var indicatorPlaceholderOverride: String? = nil
+    /// Overrides the indicator's subtitle (otherwise falls back to
+    /// `ConversationViewModel.conversationInfoSubtitle`). E.g. "Draft" for
+    /// the assistant builder.
+    var indicatorSubtitleOverride: String? = nil
+    /// When false, the indicator is shown but visually dimmed and rejects
+    /// taps/long-presses (used while the conversation is still spinning up).
+    var isIndicatorEnabled: Bool = true
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
     @FocusState private var focusState: MessagesViewInputFocus?
@@ -25,6 +37,9 @@ struct ConversationPresenter<Content: View>: View {
                 if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
                     ConversationIndicatorWrapper(
                         viewModel: viewModel,
+                        placeholderOverride: indicatorPlaceholderOverride,
+                        subtitleOverride: indicatorSubtitleOverride,
+                        isEnabled: isIndicatorEnabled,
                         focusState: $focusState,
                         focusCoordinator: focusCoordinator
                     )
@@ -86,6 +101,9 @@ struct ConversationPresenter<Content: View>: View {
 
 private struct ConversationIndicatorWrapper: View {
     @Bindable var viewModel: ConversationViewModel
+    let placeholderOverride: String?
+    let subtitleOverride: String?
+    let isEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
 
@@ -93,8 +111,8 @@ private struct ConversationIndicatorWrapper: View {
         ConversationIndicator(
             conversation: viewModel.conversation,
             placeholderName: viewModel.conversationNamePlaceholder,
-            untitledConversationPlaceholder: viewModel.untitledConversationPlaceholder,
-            subtitle: viewModel.conversationInfoSubtitle,
+            untitledConversationPlaceholder: placeholderOverride ?? viewModel.untitledConversationPlaceholder,
+            subtitle: subtitleOverride ?? viewModel.conversationInfoSubtitle,
             scheduledExplosionDate: viewModel.scheduledExplosionDate,
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
@@ -122,6 +140,8 @@ private struct ConversationIndicatorWrapper: View {
                 ConversationInfoView(viewModel: viewModel, focusCoordinator: focusCoordinator)
             }
         )
+        .disabled(!isEnabled)
+        .allowsHitTesting(isEnabled)
     }
 }
 

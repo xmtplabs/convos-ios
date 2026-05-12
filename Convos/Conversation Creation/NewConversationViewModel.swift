@@ -26,6 +26,7 @@ struct IdentifiableError: Identifiable {
 
 enum NewConversationMode {
     case newConversation
+    case newAssistant
     case scanner
     case joinInvite(code: String)
 }
@@ -67,7 +68,9 @@ class NewConversationViewModel: Identifiable {
         didSet {
             switch conversationState {
             case .ready:
+                let firedAlready = _reachedReadyState
                 _reachedReadyState = true
+                if !firedAlready { onReachedReady?() }
             case .joining:
                 _reachedJoiningState = true
             default:
@@ -75,6 +78,12 @@ class NewConversationViewModel: Identifiable {
             }
         }
     }
+
+    /// Fires exactly once when the state machine first reaches `.ready`.
+    /// Wrappers (e.g. `AssistantBuilderViewModel`) use this to kick off
+    /// follow-on work like inviting an assistant once the conversation
+    /// has an invite slug.
+    var onReachedReady: (() -> Void)?
     private var cachedInviteCode: String?
     private var consecutiveFailureCount: Int = 0
 
@@ -115,7 +124,7 @@ class NewConversationViewModel: Identifiable {
         self.qrScannerViewModel = QRScannerViewModel()
 
         switch mode {
-        case .newConversation:
+        case .newConversation, .newAssistant:
             self.autoCreateConversation = true
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
@@ -134,7 +143,7 @@ class NewConversationViewModel: Identifiable {
             self.allowsDismissingScanner = true
         }
 
-        self.isCreatingConversation = mode.isNewConversation
+        self.isCreatingConversation = mode.autoCreatesConversation
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
     }
@@ -183,7 +192,7 @@ class NewConversationViewModel: Identifiable {
             guard let self else { return }
 
             switch mode {
-            case .newConversation:
+            case .newConversation, .newAssistant:
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -679,8 +688,10 @@ class NewConversationViewModel: Identifiable {
 }
 
 private extension NewConversationMode {
-    var isNewConversation: Bool {
-        if case .newConversation = self { return true }
-        return false
+    var autoCreatesConversation: Bool {
+        switch self {
+        case .newConversation, .newAssistant: return true
+        case .scanner, .joinInvite: return false
+        }
     }
 }
