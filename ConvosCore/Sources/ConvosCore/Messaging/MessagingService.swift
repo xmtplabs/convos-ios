@@ -156,12 +156,19 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: New Conversation
 
     func conversationStateManager() -> any ConversationStateManagerProtocol {
-        return ConversationStateManager(
+        conversationStateManager(initialMemberInboxIds: [])
+    }
+
+    func conversationStateManager(
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
+            initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager
         )
     }
@@ -169,13 +176,21 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: Existing Conversation
 
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
-        return ConversationStateManager(
+        conversationStateManager(for: conversationId, initialMemberInboxIds: [])
+    }
+
+    func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
             conversationId: conversationId,
+            initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager
         )
     }

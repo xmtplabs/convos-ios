@@ -428,21 +428,27 @@ final class ConversationsViewModel {
             .store(in: &cancellables)
     }
 
-    /// Routes the user into a conversation that was just created from the
-    /// contacts picker. Closes any existing conversation by clearing the
-    /// selection first, then sets it to the new id. The picker dismisses
-    /// itself; the contacts settings sheet (if open) is dismissed by the
-    /// view layer's `.onReceive` for the same notification.
+    /// Presents an instant-feeling new-conversation flow for the inbox
+    /// IDs the contacts picker just confirmed. Mirrors the "+" button
+    /// path: spins up a `NewConversationViewModel` so the placeholder UI
+    /// is on screen immediately, and lets the state machine fold the
+    /// addMembers hook into its create sequence atomically (no separate
+    /// post-`.ready` call). The picker dismisses itself; the contacts
+    /// settings sheet (if open) is dismissed by the view layer's
+    /// `.onReceive` for the same notification.
     private func handleContactsRequestedNewConversation(_ notification: Notification) {
-        guard let conversationId = notification.userInfo?["conversationId"] as? String else {
-            Log.warning("contactsRequestedNewConversation fired without a conversationId")
+        guard let inboxIds = notification.userInfo?["inboxIds"] as? [String], !inboxIds.isEmpty else {
+            Log.warning("contactsRequestedNewConversation fired without inboxIds")
             return
         }
-        Log.info("Routing into newly-created conversation from contacts: \(conversationId)")
+        Log.info("Starting new conversation from contacts (\(inboxIds.count) members)")
         if selectedConversationId != nil {
             selectedConversationId = nil
         }
-        selectedConversationId = conversationId
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithMembers(initialMemberInboxIds: inboxIds)
+        )
     }
 
     private func handleConversationNotificationTap(_ notification: Notification) {

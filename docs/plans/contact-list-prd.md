@@ -810,7 +810,112 @@ Stopgap for the window between "we invite a contact" and "their profile snapshot
 
 Ship-readiness: a member who joins a group I share with them shows by their contact name in system messages and the members list, even before their per-conversation profile snapshot lands; non-contacts continue to render as "Somebody"; no behavior change for the local user's own avatar / name.
 
-**End of Step 2.** Stacked PR or merge train including phases 2.1 – 2.6 (and 2.7 / 2.8 if they make the cut).
+---
+
+### Phase 2.10: Instant chat screen from the contacts picker
+
+**Goal.** Tapping "Start Conversation" in the contacts picker shows a chat-like screen *immediately* — same instant feel as the "+" button flow. By the time the network settles, the new conversation has the picked contacts already in it. No half-built groups, no flashes of underlying views, no duplicate XMTP groups, no bespoke contacts-flow plumbing that diverges from the "+" button code path.
+
+**Approach.** Route the contacts picker through the existing `NewConversationViewModel` + `ConversationStateMachine` infrastructure that the "+" button flow already uses. Two surgical extensions are enough:
+
+1. Teach `ConversationStateMachine` to add a known set of initial members atomically as part of the `.create` action, before transitioning to `.ready`.
+2. Add a `.newConversationWithMembers([String])` case to `NewConversationMode` so callers can pre-populate the picked inboxes.
+
+After that, the picker just constructs a `NewConversationViewModel` with the new mode and hands it to `ConversationsViewModel.newConversationViewModel` — exactly the same slot the "+" button uses. `NewConversationView`'s existing presentation handles the placeholder, the swap to a real chat once `.ready` lands, and the error UX on failure. No new placeholder view. No new notifications. No `ContactConversationStarter`.
+
+**Why this shape.** The reviewer's read of the original Phase 2.10 prototype surfaced four concerns, all rooted in the same issue: a bespoke contacts-flow code path that reimplements logic `NewConversationViewModel` already owns. Convergence addresses all four cleanly.
+
+- **Concern #1 — No placeholder UI.** `NewConversationView` already shows a placeholder `ConversationViewModel` instantly on mount and swaps in the real one when the state machine reaches `.ready`. Reuse this verbatim — no separate placeholder view to maintain.
+- **Concern #2 — `addMembers` runs after `.ready`.** If `addMembers` is a step *after* the state machine settles, then `.ready` does NOT mean "your picked contacts are in the conversation." A fast user, a dropped call, or a network blip leaves a real conversation in the list with just the local user. Fix: fold `addMembers` *into* the state machine's `.create` action so `.ready` becomes the strong guarantee "conversation exists AND its initial members are in it." Failure surfaces as `.error`, not a half-built `.ready`.
+- **Concern #3 — Cached conversation duplication risk.** `prepareNewConversation()` returns a warm-cached `existingConversationId` for an XMTP group already published on the network. If the create path doesn't recognize that the publish already happened, it'll fire a second publish and leave a stuck duplicate. Fix: audit `ConversationStateMachine.handleCreate` and confirm (or add) the resume-rather-than-republish path. Lock it in with a `newGroup`-invocation-count test.
+- **Concern #4 — Architectural duplication.** A second sequencing path for "new conversation" creation is maintenance burden, divergent error UX, and risk that future changes touch one path but not the other. Fix: don't introduce that second path in the first place.
+
+**Tasks.**
+
+#### a. `ConversationStateMachine` accepts initial members atomically
+
+`ConversationStateMachine.create` (or the action that drives it) gains:
+- An `initialMemberInboxIds: [String] = []` parameter on the `.create` action. Default empty preserves existing call sites.
+- An `addMembers` hook stored at init time:
+
+```swift
+typealias AddMembersHook = @Sendable ([String], String) async throws -> Void
+
+init(..., addMembers: @escaping AddMembersHook = { _, _ in })
+```
+
+`ConversationStateManager` wires the hook to `ConversationMetadataWriter.addMembers(_:to:)` when constructing the state machine. The metadata writer's full pipeline (XMTP group operation, local member rows, contact sync, ProfileSnapshot) keeps running unchanged — the state machine just composes it into the create sequence.
+
+`handleCreate` runs the addMembers hook *between* the XMTP publish and the `.ready` transition. On failure: transition to a new `ConversationStateMachineError.addMembersFailed(underlying:)` (or fold into an existing error case) and emit `.error`, **not** `.ready`. Downstream `.ready` consumers can now treat the state as the strong guarantee.
+
+#### b. `NewConversationMode.newConversationWithMembers([String])`
+
+Add the case alongside `.newConversation`. Same behavior — auto-create on init, placeholder VM, swap on `.ready` — except the picked inboxes ride along on the `.create` action that the state manager fires. `NewConversationViewModel`'s create-on-init logic threads `initialMemberInboxIds` into `createConversation(initialMemberInboxIds:)`.
+
+If the existing mode is a flat enum, this is one new case + one switch update inside `NewConversationViewModel.handleCreate` (or wherever the mode-to-action mapping lives).
+
+#### c. Contacts picker constructs a `NewConversationViewModel`
+
+In `ContactsView`, `ContactCardView`, and any other call site that today opens the contacts picker for `.newConversation` mode:
+
+```swift
+private func handlePickerConfirm(_ inboxIds: Set<String>) async {
+    let newConvoVM = NewConversationViewModel(
+        mode: .newConversationWithMembers(Array(inboxIds)),
+        session: session,
+        // … same args as the "+" button flow
+    )
+    conversationsViewModel.newConversationViewModel = newConvoVM
+    // ConversationsView presents NewConversationView via its existing
+    // sheet binding on `newConversationViewModel`; AppSettings sheet
+    // dismisses through that same presentation machinery (or via the
+    // existing dismiss-on-newConversationView-mount logic the + button
+    // flow already uses — audit during implementation).
+}
+```
+
+`.addToConversation` mode in `AddFromContactsPickerModifier` (the "Add from Contacts" row inside an active chat) is unchanged — that path doesn't go through this code; it calls `ConversationViewModel.addMembersFromContacts(_:)` directly.
+
+#### d. Warm-cache id preservation audit (concern #3)
+
+Audit `ConversationStateMachine.handleCreate` and `ConversationStateManager`'s create path to confirm:
+
+- When the state manager is bound to a warm-cached `existingConversationId` from `prepareNewConversation()`, the create action resumes that conversation rather than publishing a second XMTP group.
+- If the state is mid-publish (pre-warm not yet `.ready`), `createConversation()` awaits the in-flight publish rather than firing a parallel one.
+
+If the state machine already does this correctly: document it inline next to `handleCreate`. If it doesn't: the fix is part of (a) — the create handler checks "is there already a published XMTP group for this state manager's conversationId? if yes, skip publish; run member add against the existing id." Either way, the test in (e) makes it permanent.
+
+#### e. Tests
+
+- **State-machine unit test:** `.create` with non-empty `initialMemberInboxIds` calls the addMembers hook with the right `(inboxIds, conversationId)` args before emitting `.ready`. Hook failure → `.error(addMembersFailed(...))`, not `.ready`.
+- **State-machine unit test:** `.create` with empty `initialMemberInboxIds` does NOT call the addMembers hook. Default-no-op closure path; covers backward compat for the "+" button flow.
+- **State-machine unit test (concern #3 regression guard):** when invoked on a state manager bound to a warm-cached id whose XMTP group has already been published, exactly one `newGroup` call happens (count via mock XMTP client).
+- **`NewConversationViewModel` integration test:** instantiate with `.newConversationWithMembers(["alice", "bob"])` against a real-ish state stack; after `.ready`, the swapped-in `ConversationViewModel.conversation.members` contains both inboxes. The placeholder VM is observable in `.creating` state and is replaced.
+- **Manual UAQ:** tap picker Confirm → standard `NewConversationView` placeholder appears instantly (visually matches the "+" button flow) → real chat appears with members already present in the header / system messages. No "just you" group ever visible in the conversations list. Forced `addMembers` failure → `NewConversationView`'s standard error UX offers retry/cancel.
+
+**Edge cases.**
+
+- **Cold cache.** `prepareNewConversation` returns `nil` for the conversationId. `NewConversationViewModel` drives the state machine through full create (publish + addMembers). Placeholder VM stays on screen for the round-trip — same UX as a cold-cache "+" button create.
+- **Two rapid Confirm taps.** Picker's existing button-disabled-while-confirming pattern (or whatever guard `NewConversationViewModel` uses for double-tap protection) covers it. If `NewConversationViewModel` doesn't guard, add an `isStarting` flag in the picker that disables Confirm while the viewmodel is being constructed.
+- **Synthetic-contact path.** `ContactCardView.handleSendMessage` calls `contactsWriter.upsertContact(...)` *before* opening the picker (outside the latency-sensitive path). Unchanged.
+
+**Risk.**
+
+- `ConversationStateMachine` is shared across every conversation-create flow. The default-no-op `addMembers` closure protects existing call sites that don't pass initial members. The empty-`initialMemberInboxIds` test in (e) makes regression visible.
+- `NewConversationViewModel`'s placeholder pattern is well-exercised for `.newConversation` but new for `.newConversationWithMembers`. The integration test covers semantic correctness; a designer pass on the placeholder copy (does the existing "Starting…" / "Creating…" text read naturally when initial members are known?) may want a small variant. Defer until shipped — designer call.
+
+**Concern coverage (summary).**
+
+| Concern | Addressed by |
+|---|---|
+| #1 No placeholder UI | (b) + (c) — picker reuses `NewConversationViewModel`'s existing placeholder mechanism. |
+| #2 `addMembers` after `.ready` | (a) — `.ready` now means "conversation exists AND members are in it". Failure goes to `.error`. |
+| #3 Cached conversation duplication | (d) + (e) — audit + lock-in test. |
+| #4 Architectural duplication | Whole-phase shape — no `ContactConversationStarter`, no parallel notifications, no second sequencing path. |
+
+**Ship-readiness.** The contacts picker flow is indistinguishable from the "+" button flow at the code-path level — the only difference is the picker pre-populates the initial members list. `.ready` is a strong guarantee everywhere. No half-built conversations under any failure mode. Tapping Confirm shows a chat-like screen in under ~150ms on the warm-cache path (same numbers as the "+" button flow today).
+
+**End of Step 2.** Stacked PR or merge train including phases 2.1 – 2.10 (subset as needed).
 
 ---
 
@@ -830,6 +935,8 @@ Ship-readiness: a member who joins a group I share with them shows by their cont
 - `ContactSyncCoordinator` self-skip, sync-marker short-circuit, force-rerun.
 - `InboundConversationFilter` decision-table tests for contact / stranger / blocked sender.
 - `QuarantineSweeper` — promotes when sender becomes contact; deletes when past TTL.
+- `ConversationStateMachine` initial-members hook (Phase 2.10): `.create` with non-empty `initialMemberInboxIds` calls the addMembers hook with the right args before emitting `.ready`; hook failure → `.error`, not `.ready`; empty inboxes → no hook call (default-no-op closure path). Warm-cache regression guard: state manager bound to a warm-cached id publishes exactly one XMTP `newGroup` (mock count).
+- `NewConversationViewModel.newConversationWithMembers` (Phase 2.10): instantiate with `[alice, bob]`; after `.ready` the swapped-in `ConversationViewModel.conversation.members` contains both inboxes.
 
 **Integration tests** (require Docker via `./dev/up`):
 
@@ -915,6 +1022,7 @@ Ship-readiness: a member who joins a group I share with them shows by their cont
 - [ ] **Naming.** "Contacts" — confirmed via review feedback. Wording for the menu entry under "My info" still TBD ("Contacts" vs. "My contacts" vs. "People"). Designer call.
 - [ ] **Privacy framing review.** Action-gated auto-add and contact-gated inbound filter together change the messaging-permission model meaningfully. Walk through with privacy / legal before launch.
 - [ ] **Recipient-side disclosure for new DMs.** When the local user starts a new DM with a contact whose contact list does *not* include the local user, the message is silently quarantined on the recipient side. Should the sender's UI hint at this possibility? Tracked as a follow-up — not in V1.
+- [x] **`addMembers` failure UX in the optimistic-navigation flow (Phase 2.10).** *(Resolved: fold `addMembers` into `ConversationStateMachine.create` so `.ready` means "conversation exists AND its initial members are in it." A failed add transitions to `.error`, not a half-built `.ready`. `NewConversationView`'s standard error UX (the same one the "+" button flow already uses) presents the retry / cancel surface — no bespoke retry banner needed. See Phase 2.10 subtask (a).)*
 - [ ] **DM persistence model for "Send a message" (Step 2).** Today, 1:1 DMs are not persisted as `conversation` rows — `StreamProcessor.processMessage` (lines 184-311) consumes them as transport for invite-payload routing. Step 2's "Send a message" CTA needs a destination conversation type. Two options: (1) create a group-of-two under the hood so the new contact-gated filter applies as-is on the inbound side, or (2) extend the persistence model to accept DMs as first-class conversations gated by `InboundConversationFilter`. *(Recommendation: option 1 for V1 to avoid expanding scope; option 2 in a follow-up.)*
 
 ## References
@@ -932,3 +1040,6 @@ Ship-readiness: a member who joins a group I share with them shows by their cont
 - `ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift` — `hasOutgoingJoinRequest(for:client:)` lines 149-154 (the existing invite-flow elevator); `processJoinRequestOutcome(message:client:)` lines 106-115 (DM-borne invite payload validator).
 - `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift` — `addMembers` hook site for member-added trigger.
 - `ConvosCore/Sources/ConvosCore/Storage/Writers/MessagesWriter.swift` (or equivalent) — first-outbound-message hook site for the primary auto-add trigger; confirm exact file during implementation.
+- `Convos/Conversation Detail/NewConversationView.swift` and `NewConversationViewModel.swift` — the existing "+" button flow that Phase 2.10 piggybacks on. Phase 2.10 adds a `.newConversationWithMembers([String])` case to `NewConversationMode` and threads the inboxes through to `ConversationStateMachine.create(initialMemberInboxIds:)`.
+- `ConvosCore/Sources/ConvosCore/Sessions/ConversationStateMachine.swift` and `ConversationStateManager.swift` — Phase 2.10's surgical changes live here: `.create` action gains `initialMemberInboxIds`, init gains an `addMembers: @Sendable ([String], String) async throws -> Void = { _, _ in }` hook, `handleCreate` runs the hook between XMTP publish and `.ready`. `ConversationStateManager` wires the hook to `ConversationMetadataWriter.addMembers(_:to:)`. Concern #3 audit also lives here — confirm warm-cached id is resumed, not re-published.
+- `ConvosCore/Sources/ConvosCore/Sessions/SessionManager.swift` `prepareNewConversation()` + the `unusedConversationCache` it consumes from — Phase 2.10 does NOT modify this; the existing consume-then-mark-used flow is sufficient when `addMembers` is folded into `.create`.

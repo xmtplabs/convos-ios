@@ -15,6 +15,24 @@ extension MessagingServiceProtocol {
             return .registering
         }
     }
+
+    /// Default forwards to the existing zero-arg factory when no initial
+    /// members were supplied so existing conformers (mocks, tests) keep
+    /// working without recompiling. Concrete services (`MessagingService`)
+    /// override to actually thread the ids through
+    /// `ConversationStateManager.init`.
+    public func conversationStateManager(
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        conversationStateManager()
+    }
+
+    public func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        conversationStateManager(for: conversationId)
+    }
 }
 
 public protocol MessagingServiceProtocol: AnyObject, Sendable {
@@ -33,6 +51,21 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
 
     func conversationStateManager() -> any ConversationStateManagerProtocol
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol
+    /// Same as `conversationStateManager()` but the state manager seeds
+    /// its state machine with `initialMemberInboxIds` so the create
+    /// sequence runs the addMembers hook atomically before `.ready`. Used
+    /// by the contacts picker "Start Conversation" flow. Defaulted on the
+    /// extension above to preserve binary compatibility with existing
+    /// conformers.
+    func conversationStateManager(initialMemberInboxIds: [String]) -> any ConversationStateManagerProtocol
+    /// Same as `conversationStateManager(for:)` but the state manager
+    /// seeds its state machine with `initialMemberInboxIds`. The
+    /// warm-cache path uses this when picker-flow members must be folded
+    /// into a pre-prepared conversation before `.ready`.
+    func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol
 
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol
     func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol

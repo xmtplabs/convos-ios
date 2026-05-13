@@ -374,6 +374,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // chat plus-menu's "Add from Contacts" row drives.
             presentingAddFromContactsPicker = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .contactsRequestedNewConversation)) { _ in
+            // The picker may have been presented over a contact-card sheet
+            // (member avatar tap, "Send a message", picker). When the user
+            // confirms, the conversations-list layer is about to present
+            // `NewConversationView` from its own sheet anchor; tear our
+            // contact-card sheet down in the same render pass so SwiftUI
+            // runs the dismissals in parallel rather than serially, which
+            // eliminates the brief conversation-list flash between sheets.
+            viewModel.presentingProfileForMember = nil
+        }
         .addFromContactsPicker(
             viewModel: viewModel,
             isPresented: $presentingAddFromContactsPicker

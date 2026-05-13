@@ -29,10 +29,28 @@ public struct ConversationReadyResult: Sendable {
 ///
 /// The state machine maintains states from uninitialized → creating/validating → validated →
 /// joining → ready, with automatic message queuing and delivery once ready.
+/// Closure invoked by `handleCreate` / `handleUseExisting` between
+/// conversation publish/resume and the `.ready` transition. The contacts
+/// picker pre-populates this with `ConversationMetadataWriter
+/// .addMembers(_:to:)` so the conversation never reaches `.ready` until
+/// its initial members are actually in it.
+public typealias ConversationStateMachineAddMembersHook = @Sendable ([String], String) async throws -> Void
+
 public actor ConversationStateMachine {
     enum Action {
-        case create
-        case useExisting(conversationId: String)
+        /// `initialMemberInboxIds`: if non-empty, the create handler runs
+        /// the addMembers hook between XMTP publish and `.ready`. Hook
+        /// failure transitions to `.error(addMembersFailed(...))`, never
+        /// half-built `.ready`. Empty means no hook call (default behavior
+        /// for the "+" button flow).
+        case create(initialMemberInboxIds: [String])
+        /// `initialMemberInboxIds`: same semantics as `.create`, but for
+        /// the warm-cached / resume-existing path. Required so the
+        /// contacts picker flow can route a pre-warmed conversation
+        /// through `useExisting` (instead of re-publishing) while still
+        /// adding members atomically before `.ready`. Empty preserves
+        /// the existing draft / invite-resume behavior.
+        case useExisting(conversationId: String, initialMemberInboxIds: [String])
         case validate(inviteCode: String)
         case join
         case stop
@@ -78,6 +96,11 @@ public actor ConversationStateMachine {
     private let streamProcessor: any StreamProcessorProtocol
     private let clientConversationId: String
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
+    /// Injected at construction by `ConversationStateManager`, which wires
+    /// this to `ConversationMetadataWriter.addMembers(_:to:)`. Default is
+    /// a no-op so test fixtures and call sites that don't go through the
+    /// state manager continue to work without modification.
+    private let addMembersHook: ConversationStateMachineAddMembersHook
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
@@ -150,7 +173,8 @@ public actor ConversationStateMachine {
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         clientConversationId: String,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
+        addMembersHook: @escaping ConversationStateMachineAddMembersHook = { _, _ in }
     ) {
         self.sessionStateManager = sessionStateManager
         self.identityStore = identityStore
@@ -159,6 +183,7 @@ public actor ConversationStateMachine {
         self.environment = environment
         self.clientConversationId = clientConversationId
         self.backgroundUploadManager = backgroundUploadManager
+        self.addMembersHook = addMembersHook
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
@@ -236,106 +261,16 @@ public actor ConversationStateMachine {
 
     // MARK: - Public Actions
 
-    func create() {
-        enqueueAction(.create)
+    func create(initialMemberInboxIds: [String] = []) {
+        enqueueAction(.create(initialMemberInboxIds: initialMemberInboxIds))
     }
 
-    func useExisting(conversationId: String) {
-        enqueueAction(.useExisting(conversationId: conversationId))
+    func useExisting(conversationId: String, initialMemberInboxIds: [String] = []) {
+        enqueueAction(.useExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds))
     }
 
     func join(inviteCode: String) {
         enqueueAction(.validate(inviteCode: inviteCode))
-    }
-
-    func sendMessage(text: String, afterPhoto trackingKey: String? = nil) {
-        setupMessageStream()
-        messageStreamContinuation?.yield((text, trackingKey))
-    }
-
-    func sendPhoto(image: ImageType) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.send(image: image)
-    }
-
-    func startEagerUpload(image: ImageType) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.startEagerUpload(image: image)
-    }
-
-    func sendEagerPhoto(trackingKey: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendEagerPhoto(trackingKey: trackingKey)
-    }
-
-    func startEagerVideoUpload(at fileURL: URL) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.startEagerVideoUpload(at: fileURL)
-    }
-
-    func sendEagerVideo(trackingKey: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendEagerVideo(trackingKey: trackingKey)
-    }
-
-    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func cancelEagerUpload(trackingKey: String) async {
-        guard let writer = cachedMessageWriter else { return }
-        await writer.cancelEagerUpload(trackingKey: trackingKey)
-    }
-
-    func sendVideo(at fileURL: URL, replyToMessageId: String? = nil) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
-    }
-
-    func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String? = nil) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
-    }
-
-    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
-    }
-
-    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
-    }
-
-    func retryFailedMessage(id: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.retryFailedMessage(id: id)
-    }
-
-    func deleteFailedMessage(id: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.deleteFailedMessage(id: id)
-    }
-
-    func insertPendingInvite(text: String) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.insertPendingInvite(text: text)
-    }
-
-    func finalizeInvite(clientMessageId: String, finalText: String) async throws {
-        let writer = try await getOrCreateMessageWriter()
-        try await writer.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
     }
 
     func reset() {
@@ -397,17 +332,18 @@ public actor ConversationStateMachine {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case (.uninitialized, .create), (.error, .create):
+            case (.uninitialized, let .create(initialMemberInboxIds)), (.error, let .create(initialMemberInboxIds)):
                 if case .error = _state {
                     await handleStop()
                 }
-                try await handleCreate()
+                try await handleCreate(initialMemberInboxIds: initialMemberInboxIds)
 
-            case (.uninitialized, let .useExisting(conversationId)), (.error, let .useExisting(conversationId)):
+            case (.uninitialized, let .useExisting(conversationId, initialMemberInboxIds)),
+                 (.error, let .useExisting(conversationId, initialMemberInboxIds)):
                 if case .error = _state {
                     await handleStop()
                 }
-                await handleUseExisting(conversationId: conversationId)
+                try await handleUseExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds)
 
             case (.uninitialized, let .validate(inviteCode)), (.error, let .validate(inviteCode)):
                 if case .error = _state {
@@ -451,7 +387,7 @@ public actor ConversationStateMachine {
 
     // MARK: - Action Handlers
 
-    private func handleCreate() async throws {
+    private func handleCreate(initialMemberInboxIds: [String]) async throws {
         emitStateChange(.creating)
 
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
@@ -486,6 +422,16 @@ public actor ConversationStateMachine {
             clientConversationId: clientConversationId
         )
 
+        // Run the addMembers hook before emitting `.ready` so downstream
+        // consumers (NewConversationView, contacts picker flow) can treat
+        // `.ready` as the strong guarantee "conversation exists and its
+        // initial members are in it". Empty ids is a no-op; matches the
+        // existing "+" button flow exactly.
+        try await runAddMembersIfNeeded(
+            initialMemberInboxIds: initialMemberInboxIds,
+            conversationId: optimisticConversation.id
+        )
+
         // Transition to ready state with the real XMTP group ID (used for querying)
         // The clientConversationId is stored on DBConversation for stable image caching
         QAEvent.emit(.conversation, "created", ["id": optimisticConversation.id])
@@ -495,7 +441,7 @@ public actor ConversationStateMachine {
         )))
     }
 
-    private func handleUseExisting(conversationId: String) async {
+    private func handleUseExisting(conversationId: String, initialMemberInboxIds: [String]) async throws {
         Log.info("Using existing conversation: \(conversationId)")
 
         do {
@@ -509,6 +455,16 @@ public actor ConversationStateMachine {
             Log.warning("Failed to seed conversation emoji for existing conversation: \(error)")
         }
 
+        // Run the addMembers hook before emitting `.ready` so warm-cache
+        // + initial-members flows from the contacts picker reach `.ready`
+        // only after the picked contacts are in the conversation. Empty
+        // ids is a no-op; matches the existing draft / invite-resume
+        // behavior.
+        try await runAddMembersIfNeeded(
+            initialMemberInboxIds: initialMemberInboxIds,
+            conversationId: conversationId
+        )
+
         emitStateChange(.ready(ConversationReadyResult(
             conversationId: conversationId,
             origin: .existing
@@ -516,6 +472,26 @@ public actor ConversationStateMachine {
 
         if DBConversation.isDraft(id: conversationId) {
             startPendingInviteObservationIfNeeded(draftConversationId: conversationId)
+        }
+    }
+
+    /// Invokes the configured `addMembersHook` if there are inboxes to
+    /// add. Wraps the underlying error in
+    /// `ConversationStateMachineError.addMembersFailed` so downstream
+    /// consumers can distinguish member-add failures from XMTP-publish
+    /// failures in their error UX.
+    private func runAddMembersIfNeeded(
+        initialMemberInboxIds: [String],
+        conversationId: String
+    ) async throws {
+        guard !initialMemberInboxIds.isEmpty else { return }
+        Log.info("Adding \(initialMemberInboxIds.count) initial members to \(conversationId)")
+        do {
+            try await addMembersHook(initialMemberInboxIds, conversationId)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ConversationStateMachineError.addMembersFailed(underlying: error)
         }
     }
 
@@ -838,6 +814,100 @@ public actor ConversationStateMachine {
     }
 }
 
+// MARK: - Outgoing Message Methods
+
+extension ConversationStateMachine {
+    func sendMessage(text: String, afterPhoto trackingKey: String? = nil) {
+        setupMessageStream()
+        messageStreamContinuation?.yield((text, trackingKey))
+    }
+
+    func sendPhoto(image: ImageType) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.send(image: image)
+    }
+
+    func startEagerUpload(image: ImageType) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerUpload(image: image)
+    }
+
+    func sendEagerPhoto(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    func startEagerVideoUpload(at fileURL: URL) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerVideoUpload(at: fileURL)
+    }
+
+    func sendEagerVideo(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideo(trackingKey: trackingKey)
+    }
+
+    func sendEagerVideoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerVideoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func cancelEagerUpload(trackingKey: String) async {
+        guard let writer = cachedMessageWriter else { return }
+        await writer.cancelEagerUpload(trackingKey: trackingKey)
+    }
+
+    func sendVideo(at fileURL: URL, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
+    }
+
+    func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
+    }
+
+    func sendFile(at fileURL: URL, filename: String, mimeType: String, replyToMessageId: String? = nil) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendFile(at: fileURL, filename: filename, mimeType: mimeType, replyToMessageId: replyToMessageId)
+    }
+
+    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func retryFailedMessage(id: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.retryFailedMessage(id: id)
+    }
+
+    func deleteFailedMessage(id: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.deleteFailedMessage(id: id)
+    }
+
+    func insertPendingInvite(text: String) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.insertPendingInvite(text: text)
+    }
+
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
+    }
+}
+
 // MARK: - Cleanup
 
 extension ConversationStateMachine {
@@ -993,6 +1063,11 @@ public enum ConversationStateMachineError: Error {
     case conversationExpired
     case invalidInviteCodeFormat(String)
     case timedOut
+    /// The conversation was successfully created (or resumed, for
+    /// warm-cache) but the configured addMembers hook threw before
+    /// `.ready` could be emitted. Surfaces in `NewConversationView`'s
+    /// standard error UI with a retry affordance via `.createConversation`.
+    case addMembersFailed(underlying: Error)
 
     public enum NetworkErrorKind {
         case serviceUnavailable
@@ -1067,6 +1142,8 @@ extension ConversationStateMachineError: DisplayError {
             return "Invalid code"
         case .timedOut:
             return "Connection timed out"
+        case .addMembersFailed:
+            return "Couldn't add members"
         }
     }
 
@@ -1089,6 +1166,8 @@ extension ConversationStateMachineError: DisplayError {
             return "This code is not valid."
         case .timedOut:
             return "The server took too long to respond. Try again in a moment."
+        case .addMembersFailed:
+            return "We couldn't add those contacts to the conversation. Please try again."
         }
     }
 }

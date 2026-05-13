@@ -41,9 +41,6 @@ struct ContactCardView: View {
     @State private var presentingBlockConfirmation: Bool = false
     @State private var presentingBlockAndLeaveConfirmation: Bool = false
     @State private var presentingPicker: Bool = false
-    @State private var presentingStartErrorAlert: Bool = false
-    @State private var startErrorMessage: String?
-    @State private var starter: ContactConversationStarter?
 
     init(
         contact: Contact,
@@ -74,8 +71,6 @@ struct ContactCardView: View {
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingBlockAndLeaveConfirmation: $presentingBlockAndLeaveConfirmation,
                 presentingPicker: $presentingPicker,
-                presentingStartErrorAlert: $presentingStartErrorAlert,
-                startErrorMessage: startErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
                 blockAlertActions: { blockAlertActions },
@@ -85,7 +80,6 @@ struct ContactCardView: View {
                 pickerSheet: { pickerSheet }
             ))
             .task(id: contact.inboxId) { await syncBlockedState() }
-            .onAppear(perform: ensureStarter)
     }
 
     @ViewBuilder
@@ -174,13 +168,7 @@ struct ContactCardView: View {
 
     // MARK: - Actions
 
-    private func ensureStarter() {
-        guard starter == nil, let session else { return }
-        starter = ContactConversationStarter(session: session)
-    }
-
     private func handleSendMessage() {
-        ensureStarter()
         Task {
             // Idempotent. For a contact already in the DB, the writer
             // preserves the original `addedAt` and `addedViaConversationId`
@@ -247,23 +235,19 @@ struct ContactCardView: View {
         }
     }
 
+    /// Forwards the picked inbox IDs to the conversations layer via
+    /// notification; that layer constructs a `NewConversationViewModel`
+    /// in `.newConversationWithMembers` mode so the placeholder UI shows
+    /// immediately and the state machine folds `addMembers` into its
+    /// create sequence atomically.
     private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard let starter else { return }
+        guard !inboxIds.isEmpty else { return }
         let ids = Array(inboxIds)
-        Task { [starter] in
-            do {
-                try await starter.start(with: ids)
-            } catch let typed as ContactConversationStarterError {
-                presentStartError(typed.errorDescription)
-            } catch {
-                presentStartError(error.localizedDescription)
-            }
-        }
-    }
-
-    private func presentStartError(_ message: String?) {
-        startErrorMessage = message ?? "Please try again."
-        presentingStartErrorAlert = true
+        NotificationCenter.default.post(
+            name: .contactsRequestedNewConversation,
+            object: nil,
+            userInfo: ["inboxIds": ids]
+        )
     }
 
     private func syncBlockedState() async {
@@ -523,8 +507,6 @@ private struct ContactCardModalsModifier<
     @Binding var presentingBlockConfirmation: Bool
     @Binding var presentingBlockAndLeaveConfirmation: Bool
     @Binding var presentingPicker: Bool
-    @Binding var presentingStartErrorAlert: Bool
-    let startErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
     let blockAlertActions: () -> BlockActions
@@ -544,15 +526,6 @@ private struct ContactCardModalsModifier<
                 blockAndLeaveAlertActions()
             } message: {
                 Text(blockAndLeaveAlertMessage)
-            }
-            .alert(
-                "Couldn't start conversation",
-                isPresented: $presentingStartErrorAlert,
-                presenting: startErrorMessage
-            ) { _ in
-                Button("OK", role: .cancel) {}
-            } message: { message in
-                Text(message)
             }
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()

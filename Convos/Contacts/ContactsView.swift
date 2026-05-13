@@ -3,10 +3,7 @@ import SwiftUI
 
 struct ContactsView: View {
     @State private var viewModel: ContactsViewModel
-    @State private var starter: ContactConversationStarter?
     @State private var presentingPicker: Bool = false
-    @State private var presentingStartErrorAlert: Bool = false
-    @State private var startErrorMessage: String?
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
@@ -34,17 +31,7 @@ struct ContactsView: View {
         .navigationTitle("Contacts")
         .navigationBarTitleDisplayMode(.large)
         .toolbar { toolbarContent }
-        .onAppear(perform: ensureStarter)
         .sheet(isPresented: $presentingPicker) { pickerSheet }
-        .alert(
-            "Couldn't start conversation",
-            isPresented: $presentingStartErrorAlert,
-            presenting: startErrorMessage
-        ) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { message in
-            Text(message)
-        }
     }
 
     // MARK: - List
@@ -122,33 +109,24 @@ struct ContactsView: View {
 
     // MARK: - Actions
 
-    private func ensureStarter() {
-        guard starter == nil, let session else { return }
-        starter = ContactConversationStarter(session: session)
-    }
-
     private func presentPicker() {
-        ensureStarter()
         presentingPicker = true
     }
 
+    /// The picker doesn't create the conversation itself; it just hands
+    /// the chosen inbox IDs to the conversations layer, which spins up a
+    /// `NewConversationViewModel` driven by
+    /// `.newConversationWithMembers(...)`. That view model presents the
+    /// placeholder UI instantly and folds `addMembers` into the state
+    /// machine's create sequence so `.ready` already includes them.
     private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard let starter else { return }
+        guard !inboxIds.isEmpty else { return }
         let ids = Array(inboxIds)
-        Task { [starter] in
-            do {
-                try await starter.start(with: ids)
-            } catch let typed as ContactConversationStarterError {
-                presentStartError(typed.errorDescription)
-            } catch {
-                presentStartError(error.localizedDescription)
-            }
-        }
-    }
-
-    private func presentStartError(_ message: String?) {
-        startErrorMessage = message ?? "Please try again."
-        presentingStartErrorAlert = true
+        NotificationCenter.default.post(
+            name: .contactsRequestedNewConversation,
+            object: nil,
+            userInfo: ["inboxIds": ids]
+        )
     }
 }
 

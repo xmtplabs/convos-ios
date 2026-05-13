@@ -26,6 +26,15 @@ struct IdentifiableError: Identifiable {
 
 enum NewConversationMode {
     case newConversation
+    /// Same flow as `.newConversation`: placeholder VM up front, real VM
+    /// swapped in at `.ready`. The create sequence inside
+    /// `ConversationStateMachine` additionally folds in
+    /// `ConversationMetadataWriter.addMembers(_:to:)` for the supplied
+    /// inbox IDs before emitting `.ready`. Used by the contacts picker
+    /// "Start Conversation" path so navigation feels instant and the
+    /// conversation arrives at `.ready` with the picked members already
+    /// in it.
+    case newConversationWithMembers(initialMemberInboxIds: [String])
     case scanner
     case joinInvite(code: String)
 }
@@ -115,7 +124,7 @@ class NewConversationViewModel: Identifiable {
         self.qrScannerViewModel = QRScannerViewModel()
 
         switch mode {
-        case .newConversation:
+        case .newConversation, .newConversationWithMembers:
             self.autoCreateConversation = true
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
@@ -193,6 +202,17 @@ class NewConversationViewModel: Identifiable {
                     existingConversationId: existingConversationId
                 )
 
+            case .newConversationWithMembers(let initialMemberInboxIds):
+                let (messagingService, existingConversationId) = await session.prepareNewConversation()
+                guard !Task.isCancelled else { return }
+                let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
+                Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
+                configureWithMessagingService(
+                    messagingService,
+                    existingConversationId: existingConversationId,
+                    initialMemberInboxIds: initialMemberInboxIds
+                )
+
             case .scanner, .joinInvite:
                 let messagingService = session.messagingService()
                 guard !Task.isCancelled else { return }
@@ -230,13 +250,27 @@ class NewConversationViewModel: Identifiable {
 
     private func configureWithMessagingService(
         _ messagingService: AnyMessagingService,
-        existingConversationId: String?
+        existingConversationId: String?,
+        initialMemberInboxIds: [String] = []
     ) {
+        // Warm-cache id preservation. When `prepareNewConversation()`
+        // hands back an `existingConversationId` (a warm-cached, already-
+        // published XMTP group from `UnusedConversationCache`), we must
+        // route through `conversationStateManager(for:)` so the state
+        // machine resumes via `useExisting` instead of publishing a
+        // second group via `create`. The autoCreate branch below
+        // explicitly guards on `existingConversationId == nil` to enforce
+        // this.
         let stateManager: any ConversationStateManagerProtocol
         if let existingConversationId {
-            stateManager = messagingService.conversationStateManager(for: existingConversationId)
+            stateManager = messagingService.conversationStateManager(
+                for: existingConversationId,
+                initialMemberInboxIds: initialMemberInboxIds
+            )
         } else {
-            stateManager = messagingService.conversationStateManager()
+            stateManager = messagingService.conversationStateManager(
+                initialMemberInboxIds: initialMemberInboxIds
+            )
         }
         self.conversationStateManager = stateManager
         self.acquiredMessagingService = messagingService
@@ -680,7 +714,11 @@ class NewConversationViewModel: Identifiable {
 
 private extension NewConversationMode {
     var isNewConversation: Bool {
-        if case .newConversation = self { return true }
-        return false
+        switch self {
+        case .newConversation, .newConversationWithMembers:
+            return true
+        case .scanner, .joinInvite:
+            return false
+        }
     }
 }

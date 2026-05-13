@@ -6,14 +6,17 @@ import SwiftUI
 // `ContactsPickerView` is the canonical multi-select contact picker.
 // It is invoked from three entry points, parameterized by `ContactsPickerMode`:
 //
-//   1. **Compose toolbar on the contacts list** (`ContactsView` → toolbar
-//      `+`) → `mode: .newConversation`. Confirm hands the selection off to
-//      `ContactConversationStarter` for create-then-add-members.
-//   2. **Send-a-message CTA on the contact card** (`ContactCardView`,
-//      either standalone or scoped) → `mode: .newConversation` with
+//   1. Compose toolbar on the contacts list (`ContactsView` toolbar `+`),
+//      `mode: .newConversation`. Confirm posts
+//      `.contactsRequestedNewConversation` with the chosen inbox IDs;
+//      `ConversationsViewModel` reacts by presenting a
+//      `NewConversationView` driven by
+//      `NewConversationViewModel(mode: .newConversationWithMembers(...))`.
+//   2. Send-a-message CTA on the contact card (`ContactCardView`, either
+//      standalone or scoped), `mode: .newConversation` with
 //      `preselectedInboxIds: [contact.inboxId]`.
-//   3. **Add from Contacts in the chat plus-menu** (`ConversationView` →
-//      `AddToConversationMenu.onAddFromContacts`) → `mode:
+//   3. Add from Contacts in the chat plus-menu (`ConversationView` ->
+//      `AddToConversationMenu.onAddFromContacts`), `mode:
 //      .addToConversation(...)` with the conversation's existing members
 //      passed as `alreadyInChatInboxIds`. Confirm calls
 //      `ConversationViewModel.addMembersFromContacts(_:)`.
