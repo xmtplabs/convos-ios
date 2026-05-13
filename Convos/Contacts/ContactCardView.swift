@@ -97,7 +97,12 @@ struct ContactCardView: View {
             ContactCardActions(
                 isBlocked: isBlocked,
                 isApplyingBlockChange: isApplyingBlockChange,
-                canSendMessage: session != nil,
+                // Verified agents (Convos / OAuth-verified) don't accept
+                // 1:1 DMs today, so the Send-a-message CTA would open a
+                // conversation that goes nowhere. Disable until DM support
+                // for agents lands; the "Get skills" / "Learn about
+                // assistants" rows above remain the right way to interact.
+                canSendMessage: session != nil && !isVerifiedAgent,
                 onSendMessage: handleSendMessage,
                 onToggleBlock: handleBlockTap
             )
