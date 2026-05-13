@@ -79,8 +79,7 @@ public enum BackendAuthProbe {
         do {
             jwt = try await apiClient.authenticateWithSIWE(
                 appCheckToken: appCheckToken,
-                signing: signing,
-                retryCount: 0
+                signing: signing
             )
         } catch {
             throw ProbeError.underlying(error)

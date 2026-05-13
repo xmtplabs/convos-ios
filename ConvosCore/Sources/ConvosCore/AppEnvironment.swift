@@ -105,7 +105,11 @@ public enum AppEnvironment: Sendable {
         case .local(let config), .dev(let config), .production(let config):
             return config.siweConfiguration
         case .tests:
-            return SIWEConfiguration(domain: "convos.app", uri: "https://convos.app", chainId: 1)
+            // Tests construct their own SIWEMessage / SIWESigner inputs
+            // directly and never read this accessor. The placeholder
+            // here exists only to keep the switch exhaustive; it must
+            // never reach a real backend.
+            return SIWEConfiguration(domain: "tests.invalid", uri: "https://tests.invalid", chainId: 0)
         }
     }
 

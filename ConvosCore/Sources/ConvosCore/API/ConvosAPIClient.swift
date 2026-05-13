@@ -33,9 +33,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// message, exchanges `(message, signature)` for a JWT containing
     /// `accountId`. Stores the JWT in an address-scoped Keychain slot so
     /// it doesn't collide with the legacy device-only slot.
+    ///
+    /// The fresh-nonce retry budget (max 1) is internal — callers don't
+    /// drive it. If the caller wants more attempts (e.g. on network
+    /// flakes), its own outer loop should call this method again; each
+    /// call gets a fresh retry budget.
     func authenticateWithSIWE(appCheckToken: String,
-                              signing: BackendAuthSigningContext,
-                              retryCount: Int) async throws -> String
+                              signing: BackendAuthSigningContext) async throws -> String
 
     /// Updates (or clears) the SIWE signing context the client uses for
     /// outgoing authenticated requests and for 401 re-auth. Must be
@@ -226,8 +230,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         if let context = siweSigningContext.get() {
             return try await authenticateWithSIWE(
                 appCheckToken: firebaseAppCheckToken,
-                signing: context,
-                retryCount: 0
+                signing: context
             )
         }
         return try await authenticate(

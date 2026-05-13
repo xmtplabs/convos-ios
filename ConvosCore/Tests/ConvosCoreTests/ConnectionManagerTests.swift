@@ -586,7 +586,7 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         "stub-jwt"
     }
 
-    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext, retryCount: Int) async throws -> String {
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String {
         "stub-siwe-jwt"
     }
 

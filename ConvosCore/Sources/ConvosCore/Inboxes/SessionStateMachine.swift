@@ -1066,8 +1066,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                     Log.debug("Authenticating with backend via SIWE (address \(signing.address))...")
                     _ = try await apiClient.authenticateWithSIWE(
                         appCheckToken: appCheckToken,
-                        signing: signing,
-                        retryCount: 0
+                        signing: signing
                     )
                     Log.info("Successfully authenticated with backend (SIWE)")
                 } else {

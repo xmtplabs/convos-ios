@@ -10,7 +10,7 @@
     "app.convos.org"
   ],
   "appUrlScheme": "convos",
-  "siweDomain": "convos.app",
-  "siweUri": "https://convos.app",
+  "siweDomain": "convos.org",
+  "siweUri": "https://convos.org",
   "siweChainId": 1
 }

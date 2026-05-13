@@ -199,7 +199,7 @@ private final class RecordingPushAPIClientForReconciliationTests: ConvosAPIClien
         "mock-jwt-token"
     }
 
-    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext, retryCount: Int) async throws -> String {
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String {
         "mock-siwe-jwt-token"
     }
 
