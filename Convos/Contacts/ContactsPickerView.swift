@@ -62,8 +62,11 @@ struct ContactsPickerView: View {
     @ViewBuilder
     private var content: some View {
         VStack(spacing: 0.0) {
-            ContactsPickerSubtitle(text: viewModel.subtitleText)
             ContactsPickerSearchBar(query: $viewModel.searchQuery)
+            ContactsPickerSelectedPills(
+                contacts: viewModel.selectedContacts,
+                onRemove: handleRemove
+            )
             ContactsPickerList(
                 viewModel: viewModel,
                 onToggle: handleToggle
@@ -89,6 +92,10 @@ struct ContactsPickerView: View {
         viewModel.toggleSelection(for: inboxId)
     }
 
+    private func handleRemove(_ inboxId: String) {
+        viewModel.deselect(inboxId: inboxId)
+    }
+
     private func handleConfirm() {
         let ids = viewModel.selectedInboxIds
         guard !ids.isEmpty else { return }
@@ -98,21 +105,6 @@ struct ContactsPickerView: View {
 
     private func handleCancel() {
         dismiss()
-    }
-}
-
-// MARK: - Subtitle
-
-private struct ContactsPickerSubtitle: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
     }
 }
 
@@ -277,6 +269,26 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(contacts: []),
+        onConfirm: { _ in }
+    )
+}
+
+#Preview("Many pills wrap") {
+    let contacts: [Contact] = [
+        .mock(displayName: "Alice"),
+        .mock(displayName: "Bob"),
+        .mock(displayName: "Carol"),
+        .mock(displayName: "Daniel"),
+        .mock(displayName: "Evelyn"),
+        .mock(displayName: "Frederick"),
+        .mock(displayName: "Genevieve"),
+        .mock(displayName: "Hieronymus"),
+    ]
+    let preselected: Set<String> = Set(contacts.map(\.inboxId))
+    return ContactsPickerView(
+        mode: .newConversation,
+        contactsRepository: MockContactsRepository(contacts: contacts),
+        preselectedInboxIds: preselected,
         onConfirm: { _ in }
     )
 }

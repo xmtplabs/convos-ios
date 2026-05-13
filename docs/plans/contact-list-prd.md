@@ -206,6 +206,7 @@ Wireframes are in `contact-list-mocks/`; the picker design is updated to match t
 - A right-edge alphabetical index strip (★ A B C … Z #) for fast scrolling.
 - Selected rows show a filled checkmark on the right; unselected rows show no indicator.
 - In **scoped (add-to-chat) mode**, members already in the destination chat are inline-disabled with an "in chat" badge instead of a checkbox.
+- **Selected contact pills below the search bar.** Each selected contact renders as a removable pill (avatar + display name + trailing × glyph) in a horizontally-scrollable row directly below the "Contacts" search bar. The pills row stays visible above the list as the user scrolls, so the current selection is always glanceable. Tapping the × on a pill removes that contact from the selection (the corresponding row in the list returns to its unselected state). This supersedes the prior treatment of showing only a numeric count ("N members") above the search bar, which hid identity once the selected rows scrolled out of view in long lists. Applies to both `.newConversation` and `.addToConversation(conversationId:)` picker modes; in scoped mode, members already in the destination chat are never represented as pills (they are not part of the user's selection — they are pre-existing).
 
 **Browse list (screen 2)** — simpler than the picker:
 
@@ -706,7 +707,8 @@ Ship-readiness: data layer ready for the filter and the contact-card block affor
 
 - [ ] `ContactsPickerView` matching the attached mock — "To" pill header, Favorites section (V1 may render empty), alphabetical main list, side-letter index, multi-select check indicators.
 - [ ] `ContactsPickerViewModel` parameterized by `ContactsPickerMode` (`.newConversation` vs `.addToConversation`).
-- [ ] SwiftUI Previews with `.mock` data for both modes.
+- [ ] **Selected contact pills row below the search bar.** Replace the existing "N members" count treatment above the search bar with a horizontally-scrollable row of pills directly beneath the "Contacts" search field. Each pill shows the contact's avatar and display name with a trailing × that removes the contact from the selection on tap (toggling the matching list row back to unselected). Wire the pills row to the picker view model's selected-`inboxId`s set so add / remove stays consistent across the pills, the list checkmarks, and the bottom CTA's enabled state. Applies to both `.newConversation` and `.addToConversation` modes.
+- [ ] SwiftUI Previews with `.mock` data for both modes, including a preview with 5+ pills to exercise the horizontal-scroll behavior.
 
 Ship-readiness: picker renders and supports multi-select; no integration with conversation creation or member-add yet.
 

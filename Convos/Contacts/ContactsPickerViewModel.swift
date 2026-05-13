@@ -104,21 +104,12 @@ final class ContactsPickerViewModel {
         }
     }
 
-    var subtitleText: String {
-        let count = selectionCount
-        if count == 0 {
-            return "Tap to select"
-        }
-        return "\(count) selected · tap to add or remove"
-    }
-
     var confirmButtonTitle: String {
-        let count = selectionCount
         switch mode {
         case .newConversation:
-            return count == 1 ? "Start conversation" : "Start group"
+            return "Start a convo"
         case .addToConversation:
-            return "Add \(count) to convo"
+            return "Add \(selectionCount) to convo"
         }
     }
 
