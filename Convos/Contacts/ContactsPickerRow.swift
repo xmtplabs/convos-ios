@@ -12,7 +12,7 @@ struct ContactsPickerRow: View {
         let opacity: Double = row.isAlreadyInChat ? 0.45 : 1.0
         Button(action: onTap) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
-                ContactAvatarPlaceholder(seed: row.contact.inboxId, initial: monogram)
+                ContactAvatarView(contact: row.contact)
                     .frame(width: 36.0, height: 36.0)
 
                 ContactsPickerRowText(contact: row.contact)
@@ -41,12 +41,6 @@ struct ContactsPickerRow: View {
         .opacity(opacity)
         .disabled(row.isAlreadyInChat)
         .accessibilityIdentifier("contacts-picker-row-\(row.contact.inboxId)")
-    }
-
-    private var monogram: String {
-        let trimmed = row.contact.resolvedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first else { return "?" }
-        return String(first).uppercased()
     }
 }
 

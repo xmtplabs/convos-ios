@@ -133,6 +133,9 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                 let snapshot = ContactProfileSnapshot(
                     displayName: profile?.name,
                     avatarURL: profile?.avatar,
+                    avatarSalt: profile?.avatarSalt,
+                    avatarNonce: profile?.avatarNonce,
+                    avatarKey: profile?.avatarKey,
                     profileUpdatedAt: nil,
                     // Derived from the stored memberKind. nil means no agent
                     // signal (preserve existing); .agent / .verifiedConvos /

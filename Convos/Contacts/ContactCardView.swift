@@ -187,6 +187,9 @@ struct ContactCardView: View {
                     profile: ContactProfileSnapshot(
                         displayName: contact.displayName,
                         avatarURL: contact.avatarURL,
+                        avatarSalt: contact.avatarSalt,
+                        avatarNonce: contact.avatarNonce,
+                        avatarKey: contact.avatarKey,
                         profileUpdatedAt: nil,
                         agentVerification: contact.agentVerification
                     )
@@ -278,7 +281,7 @@ private struct ContactCardHeader: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
-            ContactAvatarPlaceholder(seed: contact.inboxId, initial: monogram)
+            ContactAvatarView(contact: contact)
                 .frame(width: 96.0, height: 96.0)
                 .padding(.top, DesignConstants.Spacing.step6x)
 
@@ -296,12 +299,6 @@ private struct ContactCardHeader: View {
                     .accessibilityIdentifier("contact-card-role-label-\(contact.inboxId)")
             }
         }
-    }
-
-    private var monogram: String {
-        let trimmed = contact.resolvedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first else { return "?" }
-        return String(first).uppercased()
     }
 }
 
@@ -569,6 +566,9 @@ extension Contact {
         inboxId: String,
         displayName: String?,
         avatarURL: String?,
+        avatarSalt: Data? = nil,
+        avatarNonce: Data? = nil,
+        avatarKey: Data? = nil,
         addedViaConversationId: String?,
         agentVerification: AgentVerification?
     ) -> Contact {
@@ -576,6 +576,9 @@ extension Contact {
             inboxId: inboxId,
             displayName: displayName,
             avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
             addedAt: Date(),
             addedViaConversationId: addedViaConversationId,
             isBlocked: false,
@@ -603,6 +606,9 @@ extension Contact {
             inboxId: member.profile.inboxId,
             displayName: member.profile.displayName,
             avatarURL: member.profile.avatar,
+            avatarSalt: member.profile.avatarSalt,
+            avatarNonce: member.profile.avatarNonce,
+            avatarKey: member.profile.avatarKey,
             addedViaConversationId: conversationId,
             agentVerification: member.agentVerification
         )

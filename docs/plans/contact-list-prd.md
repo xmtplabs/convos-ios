@@ -45,7 +45,7 @@ Step 1 is purely additive: build the contact list, keep it accurate, and let the
 
 Step 2 is where the contact list starts gating behavior. It introduces messaging from contacts, the contact-gated inbound filter, and blocking. By landing all behavior changes together in one step, we avoid shipping a silent filter without giving users the messaging-from-contacts affordance that motivates it.
 
-- [ ] **Contact card.** Tap a contact to see their profile (name, avatar, bio) and a "Send a message" CTA that lets the local user start a new conversation with that contact.
+- [ ] **Contact card.** Tap a contact to see their profile (name, avatar) and a "Send a message" CTA that lets the local user start a new conversation with that contact.
 - [ ] **Contact picker for new conversations.** From the contact card "Send a message" CTA, or from a top-level "new conversation" affordance, the local user picks one or more contacts to start a new conversation with. The picker uses the design with a "To: <bubbles>" header that fills with selected names, a Favorites section, an alphabetical-only main list, and a side-letter index (matching the attached UI mock).
 - [ ] **Messaging from a contact card.** "Send a message" on a contact card opens the picker pre-populated with that contact selected; the local user can confirm to start a 1:1 or add additional contacts before sending.
 - [ ] **"Add from Contacts" in chat plus-menu.** Reuses the picker UI scoped to a destination chat — members already in are inline-disabled with an "in chat" badge — and adds the chosen contacts via the existing `addMembers` flow.
@@ -215,10 +215,10 @@ Wireframes are in `contact-list-mocks/`; the picker design is updated to match t
 
 **Contact card modes (screens 3 and 6)** — one component, two entry points:
 
-- `ContactCardMode.standalone` — the card rendered from the contacts list (screen 3). Sections: avatar / name / bio, agent links (Get skills, Learn about assistants) when `contact.agentVerification?.isVerified == true`, "Send a message" CTA (opens picker pre-selected), Block / Unblock.
+- `ContactCardMode.standalone` — the card rendered from the contacts list (screen 3). Sections: avatar / name, agent links (Get skills, Learn about assistants) when `contact.agentVerification?.isVerified == true`, "Send a message" CTA (opens picker pre-selected), Block / Unblock.
 - `ContactCardMode.scopedToConversation(conversationId, canRemoveMembers, isCurrentUser)` — the card rendered from a member tap inside a chat (screen 6). Same standalone sections, plus a group-actions section: "Remove from convo" (gated on `canRemoveMembers && !isCurrentUser`), "Block and leave" (gated on `!isCurrentUser` — writes `contactsWriter.block(inboxId:)` *before* the group-leave so the inbound filter from Phase 2.6 honors the block on subsequent welcomes).
 
-The split mirrors the picker's `ContactsPickerMode` pattern. Both modes share the avatar / name / bio header, the Send-message + Block-only affordances, and the verified-agent rows, so consistency is automatic.
+The split mirrors the picker's `ContactsPickerMode` pattern. Both modes share the avatar / name header, the Send-message + Block-only affordances, and the verified-agent rows, so consistency is automatic.
 
 **Agent-status on contacts.** For the verified-agent rows to appear on the standalone card, the `Contact` presentation model exposes `agentVerification: AgentVerification?`, sourced from a new `DBContact.agentVerification` JSON column. `nil` means "we have no agent signal for this inbox yet" (existing rows after migration); `.unverified` and `.verified(...)` are observed states. The verified-agent gate uses `?.isVerified == true`, so `nil` and `.unverified` both hide the rows correctly. The contact-sync coordinator and profile-sync writer populate the field from the per-conversation member-profile data they already see; no new XMTP read path. See Phase 2.8 for the migration + writer-update steps.
 
@@ -280,7 +280,7 @@ The coordinator does not block its caller — it is `async` but fire-and-forget 
 
 #### `DBContact`
 
-The contacts table. Keyed by the contact's `inboxId`. Stores a denormalized "global default profile" (display name, avatar, bio) updated on a most-recent-wins basis whenever we observe a member-profile event for that inbox. Per the post-review feedback: *"Contact = inbox, profile = whatever we heard about most recently for that inbox ID."*
+The contacts table. Keyed by the contact's `inboxId`. Stores a denormalized "global default profile" (display name, avatar URL, and the AES-256-GCM material needed to decrypt the avatar) updated on a most-recent-wins basis whenever we observe a member-profile event for that inbox. Per the post-review feedback: *"Contact = inbox, profile = whatever we heard about most recently for that inbox ID."*
 
 The full struct (post-Step 2):
 
@@ -288,31 +288,33 @@ The full struct (post-Step 2):
 struct DBContact: FetchableRecord, PersistableRecord, Codable {
     static let databaseTableName = "contact"
 
-    let inboxId: String                 // Primary key — see ADR-011
+    let inboxId: String                 // Primary key, see ADR-011
     let addedAt: Date                   // When the contact was first auto-added
     let addedViaConversationId: String? // The conversation that triggered the original auto-add (informational)
 
     // Most-recent-wins profile snapshot
     var displayName: String?
     var avatarURL: String?
-    var bio: String?
+    var avatarSalt: Data?               // AES-256-GCM decryption material,
+    var avatarNonce: Data?              // mirrored from the latest DBMemberProfile
+    var avatarKey: Data?                // so renderers share the cache.
     var profileUpdatedAt: Date?         // Timestamp of the source event we last accepted
 
-    // Blocking — added in Step 2
-    var blockedAt: Date?                // Non-nil ⇒ blocked
+    // Blocking, added in Step 2
+    var blockedAt: Date?                // Non-nil means blocked
 
     enum Columns: String, ColumnExpression {
         case inboxId, addedAt, addedViaConversationId
-        case displayName, avatarURL, bio, profileUpdatedAt
+        case displayName, avatarURL, avatarSalt, avatarNonce, avatarKey, profileUpdatedAt
         case blockedAt
     }
 }
 ```
 
-Migrations are split between Step 1 (base table + profile snapshot) and Step 2 (`blockedAt`):
+Migrations are split between Step 1 (base table + profile snapshot + agent verification + avatar encryption) and Step 2 (`blockedAt`):
 
 ```swift
-// Step 1 — Phase 1.1
+// Step 1, Phase 1.1
 migrator.registerMigration("createContactTable") { db in
     try db.create(table: "contact") { t in
         t.column("inboxId", .text).notNull().primaryKey()
@@ -321,7 +323,9 @@ migrator.registerMigration("createContactTable") { db in
             .references("conversation", onDelete: .setNull)
         t.column("displayName", .text)
         t.column("avatarURL", .text)
-        t.column("bio", .text)
+        t.column("avatarSalt", .blob)
+        t.column("avatarNonce", .blob)
+        t.column("avatarKey", .blob)
         t.column("profileUpdatedAt", .datetime)
     }
     try db.create(index: "idx_contact_displayName", on: "contact", columns: ["displayName"])
@@ -772,7 +776,7 @@ Retires the standalone `ConversationMemberView` in favor of `ContactCardView` re
 
 - [ ] Define `ContactCardMode` enum: `.standalone`, `.scopedToConversation(conversationId: String, canRemoveMembers: Bool, isCurrentUser: Bool)`. Note: agent state is *not* a mode parameter — it's read from `contact.agentVerification`.
 - [ ] Extend `ContactCardView` with the new mode parameter. Default to `.standalone` so the existing contacts-list entry point compiles unchanged.
-- [ ] Render order in both modes: avatar / name / bio → agent rows (when `contact.agentVerification?.isVerified == true`) → Send-a-message → Block / Unblock.
+- [ ] Render order in both modes: avatar / name -> agent rows (when `contact.agentVerification?.isVerified == true`) -> Send-a-message -> Block / Unblock.
 - [ ] In `.scopedToConversation` mode, append a "Group actions" section after the standard sections: **Remove from convo** (gated on `canRemoveMembers && !isCurrentUser`), **Block and leave** (gated on `!isCurrentUser`).
 - [ ] Move agent URL constants (`getSkillsURL`, `learnAboutAssistantsURL`) out of `ConversationMemberView.Constant` and into a new shared `AgentLinks` enum colocated with the agent-rows view.
 - [ ] **Send-a-message CTA on a non-contact (scoped mode only):** before presenting the picker, perform a single-person `ContactsWriter.upsertContact(inboxId: member.inboxId, addedViaConversationId: <conversationId>, profile: <best-effort snapshot from the member profile>)`. Then present `ContactsPickerView(mode: .newConversation, preselectedInboxIds: [member.inboxId])`. This narrow upsert is documented as person-specific intent — distinct from the Step 1 group-wide auto-add.

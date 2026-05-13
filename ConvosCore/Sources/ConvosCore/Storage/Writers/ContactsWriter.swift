@@ -5,7 +5,7 @@ public extension Notification.Name {
     /// Posted on the main queue by `ContactsWriter.block` / `unblock` when
     /// a contact's blocked state actually changes (idempotent no-ops do
     /// not fire). `SessionManager` observes this to run an immediate
-    /// `QuarantineSweeper.sweep()` — unblocking should restore held-by-
+    /// `QuarantineSweeper.sweep()`; unblocking should restore held-by-
     /// block conversations to the main feed without waiting for the next
     /// hourly or foreground-entry sweep. UserInfo:
     /// `inboxId: String`, `blocked: Bool`.
@@ -14,27 +14,41 @@ public extension Notification.Name {
     )
 }
 
-/// Snapshot of profile fields used when upserting a contact. All fields are
-/// optional — callers pass whatever they currently have for the inbox. A
-/// `nil` field means "no signal — preserve whatever is already stored on the
-/// contact." This supports partial updates: a profile event that carries
-/// only an avatar URL won't clobber a stored display name, and a profile
-/// event from a non-agent member won't unset a previously-observed
-/// `agentVerification`.
+/// Snapshot of profile fields used when upserting a contact. Callers pass
+/// the most recent snapshot they have for the inbox. A timestamped
+/// snapshot (`profileUpdatedAt != nil`) is treated as one authoritative
+/// unit: `replacingProfile(of:with:)` wholesale-replaces every field on
+/// the stored row, including `nil`s. An untimestamped snapshot is a
+/// fill-defaults payload from a local hydration site
+/// (`ContactSyncCoordinator`, `ContactCardView.handleSendMessage`); it
+/// only seeds new contact rows and never updates an existing one.
 public struct ContactProfileSnapshot: Sendable, Hashable {
     public let displayName: String?
     public let avatarURL: String?
+    /// AES-256-GCM decryption material for the encrypted avatar at
+    /// `avatarURL`. Travels alongside the URL so mirror writes can keep
+    /// the contact's avatar decodable. Wholesale-replaced along with the
+    /// other profile fields when a timestamped snapshot applies.
+    public let avatarSalt: Data?
+    public let avatarNonce: Data?
+    public let avatarKey: Data?
     public let profileUpdatedAt: Date?
     public let agentVerification: AgentVerification?
 
     public init(
         displayName: String? = nil,
         avatarURL: String? = nil,
+        avatarSalt: Data? = nil,
+        avatarNonce: Data? = nil,
+        avatarKey: Data? = nil,
         profileUpdatedAt: Date? = nil,
         agentVerification: AgentVerification? = nil
     ) {
         self.displayName = displayName
         self.avatarURL = avatarURL
+        self.avatarSalt = avatarSalt
+        self.avatarNonce = avatarNonce
+        self.avatarKey = avatarKey
         self.profileUpdatedAt = profileUpdatedAt
         self.agentVerification = agentVerification
     }
@@ -52,8 +66,7 @@ public protocol ContactsWriterProtocol: Sendable {
 
     /// Most-recent-wins profile update. Applied only if the incoming
     /// `profileUpdatedAt` is newer than the stored value (or the stored value
-    /// is nil). Falls back to local now when the source has no timestamp so
-    /// callers can still seed initial profile data.
+    /// is nil). No-op when the snapshot is untimestamped.
     func updateProfileIfNewer(
         inboxId: String,
         profile: ContactProfileSnapshot
@@ -196,6 +209,9 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             addedViaConversationId: addedViaConversationId,
             displayName: profile.displayName,
             avatarURL: profile.avatarURL,
+            avatarSalt: profile.avatarSalt,
+            avatarNonce: profile.avatarNonce,
+            avatarKey: profile.avatarKey,
             profileUpdatedAt: profile.profileUpdatedAt ?? now,
             agentVerification: profile.agentVerification
         )
@@ -222,7 +238,7 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     /// - Timestamped snapshots older than the stored `profileUpdatedAt`
     ///   are dropped (most-recent-wins).
     /// - Timestamped snapshots greater-than-or-equal to the stored
-    ///   timestamp wholesale-replace the four profile fields.
+    ///   timestamp wholesale-replace every profile field on the row.
     private static func replacingProfile(
         of existing: DBContact,
         with profile: ContactProfileSnapshot
@@ -233,12 +249,7 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         if let stored = existing.profileUpdatedAt, incomingTimestamp < stored {
             return nil
         }
-        return existing.with(
-            displayName: profile.displayName,
-            avatarURL: profile.avatarURL,
-            profileUpdatedAt: incomingTimestamp,
-            agentVerification: profile.agentVerification
-        )
+        return existing.replacingProfileFields(with: profile, at: incomingTimestamp)
     }
 }
 
@@ -260,14 +271,15 @@ extension ContactsWriter {
         )
     }
 
-    /// Copies member-profile display fields onto the matching contact row
-    /// inside an existing transaction. No-ops when there is no contact for
-    /// `inboxId` (profile events never auto-add contacts; only the
-    /// action-gated coordinator does), or when `receivedAt` is older than
-    /// the stored `profileUpdatedAt`.
+    /// Copies member-profile display fields (including AES-256-GCM avatar
+    /// material) onto the matching contact row inside an existing
+    /// transaction. No-ops when there is no contact for `inboxId` (profile
+    /// events never auto-add contacts; only the action-gated coordinator
+    /// does), or when `receivedAt` is older than the stored
+    /// `profileUpdatedAt`.
     ///
-    /// When the snapshot applies, all four profile fields are replaced
-    /// wholesale: a `nil` `agentVerification` argument clears any
+    /// When the snapshot applies, every profile field on the row is
+    /// replaced wholesale: a `nil` `agentVerification` argument clears any
     /// previously stored verification, matching the `ProfileUpdate`
     /// wire-format contract.
     static func mirrorMemberProfileToContactInTransaction(
@@ -275,6 +287,9 @@ extension ContactsWriter {
         inboxId: String,
         name: String?,
         avatarURL: String?,
+        avatarSalt: Data? = nil,
+        avatarNonce: Data? = nil,
+        avatarKey: Data? = nil,
         receivedAt: Date,
         agentVerification: AgentVerification? = nil
     ) throws {
@@ -284,6 +299,9 @@ extension ContactsWriter {
         let snapshot = ContactProfileSnapshot(
             displayName: name,
             avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
             profileUpdatedAt: receivedAt,
             agentVerification: agentVerification
         )
@@ -293,9 +311,10 @@ extension ContactsWriter {
         try merged.save(db)
     }
 
-    /// Persists `profile` and mirrors name/avatar onto the matching `DBContact` in the
-    /// same transaction. Prefer this over `profile.save(db)` plus a separate mirror call
-    /// so callers cannot skip the contact-list sync.
+    /// Persists `profile` and mirrors name/avatar (including the AES-256-GCM
+    /// salt/nonce/key) onto the matching `DBContact` in the same transaction.
+    /// Prefer this over `profile.save(db)` plus a separate mirror call so
+    /// callers cannot skip the contact-list sync.
     static func saveMemberProfileAndMirrorToContactInTransaction(
         db: Database,
         profile: DBMemberProfile,
@@ -307,6 +326,9 @@ extension ContactsWriter {
             inboxId: profile.inboxId,
             name: profile.name,
             avatarURL: profile.avatar,
+            avatarSalt: profile.avatarSalt,
+            avatarNonce: profile.avatarNonce,
+            avatarKey: profile.avatarKey,
             receivedAt: receivedAt,
             agentVerification: profile.memberKind?.agentVerification
         )

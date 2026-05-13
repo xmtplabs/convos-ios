@@ -163,6 +163,98 @@ struct ContactsWriterTests {
         #expect(contact?.avatarURL == "https://example.com/mickey.png")
     }
 
+    @Test("mirrorMemberProfileToContactInTransaction mirrors avatar encryption fields onto the contact row")
+    func testMirrorMemberProfileToContactCopiesEncryptionFields() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(profileUpdatedAt: Date(timeIntervalSince1970: 100))
+        )
+
+        let salt = Data(repeating: 0xAA, count: 32)
+        let nonce = Data(repeating: 0xBB, count: 12)
+        let key = Data(repeating: 0xCC, count: 32)
+
+        try await dbManager.dbWriter.write { db in
+            try ContactsWriter.mirrorMemberProfileToContactInTransaction(
+                db: db,
+                inboxId: inboxId,
+                name: "Mickey",
+                avatarURL: "https://example.com/mickey.png",
+                avatarSalt: salt,
+                avatarNonce: nonce,
+                avatarKey: key,
+                receivedAt: Date(timeIntervalSince1970: 200)
+            )
+        }
+
+        let contact = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(contact?.avatarURL == "https://example.com/mickey.png")
+        #expect(contact?.avatarSalt == salt)
+        #expect(contact?.avatarNonce == nonce)
+        #expect(contact?.avatarKey == key)
+    }
+
+    @Test("A newer mirror with nil avatar encryption fields wholesale-clears the stored fields")
+    func testNewerMirrorWholesaleClearsAvatarEncryption() async throws {
+        // Each timestamped snapshot is treated as one authoritative unit
+        // (see `ContactsWriter.replacingProfile(of:with:)`). A newer mirror
+        // that carries `nil` for the encryption material clears the stored
+        // values just like it would clear `displayName` or `avatarURL`.
+        // Callers feeding the mirror (e.g. `saveMemberProfileAndMirrorTo
+        // ContactInTransaction`) are responsible for passing the full
+        // `DBMemberProfile` state so this only happens when the sender's
+        // profile genuinely lacks an encrypted avatar.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-1"
+
+        let salt = Data(repeating: 0xAA, count: 32)
+        let nonce = Data(repeating: 0xBB, count: 12)
+        let key = Data(repeating: 0xCC, count: 32)
+
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Initial",
+                avatarURL: "https://example.com/a.png",
+                avatarSalt: salt,
+                avatarNonce: nonce,
+                avatarKey: key,
+                profileUpdatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        try await dbManager.dbWriter.write { db in
+            try ContactsWriter.mirrorMemberProfileToContactInTransaction(
+                db: db,
+                inboxId: inboxId,
+                name: "Renamed",
+                avatarURL: nil,
+                avatarSalt: nil,
+                avatarNonce: nil,
+                avatarKey: nil,
+                receivedAt: Date(timeIntervalSince1970: 200)
+            )
+        }
+
+        let contact = try await dbManager.dbReader.read { db in
+            try DBContact.fetchOne(db, key: inboxId)
+        }
+        #expect(contact?.displayName == "Renamed")
+        #expect(contact?.avatarURL == nil)
+        #expect(contact?.avatarSalt == nil)
+        #expect(contact?.avatarNonce == nil)
+        #expect(contact?.avatarKey == nil)
+    }
+
     @Test("mirrorMemberProfileToContactInTransaction no-ops when the inboxId has no contact row")
     func testMirrorMemberProfileToContactNoOpsForUnknownInbox() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

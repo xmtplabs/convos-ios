@@ -3,15 +3,15 @@ import CryptoKit
 import Foundation
 import SwiftUI
 
-/// Compact row used in the alphabetical contact list. Step 1 ships with a
-/// monogram-only placeholder avatar; the full image-loading avatar is wired
-/// up in Step 2 alongside the contact card.
+/// Compact row used in the alphabetical contact list. Renders the contact's
+/// decrypted avatar via `ContactAvatarView`, falling back to the colored
+/// monogram placeholder when no avatar URL has been mirrored yet.
 struct ContactRowView: View {
     let contact: Contact
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            ContactAvatarPlaceholder(seed: contact.inboxId, initial: monogram)
+            ContactAvatarView(contact: contact)
                 .frame(width: 32, height: 32)
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -34,6 +34,36 @@ struct ContactRowView: View {
         }
         .padding(.vertical, 2.0)
         .accessibilityIdentifier("contact-row-\(contact.inboxId)")
+    }
+}
+
+/// Avatar view for any `Contact`-rendering surface (list row, picker row,
+/// contact card header). Uses the shared `AvatarView` path so the contact
+/// shares the encrypted-image cache with every other place that renders the
+/// same inbox (members list, message bubbles, etc.); a profile update
+/// flowing through `mirrorMemberProfileToContactInTransaction` invalidates
+/// the cache once and every consumer picks up the new image.
+///
+/// When the contact has no avatar URL yet (name-only profile event seen so
+/// far, or a synthetic contact built from a chat member-tap with no image)
+/// the view falls through to the deterministic colored monogram placeholder
+/// rather than the standard grey monogram, giving nameless contacts a
+/// stable visual identity keyed by `inboxId`.
+struct ContactAvatarView: View {
+    let contact: Contact
+
+    var body: some View {
+        if contact.imageCacheURL != nil {
+            AvatarView(
+                fallbackName: contact.resolvedDisplayName,
+                cacheableObject: contact,
+                placeholderImage: nil,
+                placeholderImageName: nil,
+                agentVerification: contact.agentVerification ?? .unverified
+            )
+        } else {
+            ContactAvatarPlaceholder(seed: contact.inboxId, initial: monogram)
+        }
     }
 
     private var monogram: String {

@@ -11,6 +11,14 @@ public struct Contact: Hashable, Identifiable, Sendable {
     public let inboxId: String
     public let displayName: String?
     public let avatarURL: String?
+    /// Salt/nonce/key used to decrypt the encrypted avatar at `avatarURL`.
+    /// Hydrated from `DBContact` which mirrors the latest `DBMemberProfile`
+    /// encryption material via `mirrorMemberProfileToContactInTransaction`.
+    /// `nil` means we have not observed encryption material for this contact
+    /// yet; renderers should fall back to the monogram.
+    public let avatarSalt: Data?
+    public let avatarNonce: Data?
+    public let avatarKey: Data?
     public let addedAt: Date
     public let addedViaConversationId: String?
     public let isBlocked: Bool
@@ -24,6 +32,9 @@ public struct Contact: Hashable, Identifiable, Sendable {
         inboxId: String,
         displayName: String?,
         avatarURL: String?,
+        avatarSalt: Data? = nil,
+        avatarNonce: Data? = nil,
+        avatarKey: Data? = nil,
         addedAt: Date,
         addedViaConversationId: String?,
         isBlocked: Bool = false,
@@ -32,10 +43,19 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.inboxId = inboxId
         self.displayName = displayName
         self.avatarURL = avatarURL
+        self.avatarSalt = avatarSalt
+        self.avatarNonce = avatarNonce
+        self.avatarKey = avatarKey
         self.addedAt = addedAt
         self.addedViaConversationId = addedViaConversationId
         self.isBlocked = isBlocked
         self.agentVerification = agentVerification
+    }
+
+    /// True when this contact has the full set of AES-256-GCM material
+    /// needed to decrypt its avatar. Mirrors `Profile.isAvatarEncrypted`.
+    public var isAvatarEncrypted: Bool {
+        avatarSalt?.count == 32 && avatarNonce?.count == 12
     }
 
     /// Display label that always returns something printable. Falls back to a
@@ -73,6 +93,9 @@ extension Contact {
             inboxId: dbContact.inboxId,
             displayName: dbContact.displayName,
             avatarURL: dbContact.avatarURL,
+            avatarSalt: dbContact.avatarSalt,
+            avatarNonce: dbContact.avatarNonce,
+            avatarKey: dbContact.avatarKey,
             addedAt: dbContact.addedAt,
             addedViaConversationId: dbContact.addedViaConversationId,
             isBlocked: dbContact.blockedAt != nil,
@@ -86,6 +109,9 @@ extension Contact {
         inboxId: String = UUID().uuidString,
         displayName: String? = "Sample Contact",
         avatarURL: String? = nil,
+        avatarSalt: Data? = nil,
+        avatarNonce: Data? = nil,
+        avatarKey: Data? = nil,
         addedViaConversationId: String? = nil,
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil
@@ -94,10 +120,42 @@ extension Contact {
             inboxId: inboxId,
             displayName: displayName,
             avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
             addedAt: Date(),
             addedViaConversationId: addedViaConversationId,
             isBlocked: isBlocked,
             agentVerification: agentVerification
         )
+    }
+}
+
+extension Contact: ImageCacheable {
+    /// Inbox-scoped cache key, distinct from `Profile.imageCacheIdentifier`
+    /// (which is conversation-scoped) so the global contact-default and
+    /// per-conversation profile snapshots don't share a cache entry.
+    public var imageCacheIdentifier: String {
+        "contact:\(inboxId)"
+    }
+
+    public var imageCacheURL: URL? {
+        avatarURL.flatMap { URL(string: $0) }
+    }
+
+    public var isEncryptedImage: Bool {
+        isAvatarEncrypted
+    }
+
+    public var encryptionKey: Data? {
+        avatarKey
+    }
+
+    public var encryptionSalt: Data? {
+        avatarSalt
+    }
+
+    public var encryptionNonce: Data? {
+        avatarNonce
     }
 }

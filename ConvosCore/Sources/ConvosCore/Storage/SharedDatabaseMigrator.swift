@@ -206,6 +206,18 @@ extension SharedDatabaseMigrator {
                 t.add(column: "agentVerification", .jsonText)
             }
         }
+
+        // Avatar encryption fields mirror `memberProfile` so the contact card
+        // and contact list can render the same encrypted image without
+        // re-fetching the per-conversation profile. Nullable: a contact
+        // observed only as a name-only ProfileUpdate has no image yet.
+        migrator.registerMigration("addContactAvatarEncryptionFields") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "avatarSalt", .blob)
+                t.add(column: "avatarNonce", .blob)
+                t.add(column: "avatarKey", .blob)
+            }
+        }
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
