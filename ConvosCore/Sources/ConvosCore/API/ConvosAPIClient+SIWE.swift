@@ -74,7 +74,13 @@ extension ConvosAPIClient {
             chainId: siweConfig.chainId,
             nonce: challenge.nonce,
             issuedAt: Date(),
-            expirationTime: Date().addingTimeInterval(5 * 60)
+            expirationTime: Date().addingTimeInterval(5 * 60),
+            // EIP-4361 requires that any additional context appear in
+            // the Resources list as valid URIs. We bind the deviceId
+            // into the signed message via a custom scheme so the
+            // backend can prove the signer authorized exactly this
+            // device — must match the `deviceId` in the request body.
+            resources: ["convos://device/\(deviceId)"]
         ).prepareMessage()
 
         let signature = SIWESigner.hexEncoded(try await signing.sign(message))

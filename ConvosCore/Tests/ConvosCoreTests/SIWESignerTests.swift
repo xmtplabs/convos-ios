@@ -37,6 +37,10 @@ struct SIWESignerTests {
         let privateKey = try PrivateKey(privateKeyData)
         let expectedAddress = privateKey.identity.identifier.lowercased()
 
+        // Canary signs the realistic format the backend validates,
+        // including the Resources block with the per-device URI. If
+        // we ever drift on Resources, this test catches it before the
+        // backend's recovery rejects the signature on the wire.
         let message = """
         convos.app wants you to sign in with your Ethereum account:
         \(expectedAddress)
@@ -49,6 +53,8 @@ struct SIWESignerTests {
         Nonce: deadbeef00deadbeef00deadbeef00deadbeef00deadbeef00deadbeef00aabb
         Issued At: 2026-05-11T12:00:00.000Z
         Expiration Time: 2026-05-11T12:05:00.000Z
+        Resources:
+        - convos://device/5A2B3C4D-EFAB-1234-5678-90ABCDEF1234
         """
 
         let signature = try await SIWESigner.signRaw(message: message, with: privateKey)

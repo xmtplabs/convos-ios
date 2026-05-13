@@ -4,10 +4,12 @@ import Testing
 
 @Suite("SIWEMessage rendering")
 struct SIWEMessageTests {
-    @Test("EIP-4361 message renders byte-for-byte against a known fixture")
+    @Test("EIP-4361 message renders byte-for-byte against a known fixture (includes Resources)")
     func rendersFixture() {
-        // Fixed inputs that mirror the backend's end-to-end test
-        // (tests/auth-end-to-end.test.ts) in convos-backend.
+        // Fixed inputs mirroring the SIWE format Borja requires on the
+        // backend: every message carries a `Resources:` block with
+        // `convos://device/<deviceId>` so the signature is bound to a
+        // specific device, not just the account.
         let issuedAt = isoDate("2026-05-11T12:00:00.000Z")
         let expirationTime = isoDate("2026-05-11T12:05:00.000Z")
 
@@ -19,7 +21,8 @@ struct SIWEMessageTests {
             chainId: 1,
             nonce: "abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00",
             issuedAt: issuedAt,
-            expirationTime: expirationTime
+            expirationTime: expirationTime,
+            resources: ["convos://device/5A2B3C4D-EFAB-1234-5678-90ABCDEF1234"]
         )
 
         let expected = """
@@ -34,6 +37,8 @@ struct SIWEMessageTests {
         Nonce: abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00abcdef00
         Issued At: 2026-05-11T12:00:00.000Z
         Expiration Time: 2026-05-11T12:05:00.000Z
+        Resources:
+        - convos://device/5A2B3C4D-EFAB-1234-5678-90ABCDEF1234
         """
 
         #expect(message.prepareMessage() == expected)
