@@ -495,27 +495,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
-            // A prior process may have left `isUnused == true` rows from an
-            // interrupted prewarm. Under a nil cached service the MLS-side
-            // `cleanupInboxData` never runs, so those rows would otherwise
-            // survive into the next session and hand out unusable conversation
-            // ids via `consumeUnusedConversationId`.
-            try DBConversation
-                .filter(DBConversation.Columns.isUnused == true)
-                .deleteAll(db)
-            try DBInbox.deleteAll(db)
-
-            // DBCloudConnection has no FK to DBInbox or DBConversation, so the MLS
-            // cleanup path and the deletes above both miss it. Wipe it here so
-            // "Delete All Data" doesn't leave the next identity holding stale
-            // Composio entity/connection ids from the previous user. The FK
-            // cascade from DBCloudConnection removes DBCloudConnectionGrant as well.
-            //
-            // Server-side revoke is intentionally skipped: by the time this
-            // runs, identityStore.delete() has already nuked the JWT signer
-            // so apiClient.revokeCloudConnection would fail auth, and the abandoned
-            // entity ids aren't reachable from any new identity anyway.
+            // Reached only from "Delete All Data" / delete-all-inboxes, which
+            // is a full local account reset rather than a per-conversation
+            // cleanup. Some tables intentionally survive conversation deletion
+            // during normal app use (for example `contact` uses `setNull` on
+            // `addedViaConversationId` so a contact can outlive a single
+            // source conversation), so we must explicitly clear those account-
+            // scoped tables here as well.
+            try DBCloudConnectionGrant.deleteAll(db)
             try DBCloudConnection.deleteAll(db)
+            try DBCapabilityResolution.deleteAll(db)
+            try DBConversationReadReceipt.deleteAll(db)
+            try DBPendingPhotoUpload.deleteAll(db)
+            try DBVoiceMemoTranscript.deleteAll(db)
+            try AttachmentLocalState.deleteAll(db)
+            try DBPhotoPreferences.deleteAll(db)
+            try ConversationLocalState.deleteAll(db)
+            try DBInvite.deleteAll(db)
+            try DBConversationContactsSync.deleteAll(db)
+            try DBMessage.deleteAll(db)
+            try DBMemberProfile.deleteAll(db)
+            try DBConversationMember.deleteAll(db)
+            try DBContact.deleteAll(db)
+            try DBMember.deleteAll(db)
+            try DBConversation.deleteAll(db)
+            try DBInbox.deleteAll(db)
+            try DBMyProfile.deleteAll(db)
         }
     }
 
