@@ -49,12 +49,16 @@ public struct Contact: Hashable, Identifiable, Sendable {
     }
 
     /// Used for alphabetical sectioning. Returns "#" for contacts whose
-    /// resolved name does not begin with a letter.
+    /// resolved name does not begin with a letter. Always returns a
+    /// single-character key; Unicode case mapping can expand one
+    /// character into many ("ß".uppercased() == "SS"), and the list's
+    /// section grouping contract requires a single key per row.
     public var alphabeticalSectionKey: String {
         guard let first = resolvedDisplayName.first else { return "#" }
-        let upper = String(first).uppercased()
-        guard upper.first?.isLetter == true else { return "#" }
-        return upper
+        guard let firstUpper = String(first).uppercased().first, firstUpper.isLetter else {
+            return "#"
+        }
+        return String(firstUpper)
     }
 
     private var shortInboxId: String {

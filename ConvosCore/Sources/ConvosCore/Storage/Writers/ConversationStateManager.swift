@@ -103,10 +103,18 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         self.conversationIdSubject = .init(initialConversationId)
 
         let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
+        // Pass the contact-sync coordinator so `addMembers(_:to:)` triggers
+        // the membership-change hook and pulls newly added members into
+        // the contacts table, matching `MessagingService.conversationMetadataWriter()`.
+        let contactSyncCoordinator = ContactSyncCoordinator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader
+        )
         let metadataWriter = ConversationMetadataWriter(
             sessionStateManager: sessionStateManager,
             inviteWriter: inviteWriter,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            contactSyncCoordinator: contactSyncCoordinator
         )
         self.conversationMetadataWriter = metadataWriter
 
