@@ -5,6 +5,19 @@ import GRDB
 import UniformTypeIdentifiers
 @preconcurrency import XMTPiOS
 
+/// One entry in a `MultiRemoteAttachment` bundle. Eager photo/video variants
+/// reference an upload that was already kicked off by the composer; voice
+/// memo and file variants point at a local URL the writer encrypts + uploads
+/// at send time. Used by the assistant builder so the whole batch — text +
+/// photos + videos + voice memo + file — lands at the assistant as a single
+/// delivery rather than a stream of independent messages.
+public enum MultiAttachmentBundleItem: Sendable {
+    case eagerPhoto(trackingKey: String)
+    case eagerVideo(trackingKey: String)
+    case voiceMemo(url: URL, duration: TimeInterval, waveformLevels: [Float])
+    case file(url: URL, filename: String, mimeType: String)
+}
+
 public protocol OutgoingMessageWriterProtocol: Sendable {
     var sentMessage: AnyPublisher<String, Never> { get }
     func send(text: String) async throws
@@ -37,6 +50,31 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
 
     /// Cancel an eager upload (photo or video) that was started but not sent.
     func cancelEagerUpload(trackingKey: String) async
+
+    /// Await the completion of an eager photo or video upload that was started
+    /// with `startEagerUpload` / `startEagerVideoUpload`. Returns immediately if
+    /// the upload has already finished; throws the upload's error if it failed
+    /// or `eagerUploadCancelled` if cancelled while waiting. Distinct from the
+    /// single-shot continuation `processEagerPhoto` consumes when the queue
+    /// finally flushes the send — multiple callers can wait concurrently
+    /// without interfering with each other or with the send pipeline. Used by
+    /// the assistant builder to gate its commit-time sends on every media
+    /// upload finishing first, so the assistant receives the whole batch as a
+    /// single delivery burst rather than trickling messages over the duration
+    /// of the slowest upload.
+    func awaitEagerUpload(trackingKey: String) async throws
+
+    /// Send every entry in `items` as a single XMTP `MultiRemoteAttachment`
+    /// message. Eager photo / video entries reuse their already-uploaded
+    /// encrypted payload (no second upload); voice memo and file entries are
+    /// encrypted and uploaded inline before the bundle is published. The
+    /// resulting XMTP message has content type
+    /// `xmtp.org/multiRemoteStaticAttachment:1.0` and one local DB row whose
+    /// `attachmentUrls` holds an ordered JSON array of `StoredRemoteAttachment`
+    /// — mirroring the shape `handleMultiRemoteAttachmentContent` produces on
+    /// the receive path. The assistant builder uses this so the whole media
+    /// bundle lands at the agent in a single delivery.
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String
 
     // MARK: - Replies
 
@@ -116,6 +154,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var uploadCompleted: Bool = false
         var uploadError: Error?
         var waitingContinuation: CheckedContinuation<Void, Error>?
+        /// Continuations registered via `awaitEagerUpload` — separate from
+        /// `waitingContinuation` (which is the single-shot slot consumed by
+        /// `processEagerPhoto`), so callers can observe upload completion
+        /// without disturbing the send pipeline. Drained on success, error,
+        /// or cancellation.
+        var completionWaiters: [CheckedContinuation<Void, Error>] = []
         var replyContext: ReplyContext?
     }
 
@@ -155,6 +199,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var processingCompleted: Bool = false
         var processingError: Error?
         var waitingContinuation: CheckedContinuation<Void, Error>?
+        /// Mirror of `EagerUploadState.completionWaiters` for videos.
+        var completionWaiters: [CheckedContinuation<Void, Error>] = []
         var replyContext: ReplyContext?
     }
 
@@ -399,10 +445,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             if var state = eagerUploads[trackingKey] {
                 state.uploadCompleted = true
                 let continuation = state.waitingContinuation
+                let waiters = state.completionWaiters
                 state.waitingContinuation = nil
+                state.completionWaiters = []
                 eagerUploads[trackingKey] = state
                 Log.debug("handleUploadCompletion: Upload succeeded, has continuation: \(continuation != nil)")
                 continuation?.resume()
+                for waiter in waiters { waiter.resume() }
             } else {
                 Log.warning("handleUploadCompletion: No state found for trackingKey: \(trackingKey)")
             }
@@ -417,10 +466,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             if var state = eagerUploads[trackingKey] {
                 state.uploadError = result.error
                 let continuation = state.waitingContinuation
+                let waiters = state.completionWaiters
                 state.waitingContinuation = nil
+                state.completionWaiters = []
                 eagerUploads[trackingKey] = state
                 let error: Error = result.error ?? PhotoAttachmentError.uploadFailed("Eager upload failed")
                 continuation?.resume(throwing: error)
+                for waiter in waiters { waiter.resume(throwing: error) }
             }
             if let state = eagerUploads[trackingKey] {
                 try? await markMessageFailed(clientMessageId: state.clientMessageId)
@@ -521,9 +573,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             // tearing down the entry — otherwise Swift's CheckedContinuation runtime
             // traps on the leak. Mirrors the video path below.
             let waitingContinuation = state.waitingContinuation
+            let waiters = state.completionWaiters
             state.waitingContinuation = nil
+            state.completionWaiters = []
             eagerUploads.removeValue(forKey: trackingKey)
             waitingContinuation?.resume(throwing: OutgoingMessageWriterError.eagerUploadCancelled)
+            for waiter in waiters { waiter.resume(throwing: OutgoingMessageWriterError.eagerUploadCancelled) }
         } else if var state = eagerVideoUploads[trackingKey] {
             Log.debug("Cancelling eager video upload for: \(trackingKey)")
 
@@ -542,9 +597,424 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             await markPhotoFailed(trackingKey: trackingKey)
 
             let waitingContinuation = state.waitingContinuation
+            let waiters = state.completionWaiters
             state.waitingContinuation = nil
+            state.completionWaiters = []
             eagerVideoUploads.removeValue(forKey: trackingKey)
             waitingContinuation?.resume(throwing: OutgoingMessageWriterError.eagerUploadCancelled)
+            for waiter in waiters { waiter.resume(throwing: OutgoingMessageWriterError.eagerUploadCancelled) }
+        }
+    }
+
+    // MARK: - Awaiting an Eager Upload
+
+    func awaitEagerUpload(trackingKey: String) async throws {
+        if var state = eagerUploads[trackingKey] {
+            if state.uploadCompleted { return }
+            if let error = state.uploadError { throw error }
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                state.completionWaiters.append(continuation)
+                eagerUploads[trackingKey] = state
+            }
+            return
+        }
+        if var state = eagerVideoUploads[trackingKey] {
+            if state.processingCompleted { return }
+            if let error = state.processingError { throw error }
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                state.completionWaiters.append(continuation)
+                eagerVideoUploads[trackingKey] = state
+            }
+            return
+        }
+        // No record for this key — either it already finished and was reaped
+        // by `processEagerPhoto` / video pipeline, or it was never started.
+        // Either way, treat as "done" so callers don't hang.
+    }
+
+    // MARK: - Multi-Remote-Attachment Bundle
+
+    private struct ResolvedBundleEntry {
+        let info: MultiRemoteAttachment.RemoteAttachmentInfo
+        let stored: StoredRemoteAttachment
+        let trackingURL: URL?
+        let thumbnail: ImageType?
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        guard !items.isEmpty else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let conversationIdLocal = self.conversationId
+        let clientMessageId = UUID().uuidString
+        let perfStart = CFAbsoluteTimeGetCurrent()
+
+        var entries: [ResolvedBundleEntry] = []
+        for item in items {
+            let entry: ResolvedBundleEntry
+            switch item {
+            case .eagerPhoto(let key):
+                entry = try await resolveEagerPhotoForBundle(trackingKey: key)
+            case .eagerVideo(let key):
+                entry = try await resolveEagerVideoForBundle(trackingKey: key)
+            case let .voiceMemo(url, duration, levels):
+                entry = try await resolveVoiceMemoForBundle(
+                    url: url,
+                    duration: duration,
+                    waveformLevels: levels,
+                    inboxReady: inboxReady
+                )
+            case let .file(url, filename, mimeType):
+                entry = try await resolveFileForBundle(
+                    url: url,
+                    filename: filename,
+                    mimeType: mimeType,
+                    inboxReady: inboxReady
+                )
+            }
+            entries.append(entry)
+        }
+
+        let jsonList: [String] = try entries.map { entry in
+            guard let json = try? entry.stored.toJSON() else {
+                throw PhotoAttachmentError.encryptionFailed
+            }
+            return json
+        }
+
+        // Optimistic local DB row. We store the per-item tracking URLs so the
+        // renderer can resolve local copies before publish completes — the
+        // message is hidden from the user's messages list anyway via the
+        // builder cutoff filter, but we keep the DB shape consistent with
+        // singular-photo sends.
+        let initialAttachmentUrls: [String] = entries.map { entry in
+            entry.trackingURL?.absoluteString ?? UUID().uuidString
+        }
+        try await saveMultiAttachmentToDatabase(
+            clientMessageId: clientMessageId,
+            attachmentUrls: initialAttachmentUrls
+        )
+
+        // Cache thumbnails by their final json key so the bubble can show
+        // them as soon as it reads the published attachment metadata.
+        for (idx, entry) in entries.enumerated() {
+            if let thumbnail = entry.thumbnail {
+                ImageCacheContainer.shared.cacheImage(thumbnail, for: jsonList[idx], storageTier: .persistent)
+            }
+        }
+
+        guard let sender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
+        }
+
+        let multi = MultiRemoteAttachment(remoteAttachments: entries.map { $0.info })
+
+        let messageId: String
+        do {
+            messageId = try await sender.prepare(multiRemoteAttachment: multi)
+        } catch {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw error
+        }
+
+        let attachmentUrlsJSONString: String
+        do {
+            let data = try JSONEncoder().encode(jsonList)
+            attachmentUrlsJSONString = String(data: data, encoding: .utf8) ?? "[]"
+        } catch {
+            attachmentUrlsJSONString = "[]"
+        }
+
+        try await databaseWriter.write { db in
+            try db.execute(
+                sql: "UPDATE message SET id = ?, attachmentUrls = ? WHERE id = ?",
+                arguments: [messageId, attachmentUrlsJSONString, clientMessageId]
+            )
+            try db.execute(
+                sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
+                arguments: [messageId, clientMessageId]
+            )
+        }
+
+        for (idx, entry) in entries.enumerated() {
+            if let trackingURL = entry.trackingURL {
+                try? await attachmentLocalStateWriter.migrateKey(from: trackingURL.absoluteString, to: jsonList[idx])
+            }
+        }
+
+        try await sender.publish()
+        try? await markMessagePublished(messageId: messageId)
+
+        for (idx, entry) in entries.enumerated() {
+            if let trackingURL = entry.trackingURL,
+               trackingURL.isFileURL,
+               FileManager.default.fileExists(atPath: trackingURL.path) {
+                await OutgoingMediaLocalCache.shared.register(trackingURL, for: jsonList[idx])
+            }
+            sentMessageSubject.send(jsonList[idx])
+        }
+
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] message.publish_multi: \(perfElapsed)ms id=\(messageId) count=\(entries.count)")
+        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationIdLocal, "type": "multi_remote_attachment", "count": "\(entries.count)"])
+
+        return messageId
+    }
+
+    private func resolveEagerPhotoForBundle(trackingKey: String) async throws -> ResolvedBundleEntry {
+        try await awaitEagerUpload(trackingKey: trackingKey)
+        guard let state = eagerUploads[trackingKey] else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+        if let error = state.uploadError { throw error }
+        let prepared = state.prepared
+        let info = MultiRemoteAttachment.RemoteAttachmentInfo(
+            url: prepared.assetURL,
+            filename: prepared.filename,
+            contentLength: 0,
+            contentDigest: prepared.contentDigest,
+            nonce: prepared.encryptionNonce,
+            scheme: "https",
+            salt: prepared.encryptionSalt,
+            secret: prepared.encryptionSecret
+        )
+        let stored = StoredRemoteAttachment(
+            url: prepared.assetURL,
+            contentDigest: prepared.contentDigest,
+            secret: prepared.encryptionSecret,
+            salt: prepared.encryptionSalt,
+            nonce: prepared.encryptionNonce,
+            filename: prepared.filename
+        )
+        try? await pendingUploadWriter.delete(taskId: prepared.taskId)
+        try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
+        eagerUploads.removeValue(forKey: trackingKey)
+        return ResolvedBundleEntry(
+            info: info,
+            stored: stored,
+            trackingURL: URL(string: trackingKey),
+            thumbnail: state.image
+        )
+    }
+
+    private func resolveEagerVideoForBundle(trackingKey: String) async throws -> ResolvedBundleEntry {
+        try await awaitEagerUpload(trackingKey: trackingKey)
+        guard let state = eagerVideoUploads[trackingKey], let prepared = state.prepared else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+        if let error = state.processingError { throw error }
+        let info = MultiRemoteAttachment.RemoteAttachmentInfo(
+            url: prepared.assetURL,
+            filename: state.filename,
+            contentLength: 0,
+            contentDigest: prepared.contentDigest,
+            nonce: prepared.encryptionNonce,
+            scheme: "https",
+            salt: prepared.encryptionSalt,
+            secret: prepared.encryptionSecret
+        )
+        let stored = StoredRemoteAttachment(
+            url: prepared.assetURL,
+            contentDigest: prepared.contentDigest,
+            secret: prepared.encryptionSecret,
+            salt: prepared.encryptionSalt,
+            nonce: prepared.encryptionNonce,
+            filename: state.filename,
+            mimeType: "video/mp4",
+            mediaWidth: state.width,
+            mediaHeight: state.height,
+            mediaDuration: state.duration,
+            thumbnailDataBase64: state.thumbnailData.base64EncodedString()
+        )
+        try? await pendingUploadWriter.delete(taskId: prepared.taskId)
+        try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
+        if let compressedFileURL = state.compressedFileURL {
+            try? FileManager.default.removeItem(at: compressedFileURL)
+        }
+        eagerVideoUploads.removeValue(forKey: trackingKey)
+        let thumbnail = ImageType(data: state.thumbnailData)
+        return ResolvedBundleEntry(
+            info: info,
+            stored: stored,
+            trackingURL: URL(string: trackingKey),
+            thumbnail: thumbnail
+        )
+    }
+
+    private func resolveVoiceMemoForBundle(
+        url: URL,
+        duration: TimeInterval,
+        waveformLevels: [Float],
+        inboxReady: InboxReadyResult
+    ) async throws -> ResolvedBundleEntry {
+        let filename = "voice_memo_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).m4a"
+        let mimeType = "audio/m4a"
+        let entry = try await encryptAndUploadForBundle(
+            sourceURL: url,
+            filename: filename,
+            mimeType: mimeType,
+            inboxReady: inboxReady
+        )
+        try? await attachmentLocalStateWriter.saveWaveformLevels(waveformLevels, for: url.absoluteString)
+        try? await attachmentLocalStateWriter.saveDuration(duration, for: url.absoluteString)
+        let stored = StoredRemoteAttachment(
+            url: entry.stored.url,
+            contentDigest: entry.stored.contentDigest,
+            secret: entry.stored.secret,
+            salt: entry.stored.salt,
+            nonce: entry.stored.nonce,
+            filename: entry.stored.filename,
+            mimeType: entry.stored.mimeType,
+            mediaWidth: entry.stored.mediaWidth,
+            mediaHeight: entry.stored.mediaHeight,
+            mediaDuration: duration,
+            thumbnailDataBase64: entry.stored.thumbnailDataBase64
+        )
+        return ResolvedBundleEntry(
+            info: entry.info,
+            stored: stored,
+            trackingURL: url,
+            thumbnail: nil
+        )
+    }
+
+    private func resolveFileForBundle(
+        url: URL,
+        filename: String,
+        mimeType: String,
+        inboxReady: InboxReadyResult
+    ) async throws -> ResolvedBundleEntry {
+        return try await encryptAndUploadForBundle(
+            sourceURL: url,
+            filename: filename,
+            mimeType: mimeType,
+            inboxReady: inboxReady
+        )
+    }
+
+    private func encryptAndUploadForBundle(
+        sourceURL: URL,
+        filename: String,
+        mimeType: String,
+        inboxReady: InboxReadyResult
+    ) async throws -> ResolvedBundleEntry {
+        let fileData = try Data(contentsOf: sourceURL)
+        let attachment = Attachment(
+            filename: filename,
+            mimeType: mimeType,
+            data: fileData
+        )
+        let encrypted = try RemoteAttachment.encodeEncrypted(
+            content: attachment,
+            codec: AttachmentCodec()
+        )
+
+        let presigned = try await inboxReady.apiClient.getPresignedUploadURL(
+            filename: filename,
+            contentType: "application/octet-stream"
+        )
+        guard let uploadURL = URL(string: presigned.uploadURL) else {
+            throw PhotoAttachmentError.invalidURL
+        }
+
+        let taskId = UUID().uuidString
+        let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+        defer { try? FileManager.default.removeItem(at: encryptedFileURL) }
+
+        try await backgroundUploadManager.startUpload(
+            fileURL: encryptedFileURL,
+            uploadURL: uploadURL,
+            contentType: "application/octet-stream",
+            taskId: taskId
+        )
+        let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
+        guard result.success else {
+            throw result.error ?? PhotoAttachmentError.uploadFailed("bundle attachment upload failed")
+        }
+
+        // Best-effort: record dimensions/mime so the local-state writer can
+        // surface them to the renderer if anyone ever looks. Voice memo's
+        // waveform/duration are written separately by the caller.
+        try? await attachmentLocalStateWriter.saveWithDimensions(
+            attachmentKey: sourceURL.absoluteString,
+            conversationId: conversationId,
+            width: 0,
+            height: 0,
+            mimeType: mimeType
+        )
+
+        let info = MultiRemoteAttachment.RemoteAttachmentInfo(
+            url: presigned.assetURL,
+            filename: filename,
+            contentLength: UInt32(clamping: fileData.count),
+            contentDigest: encrypted.digest,
+            nonce: encrypted.nonce,
+            scheme: "https",
+            salt: encrypted.salt,
+            secret: encrypted.secret
+        )
+        let stored = StoredRemoteAttachment(
+            url: presigned.assetURL,
+            contentDigest: encrypted.digest,
+            secret: encrypted.secret,
+            salt: encrypted.salt,
+            nonce: encrypted.nonce,
+            filename: filename,
+            mimeType: mimeType
+        )
+        return ResolvedBundleEntry(
+            info: info,
+            stored: stored,
+            trackingURL: sourceURL,
+            thumbnail: nil
+        )
+    }
+
+    private func saveMultiAttachmentToDatabase(
+        clientMessageId: String,
+        attachmentUrls: [String]
+    ) async throws {
+        let senderId: String
+        if case .ready(let result) = sessionStateManager.currentState {
+            senderId = result.client.inboxId
+        } else if case .backgrounded(let result) = sessionStateManager.currentState {
+            senderId = result.client.inboxId
+        } else {
+            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+            senderId = inboxReady.client.inboxId
+        }
+
+        let date = Date()
+        let conversationIdLocal = self.conversationId
+
+        try await databaseWriter.write { db in
+            let maxSortId = try Int64.fetchOne(db, sql: """
+                SELECT COALESCE(MAX(sortId), 0) FROM message WHERE conversationId = ?
+            """, arguments: [conversationIdLocal]) ?? 0
+            let sortId = maxSortId + 1
+            let localMessage = DBMessage(
+                id: clientMessageId,
+                clientMessageId: clientMessageId,
+                conversationId: conversationIdLocal,
+                senderId: senderId,
+                dateNs: date.nanosecondsSince1970,
+                date: date,
+                sortId: sortId,
+                status: .unpublished,
+                messageType: .original,
+                contentType: .attachments,
+                text: nil,
+                emoji: nil,
+                invite: nil,
+                linkPreview: nil,
+                sourceMessageId: nil,
+                attachmentUrls: attachmentUrls,
+                update: nil
+            )
+            try localMessage.save(db)
         }
     }
 
@@ -697,9 +1167,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 if var s = eagerVideoUploads[trackingKey] {
                     s.processingCompleted = true
                     let cont = s.waitingContinuation
+                    let waiters = s.completionWaiters
                     s.waitingContinuation = nil
+                    s.completionWaiters = []
                     eagerVideoUploads[trackingKey] = s
                     cont?.resume()
+                    for waiter in waiters { waiter.resume() }
                 }
             } else {
                 tracker.setStage(.failed, for: trackingKey)
@@ -724,9 +1197,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         state.processingError = error
         let cont = state.waitingContinuation
+        let waiters = state.completionWaiters
         state.waitingContinuation = nil
+        state.completionWaiters = []
         eagerVideoUploads[trackingKey] = state
         cont?.resume(throwing: error)
+        for waiter in waiters { waiter.resume(throwing: error) }
         try? await markMessageFailed(clientMessageId: state.clientMessageId)
         await markPhotoFailed(trackingKey: trackingKey)
 

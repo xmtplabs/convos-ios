@@ -33,19 +33,28 @@ final class MessagesViewController: UIViewController {
         let invite: Invite
         let hasLoadedAllMessages: Bool
         let headerMode: MessagesHeaderMode
+        /// Set by the Assistant Builder commit path. When present, the cell
+        /// builder filters out messages before `summary.cutoffDate` and
+        /// prepends an `.assistantBuilderSummary` cell.
+        let assistantBuilderSummary: AssistantBuilderSummary?
+        let assistantBuilderTransitionNamespace: Namespace.ID?
 
         init(
             conversation: Conversation,
             messages: [MessagesListItemType],
             invite: Invite,
             hasLoadedAllMessages: Bool,
-            headerMode: MessagesHeaderMode = .standard
+            headerMode: MessagesHeaderMode = .standard,
+            assistantBuilderSummary: AssistantBuilderSummary? = nil,
+            assistantBuilderTransitionNamespace: Namespace.ID? = nil
         ) {
             self.conversation = conversation
             self.messages = messages
             self.invite = invite
             self.hasLoadedAllMessages = hasLoadedAllMessages
             self.headerMode = headerMode
+            self.assistantBuilderSummary = assistantBuilderSummary
+            self.assistantBuilderTransitionNamespace = assistantBuilderTransitionNamespace
         }
     }
 
@@ -120,6 +129,8 @@ final class MessagesViewController: UIViewController {
             let animated = oldValue?.conversation.id == state.conversation.id
             dataSource.conversationId = state.conversation.id
             headerMode = state.headerMode
+            assistantBuilderSummary = state.assistantBuilderSummary
+            assistantBuilderTransitionNamespace = state.assistantBuilderTransitionNamespace
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -225,6 +236,11 @@ final class MessagesViewController: UIViewController {
 
     var headerMode: MessagesHeaderMode = .standard {
         didSet { dataSource.headerMode = headerMode }
+    }
+
+    var assistantBuilderSummary: AssistantBuilderSummary?
+    var assistantBuilderTransitionNamespace: Namespace.ID? {
+        didSet { dataSource.assistantBuilderTransitionNamespace = assistantBuilderTransitionNamespace }
     }
 
     var hasAssistant: Bool = false {
@@ -575,26 +591,27 @@ extension MessagesViewController {
             currentControllerActions.options.remove(.loadingPreviousMessages)
         }
 
+        // The processor (via `MessagesListRepository.verifiedAssistant` and
+        // `.assistantBuilderSummary`) already drops the legacy "Assistant
+        // joined" update / `.assistantPresentInfo` cells, attaches the contact
+        // card to the assistant's first group (or synthesizes an empty one),
+        // applies the summary cutoff, and prepends the summary cell — so we
+        // start from the publisher's items verbatim here.
         var cells: [MessagesListItemType] = messages
+        let hasVerifiedAssistant: Bool = conversation.members.contains(where: \.isVerifiedAssistant)
 
         // Add invite or conversation info at the beginning if all messages are loaded.
-        // In `.hidden` header mode the `.invite` cell still renders the "Invite members"
-        // affordance but suppresses the QR; the non-creator branch is skipped entirely so
-        // we don't surface `ConversationInfoPreview` / `assistantPresentInfo` either.
-        if hasLoadedAllMessages, !conversation.isDraft {
+        // When the Assistant Builder summary is present, suppress this whole block —
+        // the summary card already announces the assistant via its "You created an
+        // assistant" footer, so showing the "+ Invite members" pill on top of it is
+        // redundant. Without a summary, `.hidden` header mode still renders the
+        // `.invite` cell (which surfaces just the "Invite members" affordance — the
+        // QR is gated inside the cell on the same `headerMode`).
+        if hasLoadedAllMessages, !conversation.isDraft, assistantBuilderSummary == nil {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
-            } else if headerMode == .standard {
+            } else if headerMode == .standard, !hasVerifiedAssistant {
                 cells.insert(.conversationInfo(conversation), at: 0)
-                if let agent = conversation.members.first(where: \.isAgent) {
-                    let inviterName: String? = agent.invitedBy.map { inviter in
-                        let inviterIsMe = conversation.members.contains {
-                            $0.isCurrentUser && $0.profile.inboxId == inviter.inboxId
-                        }
-                        return inviterIsMe ? "You" : inviter.displayName
-                    }
-                    cells.insert(.assistantPresentInfo(agent: agent, inviterName: inviterName), at: 1)
-                }
             }
         }
 

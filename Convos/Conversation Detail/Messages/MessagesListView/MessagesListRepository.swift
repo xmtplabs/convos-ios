@@ -16,6 +16,15 @@ protocol MessagesListRepositoryProtocol {
 
     var currentOtherMemberCount: Int { get set }
     var sendReadReceipts: Bool { get set }
+    /// The verified Convos assistant in the conversation, if any. When set,
+    /// the processor attaches an `AssistantContactCardInfo` to the assistant's
+    /// first messages group (or synthesizes an empty one) and suppresses the
+    /// legacy "Assistant joined" update bubble.
+    var verifiedAssistant: ConversationMember? { get set }
+    /// The persisted Assistant Builder summary for this conversation, if any.
+    /// When set, the processor prepends a `.assistantBuilderSummary` cell and
+    /// filters every messages-group whose timestamp predates `cutoffDate`.
+    var assistantBuilderSummary: AssistantBuilderSummary? { get set }
 }
 
 @MainActor
@@ -37,6 +46,31 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private var lastRawMessages: [AnyMessage] = []
     private var storedTranscripts: [String: VoiceMemoTranscript] = [:]
     var currentOtherMemberCount: Int = 0
+    var verifiedAssistant: ConversationMember? {
+        didSet {
+            guard oldValue != verifiedAssistant else { return }
+            reprocessCachedMessages()
+        }
+    }
+    var assistantBuilderSummary: AssistantBuilderSummary? {
+        didSet {
+            guard oldValue != assistantBuilderSummary else { return }
+            reprocessCachedMessages()
+        }
+    }
+
+    /// Re-run the processor against the cached raw messages and emit so the
+    /// view layer picks up freshly-set `verifiedAssistant` /
+    /// `assistantBuilderSummary` without waiting for the next message delivery.
+    private func reprocessCachedMessages() {
+        guard !lastRawMessages.isEmpty else { return }
+        let reprocessed = processMessages(
+            lastRawMessages,
+            readReceipts: lastReadReceipts,
+            memberProfiles: lastMemberProfiles
+        )
+        messagesListSubject.send(reprocessed)
+    }
 
     // MARK: - Public Properties
 
@@ -141,7 +175,9 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             memberProfiles: memberProfiles,
             currentOtherMemberCount: currentOtherMemberCount,
             sendReadReceipts: sendReadReceipts,
-            previousReadByMembers: lastReadByMembers
+            previousReadByMembers: lastReadByMembers,
+            verifiedAssistant: verifiedAssistant,
+            assistantBuilderSummary: assistantBuilderSummary
         )
         lastReadByMembers = Self.extractReadByMembers(from: items)
         scheduleAssistantJoinDismissIfNeeded(items)

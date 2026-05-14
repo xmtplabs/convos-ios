@@ -129,6 +129,10 @@ var body: some View {
             ConnectionEventSummaryView(summary: summary)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
+        case .assistantBuilderSummary(let summary):
+            AssistantBuilderSummaryView(summary: summary)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+
         case .typingIndicator:
             EmptyView()
         }

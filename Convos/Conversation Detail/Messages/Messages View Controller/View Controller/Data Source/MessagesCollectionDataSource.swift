@@ -1,5 +1,6 @@
 import ConvosCore
 import Foundation
+import SwiftUI
 import UIKit
 
 protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayoutDelegate {
@@ -32,4 +33,5 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var isAssistantJoinPending: Bool { get set }
     var isAssistantEnabled: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
+    var assistantBuilderTransitionNamespace: Namespace.ID? { get set }
 }

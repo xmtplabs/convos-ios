@@ -2,6 +2,18 @@ import Foundation
 
 public final class MessagesListProcessor: Sendable {
     private static let hourInSeconds: TimeInterval = 3600
+    /// Pad applied to `AssistantBuilderSummary.cutoffDate` when deciding
+    /// whether a single current-user message is one of the Make-time prompt
+    /// sends. The writer assigns `sentAt` shortly after commit (text/voice
+    /// memo land within ~1s, photo uploads can stretch a few seconds). 5s
+    /// catches the typical persistence window without filtering legitimate
+    /// post-Make messages the user types into the chat. The filter is applied
+    /// per-message (not per-group), so a user who sends a new message right
+    /// after the card appears keeps the new message even though their prompt
+    /// sends share the same `MessagesGroup`. Assistant responses don't need a
+    /// pad — they ride the wire later than 0s post-commit, so the unpadded
+    /// `cutoffDate` already excludes pre-Make hello messages.
+    private static let userPromptCutoffPad: TimeInterval = 5
 
     public static func process(
         _ messages: [AnyMessage],
@@ -10,17 +22,122 @@ public final class MessagesListProcessor: Sendable {
         memberProfiles: [String: MemberProfileInfo] = [:],
         currentOtherMemberCount: Int = 0,
         sendReadReceipts: Bool = true,
-        previousReadByMembers: [ConversationMember] = []
+        previousReadByMembers: [ConversationMember] = [],
+        verifiedAssistant: ConversationMember? = nil,
+        assistantBuilderSummary: AssistantBuilderSummary? = nil
     ) -> [MessagesListItemType] {
-        return processMessages(
+        let baseItems: [MessagesListItemType] = processMessages(
             messages,
             voiceMemoTranscripts: voiceMemoTranscripts,
             readReceipts: readReceipts,
             memberProfiles: memberProfiles,
             currentOtherMemberCount: currentOtherMemberCount,
             sendReadReceipts: sendReadReceipts,
-            previousReadByMembers: previousReadByMembers
+            previousReadByMembers: previousReadByMembers,
+            verifiedAssistant: verifiedAssistant
         )
+        return applyAssistantContactCardAndSummary(
+            to: baseItems,
+            verifiedAssistant: verifiedAssistant,
+            assistantBuilderSummary: assistantBuilderSummary
+        )
+    }
+
+    /// Post-process the raw item list to (a) cut messages predating the
+    /// `AssistantBuilderSummary.cutoffDate`, (b) attach the contact-card prefix
+    /// to the assistant's first messages group (synthesizing an empty group
+    /// when the assistant hasn't said anything yet), and (c) prepend the
+    /// summary cell.
+    private static func applyAssistantContactCardAndSummary(
+        to baseItems: [MessagesListItemType],
+        verifiedAssistant: ConversationMember?,
+        assistantBuilderSummary: AssistantBuilderSummary?
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+
+        if let summary = assistantBuilderSummary {
+            items = items.flatMap { item -> [MessagesListItemType] in
+                switch item {
+                case .messages(let group):
+                    if group.sender.isCurrentUser {
+                        // Filter the group's individual messages against the
+                        // padded cutoff. A group can contain both the
+                        // Make-time prompt sends *and* messages the user
+                        // typed afterwards, since consecutive same-sender
+                        // messages stay in one group regardless of the gap.
+                        // Pre-pad messages are dropped, post-pad messages
+                        // are kept, and the group is rebuilt around what
+                        // remains (or dropped entirely if everything was
+                        // pre-pad).
+                        let cutoff: Date = summary.cutoffDate.addingTimeInterval(userPromptCutoffPad)
+                        let kept: [AnyMessage] = group.messages.filter { $0.date >= cutoff }
+                        if kept.isEmpty { return [] }
+                        if kept.count == group.messages.count { return [item] }
+                        var rebuilt: MessagesGroup = MessagesGroup(
+                            id: group.id,
+                            sender: group.sender,
+                            messages: kept,
+                            isLastGroup: group.isLastGroup,
+                            isLastGroupSentByCurrentUser: group.isLastGroupSentByCurrentUser,
+                            showsTypingIndicator: group.showsTypingIndicator,
+                            allTypingMembers: group.allTypingMembers,
+                            readByMembers: group.readByMembers,
+                            onlyVisibleToSender: group.onlyVisibleToSender,
+                            isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
+                            voiceMemoTranscripts: group.voiceMemoTranscripts
+                        )
+                        rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
+                        rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
+                        rebuilt.assistantContactCard = group.assistantContactCard
+                        return [.messages(rebuilt)]
+                    } else {
+                        // Assistant / other-member groups: filter by the
+                        // group's latest message, no pad. Pre-Make hello
+                        // messages drop wholesale; later replies stay.
+                        let date: Date = group.messages.last?.date ?? group.messages.first?.date ?? .distantPast
+                        return date >= summary.cutoffDate ? [item] : []
+                    }
+                case .assistantJoinStatus:
+                    // The summary card already announces the assistant's
+                    // arrival; suppress the transient "Assistant is joining…"
+                    // pending row so they don't compete.
+                    return []
+                default:
+                    return [item]
+                }
+            }
+        }
+
+        if let assistant = verifiedAssistant {
+            let cardInfo = AssistantContactCardInfo(
+                profile: assistant.profile,
+                jobSummary: assistant.profile.jobSummary
+            )
+            let firstAssistantGroupIndex: Int? = items.firstIndex { item in
+                guard case .messages(let group) = item else { return false }
+                return group.sender.profile.inboxId == assistant.profile.inboxId
+            }
+            if let idx = firstAssistantGroupIndex, case .messages(var group) = items[idx] {
+                group.assistantContactCard = cardInfo
+                items[idx] = .messages(group)
+            } else {
+                var cardGroup = MessagesGroup(
+                    id: "assistant-contact-card-\(assistant.profile.inboxId)",
+                    sender: assistant,
+                    messages: [],
+                    isLastGroup: false,
+                    isLastGroupSentByCurrentUser: false
+                )
+                cardGroup.assistantContactCard = cardInfo
+                items.insert(.messages(cardGroup), at: 0)
+            }
+        }
+
+        if let summary = assistantBuilderSummary {
+            items.insert(.assistantBuilderSummary(summary), at: 0)
+        }
+
+        return items
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -31,7 +148,8 @@ public final class MessagesListProcessor: Sendable {
         memberProfiles: [String: MemberProfileInfo] = [:],
         currentOtherMemberCount: Int = 0,
         sendReadReceipts: Bool = true,
-        previousReadByMembers: [ConversationMember] = []
+        previousReadByMembers: [ConversationMember] = [],
+        verifiedAssistant: ConversationMember? = nil
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -94,7 +212,12 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                items.append(.update(id: msg.messageId, update: update, origin: msg.origin))
+                // The "Assistant joined · see its skills" affordance has been
+                // replaced by the assistant contact card; suppress the legacy
+                // update bubble so the two don't compete in the list.
+                if !update.addedVerifiedAssistant {
+                    items.append(.update(id: msg.messageId, update: update, origin: msg.origin))
+                }
 
                 var added = 0
                 var removed = 0

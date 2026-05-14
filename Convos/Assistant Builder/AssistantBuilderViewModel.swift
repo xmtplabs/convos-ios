@@ -151,6 +151,17 @@ final class AssistantBuilderViewModel: Identifiable {
             session: session,
             mode: .newAssistant
         )
+        // Suppress the contact card for the entire builder lifetime. The
+        // agent may join while the user is still drafting (state machine
+        // hits `.ready` → `requestAgentJoinIfNeeded` → XMTP add), in which
+        // case the inner conversation view *already* has the card prepared
+        // — hidden under the composer overlay. If we waited until `commit()`
+        // to flip the gate, that prepared card would flash visible during
+        // the morph reveal. The `suppressesContactCard` flag on
+        // `NewConversationViewModel` propagates the gate across the
+        // inbox-acquisition VM swap (`configureWithMessagingService`), so
+        // both the placeholder VM and its real replacement stay suppressed.
+        self.newConversationViewModel.suppressesContactCard = true
         self.newConversationViewModel.onReachedReady = { [weak self] in
             self?.requestAgentJoinIfNeeded()
         }
@@ -328,17 +339,55 @@ final class AssistantBuilderViewModel: Identifiable {
         composerText = ""
 
         if let innerVM = newConversationViewModel.conversationViewModel {
-            // Send the voice memo first if one's recorded — sendVoiceMemo
-            // clears the recorder state, so by the time the chat is revealed
-            // the bottom bar won't flash a review UI for the same memo.
-            if recordedVoiceMemo != nil {
-                innerVM.sendVoiceMemo()
+            // Snapshot the prompt + attachments into a summary BEFORE we send
+            // anything, so the messages list's cutoff catches the user's own
+            // sends and the summary card renders chips identical to what was
+            // staged in the draft composer.
+            let summary: AssistantBuilderSummary = buildSummary(
+                prompt: textToSend,
+                voiceMemo: recordedVoiceMemo,
+                voiceMemoLevels: voiceMemoAudioLevels,
+                mediaAttachments: innerVM.pendingMediaAttachments,
+                connections: enabledConnections
+            )
+            innerVM.assistantBuilderSummary = summary
+            persistSummary(summary, for: innerVM.conversation.id)
+            // Note: `innerVM.allowsContactCard` was already set to `false`
+            // when this builder VM was constructed. The scheduled task below
+            // flips it back to `true` once the chat has had time to settle
+            // after the morph, so the card animates in fresh.
+            //
+            // Defer the sends until every pending eager photo/video upload
+            // has finished, then ship the whole builder payload to the
+            // assistant as a synchronized burst: the prompt text as one
+            // XMTP message and every media item — voice memo + photos +
+            // videos + files — bundled into a single `MultiRemoteAttachment`
+            // message. The state-machine FIFO queue preserves ordering, so
+            // the assistant sees the text immediately followed by the
+            // bundle the moment the agent reaches `.ready`. The UI commit
+            // (composer fade, contact-card reveal timer) runs synchronously
+            // below regardless — the contact card's pulsing subtitle is
+            // the user-facing loading indicator. The normal conversation
+            // send path stays per-attachment so per-item reactions / replies
+            // keep working there; the bundle path is builder-only.
+            let voiceMemoSnapshot: (url: URL, duration: TimeInterval, levels: [Float])?
+            if let recorded = recordedVoiceMemo {
+                voiceMemoSnapshot = (url: recorded.url, duration: recorded.duration, levels: voiceMemoAudioLevels)
+            } else {
+                voiceMemoSnapshot = nil
             }
-            // Send text + any pending photo/video/file attachments together
-            // via onSendMessage's existing pipeline.
-            if !textToSend.isEmpty || !innerVM.pendingMediaAttachments.isEmpty {
-                innerVM.messageText = textToSend
-                innerVM.onSendMessage(focusCoordinator: focusCoordinator)
+            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot] in
+                guard let innerVM else { return }
+                do {
+                    try await innerVM.awaitPendingMediaUploads()
+                } catch {
+                    Log.error("AssistantBuilder: pending media upload await failed: \(error.localizedDescription)")
+                    // Fall through and attempt the bundle anyway — partial
+                    // failures surface inside `sendBuilderBundle` and we'd
+                    // rather try to deliver than leave the user with a
+                    // stuck pulsing card.
+                }
+                await innerVM.sendBuilderBundle(text: textToSend, voiceMemo: voiceMemoSnapshot)
             }
         }
 
@@ -350,6 +399,15 @@ final class AssistantBuilderViewModel: Identifiable {
             }
         }
 
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Constant.contactCardRevealDelayMs))
+            guard let self else { return }
+            // Clear both gates: the wrapper so any future VM swap also lands
+            // unsuppressed, and the current VM so the card actually reveals.
+            self.newConversationViewModel.suppressesContactCard = false
+            self.newConversationViewModel.conversationViewModel?.allowsContactCard = true
+        }
+
         scheduleConnectionGrants()
     }
 
@@ -357,6 +415,66 @@ final class AssistantBuilderViewModel: Identifiable {
     /// `conversation.hasAgent` because the agent join is async (the join
     /// request goes out on `.ready`; the actual member event arrives later
     /// via XMTP). The polling task is cancelled by `discard()` and `deinit`.
+    /// Persist the summary so it survives navigating away or quitting the
+    /// app. The in-memory `innerVM.assistantBuilderSummary` is set
+    /// synchronously for the immediate post-Make render; this write lands
+    /// asynchronously and the `summaryPublisher` keeps the ViewModel in sync
+    /// on subsequent loads.
+    private func persistSummary(_ summary: AssistantBuilderSummary, for conversationId: String) {
+        Task { [session] in
+            do {
+                try await session.assistantBuilderSummaryWriter().save(summary, for: conversationId)
+            } catch {
+                Log.error("AssistantBuilder: failed to persist summary for \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Build the AssistantBuilderSummary that renders as the first cell of the
+    /// post-Make conversation. Captures chip-ready data (thumbnails encoded as
+    /// PNG, file metadata, voice memo levels, connection identifiers) so the
+    /// summary view can render the same chips the composer just had — minus
+    /// the X buttons.
+    private func buildSummary(
+        prompt: String,
+        voiceMemo: (url: URL, duration: TimeInterval)?,
+        voiceMemoLevels: [Float],
+        mediaAttachments: [PendingMediaAttachment],
+        connections: Set<AssistantBuilderConnection>
+    ) -> AssistantBuilderSummary {
+        var attachments: [AssistantBuilderSummaryAttachment] = []
+        if let voiceMemo {
+            attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemoLevels))
+        }
+        for attachment in mediaAttachments {
+            switch attachment {
+            case .photo(let photo):
+                attachments.append(.photo(id: photo.id, thumbnailData: Self.encodedChipThumbnail(photo.image)))
+            case .video(let video):
+                attachments.append(.video(id: video.id, thumbnailData: video.thumbnail.flatMap(Self.encodedChipThumbnail)))
+            case .file(let file):
+                attachments.append(.file(
+                    id: file.id,
+                    filename: file.filename,
+                    mimeType: file.mimeType,
+                    fileSize: file.fileSize
+                ))
+            }
+        }
+        for connection in connections.sorted(by: { $0.id < $1.id }) {
+            attachments.append(.connection(id: UUID(), identifier: connection.rawValue))
+        }
+        // `cutoffDate` is the exact Make-tap moment. The messages-list filter
+        // pads it (only for current-user-sent groups) so it still catches the
+        // user's prompt sends after the writer assigns their slightly-later
+        // `sentAt` — see `MessagesViewController.userPromptCutoffPad`.
+        return AssistantBuilderSummary(
+            prompt: prompt,
+            attachments: attachments,
+            cutoffDate: Date()
+        )
+    }
+
     private func scheduleConnectionGrants() {
         guard !enabledConnections.isEmpty else { return }
         let connections = enabledConnections
@@ -449,6 +567,38 @@ final class AssistantBuilderViewModel: Identifiable {
         static let contentFadeMs: Int = 180
         static let agentPollIntervalMs: Int = 250
         static let agentJoinTimeoutS: TimeInterval = 30
+        /// Wall-clock delay from Make tap until the contact card is allowed
+        /// to render. ~180ms covers the content fade, ~350ms the overlay
+        /// spring; the rest (~970ms) is dwell time so the chat reveals
+        /// cleanly before the card slides in. Existing conversations opened
+        /// from the list bypass this entirely.
+        static let contactCardRevealDelayMs: Int = 1500
+        /// Pixel size used to bake summary chip thumbnails into the persisted
+        /// `DBAssistantBuilderSummary` row. The summary card renders chips at
+        /// 80pt; 240px (3x Retina) keeps them crisp without persisting a
+        /// multi-megabyte full-resolution PNG inside the JSON column — that
+        /// was the main-thread bottleneck on later `summarySync` reads.
+        static let chipThumbnailPixelSize: CGFloat = 240
+        /// Slight quality drop traded for a much smaller payload — chips render
+        /// inside an 80pt square so artifacts are imperceptible at that size.
+        static let chipThumbnailJpegQuality: CGFloat = 0.7
+    }
+
+    /// Downscale a captured photo / extracted video frame to the chip size
+    /// the summary card actually displays and re-encode as JPEG before
+    /// storage. `UIImage.preparingThumbnail(of:)` is the system fast path —
+    /// it asks ImageIO to decode straight at the target size instead of
+    /// inflating the full image first. Combined with JPEG (vs the previous
+    /// PNG round-trip), this drops a ~1MB-per-photo summary row down to
+    /// a few KB so the `summarySync` `JSONDecoder` pass on later opens stays
+    /// sub-millisecond regardless of how many photos the user attached.
+    private static func encodedChipThumbnail(_ image: UIImage) -> Data? {
+        let target: CGSize = CGSize(
+            width: Constant.chipThumbnailPixelSize,
+            height: Constant.chipThumbnailPixelSize
+        )
+        let resized: UIImage = image.preparingThumbnail(of: target) ?? image
+        return resized.jpegData(compressionQuality: Constant.chipThumbnailJpegQuality)
     }
 
     // MARK: - Dismiss cleanup
@@ -512,6 +662,8 @@ final class AssistantBuilderViewModel: Identifiable {
                     instructions: "You're a Convos Assistant"
                 )
             } catch is CancellationError {
+                return
+            } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
                 Log.error("AssistantBuilderViewModel: requestAgentJoin failed: \(error.localizedDescription)")

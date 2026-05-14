@@ -8,6 +8,7 @@ public protocol MessageSender {
     func sendReadReceipt() async throws
     func prepare(text: String) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
+    func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
@@ -264,6 +265,13 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(
             content: remoteAttachment,
             options: .init(contentType: ContentTypeRemoteAttachment),
+        )
+    }
+
+    public func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
         )
     }
 

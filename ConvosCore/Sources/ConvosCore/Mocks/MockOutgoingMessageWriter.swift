@@ -55,6 +55,13 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
 
     public func cancelEagerUpload(trackingKey: String) async {}
 
+    public func awaitEagerUpload(trackingKey: String) async throws {}
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        sentImageCount += items.count
+        return UUID().uuidString
+    }
+
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
         sentImageCount += 1
         return UUID().uuidString

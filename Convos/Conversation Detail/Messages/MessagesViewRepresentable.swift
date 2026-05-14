@@ -36,6 +36,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
     var headerMode: MessagesHeaderMode = .standard
+    var assistantBuilderSummary: AssistantBuilderSummary?
+    var assistantBuilderTransitionNamespace: Namespace.ID?
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
@@ -127,7 +129,9 @@ let menuPresented = contextMenuState.isPresented
             messages: messages,
             invite: invite,
             hasLoadedAllMessages: hasLoadedAllMessages,
-            headerMode: headerMode
+            headerMode: headerMode,
+            assistantBuilderSummary: assistantBuilderSummary,
+            assistantBuilderTransitionNamespace: assistantBuilderTransitionNamespace
         )
     }
 }

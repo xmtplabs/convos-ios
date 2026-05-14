@@ -152,7 +152,11 @@ struct MessagesGroupView: View {
         let isReply: Bool = if case .reply = message { true } else { false }
         let isFullWidthAttachment: Bool = message.content.isFullBleedAttachment
 
-        if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
+        // The sender label is hoisted to the body via `shouldShowSenderLabelAtTop`
+        // so it can sit above the assistant contact card prefix as well as the
+        // first message bubble.
+        if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply
+            && group.assistantContactCard == nil {
             senderLabel
         }
 
@@ -176,6 +180,36 @@ struct MessagesGroupView: View {
         )
         reactionRow(message: message, isFullWidthAttachment: isFullWidthAttachment)
         statusRow(message: message, isFailed: isFailed, showsSentStatus: showsSentStatus)
+    }
+
+    @ViewBuilder
+    private func contactCardRow(card: AssistantContactCardInfo) -> some View {
+        // The card is the visual "last item" of the group only when the
+        // assistant hasn't sent any messages yet (synthesized empty group).
+        // Otherwise the regular `messageRowContent` avatar overlay handles
+        // the leading avatar on the last message — we don't want to double up.
+        let cardIsLast: Bool = group.allMessages.isEmpty && !group.showsTypingIndicator
+        HStack(alignment: .bottom, spacing: avatarSpacing) {
+            if !group.sender.isCurrentUser {
+                Color.clear
+                    .frame(width: avatarSize, height: avatarSize)
+            }
+
+            AssistantContactCardView(profile: card.profile, jobSummary: card.jobSummary)
+                .overlay(alignment: .bottomLeading) {
+                    if cardIsLast && !group.sender.isCurrentUser {
+                        avatarOverlay()
+                    }
+                }
+
+            // Mirrors `MessageContainer.spacer` so the card caps at the same
+            // max width as text bubbles — natural sizing for short content,
+            // bounded by a 50pt trailing spacer with lower layout priority.
+            Spacer()
+                .frame(minWidth: 50.0)
+                .layoutPriority(-1)
+        }
+        .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
     }
 
     @ViewBuilder
@@ -332,6 +366,11 @@ struct MessagesGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            if let card = group.assistantContactCard {
+                senderLabel
+                contactCardRow(card: card)
+            }
+
             ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in
                 messageGroup(index: index, message: message)
             }

@@ -37,7 +37,25 @@ class NewConversationViewModel: Identifiable {
     // MARK: - Public
 
     let session: any SessionManagerProtocol
-    private(set) var conversationViewModel: ConversationViewModel?
+    private(set) var conversationViewModel: ConversationViewModel? {
+        didSet {
+            conversationViewModel?.allowsContactCard = !suppressesContactCard
+        }
+    }
+    /// When `true`, every `conversationViewModel` we vend (the initial
+    /// placeholder, and any replacement created by
+    /// `configureWithMessagingService`) has its `allowsContactCard` set to
+    /// `false`. The Assistant Builder flips this on so the contact card stays
+    /// hidden during the entire builder lifetime — including across the
+    /// inbox-acquisition VM swap — and only flips back to visible after the
+    /// post-Make reveal delay. Regular `NewConversationViewModel` callers
+    /// leave this `false` so the card shows normally.
+    var suppressesContactCard: Bool = false {
+        didSet {
+            guard oldValue != suppressesContactCard else { return }
+            conversationViewModel?.allowsContactCard = !suppressesContactCard
+        }
+    }
     let qrScannerViewModel: QRScannerViewModel
     private(set) var messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem = .share
     private(set) var messagesTopBarTrailingItemEnabled: Bool = false
@@ -234,6 +252,7 @@ class NewConversationViewModel: Identifiable {
             applyGlobalDefaultsForNewConversation: false
         )
         convoVM.showsInfoView = !startedWithFullscreenScanner
+        convoVM.allowsContactCard = !suppressesContactCard
         self.conversationViewModel = convoVM
     }
 
@@ -262,6 +281,7 @@ class NewConversationViewModel: Identifiable {
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false
         }
+        convoVM.allowsContactCard = !suppressesContactCard
         self.conversationViewModel = convoVM
         setupObservations()
         setupStateObservation()

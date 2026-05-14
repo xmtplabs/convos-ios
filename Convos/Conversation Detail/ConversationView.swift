@@ -22,6 +22,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// in normal chat. The Assistant Builder passes `.hidden` so the
     /// underlying chat doesn't flash a QR while the user is still drafting.
     var headerMode: MessagesHeaderMode = .standard
+    /// Shared SwiftUI namespace used by the Assistant Builder commit morph.
+    /// Set by `AssistantBuilderView` so its composer card and the in-stream
+    /// summary cell can match-geometry into each other via `glassEffectID`.
+    var assistantBuilderTransitionNamespace: Namespace.ID?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -136,6 +140,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
             headerMode: headerMode,
+            assistantBuilderSummary: viewModel.assistantBuilderSummary,
+            assistantBuilderTransitionNamespace: assistantBuilderTransitionNamespace,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
                 if overscroll == 0 {

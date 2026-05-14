@@ -927,6 +927,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 ReactionCodec(),
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),
+                MultiRemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
                 InviteJoinErrorCodec(),

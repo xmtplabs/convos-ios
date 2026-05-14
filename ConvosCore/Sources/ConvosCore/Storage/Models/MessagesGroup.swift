@@ -17,6 +17,11 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// `MessagesListProcessor` when it builds the group, so changes to the
     /// transcript state propagate through the existing diffing reload pipeline.
     public var voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    /// When non-nil, renders the assistant "contact card" (avatar + display
+    /// name + `job_summary` subtitle) as the first item of this group. The
+    /// surrounding `MessagesGroupView` reuses its existing sender-label and
+    /// leading-avatar slots so the card doesn't have to duplicate them.
+    public var assistantContactCard: AssistantContactCardInfo?
 
     public var isMultiTyper: Bool {
         allTypingMembers.count > 1
@@ -99,7 +104,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers &&
         lhs.adjacentToFullBleedAbove == rhs.adjacentToFullBleedAbove &&
         lhs.adjacentToFullBleedBelow == rhs.adjacentToFullBleedBelow &&
-        lhs.voiceMemoTranscripts == rhs.voiceMemoTranscripts
+        lhs.voiceMemoTranscripts == rhs.voiceMemoTranscripts &&
+        lhs.assistantContactCard == rhs.assistantContactCard
     }
 }
 
@@ -118,6 +124,23 @@ extension MessagesGroup: Hashable {
         hasher.combine(adjacentToFullBleedAbove)
         hasher.combine(adjacentToFullBleedBelow)
         hasher.combine(voiceMemoTranscripts)
+        hasher.combine(assistantContactCard)
+    }
+}
+
+/// Display-only payload threaded through `MessagesGroup.assistantContactCard`
+/// to render an assistant contact card as the leading item of the group. The
+/// `profile` reuses the group's sender profile (so the avatar + display name
+/// stay consistent with what the surrounding `MessagesGroupView` already
+/// shows); `jobSummary` mirrors the latest `job_summary` metadata published
+/// by the assistant, or `nil` while it's still being learned.
+public struct AssistantContactCardInfo: Equatable, Hashable, Sendable {
+    public let profile: Profile
+    public let jobSummary: String?
+
+    public init(profile: Profile, jobSummary: String?) {
+        self.profile = profile
+        self.jobSummary = jobSummary
     }
 }
 

@@ -117,6 +117,14 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
     }
 
+    public func assistantBuilderSummaryWriter() -> any AssistantBuilderSummaryWriterProtocol {
+        AssistantBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
+    }
+
+    public func assistantBuilderSummaryRepository() -> any AssistantBuilderSummaryRepositoryProtocol {
+        AssistantBuilderSummaryRepository(databaseReader: Self.mockDatabase)
+    }
+
     // MARK: - Notifications
 
     public func notifyChangesInDatabase() {

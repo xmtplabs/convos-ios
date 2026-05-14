@@ -10,6 +10,14 @@ struct AssistantBuilderView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
     @State private var presentingDiscardConfirmation: Bool = false
+    /// Shared SwiftUI namespace used to morph the draft composer's rounded-
+    /// rect card into the post-commit summary cell. Threaded down to the
+    /// composer (same SwiftUI tree) and into the messages collection view's
+    /// summary cell via `CellConfig.assistantBuilderTransitionNamespace`.
+    /// Both ends apply `glassEffectID("assistantBuilderCard", in:) +
+    /// glassEffectTransition(.matchedGeometry)`, letting the OS-level glass
+    /// compositor handle the cross-tree geometry match.
+    @Namespace private var transitionNamespace: Namespace.ID
 
     private var indicatorPlaceholder: String? {
         viewModel.hasCommitted ? nil : "New Assistant"
@@ -55,7 +63,7 @@ struct AssistantBuilderView: View {
             focusCoordinator.horizontalSizeClass = horizontalSizeClass
         }
         .onDisappear {
-            if !viewModel.hasCommitted {
+            if !viewModel.hasCommitted && !viewModel.isCommitting {
                 viewModel.discard()
             }
         }
@@ -123,6 +131,7 @@ struct AssistantBuilderView: View {
                 messagesTextFieldEnabled: viewModel.newConversationViewModel.messagesTextFieldEnabled,
                 topBarTrailingHidden: !viewModel.hasCommitted,
                 headerMode: .hidden,
+                assistantBuilderTransitionNamespace: transitionNamespace,
                 bottomBarContent: { EmptyView() }
             )
         } else {
@@ -137,6 +146,7 @@ struct AssistantBuilderView: View {
             AssistantDraftComposer(
                 viewModel: viewModel,
                 focusState: focusState,
+                transitionNamespace: transitionNamespace,
                 onMakeTap: {
                     // Hand focus over to the chat's text field BEFORE
                     // collapsing the composer, so the keyboard stays up

@@ -173,6 +173,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
+                case .assistantBuilderSummary(let summary):
+                    AssistantBuilderSummaryView(
+                        summary: summary,
+                        transitionNamespace: config.assistantBuilderTransitionNamespace
+                    )
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+
                 case .typingIndicator:
                     EmptyView()
                 }

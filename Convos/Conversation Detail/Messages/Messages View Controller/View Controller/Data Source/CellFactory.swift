@@ -1,4 +1,5 @@
 import ConvosCore
+import SwiftUI
 import UIKit
 
 @MainActor
@@ -31,6 +32,12 @@ struct CellConfig {
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
     let headerMode: MessagesHeaderMode
+    /// Shared SwiftUI namespace used to morph the Assistant Builder's
+    /// composer card into the summary cell on Make via
+    /// `glassEffectID("assistantBuilderCard", in:) +
+    /// glassEffectTransition(.matchedGeometry)`. Nil when the messages list
+    /// isn't part of a builder commit (regular chats).
+    let assistantBuilderTransitionNamespace: Namespace.ID?
 }
 
 // swiftlint:disable force_cast

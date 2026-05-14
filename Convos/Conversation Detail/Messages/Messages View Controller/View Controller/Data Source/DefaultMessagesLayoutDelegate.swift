@@ -45,6 +45,9 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .connectionEvent:
                 return .estimated(CGSize(width: width, height: 48.0))
+            case .assistantBuilderSummary:
+                // Composer-card height plus "You created an assistant" footer.
+                return .estimated(CGSize(width: width, height: 320.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }

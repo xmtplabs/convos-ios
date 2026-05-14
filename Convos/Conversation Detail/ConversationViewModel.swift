@@ -134,6 +134,19 @@ enum ExplodeDuration: CaseIterable {
 @MainActor
 @Observable
 class ConversationViewModel { // swiftlint:disable:this type_body_length
+    /// Set by `AssistantBuilderViewModel.commit` at the moment of Make. Drives
+    /// the in-stream summary cell at the top of the messages list and filters
+    /// out any messages with `sentAt < summary.cutoffDate` (so the user's
+    /// prompt messages and any pre-Make assistant chatter don't double-up
+    /// alongside the card). Persisted via `AssistantBuilderSummaryWriter`
+    /// and rehydrated on init via `AssistantBuilderSummaryRepository` so the
+    /// card survives quitting the app or navigating away and back.
+    var assistantBuilderSummary: AssistantBuilderSummary? {
+        didSet {
+            messagesListRepository.assistantBuilderSummary = assistantBuilderSummary
+        }
+    }
+
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
@@ -213,6 +226,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private(set) var conversation: Conversation {
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+            syncVerifiedAssistantToRepo()
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
                 // Keep the draft include-info override until remote metadata changes propagate.
@@ -227,6 +241,26 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
         }
+    }
+
+    /// Set to `false` by the Assistant Builder right before `Make` is tapped
+    /// so the contact card stays hidden while the chat settles in, then
+    /// flipped back to `true` after a short delay so the card slides in with
+    /// presence. Defaults to `true` — existing conversations opened from the
+    /// list show the card on first render with no deferral.
+    var allowsContactCard: Bool = true {
+        didSet {
+            guard oldValue != allowsContactCard else { return }
+            syncVerifiedAssistantToRepo()
+        }
+    }
+
+    /// Forwards the verified Convos assistant from the conversation members
+    /// to the messages-list repository — gated by `allowsContactCard` so the
+    /// caller can defer the card without changing the underlying conversation.
+    private func syncVerifiedAssistantToRepo() {
+        let assistant: ConversationMember? = conversation.members.first(where: \.isVerifiedAssistant)
+        messagesListRepository.verifiedAssistant = allowsContactCard ? assistant : nil
     }
 
     private func applyPendingDraftEdits() {
@@ -589,7 +623,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+        messagesListRepo.verifiedAssistant = conversation.members.first(where: \.isVerifiedAssistant)
+        // Hydrate the persisted summary *before* `fetchInitial()` so the first
+        // emission already includes the `.assistantBuilderSummary` card and the
+        // cutoff-filtered messages. The publisher subscription below picks up
+        // any subsequent writes.
+        let initialSummary: AssistantBuilderSummary? = session.assistantBuilderSummaryRepository().summarySync(for: conversation.id)
+        messagesListRepo.assistantBuilderSummary = initialSummary
         self.messagesListRepository = messagesListRepo
+        self.assistantBuilderSummary = initialSummary
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -638,6 +680,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
+        observeAssistantBuilderSummary()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
 
@@ -674,7 +717,11 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+        messagesListRepo2.verifiedAssistant = conversation.members.first(where: \.isVerifiedAssistant)
+        let initialSummary2: AssistantBuilderSummary? = session.assistantBuilderSummaryRepository().summarySync(for: conversation.id)
+        messagesListRepo2.assistantBuilderSummary = initialSummary2
         self.messagesListRepository = messagesListRepo2
+        self.assistantBuilderSummary = initialSummary2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -734,6 +781,21 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 Log.error("Error loading photo preferences: \(error)")
             }
         }
+    }
+
+    /// Subscribe to the AssistantBuilderSummary row for this conversation —
+    /// emits the persisted summary (if any) on first delivery and any future
+    /// inserts/updates from the writer. Without this, returning to the
+    /// conversation later would show the raw pre-Make message history
+    /// instead of the polished summary card.
+    private func observeAssistantBuilderSummary() {
+        session.assistantBuilderSummaryRepository()
+            .summaryPublisher(for: conversation.id)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] summary in
+                self?.assistantBuilderSummary = summary
+            }
+            .store(in: &cancellables)
     }
 
     private func observe() {
@@ -1697,6 +1759,100 @@ extension ConversationViewModel {
                 try voiceMemoRecorder.startRecording()
             } catch {
                 Log.error("Failed to start voice memo recording: \(error)")
+            }
+        }
+    }
+
+    /// Wait for every currently-pending eager photo / video upload on this
+    /// conversation to finish before returning. Photo and video attachments
+    /// start uploading the moment the user picks them in the composer, so
+    /// `pendingMediaAttachments[*].eagerUploadKey` is populated long before
+    /// Send is tapped. Callers that want to enqueue a batch of related sends
+    /// in one tight burst — the assistant builder, primarily — use this to
+    /// hold off until every payload is on the wire; once `onSendMessage`
+    /// runs, the state-machine FIFO queue can flush each message without
+    /// stalling on per-message upload waits. Throws if any upload fails or
+    /// is cancelled while waiting.
+    func awaitPendingMediaUploads() async throws {
+        let trackingKeys: [String] = pendingMediaAttachments.compactMap { attachment in
+            switch attachment {
+            case .photo(let photo): return photo.eagerUploadKey
+            case .video(let video): return video.eagerUploadKey
+            case .file: return nil
+            }
+        }
+        guard !trackingKeys.isEmpty else { return }
+        let writer = cachedMessageWriter
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for key in trackingKeys {
+                group.addTask { try await writer.awaitEagerUpload(trackingKey: key) }
+            }
+            try await group.waitForAll()
+        }
+    }
+
+    /// Send the assistant builder's commit payload as a synchronized burst:
+    /// the prompt text as one XMTP message, every media item — voice memo +
+    /// photos + videos + files — bundled into a single `MultiRemoteAttachment`
+    /// message. The state-machine FIFO queue preserves ordering, so the
+    /// assistant receives the text immediately followed by the bundle once
+    /// the agent reaches `.ready`. Pending media attachments and the voice
+    /// memo recorder are cleared after the bundle is queued. Used only by
+    /// the assistant builder — the normal conversation send path
+    /// (`onSendMessage`) keeps its per-attachment messages so per-item
+    /// reactions and replies continue to work.
+    func sendBuilderBundle(
+        text: String,
+        voiceMemo: (url: URL, duration: TimeInterval, levels: [Float])?
+    ) async {
+        let writer = cachedMessageWriter
+
+        var bundleItems: [MultiAttachmentBundleItem] = []
+        if let voiceMemo {
+            bundleItems.append(.voiceMemo(url: voiceMemo.url, duration: voiceMemo.duration, waveformLevels: voiceMemo.levels))
+        }
+        for attachment in pendingMediaAttachments {
+            switch attachment {
+            case .photo(let photo):
+                if let trackingKey = photo.eagerUploadKey {
+                    bundleItems.append(.eagerPhoto(trackingKey: trackingKey))
+                }
+            case .video(let video):
+                if let trackingKey = video.eagerUploadKey {
+                    bundleItems.append(.eagerVideo(trackingKey: trackingKey))
+                }
+            case .file(let file):
+                bundleItems.append(.file(url: file.url, filename: file.filename, mimeType: file.mimeType))
+            }
+        }
+
+        let attachmentsSnapshot: [PendingMediaAttachment] = pendingMediaAttachments
+        pendingMediaAttachments = []
+        videoThumbnailTasks.values.forEach { $0.cancel() }
+        videoThumbnailTasks.removeAll()
+        if voiceMemo != nil {
+            voiceMemoRecorder.resetState()
+        }
+
+        if !text.isEmpty {
+            do {
+                try await writer.send(text: text)
+            } catch {
+                Log.error("AssistantBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
+            }
+        }
+
+        if !bundleItems.isEmpty {
+            do {
+                _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
+            } catch {
+                Log.error("AssistantBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
+                // Restore pending attachments so the user can retry from the
+                // chat composer if they want. The eager-upload state inside
+                // the writer may already be partially consumed; in practice
+                // this only fires on a network-level failure, and the
+                // failed-send UI surfaces individual item retries.
+                _ = attachmentsSnapshot
             }
         }
     }

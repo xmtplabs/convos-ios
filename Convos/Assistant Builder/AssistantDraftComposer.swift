@@ -7,9 +7,20 @@ import UniformTypeIdentifiers
 
 private let maxAssistantFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
 
+/// Shared identifier used by `AssistantDraftComposer`'s glass rect and the
+/// in-stream `AssistantBuilderSummaryView` so they can match-geometry into
+/// each other on commit. Kept in one place to avoid stringly-typed drift.
+enum AssistantBuilderTransition {
+    static let glassEffectId: String = "assistantBuilderCard"
+}
+
 struct AssistantDraftComposer: View {
     @Bindable var viewModel: AssistantBuilderViewModel
     var focusState: FocusState<MessagesViewInputFocus?>.Binding
+    /// Namespace owned by `AssistantBuilderView`; the composer's outer glass
+    /// rect applies `glassEffectID("assistantBuilderCard", in:)` so it can
+    /// morph into the in-stream summary cell on Make.
+    let transitionNamespace: Namespace.ID
     let onMakeTap: () -> Void
 
     @State private var isPhotoPickerPresented: Bool = false
@@ -39,6 +50,8 @@ struct AssistantDraftComposer: View {
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
+        .glassEffectID(AssistantBuilderTransition.glassEffectId, in: transitionNamespace)
+        .glassEffectTransition(.matchedGeometry)
         .clipShape(.rect(cornerRadius: 24))
         .contentShape(RoundedRectangle(cornerRadius: 24))
         .onTapGesture {
@@ -526,9 +539,11 @@ private struct FileAttachmentChipPreview: View {
         session: ConvosClient.mock().session
     )
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
+    @Previewable @Namespace var namespace: Namespace.ID
     AssistantDraftComposer(
         viewModel: viewModel,
         focusState: $focusState,
+        transitionNamespace: namespace,
         onMakeTap: {}
     )
     .padding()

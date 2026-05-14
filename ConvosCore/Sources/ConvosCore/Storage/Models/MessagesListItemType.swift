@@ -52,6 +52,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
     case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
+    case assistantBuilderSummary(AssistantBuilderSummary)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -74,6 +75,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "assistant-present-info"
         case .connectionEvent(let id, _, _):
             return "connection-event-\(id)"
+        case .assistantBuilderSummary(let summary):
+            return "assistant-builder-summary-\(summary.id.uuidString)"
         case .typingIndicator:
             return "typing-indicator"
         }
@@ -112,7 +115,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .assistantBuilderSummary, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -125,7 +128,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo:
+        case .invite, .conversationInfo, .assistantBuilderSummary:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -154,6 +157,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-assistantPresentInfo"
         case .connectionEvent:
             return "MessagesListItemTypeCell-connectionEvent"
+        case .assistantBuilderSummary:
+            return "MessagesListItemTypeCell-assistantBuilderSummary"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
         }
@@ -170,6 +175,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-assistantJoinStatus",
             "MessagesListItemTypeCell-assistantPresentInfo",
             "MessagesListItemTypeCell-connectionEvent",
+            "MessagesListItemTypeCell-assistantBuilderSummary",
             "TypingIndicatorCollectionCell",
         ]
     }

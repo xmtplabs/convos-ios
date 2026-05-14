@@ -44,6 +44,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
     func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository
+    func assistantBuilderSummaryWriter() -> any AssistantBuilderSummaryWriterProtocol
+    func assistantBuilderSummaryRepository() -> any AssistantBuilderSummaryRepositoryProtocol
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(

@@ -533,6 +533,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AssistantFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
     }
 
+    public func assistantBuilderSummaryWriter() -> any AssistantBuilderSummaryWriterProtocol {
+        AssistantBuilderSummaryWriter(databaseWriter: databaseWriter)
+    }
+
+    public func assistantBuilderSummaryRepository() -> any AssistantBuilderSummaryRepositoryProtocol {
+        AssistantBuilderSummaryRepository(databaseReader: databaseReader)
+    }
+
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }

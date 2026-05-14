@@ -239,6 +239,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
     }
 
+    public func awaitEagerUpload(trackingKey: String) async throws {
+        try await stateMachine.awaitEagerUpload(trackingKey: trackingKey)
+    }
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        try await stateMachine.sendMultiRemoteAttachment(items: items)
+    }
+
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
         try await stateMachine.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
     }
