@@ -172,24 +172,26 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("scopeGrantsToAgentInboxId", migrate: Self.scopeGrantsToAgentInboxId)
 
-        migrator.registerMigration("createAssistantBuilderSummary") { db in
-            // Snapshot of an Assistant Builder draft captured at the moment
-            // the user tapped Make. Replaces the user's prompt sends + any
-            // pre-Make assistant chatter with a single summary card at the
-            // top of the post-commit messages list. One row per conversation;
-            // cascade-deleted when the conversation is.
-            try db.create(table: "assistantBuilderSummary") { t in
-                t.column("conversationId", .text).notNull().primaryKey()
-                    .references("conversation", onDelete: .cascade)
-                t.column("summaryId", .text).notNull()
-                t.column("prompt", .text).notNull()
-                t.column("attachmentsJSON", .text).notNull()
-                t.column("createdAt", .datetime).notNull()
-                t.column("cutoffDate", .datetime).notNull()
-            }
-        }
+        migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAssistantBuilderSummary)
 
         return migrator
+    }
+
+    /// Snapshot of an Assistant Builder draft captured at the moment the user
+    /// tapped Make. Replaces the user's prompt sends + any pre-Make assistant
+    /// chatter with a single summary card at the top of the post-commit
+    /// messages list. One row per conversation; cascade-deleted when the
+    /// conversation is.
+    private static func createAssistantBuilderSummary(_ db: Database) throws {
+        try db.create(table: "assistantBuilderSummary") { t in
+            t.column("conversationId", .text).notNull().primaryKey()
+                .references("conversation", onDelete: .cascade)
+            t.column("summaryId", .text).notNull()
+            t.column("prompt", .text).notNull()
+            t.column("attachmentsJSON", .text).notNull()
+            t.column("createdAt", .datetime).notNull()
+            t.column("cutoffDate", .datetime).notNull()
+        }
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
