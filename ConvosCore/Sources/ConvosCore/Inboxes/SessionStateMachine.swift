@@ -1064,11 +1064,12 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                     let signing = BackendAuthSigningContext.make(from: identity.keys.privateKey)
                     apiClient.updateSIWESigningContext(signing)
                     Log.debug("Authenticating with backend via SIWE (address \(signing.address))...")
-                    _ = try await apiClient.authenticateWithSIWE(
+                    let token = try await apiClient.authenticateWithSIWE(
                         appCheckToken: appCheckToken,
                         signing: signing
                     )
-                    Log.info("Successfully authenticated with backend (SIWE)")
+                    let accountId = BackendAuthProbe.extractAccountId(from: token) ?? "?"
+                    Log.info("Successfully authenticated with backend (SIWE, address=\(signing.address), accountId=\(accountId))")
                 } else {
                     // No on-device identity yet: clear any stale signing
                     // context and fall back to the legacy device-only

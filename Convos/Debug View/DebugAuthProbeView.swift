@@ -12,10 +12,12 @@ struct DebugAuthProbeView: View {
     @State private var log: [LogLine] = []
     @State private var probeResult: BackendAuthProbe.Result?
     @State private var negativeProbePassed: Bool?
+    @State private var currentStatus: BackendAuthProbe.Status?
 
     var body: some View {
         ScrollViewReader { proxy in
             List {
+                currentStatusSection
                 actionsSection
                 resultSection
                 logSection(proxy: proxy)
@@ -23,6 +25,43 @@ struct DebugAuthProbeView: View {
         }
         .navigationTitle("SIWE Auth Probe")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await refreshStatus() }
+    }
+
+    @ViewBuilder
+    private var currentStatusSection: some View {
+        Section("Current SIWE State") {
+            if let status = currentStatus {
+                resultRow("Address", status.address ?? "(no identity)", monospaced: status.address != nil)
+                resultRow(
+                    "AccountId",
+                    status.accountId ?? "(none — not signed in via SIWE)",
+                    monospaced: status.accountId != nil,
+                    color: status.accountId == nil ? .secondary : .primary
+                )
+                if let issuedAt = status.issuedAt {
+                    resultRow("Issued At", iso8601(issuedAt))
+                }
+                if let exp = status.jwtExpiry {
+                    resultRow("Expires", iso8601(exp))
+                }
+                resultRow(
+                    "JWT valid",
+                    status.isJWTValid ? "yes" : "no",
+                    color: status.isJWTValid ? .green : .red
+                )
+            } else {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Reading keychain…").foregroundStyle(.secondary)
+                }
+            }
+            let refreshAction: () -> Void = { Task { await refreshStatus() } }
+            Button(action: refreshAction) {
+                Text("Refresh")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     @ViewBuilder
@@ -126,6 +165,14 @@ struct DebugAuthProbeView: View {
 
     // MARK: - Probe execution
 
+    private func refreshStatus() async {
+        let store = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+        currentStatus = await BackendAuthProbe.currentStatus(
+            environment: environment,
+            identityStore: store
+        )
+    }
+
     private func runProbe() async {
         isRunning = true
         defer { isRunning = false }
@@ -153,6 +200,7 @@ struct DebugAuthProbeView: View {
         } catch {
             appendLog("Probe failed: \(error)", .failure)
         }
+        await refreshStatus()
     }
 
     private func runNegativeProbe() async {

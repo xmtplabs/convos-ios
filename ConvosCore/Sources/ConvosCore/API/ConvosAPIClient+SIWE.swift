@@ -100,7 +100,16 @@ extension ConvosAPIClient {
         }
 
         try keychainService.saveString(token, account: slot)
-        Log.info("Stored SIWE JWT under address-scoped slot")
+        // Persist accountId in its own slot so the UI / debug tools
+        // can show it even when the JWT has expired and hasn't been
+        // refreshed yet. JWT remains the source of truth for the
+        // network identity check; this slot is a UX cache.
+        let accountId = BackendAuthProbe.extractAccountId(from: token)
+        if let accountId {
+            let accountSlot = KeychainAccount.siweAccountId(deviceId: deviceId, address: signing.address)
+            try? keychainService.saveString(accountId, account: accountSlot)
+        }
+        Log.info("Stored SIWE JWT under address-scoped slot (accountId=\(accountId ?? "?"))")
         return token
     }
 

@@ -120,6 +120,93 @@ public enum BackendAuthProbe {
         )
     }
 
+    /// Snapshot of the SIWE auth state on this device, read directly
+    /// from Keychain without hitting the network. The JWT is the
+    /// single source of truth for accountId — we deliberately don't
+    /// shadow it in a separate slot.
+    public struct Status: Sendable {
+        public let address: String?    // checksummed EIP-55 form, nil if no identity
+        public let jwt: String?        // SIWE JWT in keychain for this address
+        public let accountId: String?  // decoded from JWT
+        public let issuedAt: Date?
+        public let jwtExpiry: Date?
+        public let isJWTValid: Bool    // true iff JWT present, structurally valid, exp > now+60s
+
+        public init(
+            address: String?,
+            jwt: String?,
+            accountId: String?,
+            issuedAt: Date?,
+            jwtExpiry: Date?,
+            isJWTValid: Bool
+        ) {
+            self.address = address
+            self.jwt = jwt
+            self.accountId = accountId
+            self.issuedAt = issuedAt
+            self.jwtExpiry = jwtExpiry
+            self.isJWTValid = isJWTValid
+        }
+    }
+
+    /// Reads the current SIWE auth state from Keychain. No network.
+    /// Suitable for surfacing in debug UI / logs.
+    public static func currentStatus(
+        environment _: AppEnvironment,
+        identityStore: any KeychainIdentityStoreProtocol
+    ) async -> Status {
+        let keychain = KeychainService()
+        let deviceId = DeviceInfo.deviceIdentifier
+
+        let identity: KeychainIdentity?
+        identity = try? await identityStore.load()
+        guard let identity else {
+            return Status(address: nil, jwt: nil, accountId: nil, issuedAt: nil, jwtExpiry: nil, isJWTValid: false)
+        }
+
+        let address = EthereumAddress.toChecksummed(identity.keys.privateKey.identity.identifier)
+        let jwtSlot = KeychainAccount.siweJwt(deviceId: deviceId, address: address)
+        let accountSlot = KeychainAccount.siweAccountId(deviceId: deviceId, address: address)
+        let jwt = (try? keychain.retrieveString(account: jwtSlot)).flatMap { $0.isEmpty ? nil : $0 }
+        let cachedAccountId = (try? keychain.retrieveString(account: accountSlot)).flatMap { $0.isEmpty ? nil : $0 }
+
+        guard let jwt else {
+            // No JWT but we may still know who they are from the
+            // cached accountId slot — useful right after JWT expiry.
+            return Status(
+                address: address,
+                jwt: nil,
+                accountId: cachedAccountId,
+                issuedAt: nil,
+                jwtExpiry: nil,
+                isJWTValid: false
+            )
+        }
+
+        let claims = decodeJWTClaims(jwt)
+        let accountId = (claims?["accountId"] as? String) ?? cachedAccountId
+        let issuedAt: Date? = (claims?["iat"] as? TimeInterval).map { Date(timeIntervalSince1970: $0) }
+        let expiry: Date? = (claims?["exp"] as? TimeInterval).map { Date(timeIntervalSince1970: $0) }
+        let isValid = expiry.map { $0 > Date().addingTimeInterval(60) } ?? false
+
+        return Status(
+            address: address,
+            jwt: jwt,
+            accountId: accountId,
+            issuedAt: issuedAt,
+            jwtExpiry: expiry,
+            isJWTValid: isValid
+        )
+    }
+
+    /// Extracts the `accountId` claim from a SIWE JWT, or nil if the
+    /// token is malformed / device-only / NSE-flavoured. Used by call
+    /// sites that want to log the accountId without duplicating the
+    /// base64url+JSON decode.
+    public static func extractAccountId(from jwt: String) -> String? {
+        decodeJWTClaims(jwt)?["accountId"] as? String
+    }
+
     /// Negative-case probe: hits `/v2/account-auth-check` with no token
     /// and reports whether the backend rejected (the expected outcome).
     public static func probeWithoutAuth(environment: AppEnvironment) async -> Bool {

@@ -30,4 +30,14 @@ enum KeychainAccount {
     static func siweJwt(deviceId: String, address: String) -> String {
         return "jwt:\(deviceId):siwe:\(address.lowercased())"
     }
+
+    /// Account for storing the backend-assigned `accountId` for this
+    /// (deviceId, address). The JWT also carries this claim, but the
+    /// JWT expires every 15 minutes — this slot persists across
+    /// expiries so the UI can keep showing "signed in as <accountId>"
+    /// without re-authing, and so debug tooling can surface it even
+    /// when the SIWE JWT is gone or stale.
+    static func siweAccountId(deviceId: String, address: String) -> String {
+        return "accountId:\(deviceId):siwe:\(address.lowercased())"
+    }
 }
