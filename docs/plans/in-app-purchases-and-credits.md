@@ -1,9 +1,44 @@
 # In-App Purchases & Credits
 
-**Status:** PRD draft — pending eng/design review.
+**Status:** PRD draft — revised 2026-05-14 per team feedback (see Revision history). Pending eng/design re-review.
 **Owner:** TBD.
-**Date:** 2026-05-12.
+**Date:** 2026-05-12 (initial draft), 2026-05-14 (Shane-direction revision).
 **Single-file scope:** Both the iOS (Convos) and backend (convos-backend, convos-assistants) plans live here so the economic model, schema, and UI stay in one place.
+
+---
+
+## Revision history
+
+A round of team feedback (Slack thread in #convos-proj-credits) on the initial draft and the first paywall implementation reset several product-direction calls. Specifically:
+
+- **"Credits" is meaningless** to users on its own — Suno's "600 songs" is concrete and aspirational; opaque token counts aren't. Our tasks are variable so we can't promise exact counts, but plan copy and surfaces need to lean toward outcomes.
+- **Kill the model-tier distinction.** "Standard model on every reply" vs "Standard + premium model access" is the wrong product axis. Better models → better experience → more credits used → more retention. Any plan can use any model.
+- **Slow-mode is an internal behavior, not a user-facing feature.** No bullets, no footers, no copy explaining it. Hide complexity; do the work behind the scenes.
+- **Outcome over inputs.** Apple's "1,000 songs in your pocket" precedent. Benchmark plans by enticing operations ("plan 5 vacations", "book 20 concerts") not by token counts.
+- **Builder incentives are the most important early lever.** Don't repeat the Meetup mistake of charging the people who drive growth. Subsidize builders heavily — give them more credits for publishing agents, inviting users, and getting their agents used.
+- **Per-agent/role pricing is a future possibility** (Kai body tutor at $399/mo precedent; "agents as contacts" makes this structurally available). Not v1.
+- **Tagline candidate:** "Unlimited agents. Pay for usage."
+
+What this changes in the PRD:
+
+| Area | Status |
+| ---- | ------ |
+| Section 3 decisions table | Updated — model-tier framing struck; slow-mode reclassified as internal |
+| Section 5.6 Release valve | Updated — slow-mode is internal-only; no user-facing copy mentions it |
+| New §5.9 Framing principle | Added — outcomes-over-tokens thesis as the load-bearing copy/UX rule |
+| Frame 5 Contact out-of-credits | Updated — matches what shipped (no "slower model" copy) |
+| Frame 6 Settings | Updated — matches what shipped |
+| Frame 7 Paywall | Updated — no model-tier bullets, "agents" not "assistants", outcome-anchored bullets |
+| Section 12 open questions | Added Group F — builder incentives |
+
+What this does **not** change:
+
+- Builder + Pro × Monthly + Annual = 4 SKUs in one subscription group (the plan **structure** is still right; it's the **value props** that shifted).
+- Virtual-currency abstraction (`CreditLedger`, env-var-tunable rates, OpenRouter cost capture).
+- Backend schema, Apple flow, App Store Server Notifications wiring.
+- Phased rollout (Phases 0–8).
+
+The economic model, ledger schema, and StoreKit wiring are all still load-bearing. The shift is in **how we talk to users** and **who we incentivize**.
 
 ---
 
@@ -41,9 +76,10 @@ Operationally, we can:
 | Decision | Choice | Rationale |
 | -------- | ------ | --------- |
 | Vendor | **Build ourselves.** | Account model + ledger schema already in `convos-backend` (PR 194 + PR 191). RC's high-value features (paywall A/B, MMP attribution, retention analytics) don't change unit economics for us. 1% of MTR is cheap on day 1 but a fixed tax forever. |
-| Products | **Builder + Pro × Monthly + Annual** = 4 SKUs in one subscription group. | Matches the design. Annual is the upsell paywall lever. Single group → Apple handles up/down/cross-grade proration. |
-| Release valve | **Slow-mode + upsell** when balance hits 0. | Agent silently routes to a cheap fallback model and contact sheet shows OUT-OF-CREDITS upgrade CTA. Top-up SKUs deferred. |
-| Free tier | **7-day trial: 500 credits, slow model after expiry.** | Single `GrantKind { id: 'trial_2026_05', expiresAfterDays: 7 }` row. Easy to A/B (issue new GrantKind monthly). |
+| Products | **Builder + Pro × Monthly + Annual** = 4 SKUs in one subscription group. | Matches the design. Annual is the upsell paywall lever. Single group → Apple handles up/down/cross-grade proration. Both tiers can use any model — see §5.9. |
+| Plan differentiation | **Credit allotment + outcome benchmarks only — no model gating.** | (Revised — see Revision history.) "Standard model on every reply" vs "Premium model access" is the wrong axis. Better models → better experience → more retention. Pro tier still gets more credits, annual still discounts; we just don't restrict which model a user can route to. |
+| Release valve | **Internal slow-mode + out-of-credits upsell.** | (Revised — see Revision history.) When balance hits 0 Hermes silently routes to a cheaper fallback model. **Slow-mode is never named in user-facing copy** — the contact sheet just says "out of credits" with an Upgrade CTA. Top-up SKUs deferred. See §5.6. |
+| Free tier | **7-day trial: 500 credits; account stays usable on internal fallback after expiry.** | Single `GrantKind { id: 'trial_2026_05', expiresAfterDays: 7 }` row. Easy to A/B (issue new GrantKind monthly). |
 | Admin UI | **New `admin/` app in convos-backend.** | Source-of-truth coupling. Operator-only auth. Talks to backend Prisma directly. Decouples from public `convos-assistants/dashboard`. |
 | Credit abstraction | **Virtual currency**, per RC pattern. | Implemented in PR 191's ledger module. `CreditLedger` records per-row rates so we can change them monthly without rewriting history. |
 | Pricing configuration | **Env vars** (per PR 191). | Borja's preference for v1; tuning UI is a v1.1 concern once we have real usage data. |
@@ -147,10 +183,14 @@ The daily cron grant is mentioned in Borja's design thread but its parameters (a
 
 ### 5.6 Release valve policy
 
-Balance hits 0 (or falls below `PAYMENTS_MIN_BALANCE_CREDITS` if set) → Hermes routes next turn to slow-mode model. Slow-mode requests deduct 0 credits (option A above). Two UI affordances drive upgrades:
+Balance hits 0 (or falls below `PAYMENTS_MIN_BALANCE_CREDITS` if set) → Hermes routes next turn to a cheaper internal fallback model. Fallback requests deduct 0 credits (option A above).
 
-1. **In-conversation**: a small low-balance pip on the agent avatar (yellow ≤20%, red at 0). At 0 balance, every message includes a footer hint: *"This agent is using a slower model. Upgrade to keep them sharp →"* (button → paywall).
-2. **Contact sheet**: when `balance == 0`, the credits pill shows "Out of credits" with red accent, and a primary **Upgrade plan** button replaces the usage chart's primary CTA. (The "TOP UP" button **does not work in v1** — hidden, since a disabled button below an Upgrade CTA is worse UX than no button at all.)
+**Important framing rule (revised — see Revision history):** the fallback mechanism is **never named or surfaced to the user**. No footer hints, no "slower model" copy, no per-message warnings. The product just keeps working at a lower internal cost while we drive an upgrade. Two UI affordances handle the upsell — both are about the **balance**, not the mode:
+
+1. **In-conversation low-balance banner** (account-level, since credits are account-level — not per-agent): when balance is low or 0, a banner pinned above the messages list reads *"⚠ 180 credits left"* or *"⛔ You're out of credits"*, with a single Upgrade CTA. No mention of model routing.
+2. **Contact sheet out-of-credits section** (agent contact only): when `balance == 0`, an "Out of credits — your agents are paused until you upgrade or top up" section appears at the top of the agent detail, with an Upgrade CTA. (The "Top up" button is **hidden in v1** — gating consumable IAP to v1.1.)
+
+Internal-only operational concerns about the fallback (which model, eligibility, idempotency of $0 ledger rows, observability) live in §6.5 — they're a backend-and-Hermes concern, not a user-facing one.
 
 #### 5.6.1 Owner-pays semantics
 
@@ -161,9 +201,9 @@ UI implications:
 | Surface | Owner's view | Non-owner's view |
 |---|---|---|
 | Frame 1 (HOME credits pill) | shown — their balance | shown — their balance, unaffected by other people's agents |
-| Frame 2 (agent low-balance pip) | shown — yellow/red signals "you need to top up" | shown — same yellow/red signals "this agent's owner may slow it down" |
+| Frame 2 (convo low-balance banner) | shown — account-level banner above the messages list | shown only if the non-owner's own balance is low (banner reads their own state) |
 | Frame 4 (contact sheet, healthy) | full chart + balance + "Manage" CTA | agent info + small "Operated by {owner}" line, no balance, no upgrade CTA |
-| Frame 5 (contact sheet, out of credits) | full chart + "Out of credits" + **Upgrade plan** CTA | "This agent's owner is out of credits — it's currently in slow mode." No upgrade CTA (we can't sell a sub on someone else's behalf). |
+| Frame 5 (contact sheet, out of credits) | full chart + "Out of credits" + **Upgrade** CTA | "This agent's owner is out of credits." No upgrade CTA (we can't sell a sub on someone else's behalf). Do **not** say "slow mode". |
 
 Frame 3 ("CONVO future / group balance, multi-user funding") is **out of v1 scope**.
 
@@ -202,6 +242,28 @@ The natural question: why not just grant "X USD of token credits"? Three reasons
 1. **Apple's 30% (or 15%) cut + VAT** means $9.99 ≠ $9.99 to us. Granting $8 of tokens at $6 net = guaranteed losses.
 2. **Model cost variability** is severe. Gemini Flash is ~50× cheaper than Claude Opus. A "$8 USD wallet" lets a sophisticated user route everything to expensive models. The virtual currency abstraction lets us multiply expensive-model costs (per env-var multiplier in a future version) without users having to think about it.
 3. **Headline-friendliness.** "1,500 credits / month" anchors better than "$1.50 of AI" or "300K Gemini tokens / 50K Claude tokens." The unit is opaque and aspirational.
+
+### 5.9 Framing principle — outcomes over tokens
+
+This section captures the load-bearing copy/UX rule for every user-facing credits surface. It's downstream of the team feedback in the Revision history.
+
+**The thesis.** Apple sold the iPod as *"1,000 songs in your pocket"*, not as *"5 GB of storage"*. The category shifted before competitors noticed. Convos's plans should anchor on **outcomes** ("Plan ~5 trips", "Run a daily agent for a month", "Power a team of agents") rather than **inputs** ("X credits", "Y tokens", "Z messages"). Token counts mean nothing to most users; outcomes are concrete and aspirational.
+
+**The friction.** Our tasks are unboundedly variable. We cannot honestly promise "X songs" — a sophisticated user will route an expensive model at a long-context task and burn credits 50× faster than a casual user planning a weekend trip. The fix is **benchmarked guidance**, not exact counts:
+
+- Plan bullets describe *what a typical user can plausibly do* with the allotment, not a guarantee.
+- Numbers are soft ("~5 trips", not "5 trips") to set expectations.
+- We supplement with a runway estimate on the contact sheet (*"Based on your average prompt, you'll run out in X prompts"* — Borja's `/payments/stats`-style endpoint) once it lands, so users with atypical usage see a real signal, not a marketing one.
+
+**Rules of thumb for every credits surface.**
+
+1. **Never expose tokens.** Tokens are an implementation detail. If a future surface needs a granular count, it's "credits", not "tokens".
+2. **Never expose the fallback / slow-mode mechanism by name.** That's §5.6. The product simply keeps working at a lower internal cost while we drive an upgrade.
+3. **Outcome examples beat raw counts on the paywall and NUX.** Outcome examples should never appear in operational/account UI (Settings → Subscription, runway estimate). Those need real numbers; outcomes belong in marketing/onboarding surfaces.
+4. **Don't train users to avoid expensive operations.** The per-agent usage breakdown is a transparency feature, not a budgeting feature. We want users pushing the edges (so we learn to make those operations cheaper); we do NOT want them learning to avoid browsing because today it costs more.
+5. **Spacing & visual rhythm.** The paywall ships at 24pt between sections and 12pt between cards; bullets render in one flat VStack with 8pt spacing. The Subscribe button keeps a stable height across idle/in-flight states (Text label always present, spinner in `.overlay`). These are not arbitrary — they're the difference between a paywall that reads cleanly and one that feels noisy.
+
+**The longer-horizon shift (out of v1 scope, captured here for traceability).** A team thread floated **per-agent / per-role pricing** as the eventual end state — anchored on the observation that a $399/mo body-tutor app is a viable business when the customer perceives the agent as labor producing outcomes, not as a tool consuming tokens. "Agents as contacts" makes this structurally available: each role could carry its own price tag. v1 keeps the simple Builder / Pro tier model; per-role pricing is something to revisit once we have real outcome data.
 
 ---
 
@@ -438,39 +500,29 @@ States:
 
 **ViewModel:** new `CreditsBalanceViewModel` (@Observable). Reads from new `CreditsRepository` (mirrors `MyProfileRepository` pattern; observes DB via GRDB watch). Periodic refresh: every 60s + on app foreground + on push receipt.
 
-### Frame 2 — CONVO v1 (per-agent low-balance indicator)
+### Frame 2 — Conversation low-balance banner (account-level)
 
-**Files to modify:**
-- `Convos/Conversation Detail/ConversationMemberView.swift` (agent row in the conversation list/header)
-- `Convos/Conversation Detail/Messages/MessagesListView/MessagesGroupView.swift` (already has `isOutOfCredits` logic via `profile.isOutOfCredits` — extend to handle low and out states distinctly)
+Shipped in `Convos/Subscription/LowBalanceBanner.swift`, wired into `Convos/Conversation Detail/ConversationView.swift` via a `VStack(spacing: 0) { LowBalanceBanner(); messagesView }` wrapper inside the `messagesPage` closure of `ConversationPager`. Pinned at the top of the messages page; pushes messages down rather than overlapping them.
 
-**Component to add:** `AgentCreditPipView` — a tiny pip overlay on the agent avatar (bottom-right corner, similar to a presence dot).
+**Key product call (clarified post-initial-draft):** credits are **account-level, not per-agent**. A low balance affects every agent at once. So the banner reads the account balance once, not per-agent — and "out of credits" applies globally, never to a single agent in isolation.
 
-```
-ZStack(alignment: .bottomTrailing) {
-  AvatarView(agent)
-  Circle().fill(pipColor).frame(width: 10, height: 10)
-    .overlay(Circle().stroke(.background, lineWidth: 2))
-}
-```
+**States** (from `CreditBalance`):
 
-`pipColor`:
-- agent balance ≤ 20% → amber
-- agent balance == 0 (slow-mode) → red
-- agent balance > 20% → no pip (omit Circle)
+- `isLow` (balance > 0 and ≤ 20% of grant): amber-tinted banner reading e.g. *"⚠ 180 credits left"*, with an **Upgrade** CTA on the right.
+- `isDepleted` (balance ≤ 0): red-tinted banner reading *"⛔ You're out of credits"*, same Upgrade CTA.
+- Otherwise: banner returns `EmptyView()` and adds zero height to the layout.
 
-When a message bubble's agent is in slow-mode, append a footer to the bubble:
-```
-HStack(spacing: 4) {
-  Image(systemName: "tortoise.fill").imageScale(.small)
-  Text("Slow mode • Upgrade")
-}
-.font(.caption2)
-.foregroundStyle(.secondary)
-.onTapGesture { presentPaywall = true }
-```
+**What is intentionally not in the banner:**
 
-Pip is visible to **everyone** in the conversation; the tap-target opens the contact sheet (which itself branches owner vs non-owner per §5.6.1).
+- **No "Top up" button.** The sketch shows it; v1 hides it ("fut" in the sketch — consumable IAP is v1.1).
+- **No reference to slow-mode / fallback model.** Per §5.6, the fallback mechanism is never named in user-facing copy. The banner is purely about the **balance**.
+- **No per-agent pip on the avatar.** That was a holdover from the initial draft, which assumed per-agent balances. With account-level credits, a per-avatar pip would either always-on-for-every-agent (visual noise) or always-off-when-low (which contradicts the truth), so we don't ship it.
+
+**Tap target:** the Upgrade button presents the same `PaywallView` sheet used everywhere else. Reads from `MockCreditsService.shared.balancePublisher` today; swap for the real service post-StoreKit wiring.
+
+**Gating:** non-production only, parity with HOME pill / Settings row / contact out-of-credits section.
+
+**Operated-by-someone-else case (post-§5.6.1 ownership rollout):** a non-owner sees their **own** balance state in the banner, not the conversation owner's. They never see "this conversation's owner is out of credits" as a banner — that signal lives on the agent contact sheet (Frame 5) and only when they open it.
 
 ### Frame 3 — CONVO future (group balance)
 
@@ -520,139 +572,76 @@ VStack(spacing: 24) {
 
 ### Frame 5 — CONTACT sheet, out-of-credits state
 
-Same view as frame 4. State swap inside `AgentContactActionsView` (owner-only path):
+Shipped in `Convos/Conversation Detail/ConversationMemberView.swift`. An `outOfCreditsSection` renders at the top of the agent member detail (above the agent-specific sections) when:
 
-```
-if state.balance == 0 {
-  VStack(spacing: 12) {
-    Label("Out of credits", systemImage: "exclamationmark.triangle.fill")
-      .foregroundStyle(.red)
-      .font(.headline)
+- `member.isAgent` (the credits surface only makes sense on agent contacts), AND
+- the account-level credit balance is depleted (`CreditBalance.isDepleted`), AND
+- the build is non-production (gating-flag parity with other credits surfaces).
 
-    Text("This agent is using a slower model. Upgrade to keep them sharp.")
-      .multilineTextAlignment(.center)
-      .font(.subheadline)
-      .foregroundStyle(.secondary)
+Section contents:
 
-    Button(action: openPaywall) {
-      Text("Upgrade plan").frame(maxWidth: .infinity)
-    }
-    .buttonStyle(.borderedProminent)
-    .controlSize(.large)
-  }
-} else if state.balance < 0.2 * state.monthlyGrant {
-  // Low: amber banner + upgrade CTA, but keep chart
-} else {
-  // Healthy: no extra CTA
-}
-```
+- A header row with an `exclamationmark.octagon.fill` glyph, `"Out of credits"` (semibold), and a one-line explanation: *"Your agents are paused until you upgrade or top up."*
+- An **Upgrade** button (red, leading-aligned) that presents the existing paywall sheet (`PaywallView` + `PaywallViewModel(subscriptionService: MockSubscriptionService.shared)` — swap for real `SubscriptionService` once StoreKit lands).
 
-For **non-owners** in the depleted state, the sheet shows a passive note: *"This agent's owner is out of credits — it's currently in slow mode."* No upgrade CTA (we can't sell a subscription on someone else's behalf).
+Explicit non-content (per §5.6 framing rule):
 
-The "TOP UP" button is hidden in v1 (gating consumable IAP to v1.1).
+- **No mention of "slow mode" or "slower model" anywhere.** The product just states the upgrade ask.
+- **No "Top up" button in v1** — the sketch's TOP-UP CTA is deferred to v1.1 with consumable SKUs.
+
+For **non-owners** in the depleted state (post-§5.6.1 ownership rollout), the section shows a passive note: *"This agent's owner is out of credits."* No upgrade CTA (we can't sell a subscription on someone else's behalf) and, again, no "slow mode" copy.
+
+The low-balance pre-zero state is covered by the in-conversation banner (Frame 2), not the contact sheet — the contact sheet stays calm until balance actually hits zero.
 
 ### Frame 6 — SETTINGS (subscription row)
 
-**File:** `Convos/App Settings/AppSettingsView.swift`. Add a new section between `assistantsSection` (line ~143) and `connectionsSection`:
+Shipped. A `subscriptionSection` in `Convos/App Settings/AppSettingsView.swift` sits between `connectionsSection` and `customizeSection`, gated to non-production. The row title is **"Subscription"** with a trailing live credit count (e.g. *"1,400 credits"*) read from `MockCreditsService.shared.balancePublisher` via `.onReceive` on the enclosing `List`. The row navigates to a new detail view.
 
-```swift
-private var subscriptionSection: some View {
-    Section {
-        NavigationLink(destination: SubscriptionDetailView()) {
-            HStack {
-                Image(systemName: "sparkles")
-                VStack(alignment: .leading) {
-                    Text("My subscription").font(.body)
-                    Text("\(balance) remaining / \(monthlyGrant) per month")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-}
-```
+**New view:** `Convos/Subscription/SubscriptionSettingsView.swift`. List-based, sections from top to bottom:
 
-New view: `Convos/App Settings/Subscription/SubscriptionDetailView.swift`. Shows:
-- Current plan (Builder Monthly / Pro Annual / etc.) + renewal date
-- Credit balance + monthly grant + remaining-period gauge
-- Usage breakdown chart (last 30 days, byAgent)
-- Buttons:
-  - **Change plan** → opens `PaywallView` with "currentTier" highlighted
-  - **Manage on App Store** → opens `https://apps.apple.com/account/subscriptions` via `Environment(\.openURL)`
-  - **Restore purchases** → calls `AppStore.sync()` then re-verifies on backend
+1. **Status** — single row: plan title (e.g. *"Builder plan"*, *"Builder trial"*, or *"Free plan"*) on top, status subtitle below (*"Monthly · Renews May 28, 2026"*, *"Monthly · Trial ends in 4 days"*, *"Subscribe to power your agents"*).
+2. **Balance** — *"Credits remaining"* on the left, `balance / monthlyGrant` on the right (monospaced digit). Footer: *"Refreshes May 28, 2026"*. Only rendered when a balance is available.
+3. **Actions** —
+   - Single red button: **Subscribe** when no active subscription, **Change plan** otherwise. Presents the same `PaywallView` sheet used elsewhere.
+   - When a subscription is active: secondary **Manage in App Store** button opening `https://apps.apple.com/account/subscriptions` via `Environment(\.openURL)`.
+
+Per-agent **usage chart** (last 30 days, byAgent) is deferred — it's the third unbuilt sketch piece. When it lands it'll live on the agent contact sheet (Frame 4), not in Settings.
+
+Real-StoreKit notes (for the v1 wiring pass that happens after this PRD revision):
+
+- `Restore purchases` lives on the paywall today (`PaywallViewModel.restoreTapped`); we may also surface it inside the Settings detail once we switch to a real `SubscriptionService` — minor.
+- The "Manage in App Store" link is a deep link, not a StoreKit call, so it's already production-ready.
 
 ### Frame 7 — SUBSCRIBE / paywall (Monthly / Annual toggle, Builder / Pro tiles)
 
-**New file:** `Convos/Subscription/PaywallView.swift`.
+Shipped in `Convos/Subscription/PaywallView.swift`, `TierCard.swift`, and `SubscriptionCopy.swift`. Native SwiftUI (no third-party paywall library).
 
-Layout (using SwiftUI native, NOT a 3rd-party paywall lib):
-```
-ScrollView {
-  VStack(spacing: 32) {
-    // Hero
-    VStack(spacing: 12) {
-      Image(systemName: "sparkles").font(.system(size: 64))
-      Text("Power your agents").font(.largeTitle.bold())
-      Text("Subscribe to keep your assistants sharp.")
-        .multilineTextAlignment(.center).foregroundStyle(.secondary)
-    }
+**Hero copy.**
 
-    // Monthly / Annual toggle
-    Picker("Period", selection: $period) {
-      Text("Monthly").tag(SubscriptionPeriod.monthly)
-      Text("Annual").tag(SubscriptionPeriod.annual)
-    }
-    .pickerStyle(.segmented)
-    .padding(.horizontal)
+- Title: **"Power your agents"** — note "agents", not "assistants". The team's product language uses "agents".
+- Subtitle: *"Subscribe to keep your agents working for you."*
+- Eyebrow: *"Subscription"*.
 
-    // Tier cards
-    VStack(spacing: 16) {
-      TierCard(tier: .builder, period: period, isCurrent: viewModel.currentTier == .builder, products: viewModel.products)
-      TierCard(tier: .pro, period: period, isCurrent: viewModel.currentTier == .pro, products: viewModel.products)
-    }
-    .padding(.horizontal)
+**Layout** (top to bottom, with `step6x` (24pt) section spacing and `step3x` (12pt) between cards — see §5.9 for the spacing rationale):
 
-    // Legal
-    HStack(spacing: 24) {
-      Link("Terms", destination: termsURL)
-      Link("Privacy", destination: privacyURL)
-      Button("Restore", action: viewModel.restore)
-    }
-    .font(.caption)
-    .foregroundStyle(.secondary)
-  }
-}
-.padding(.vertical, 32)
-```
+1. Hero block (eyebrow + title + subtitle, `step3x` internal spacing).
+2. Segmented Monthly / Annual picker.
+3. Tier stack — two `TierCard`s, one per tier, current tier outlined in `.colorRed`.
+4. Legal row — Terms / Privacy / Restore (text button) + a small auto-renewal disclaimer.
 
-`TierCard` (per tier):
-```
-VStack(alignment: .leading, spacing: 12) {
-  HStack {
-    Text(tier.displayName).font(.title3.bold())
-    Spacer()
-    Text(price).font(.title3.weight(.medium))
-  }
-  Text(perMonthCaption).font(.caption).foregroundStyle(.secondary)
-  Divider()
-  ForEach(tier.bulletPoints) { bullet in
-    HStack(alignment: .top) {
-      Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-      Text(bullet)
-    }
-  }
-  Button(action: purchase) { Text(ctaText).frame(maxWidth: .infinity) }
-    .buttonStyle(.borderedProminent)
-    .controlSize(.large)
-    .disabled(viewModel.purchasing)
-}
-.padding(16)
-.background(RoundedRectangle(cornerRadius: 16).fill(.thinMaterial))
-.overlay(
-  RoundedRectangle(cornerRadius: 16)
-    .stroke(isCurrent ? .accentColor : .clear, lineWidth: 2)
-)
-```
+**Tier card content** (all bullets in one VStack with uniform `step2x` (8pt) spacing — see §5.9 on even rhythm):
+
+- Header row: tier name + price (and per-month caption when present).
+- A subhead line — *"Enough credits each month to:"* — sourced from `SubscriptionCopy.outcomeIntro`.
+- A flat list of bullet rows (one VStack, one spacing value) sourced from `SubscriptionCopy.bullets(for:)`. Builder example: *"Plan ~5 trips"*, *"Run a daily agent for a month"*. Pro adds *"Power a team of agents"* and *"Priority support"*.
+- For non-current tiers: a primary **Subscribe** button at the bottom. The label stays `Text("Subscribe")` to lock the layout; the purchase spinner sits in `.overlay` (with `controlSize(.small)`) so the button never resizes between idle and in-flight states.
+
+**What is intentionally NOT on the paywall** (per §5.9):
+
+- No "Standard model on every reply" / "Premium model access" / "Use any model" bullets — model gating is not the product axis.
+- No "Free slow-mode when credits run low" — slow-mode is internal-only (§5.6).
+- No per-message token counts.
+
+**ViewModel** (unchanged from initial draft): `PaywallViewModel`. Loads products via `Product.products(for: ProductIDs.all)`, maps to tiers, handles purchase / restore / error states. Today injected with `MockSubscriptionService`; swap to the real `SubscriptionService` once the StoreKit + backend wiring lands.
 
 **ViewModel:** `PaywallViewModel`.
 - Loads products via `Product.products(for: ProductIDs.all)` (StoreKit 2).
@@ -1204,6 +1193,20 @@ These don't block iOS implementation start — mock services, StoreKit Configura
 | E1 | Tuning UI for `PAYMENTS_MARKUP_RATE` / `PAYMENTS_CREDITS_PER_USD` — env-var only for v1 (Borja agrees), then build UI in v1.1 once we have >100 active subs? | ops + Borja |
 | E2 | Admin app scope — narrow (manual grant/refund + account lookup + ledger view) or broad (Apple refunds, policy editor)? | ops |
 | E3 | Reconciliation report cadence — daily or weekly? | ops |
+
+### Group F — Builder incentives *(flagged as "most important early lever" in the team thread)*
+
+The thesis from the Revision-history team thread: the Meetup precedent — charging the people who drive growth — is a category mistake. Builders publishing agents and inviting users are doing the growth work; the early monetization needs to come from consumer subscribers while we **subsidize the builders**. The shape is open, but the direction is decided. Captured as open product questions so the implementation pass doesn't ship without a position.
+
+| # | Question | Owner |
+|---|---|---|
+| F1 | What counts as a "builder"? (a) Any account that publishes an agent; (b) account with ≥N published agents; (c) account whose agents have ≥M cumulative invocations by non-owners. Eligibility gate matters because it determines the abuse surface. | PM + Borja |
+| F2 | What credit-earning events should grant credits to builders? Candidate menu: (a) publishing a new agent (one-time bonus); (b) someone joining a convo with your agent; (c) someone using your agent (per-invocation, capped); (d) milestone bonuses (10/100/1000 users). | PM |
+| F3 | Builder grants — are they (i) a separate `GrantKind { id: 'builder_incentive_2026_05', expiresAfterDays: 30 }`, (ii) tagged ledger rows against the same `subscription_*` GrantKind, or (iii) a parallel `BuilderCredits` table joined at balance-fetch time? Affects whether builder credits expire, stack, and how the UI surfaces "earned" vs "purchased" credits. | Borja + PM |
+| F4 | UI surface for "earned" builder credits — invisible (just adds to balance), separate "Earned this month" line in Settings → Subscription, or a dedicated badge on the HOME pill? Affects perceived value and how loud we want this lever to be. | Design + PM |
+| F5 | Abuse model. Self-invites, fake user rings, agent spam, and (later) agents farming invocations of each other. What rate limits, eligibility windows, and human-review hooks does v1 need? Likely a soft cap per month + admin override. | Borja + ops |
+| F6 | Anti-cannibalization. Does aggressive builder subsidy create a path where heavy builders never need to subscribe? If yes, the lever still works as long as their agents drive paying users, but it changes the LTV math we report. Worth a short model before launch. | PM + Borja |
+| F7 | Timing. Ship builder incentives in v1, v1.1, or only after we see organic builder behavior? Risk of v1: it'll be the most novel piece of the product and the most likely to misfire; risk of v1.1: we miss the chance to make builders the early flywheel. | PM (decision-maker) |
 
 ---
 
