@@ -51,13 +51,41 @@ struct TierCard: View {
 
     @ViewBuilder
     private var bullets: some View {
-        let items: [String] = SubscriptionCopy.bullets(for: tier)
+        let outcomes: [String] = SubscriptionCopy.outcomes(for: tier)
+        let features: [String] = SubscriptionCopy.features(for: tier)
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            examplesGroup(outcomes)
+            if !features.isEmpty {
+                featuresGroup(features)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func examplesGroup(_ outcomes: [String]) -> some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            Text(SubscriptionCopy.outcomeIntro)
+            Text(SubscriptionCopy.examplesIntro)
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
-            ForEach(items, id: \.self) { item in
-                bulletRow(item)
+            ForEach(outcomes, id: \.self) { outcome in
+                bulletRow(outcome)
+            }
+            Text(SubscriptionCopy.examplesDisclaimer)
+                .font(.caption)
+                .italic()
+                .foregroundStyle(.colorTextTertiary)
+                .padding(.top, DesignConstants.Spacing.stepX)
+        }
+    }
+
+    @ViewBuilder
+    private func featuresGroup(_ features: [String]) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Text(SubscriptionCopy.featuresIntro)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+            ForEach(features, id: \.self) { feature in
+                bulletRow(feature)
             }
         }
     }
