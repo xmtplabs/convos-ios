@@ -14,7 +14,7 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
         Log.info("Initializing global push handler for environment: \(environment.name)")
 
         if !environment.isProduction {
-            Log.info("Activating LibXMTP Log Writer...")
+            Log.info("Activating LibXMTP file log writer (NSE) at \(environment.defaultXMTPLogsDirectoryURL.path) (level=.debug, rotation=hourly, maxFiles=10)…")
             Client.activatePersistentLibXMTPLogWriter(
                 logLevel: .debug,
                 rotationSchedule: .hourly,
@@ -22,6 +22,11 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
                 customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
                 processType: .notificationExtension
             )
+            Log.info("LibXMTP file log writer activated (NSE)")
+            // NSE memory/time limits — quieter than main app.
+            Log.info("Setting LibXMTP native log level to .info (NSE)…")
+            Client.setLibXMTPNativeLogLevel(.info)
+            Log.info("LibXMTP native log level set to .info (NSE)")
         }
 
         let nseVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"

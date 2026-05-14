@@ -2447,10 +2447,13 @@ extension ConversationViewModel {
 
 extension ConversationViewModel {
     static var mock: ConversationViewModel {
-        return .init(
-            conversation: .mock(),
-            session: MockInboxesService(),
-            messagingService: MockMessagingService()
+        let mockConversation: Conversation = .mock()
+        let mockSession: any SessionManagerProtocol = MockInboxesService()
+        let mockMessaging: any MessagingServiceProtocol = MockMessagingService()
+        return ConversationViewModel(
+            conversation: mockConversation,
+            session: mockSession,
+            messagingService: mockMessaging
         )
     }
 }
