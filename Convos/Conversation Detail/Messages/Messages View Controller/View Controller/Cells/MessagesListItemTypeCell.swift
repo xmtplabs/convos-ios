@@ -149,24 +149,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case let .assistantPresentInfo(agent, inviterName):
-                    let isVerified = agent.agentVerification.isVerified
-                    let label = isVerified ? "Assistant" : "Agent"
-                    let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
-                    VStack(spacing: 0) {
-                        TextTitleContentView(
-                            title: title,
-                            profile: agent.profile,
-                            agentVerification: agent.agentVerification,
-                            onTap: { config.onTapUpdateMember(agent) }
-                        )
-                            .padding(.top, DesignConstants.Spacing.step4x)
-                            .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
-                            .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        if isVerified {
-                            AssistantJoinedInfoView()
-                                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        }
-                    }
+                    MessagesListItemTypeCell.assistantPresentInfoContent(agent: agent, inviterName: inviterName, config: config)
 
                 case let .connectionEvent(_, summary, _):
                     ConnectionEventSummaryView(summary: summary)
@@ -195,5 +178,31 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         layoutAttributesForHorizontalFittingRequired(layoutAttributes)
+    }
+
+    @ViewBuilder
+    private static func assistantPresentInfoContent(
+        agent: ConversationMember,
+        inviterName: String?,
+        config: CellConfig
+    ) -> some View {
+        let isVerified = agent.agentVerification.isVerified
+        let label = isVerified ? "Assistant" : "Agent"
+        let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
+        VStack(spacing: 0) {
+            TextTitleContentView(
+                title: title,
+                profile: agent.profile,
+                agentVerification: agent.agentVerification,
+                onTap: { config.onTapUpdateMember(agent) }
+            )
+                .padding(.top, DesignConstants.Spacing.step4x)
+                .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+            if isVerified {
+                AssistantJoinedInfoView()
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+            }
+        }
     }
 }

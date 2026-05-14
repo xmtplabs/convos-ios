@@ -287,16 +287,6 @@ public actor ConversationStateMachine {
         await writer.cancelEagerUpload(trackingKey: trackingKey)
     }
 
-    func awaitEagerUpload(trackingKey: String) async throws {
-        guard let writer = cachedMessageWriter else { return }
-        try await writer.awaitEagerUpload(trackingKey: trackingKey)
-    }
-
-    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
-        let writer = try await getOrCreateMessageWriter()
-        return try await writer.sendMultiRemoteAttachment(items: items)
-    }
-
     func sendVideo(at fileURL: URL, replyToMessageId: String? = nil) async throws -> String {
         let writer = try await getOrCreateMessageWriter()
         return try await writer.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
@@ -1159,5 +1149,17 @@ extension ConversationStateMachine: InviteJoinErrorHandler {
         }
 
         emitStateChange(.joinFailed(inviteTag: error.inviteTag, error: error))
+    }
+}
+
+extension ConversationStateMachine {
+    func awaitEagerUpload(trackingKey: String) async throws {
+        guard let writer = cachedMessageWriter else { return }
+        try await writer.awaitEagerUpload(trackingKey: trackingKey)
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendMultiRemoteAttachment(items: items)
     }
 }

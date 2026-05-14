@@ -370,9 +370,13 @@ final class AssistantBuilderViewModel: Identifiable {
             // the user-facing loading indicator. The normal conversation
             // send path stays per-attachment so per-item reactions / replies
             // keep working there; the bundle path is builder-only.
-            let voiceMemoSnapshot: (url: URL, duration: TimeInterval, levels: [Float])?
+            let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
             if let recorded = recordedVoiceMemo {
-                voiceMemoSnapshot = (url: recorded.url, duration: recorded.duration, levels: voiceMemoAudioLevels)
+                voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
+                    url: recorded.url,
+                    duration: recorded.duration,
+                    levels: voiceMemoAudioLevels
+                )
             } else {
                 voiceMemoSnapshot = nil
             }

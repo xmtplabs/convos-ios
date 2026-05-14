@@ -70,6 +70,16 @@ struct PendingVideoAttachment: Identifiable, Equatable {
     }
 }
 
+/// Snapshot of a recorded voice memo handed from the assistant builder to
+/// `sendBuilderBundle`. Carries the source URL, duration, and waveform
+/// levels so the builder can release its recorder state before the bundle
+/// finishes uploading.
+struct BuilderVoiceMemoSnapshot: Sendable {
+    let url: URL
+    let duration: TimeInterval
+    let levels: [Float]
+}
+
 enum PendingMediaAttachment: Identifiable, Equatable {
     case photo(PendingPhotoAttachment)
     case video(PendingVideoAttachment)
@@ -1803,7 +1813,7 @@ extension ConversationViewModel {
     /// reactions and replies continue to work.
     func sendBuilderBundle(
         text: String,
-        voiceMemo: (url: URL, duration: TimeInterval, levels: [Float])?
+        voiceMemo: BuilderVoiceMemoSnapshot?
     ) async {
         let writer = cachedMessageWriter
 
