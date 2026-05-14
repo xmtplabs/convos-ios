@@ -645,73 +645,29 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         guard !items.isEmpty else {
             throw OutgoingMessageWriterError.eagerUploadNotFound
         }
-
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let conversationIdLocal = self.conversationId
         let clientMessageId = UUID().uuidString
         let perfStart = CFAbsoluteTimeGetCurrent()
 
-        var entries: [ResolvedBundleEntry] = []
-        for item in items {
-            let entry: ResolvedBundleEntry
-            switch item {
-            case .eagerPhoto(let key):
-                entry = try await resolveEagerPhotoForBundle(trackingKey: key)
-            case .eagerVideo(let key):
-                entry = try await resolveEagerVideoForBundle(trackingKey: key)
-            case let .voiceMemo(url, duration, levels):
-                entry = try await resolveVoiceMemoForBundle(
-                    url: url,
-                    duration: duration,
-                    waveformLevels: levels,
-                    inboxReady: inboxReady
-                )
-            case let .file(url, filename, mimeType):
-                entry = try await resolveFileForBundle(
-                    url: url,
-                    filename: filename,
-                    mimeType: mimeType,
-                    inboxReady: inboxReady
-                )
-            }
-            entries.append(entry)
-        }
-
-        let jsonList: [String] = try entries.map { entry in
+        let entries = try await resolveBundleEntries(items: items, inboxReady: inboxReady)
+        let jsonList = try entries.map { entry -> String in
             guard let json = try? entry.stored.toJSON() else {
                 throw PhotoAttachmentError.encryptionFailed
             }
             return json
         }
-
-        // Optimistic local DB row. We store the per-item tracking URLs so the
-        // renderer can resolve local copies before publish completes — the
-        // message is hidden from the user's messages list anyway via the
-        // builder cutoff filter, but we keep the DB shape consistent with
-        // singular-photo sends.
-        let initialAttachmentUrls: [String] = entries.map { entry in
-            entry.trackingURL?.absoluteString ?? UUID().uuidString
-        }
         try await saveMultiAttachmentToDatabase(
             clientMessageId: clientMessageId,
-            attachmentUrls: initialAttachmentUrls
+            attachmentUrls: entries.map { $0.trackingURL?.absoluteString ?? UUID().uuidString }
         )
-
-        // Cache thumbnails by their final json key so the bubble can show
-        // them as soon as it reads the published attachment metadata.
-        for (idx, entry) in entries.enumerated() {
-            if let thumbnail = entry.thumbnail {
-                ImageCacheContainer.shared.cacheImage(thumbnail, for: jsonList[idx], storageTier: .persistent)
-            }
-        }
+        cacheBundleThumbnails(entries: entries, jsonList: jsonList)
 
         guard let sender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
         }
-
         let multi = MultiRemoteAttachment(remoteAttachments: entries.map { $0.info })
-
         let messageId: String
         do {
             messageId = try await sender.prepare(multiRemoteAttachment: multi)
@@ -719,7 +675,58 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw error
         }
+        try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: jsonList)
+        await migrateBundleAttachmentKeys(entries: entries, jsonList: jsonList)
 
+        try await sender.publish()
+        try? await markMessagePublished(messageId: messageId)
+        await finalizeBundleLocalState(entries: entries, jsonList: jsonList)
+
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] message.publish_multi: \(perfElapsed)ms id=\(messageId) count=\(entries.count)")
+        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationIdLocal, "type": "multi_remote_attachment", "count": "\(entries.count)"])
+        return messageId
+    }
+
+    private func resolveBundleEntries(
+        items: [MultiAttachmentBundleItem],
+        inboxReady: InboxReadyResult
+    ) async throws -> [ResolvedBundleEntry] {
+        var entries: [ResolvedBundleEntry] = []
+        for item in items {
+            switch item {
+            case .eagerPhoto(let key):
+                entries.append(try await resolveEagerPhotoForBundle(trackingKey: key))
+            case .eagerVideo(let key):
+                entries.append(try await resolveEagerVideoForBundle(trackingKey: key))
+            case let .voiceMemo(url, duration, levels):
+                entries.append(try await resolveVoiceMemoForBundle(
+                    url: url,
+                    duration: duration,
+                    waveformLevels: levels,
+                    inboxReady: inboxReady
+                ))
+            case let .file(url, filename, mimeType):
+                entries.append(try await resolveFileForBundle(
+                    url: url,
+                    filename: filename,
+                    mimeType: mimeType,
+                    inboxReady: inboxReady
+                ))
+            }
+        }
+        return entries
+    }
+
+    private func cacheBundleThumbnails(entries: [ResolvedBundleEntry], jsonList: [String]) {
+        for (idx, entry) in entries.enumerated() {
+            if let thumbnail = entry.thumbnail {
+                ImageCacheContainer.shared.cacheImage(thumbnail, for: jsonList[idx], storageTier: .persistent)
+            }
+        }
+    }
+
+    private func rewriteBundleMessageRow(clientMessageId: String, messageId: String, jsonList: [String]) async throws {
         let attachmentUrlsJSONString: String
         do {
             let data = try JSONEncoder().encode(jsonList)
@@ -727,7 +734,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         } catch {
             attachmentUrlsJSONString = "[]"
         }
-
         try await databaseWriter.write { db in
             try db.execute(
                 sql: "UPDATE message SET id = ?, attachmentUrls = ? WHERE id = ?",
@@ -738,16 +744,17 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 arguments: [messageId, clientMessageId]
             )
         }
+    }
 
+    private func migrateBundleAttachmentKeys(entries: [ResolvedBundleEntry], jsonList: [String]) async {
         for (idx, entry) in entries.enumerated() {
             if let trackingURL = entry.trackingURL {
                 try? await attachmentLocalStateWriter.migrateKey(from: trackingURL.absoluteString, to: jsonList[idx])
             }
         }
+    }
 
-        try await sender.publish()
-        try? await markMessagePublished(messageId: messageId)
-
+    private func finalizeBundleLocalState(entries: [ResolvedBundleEntry], jsonList: [String]) async {
         for (idx, entry) in entries.enumerated() {
             if let trackingURL = entry.trackingURL,
                trackingURL.isFileURL,
@@ -756,12 +763,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             }
             sentMessageSubject.send(jsonList[idx])
         }
-
-        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
-        Log.info("[PERF] message.publish_multi: \(perfElapsed)ms id=\(messageId) count=\(entries.count)")
-        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationIdLocal, "type": "multi_remote_attachment", "count": "\(entries.count)"])
-
-        return messageId
     }
 
     private func resolveEagerPhotoForBundle(trackingKey: String) async throws -> ResolvedBundleEntry {
