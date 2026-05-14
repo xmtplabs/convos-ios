@@ -233,6 +233,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
                 signing: context
             )
         }
+        // 401-refresh hit before the session registered a SIWE
+        // signing context. The token we're about to mint will not
+        // carry `accountId`, so any subsequent /account-auth-check or
+        // requireAccount-gated call will 403. Logged here so iOS
+        // logs alone can tell us a refresh raced session bootstrap.
+        Log.warning("reAuthenticate: no SIWE signing context; falling back to legacy device-only auth")
         return try await authenticate(
             appCheckToken: firebaseAppCheckToken,
             retryCount: 0
@@ -273,6 +279,14 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             Log.info("Using existing JWT token from keychain")
             return existingToken
         }
+
+        // Minting a non-SIWE token. Surfaces on the backend as
+        // `hasSiwe: false`. Expected only on first-launch (before an
+        // XMTP identity is provisioned) or as a 401-refresh fallback
+        // when the SIWE signing context hasn't been registered yet —
+        // never in steady state. If you see this warning while
+        // signed-in, an earlier call path skipped SIWE.
+        Log.warning("Legacy device-only auth: minting JWT without accountId (hasSiwe: false)")
 
         // Token missing or expired - fetch new one
         let url = baseURL.appendingPathComponent("v2/auth/token")
