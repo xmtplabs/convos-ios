@@ -67,8 +67,14 @@ public struct BackendAuthSigningContext: Sendable {
 
     /// Build a signing context backed by an XMTP `PrivateKey`. The closure
     /// retains the key for the lifetime of the context.
+    ///
+    /// libxmtp returns the lowercase address. EIP-4361 / siwe lib
+    /// requires EIP-55 mixed-case checksum, so we apply that here at
+    /// the boundary — every caller of `signing.address` then gets the
+    /// correct form for SIWE messages, signed payloads, server lookups,
+    /// etc., with no risk of forgetting at the call site.
     public static func make(from privateKey: PrivateKey) -> BackendAuthSigningContext {
-        let address = privateKey.identity.identifier
+        let address = EthereumAddress.toChecksummed(privateKey.identity.identifier)
         return BackendAuthSigningContext(
             address: address,
             sign: { message in

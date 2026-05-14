@@ -49,6 +49,7 @@ let package = Package(
                 .product(name: "FirebaseAppCheck", package: "firebase-ios-sdk"),
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
+                .product(name: "CryptoSwift", package: "CryptoSwift"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
