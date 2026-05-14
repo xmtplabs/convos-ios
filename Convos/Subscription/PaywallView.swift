@@ -12,7 +12,7 @@ struct PaywallView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
                     hero
                     periodPicker
                     tierStack
@@ -68,7 +68,7 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var tierStack: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
             ForEach(SubscriptionTier.allCases, id: \.self) { tier in
                 tierCard(for: tier)
             }

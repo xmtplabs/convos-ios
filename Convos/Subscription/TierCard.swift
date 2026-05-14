@@ -51,16 +51,25 @@ struct TierCard: View {
 
     @ViewBuilder
     private var bullets: some View {
+        let items: [String] = SubscriptionCopy.bullets(for: tier)
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            ForEach(SubscriptionCopy.bullets(for: tier), id: \.self) { bullet in
-                HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.colorRed)
-                    Text(bullet)
-                        .font(.subheadline)
-                        .foregroundStyle(.colorTextPrimary)
-                }
+            Text(SubscriptionCopy.outcomeIntro)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+            ForEach(items, id: \.self) { item in
+                bulletRow(item)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func bulletRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.colorRed)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
         }
     }
 
@@ -71,14 +80,15 @@ struct TierCard: View {
             if let product { onPurchase(product) }
         }
         Button(action: purchaseAction) {
-            ZStack {
-                if isPurchasing {
-                    ProgressView()
-                        .tint(.colorTextPrimaryInverted)
-                } else {
-                    Text("Subscribe")
+            Text("Subscribe")
+                .opacity(isPurchasing ? 0 : 1)
+                .overlay {
+                    if isPurchasing {
+                        ProgressView()
+                            .tint(.colorTextPrimaryInverted)
+                            .controlSize(.small)
+                    }
                 }
-            }
         }
         .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorRed))
         .disabled(isDisabled)

@@ -2,8 +2,9 @@ import ConvosCore
 import Foundation
 
 enum SubscriptionCopy {
-    static let heroTitle: String = "Power your assistants"
-    static let heroSubtitle: String = "Subscribe to keep your assistants sharp."
+    static let heroTitle: String = "Power your agents"
+    static let heroSubtitle: String = "Subscribe to keep your agents working for you."
+    static let outcomeIntro: String = "Enough credits each month to:"
     static let legalDisclaimer: String = """
         Auto-renewing subscription. You'll be charged at the rate shown until you cancel. \
         Manage in Settings → Apple ID → Subscriptions on your device.
@@ -20,15 +21,13 @@ enum SubscriptionCopy {
         switch tier {
         case .builder:
             return [
-                "1,500 credits / month",
-                "Standard model on every reply",
-                "Free slow-mode when credits run low",
+                "Plan ~5 trips",
+                "Run a daily agent for a month",
             ]
         case .pro:
             return [
-                "5,000 credits / month",
-                "Standard + premium model access",
-                "Free slow-mode when credits run low",
+                "Plan ~20 trips",
+                "Power a team of agents",
                 "Priority support",
             ]
         }

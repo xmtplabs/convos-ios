@@ -313,11 +313,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
+    @ViewBuilder
+    private var messagesPageContent: some View {
+        VStack(spacing: 0) {
+            LowBalanceBanner()
+            messagesView
+        }
+    }
+
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            messagesPage: { messagesView },
+            messagesPage: { messagesPageContent },
             stuffPage: { stuffPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
