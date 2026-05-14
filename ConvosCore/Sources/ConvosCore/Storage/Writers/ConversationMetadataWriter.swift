@@ -59,13 +59,16 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     private let sessionStateManager: any SessionStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol
+    private let contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)?
 
     init(sessionStateManager: any SessionStateManagerProtocol,
          inviteWriter: any InviteWriterProtocol,
-         databaseWriter: any DatabaseWriter) {
+         databaseWriter: any DatabaseWriter,
+         contactSyncCoordinator: (any ContactSyncCoordinatorProtocol)? = nil) {
         self.sessionStateManager = sessionStateManager
         self.inviteWriter = inviteWriter
         self.databaseWriter = databaseWriter
+        self.contactSyncCoordinator = contactSyncCoordinator
     }
 
     // MARK: - Invite Preview Sync
@@ -433,6 +436,20 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
         QAEvent.emit(.member, "added", ["conversation": conversationId, "count": String(memberInboxIds.count)])
+
+        if let coordinator = contactSyncCoordinator {
+            // Force-rerun to pick up the newly added members. The coordinator
+            // short-circuits when the conversation has not yet been synced
+            // (i.e. the local user has not acted there), preserving the
+            // action-gated semantic.
+            Task.detached {
+                do {
+                    try await coordinator.syncContacts(for: conversationId, force: true)
+                } catch {
+                    Log.error("Contact sync after addMembers failed for \(conversationId): \(error)")
+                }
+            }
+        }
 
         let allMemberInboxIds = try await group.members.map(\.inboxId)
         do {
