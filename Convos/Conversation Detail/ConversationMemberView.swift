@@ -28,7 +28,7 @@ struct ConversationMemberView: View {
             creditsBalance = newBalance
         }
         .sheet(isPresented: $presentingPaywall) {
-            let paywallViewModel = PaywallViewModel(subscriptionService: MockSubscriptionService.shared)
+            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: paywallViewModel)
         }
         .alert(

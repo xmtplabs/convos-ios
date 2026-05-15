@@ -26,7 +26,7 @@ struct SubscriptionSettingsView: View {
             subscription = newSubscription
         }
         .sheet(isPresented: $presentingPaywall) {
-            let viewModel = PaywallViewModel(subscriptionService: MockSubscriptionService.shared)
+            let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: viewModel)
         }
     }

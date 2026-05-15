@@ -44,6 +44,7 @@ struct DebugViewSection: View {
     @State private var showingSafariTestSheet: Bool = false
     @State private var presentingPaywall: Bool = false
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
+    @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
 
     var body: some View {
         Group {
@@ -92,16 +93,23 @@ struct DebugViewSection: View {
 
     @ViewBuilder
     private var subscriptionSection: some View {
-        Section("Subscription (mock)") {
-            Picker("Credits state", selection: $creditsPresetSelection) {
-                ForEach(CreditsStatePreset.allCases) { preset in
-                    Text(preset.displayName).tag(preset)
+        Section("Subscription") {
+            Toggle("Use real StoreKit", isOn: $useRealStoreKit)
+                .onChange(of: useRealStoreKit) { _, newValue in
+                    SubscriptionServices.setUseRealStoreKit(newValue)
                 }
-            }
-            .onChange(of: creditsPresetSelection) { _, newValue in
-                FeatureFlags.shared.mockCreditsPreset = newValue
-                MockCreditsService.shared.setPreset(newValue)
-                MockSubscriptionService.shared.setPreset(newValue)
+
+            if !useRealStoreKit {
+                Picker("Credits state", selection: $creditsPresetSelection) {
+                    ForEach(CreditsStatePreset.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+                .onChange(of: creditsPresetSelection) { _, newValue in
+                    FeatureFlags.shared.mockCreditsPreset = newValue
+                    MockCreditsService.shared.setPreset(newValue)
+                    MockSubscriptionService.shared.setPreset(newValue)
+                }
             }
 
             let openPaywallAction = { presentingPaywall = true }
@@ -110,7 +118,7 @@ struct DebugViewSection: View {
                     .foregroundStyle(.colorTextPrimary)
             }
             .sheet(isPresented: $presentingPaywall) {
-                let viewModel = PaywallViewModel(subscriptionService: MockSubscriptionService.shared)
+                let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
                 PaywallView(viewModel: viewModel)
             }
         }

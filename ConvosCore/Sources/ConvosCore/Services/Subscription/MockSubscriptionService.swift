@@ -61,7 +61,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     private static func defaultMockProducts() -> [PaywallProduct] {
         [
             PaywallProduct(
-                id: "app.convos.subs.builder.monthly",
+                id: SubscriptionProductIDs.builderMonthly,
                 tier: .builder,
                 period: .monthly,
                 displayPrice: "$9.99",
@@ -69,7 +69,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 currencyCode: "USD"
             ),
             PaywallProduct(
-                id: "app.convos.subs.builder.annual",
+                id: SubscriptionProductIDs.builderAnnual,
                 tier: .builder,
                 period: .annual,
                 displayPrice: "$79.99",
@@ -77,7 +77,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 currencyCode: "USD"
             ),
             PaywallProduct(
-                id: "app.convos.subs.pro.monthly",
+                id: SubscriptionProductIDs.proMonthly,
                 tier: .pro,
                 period: .monthly,
                 displayPrice: "$29.99",
@@ -85,7 +85,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 currencyCode: "USD"
             ),
             PaywallProduct(
-                id: "app.convos.subs.pro.annual",
+                id: SubscriptionProductIDs.proAnnual,
                 tier: .pro,
                 period: .annual,
                 displayPrice: "$239.99",

@@ -15,7 +15,7 @@ struct LowBalanceBanner: View {
             balance = newBalance
         }
         .sheet(isPresented: $presentingPaywall) {
-            let viewModel = PaywallViewModel(subscriptionService: MockSubscriptionService.shared)
+            let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: viewModel)
         }
     }
