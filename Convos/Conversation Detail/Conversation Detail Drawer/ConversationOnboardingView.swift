@@ -32,7 +32,7 @@ struct ConversationOnboardingView: View {
 
             // Show the current onboarding state
             switch coordinator.state {
-            case .idle, .started, .settingUpProfile, .presentingProfileSettings:
+            case .idle, .started, .settingUpProfile, .presentingProfileSettings, .presentingPaywall:
                 EmptyView()
 
             case .setupProfile:
@@ -70,6 +70,33 @@ struct ConversationOnboardingView: View {
         }
         .transition(.blurReplace)
         .animation(.spring(duration: 0.4, bounce: 0.2), value: coordinator.state)
+        .sheet(isPresented: nuxPaywallPresented) {
+            nuxPaywallSheetContent
+                .interactiveDismissDisabled()
+        }
+    }
+
+    private var nuxPaywallPresented: Binding<Bool> {
+        Binding(
+            get: { coordinator.state == .presentingPaywall },
+            set: { _ in }
+        )
+    }
+
+    @ViewBuilder
+    private var nuxPaywallSheetContent: some View {
+        let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+        let _ = paywallViewModel.onPurchaseSucceeded = {
+            Task { await coordinator.userDidCompleteNUXPaywall() }
+        }
+        let nuxSkipAction = {
+            // Mock trial grant. When the backend `POST /v2/credits/me/redeem-trial`
+            // route lands, replace this with the real HTTP call.
+            MockCreditsService.shared.setPreset(.trialActive)
+            MockSubscriptionService.shared.setPreset(.trialActive)
+            Task { await coordinator.userDidCompleteNUXPaywall() }
+        }
+        PaywallView(viewModel: paywallViewModel, onSkip: nuxSkipAction)
     }
 }
 

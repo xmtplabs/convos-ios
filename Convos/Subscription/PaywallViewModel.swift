@@ -6,6 +6,7 @@ import Foundation
 final class PaywallViewModel {
     private let subscriptionService: any SubscriptionServiceProtocol
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored var onPurchaseSucceeded: (() -> Void)?
 
     var selectedPeriod: SubscriptionPeriod = .monthly
     var purchasingProductId: String?
@@ -63,6 +64,7 @@ final class PaywallViewModel {
         defer { purchasingProductId = nil }
         do {
             try await subscriptionService.purchase(productId: product.id)
+            onPurchaseSucceeded?()
         } catch SubscriptionServiceError.purchaseCancelled {
             // user cancelled — no-op, silently dismiss CTA spinner
         } catch {

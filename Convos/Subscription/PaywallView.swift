@@ -4,9 +4,11 @@ import SwiftUI
 struct PaywallView: View {
     @State private var viewModel: PaywallViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
+    private let onSkip: (() -> Void)?
 
-    init(viewModel: PaywallViewModel) {
+    init(viewModel: PaywallViewModel, onSkip: (() -> Void)? = nil) {
         self._viewModel = State(initialValue: viewModel)
+        self.onSkip = onSkip
     }
 
     var body: some View {
@@ -17,6 +19,9 @@ struct PaywallView: View {
                     periodPicker
                     tierStack
                     legal
+                    if onSkip != nil {
+                        trialSkipButton
+                    }
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step6x)
                 .padding(.top, DesignConstants.Spacing.step6x)
@@ -25,7 +30,11 @@ struct PaywallView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { closeButton }
+            .toolbar {
+                if onSkip == nil {
+                    closeButton
+                }
+            }
         }
         .task { await viewModel.loadProducts() }
         .alert(
@@ -37,6 +46,19 @@ struct PaywallView: View {
         } message: { message in
             Text(message)
         }
+    }
+
+    @ViewBuilder
+    private var trialSkipButton: some View {
+        let skipAction: () -> Void = { onSkip?() }
+        Button(action: skipAction) {
+            Text("Start with a 7-day free trial")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+        }
+        .accessibilityIdentifier("paywall-skip-to-trial-button")
     }
 
     @ViewBuilder
