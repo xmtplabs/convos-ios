@@ -38,9 +38,9 @@ struct PaywallView: View {
         }
         .task { await viewModel.loadProducts() }
         .alert(
-            "Something went wrong",
-            isPresented: $viewModel.isShowingError,
-            presenting: viewModel.errorMessage
+            viewModel.alertTitle,
+            isPresented: $viewModel.isShowingAlert,
+            presenting: viewModel.alertMessage
         ) { _ in
             Button("OK", role: .cancel) {}
         } message: { message in

@@ -10,8 +10,9 @@ final class PaywallViewModel {
 
     var selectedPeriod: SubscriptionPeriod = .monthly
     var purchasingProductId: String?
-    var isShowingError: Bool = false
-    var errorMessage: String?
+    var isShowingAlert: Bool = false
+    var alertTitle: String = ""
+    var alertMessage: String?
     private(set) var products: [PaywallProduct] = []
     private(set) var isLoadingProducts: Bool = false
     private(set) var currentSubscription: UserSubscription?
@@ -53,8 +54,7 @@ final class PaywallViewModel {
             products = try await subscriptionService.availableProducts()
         } catch {
             Log.error("Paywall failed to load products: \(error)")
-            errorMessage = "Couldn't load plans. Pull to retry or try again later."
-            isShowingError = true
+            showAlert(title: "Something went wrong", message: "Couldn't load plans. Pull to retry or try again later.")
         }
     }
 
@@ -67,10 +67,20 @@ final class PaywallViewModel {
             onPurchaseSucceeded?()
         } catch SubscriptionServiceError.purchaseCancelled {
             // user cancelled — no-op, silently dismiss CTA spinner
+        } catch SubscriptionServiceError.purchasePending {
+            showAlert(
+                title: "Awaiting approval",
+                message: "Your subscription will activate once it's approved. You can close this and we'll let you know."
+            )
+        } catch SubscriptionServiceError.purchaseUnverified {
+            Log.error("Paywall purchase verification failed for \(product.id)")
+            showAlert(
+                title: "Couldn't verify purchase",
+                message: "Something didn't add up. Try again or tap Restore if you've already paid."
+            )
         } catch {
             Log.error("Paywall purchase failed for \(product.id): \(error)")
-            errorMessage = "Purchase failed. Please try again."
-            isShowingError = true
+            showAlert(title: "Something went wrong", message: "Purchase failed. Please try again.")
         }
     }
 
@@ -83,8 +93,13 @@ final class PaywallViewModel {
             try await subscriptionService.restorePurchases()
         } catch {
             Log.error("Paywall restore failed: \(error)")
-            errorMessage = "Restore failed."
-            isShowingError = true
+            showAlert(title: "Couldn't restore", message: "Restore failed. Please try again.")
         }
+    }
+
+    private func showAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        isShowingAlert = true
     }
 }

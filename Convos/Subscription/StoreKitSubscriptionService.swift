@@ -56,7 +56,7 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         case .userCancelled:
             throw SubscriptionServiceError.purchaseCancelled
         case .pending:
-            throw SubscriptionServiceError.purchaseFailed(reason: "Purchase pending approval")
+            throw SubscriptionServiceError.purchasePending
         @unknown default:
             throw SubscriptionServiceError.purchaseFailed(reason: "Unknown purchase result")
         }
@@ -90,8 +90,8 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         switch result {
         case .verified(let safe):
             return safe
-        case .unverified(_, let error):
-            throw SubscriptionServiceError.purchaseFailed(reason: "Unverified: \(error.localizedDescription)")
+        case .unverified:
+            throw SubscriptionServiceError.purchaseUnverified
         }
     }
 

@@ -13,6 +13,13 @@ public protocol SubscriptionServiceProtocol: AnyObject, Sendable {
 public enum SubscriptionServiceError: Error, Equatable, Sendable {
     case productNotFound
     case purchaseCancelled
+    /// Ask-to-Buy / SCA challenges. The purchase isn't failed — it's waiting
+    /// for an external approval that may resolve through `Transaction.updates`.
+    case purchasePending
+    /// `VerificationResult.unverified` — Apple's signature check didn't pass.
+    /// Distinct from a generic failure because the recovery hint is different
+    /// (retry / restore / contact support).
+    case purchaseUnverified
     case purchaseFailed(reason: String)
     case notImplemented
 }
