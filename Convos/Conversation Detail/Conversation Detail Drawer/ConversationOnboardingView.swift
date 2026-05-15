@@ -86,7 +86,7 @@ struct ConversationOnboardingView: View {
     @ViewBuilder
     private var nuxPaywallSheetContent: some View {
         let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
-        let _ = paywallViewModel.onPurchaseSucceeded = {
+        let onPurchaseSucceeded: () -> Void = {
             Task { await coordinator.userDidCompleteNUXPaywall() }
         }
         let nuxSkipAction = {
@@ -96,7 +96,11 @@ struct ConversationOnboardingView: View {
             MockSubscriptionService.shared.setPreset(.trialActive)
             Task { await coordinator.userDidCompleteNUXPaywall() }
         }
-        PaywallView(viewModel: paywallViewModel, onSkip: nuxSkipAction)
+        PaywallView(
+            viewModel: paywallViewModel,
+            onSkip: nuxSkipAction,
+            onPurchaseSucceeded: onPurchaseSucceeded
+        )
     }
 }
 

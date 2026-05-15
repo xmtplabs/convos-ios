@@ -6,9 +6,16 @@ struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     private let onSkip: (() -> Void)?
 
-    init(viewModel: PaywallViewModel, onSkip: (() -> Void)? = nil) {
+    init(
+        viewModel: PaywallViewModel,
+        onSkip: (() -> Void)? = nil,
+        onPurchaseSucceeded: (() -> Void)? = nil
+    ) {
         self._viewModel = State(initialValue: viewModel)
         self.onSkip = onSkip
+        if let onPurchaseSucceeded {
+            viewModel.onPurchaseSucceeded = onPurchaseSucceeded
+        }
     }
 
     var body: some View {

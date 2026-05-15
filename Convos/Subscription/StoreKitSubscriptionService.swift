@@ -47,17 +47,12 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
             throw SubscriptionServiceError.productNotFound
         }
 
-        let appAccountToken = UUID()
-        let result = try await product.purchase(options: [.appAccountToken(appAccountToken)])
+        let result = try await product.purchase(options: [.appAccountToken(Self.appAccountToken())])
 
         switch result {
         case .success(let verification):
             let transaction = try verifiedTransaction(verification)
-            await sendToBackendVerify(
-                jwsRepresentation: verification.jwsRepresentation,
-                transaction: transaction,
-                fallbackToken: appAccountToken
-            )
+            await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transactionId: transaction.id)
             await refreshFromEntitlements()
             await transaction.finish()
         case .userCancelled:
@@ -69,6 +64,25 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         }
     }
 
+    /// Stable per-install `appAccountToken` so every purchase carries the same
+    /// token across launches. The backend extracts the token from the signed
+    /// Apple JWS on first `/verify` and binds it to the JWT-authenticated
+    /// account, so consistent reuse keeps the binding stable. Subsequent
+    /// purchases on the same install resolve to the same Apple buyer record.
+    private static func appAccountToken() -> UUID {
+        if let stored = UserDefaults.standard.string(forKey: Constant.appAccountTokenKey),
+           let uuid = UUID(uuidString: stored) {
+            return uuid
+        }
+        let new = UUID()
+        UserDefaults.standard.set(new.uuidString, forKey: Constant.appAccountTokenKey)
+        return new
+    }
+
+    private enum Constant {
+        static let appAccountTokenKey: String = "storeKit.appAccountToken"
+    }
+
     public func restorePurchases() async throws {
         try await AppStore.sync()
         await refreshFromEntitlements()
@@ -77,42 +91,25 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             guard let transaction = try? verifiedTransaction(result) else { continue }
-            await sendToBackendVerify(
-                jwsRepresentation: result.jwsRepresentation,
-                transaction: transaction,
-                fallbackToken: nil
-            )
+            await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
             await refreshFromEntitlements()
             await transaction.finish()
         }
     }
 
     /// Best-effort relay of a verified StoreKit transaction to the backend so it
-    /// can credit the account ledger. Failures are logged but do not fail the
-    /// local purchase — `Transaction.currentEntitlements` is still authoritative
-    /// for UI state.
+    /// can credit the account ledger. The backend extracts both the
+    /// `appAccountToken` and the `originalTransactionId` from the signed JWS
+    /// payload itself, authenticates the caller via JWT, and refuses cross-
+    /// account binding attempts — so the iOS side only needs to pass the JWS.
     ///
-    /// `fallbackToken` is the UUID we passed to `product.purchase()` on the
-    /// initial purchase. On a renewal transaction from `Transaction.updates`,
-    /// Apple replays the original `appAccountToken` carried by the transaction;
-    /// `fallbackToken` is nil in that path because we don't generate a new one.
-    private func sendToBackendVerify(
-        jwsRepresentation: String,
-        transaction: Transaction,
-        fallbackToken: UUID?
-    ) async {
-        let token: UUID? = transaction.appAccountToken ?? fallbackToken
-        guard let token else {
-            Log.warning("StoreKit verify skipped: no appAccountToken on transaction \(transaction.id)")
-            return
-        }
+    /// Failures are logged but do not fail the local purchase —
+    /// `Transaction.currentEntitlements` is still authoritative for UI state.
+    private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async {
         do {
-            _ = try await apiClient.verifySubscription(
-                jwsRepresentation: jwsRepresentation,
-                appAccountToken: token.uuidString
-            )
+            _ = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
         } catch {
-            Log.error("Backend verify failed for transaction \(transaction.id): \(error)")
+            Log.error("Backend verify failed for transaction \(transactionId): \(error)")
         }
     }
 

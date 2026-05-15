@@ -94,7 +94,7 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     // IAP credits + subscriptions
     func getCreditBalance() async throws -> CreditBalance
     func getSubscription() async throws -> UserSubscription?
-    func verifySubscription(jwsRepresentation: String, appAccountToken: String) async throws -> UserSubscription
+    func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription
 }
 
 extension ConvosAPIClientProtocol {
@@ -768,13 +768,10 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
-    func verifySubscription(jwsRepresentation: String, appAccountToken: String) async throws -> UserSubscription {
+    func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
         var request = try authenticatedRequest(for: "v2/accounts/me/subscription/verify", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = ConvosAPI.VerifySubscriptionRequest(
-            jwsRepresentation: jwsRepresentation,
-            appAccountToken: appAccountToken
-        )
+        let body = ConvosAPI.VerifySubscriptionRequest(jwsRepresentation: jwsRepresentation)
         request.httpBody = try JSONEncoder().encode(body)
         let response: ConvosAPI.VerifySubscriptionResponse = try await performRequest(request)
         return response.subscription
