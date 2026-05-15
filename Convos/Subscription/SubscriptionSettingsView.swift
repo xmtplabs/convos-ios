@@ -1,11 +1,12 @@
 import ConvosCore
+import StoreKit
 import SwiftUI
 
 struct SubscriptionSettingsView: View {
     @State private var balance: CreditBalance?
     @State private var subscription: UserSubscription?
     @State private var presentingPaywall: Bool = false
-    @Environment(\.openURL) private var openURL: OpenURLAction
+    @State private var presentingManageSubscriptions: Bool = false
 
     var body: some View {
         List {
@@ -29,6 +30,7 @@ struct SubscriptionSettingsView: View {
             let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: viewModel)
         }
+        .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
     }
 
     @ViewBuilder
@@ -75,9 +77,9 @@ struct SubscriptionSettingsView: View {
             }
 
             if subscription != nil {
-                let manageAction = { openManageSubscriptionsURL() }
+                let manageAction = { presentingManageSubscriptions = true }
                 Button(action: manageAction) {
-                    Text("Manage in App Store")
+                    Text("Manage subscription")
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
@@ -122,11 +124,6 @@ struct SubscriptionSettingsView: View {
     private func balanceFooter(_ balance: CreditBalance) -> String {
         let dateString: String = Self.dateFormatter.string(from: balance.nextRefreshAt)
         return "Refreshes \(dateString)"
-    }
-
-    private func openManageSubscriptionsURL() {
-        guard let url = URL(string: "https://apps.apple.com/account/subscriptions") else { return }
-        openURL(url)
     }
 
     private static let dateFormatter: DateFormatter = {
