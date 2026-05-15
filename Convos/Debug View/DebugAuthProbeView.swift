@@ -39,6 +39,13 @@ struct DebugAuthProbeView: View {
                     monospaced: status.accountId != nil,
                     color: status.accountId == nil ? .secondary : .primary
                 )
+                resultRow(
+                    "Identity slot",
+                    status.identityStorage.description,
+                    color: status.identityStorage == .synced ? .green
+                        : status.identityStorage == .legacy ? .orange
+                        : .secondary
+                )
                 if let issuedAt = status.issuedAt {
                     resultRow("Issued At", iso8601(issuedAt))
                 }

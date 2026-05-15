@@ -131,12 +131,14 @@ import Testing
         #expect(decoded.databaseKey == keys.databaseKey)
     }
 
-    /// `KeychainIdentityStore` writes with `kSecAttrSynchronizable: false`,
-    /// so the saved item must live in the device-local store and **not** in
-    /// the iCloud-synced one. iOS treats synced and non-synced items as
-    /// separate stores even with the same service+account, so a query that
-    /// pins `kSecAttrSynchronizable: true` must miss it.
-    @Test func savedIdentityIsDeviceLocalNotSynced() async throws {
+    /// `KeychainIdentityStore` now writes with
+    /// `kSecAttrSynchronizable: true` to the new `syncedIdentityService`
+    /// slot so the identity propagates via iCloud Keychain to every
+    /// device on the same Apple ID. The legacy
+    /// `kSecAttrSynchronizable: false` slot at the v3 service is
+    /// retained as a read-only migration source — new writes must
+    /// never land there.
+    @Test func savedIdentityIsSyncedNotLocal() async throws {
         try await keychainStore.delete()
 
         let keys = try await keychainStore.generateKeys()
@@ -146,24 +148,10 @@ import Testing
             keys: keys
         )
 
-        // Pinned non-sync query → must find the item.
-        let nonSyncQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: KeychainIdentityStore.defaultService,
-            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
-            kSecAttrAccessGroup as String: testAccessGroup,
-            kSecAttrSynchronizable as String: false,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnAttributes as String: true
-        ]
-        var nonSyncResult: CFTypeRef?
-        let nonSyncStatus = SecItemCopyMatching(nonSyncQuery as CFDictionary, &nonSyncResult)
-        #expect(nonSyncStatus == errSecSuccess, "Item should be present in the device-local slot (status=\(nonSyncStatus))")
-
-        // Pinned sync query → must NOT find the item.
+        // Synced slot at the v4-synced service → must find the item.
         let syncQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: KeychainIdentityStore.defaultService,
+            kSecAttrService as String: KeychainIdentityStore.syncedIdentityService,
             kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
             kSecAttrAccessGroup as String: testAccessGroup,
             kSecAttrSynchronizable as String: true,
@@ -172,7 +160,101 @@ import Testing
         ]
         var syncResult: CFTypeRef?
         let syncStatus = SecItemCopyMatching(syncQuery as CFDictionary, &syncResult)
-        #expect(syncStatus == errSecItemNotFound, "Item must not be in the iCloud-synced slot (status=\(syncStatus))")
+        #expect(syncStatus == errSecSuccess, "Item should be present in the synced slot (status=\(syncStatus))")
+
+        // Legacy v3 service must NOT receive new writes.
+        let legacyQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: KeychainIdentityStore.legacyIdentityService,
+            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrSynchronizable as String: false,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnAttributes as String: true
+        ]
+        var legacyResult: CFTypeRef?
+        let legacyStatus = SecItemCopyMatching(legacyQuery as CFDictionary, &legacyResult)
+        #expect(legacyStatus == errSecItemNotFound, "Item must not be in the legacy slot (status=\(legacyStatus))")
+    }
+
+    /// Existing users on the pre-sync build have their identity in the
+    /// legacy device-local slot. The first `load()` on the new build
+    /// must return that identity *and* migrate it to the synced slot
+    /// so subsequent loads stay on the synced path.
+    @Test func legacyIdentityMigratesToSyncedOnLoad() async throws {
+        try await keychainStore.delete()
+
+        let keys = try await keychainStore.generateKeys()
+        let identity = KeychainIdentity(
+            inboxId: "legacy-inbox",
+            clientId: "legacy-client",
+            keys: keys
+        )
+        let data = try JSONEncoder().encode(identity)
+
+        // Seed the legacy slot directly (bypass the store's save path,
+        // which would route to the synced slot).
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: KeychainIdentityStore.legacyIdentityService,
+            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrSynchronizable as String: false,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecValueData as String: data
+        ]
+        _ = SecItemDelete(addQuery as CFDictionary) // clean any stale entry
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        #expect(addStatus == errSecSuccess, "Failed to seed legacy slot: \(addStatus)")
+
+        // load() must return the seeded identity (verifies legacy fallback).
+        let loaded = try await keychainStore.load()
+        #expect(loaded?.inboxId == "legacy-inbox")
+        #expect(loaded?.clientId == "legacy-client")
+        #expect(loaded?.keys.databaseKey == keys.databaseKey)
+
+        // After load(), the identity must have moved to the synced slot.
+        let syncQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: KeychainIdentityStore.syncedIdentityService,
+            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrSynchronizable as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnAttributes as String: true
+        ]
+        var syncResult: CFTypeRef?
+        let syncStatus = SecItemCopyMatching(syncQuery as CFDictionary, &syncResult)
+        #expect(syncStatus == errSecSuccess, "Identity should have migrated to the synced slot")
+
+        // …and the legacy slot must be empty.
+        let legacyCheck: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: KeychainIdentityStore.legacyIdentityService,
+            kSecAttrAccount as String: KeychainIdentityStore.identityAccount,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrSynchronizable as String: false,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnAttributes as String: true
+        ]
+        var legacyResult: CFTypeRef?
+        let legacyStatus = SecItemCopyMatching(legacyCheck as CFDictionary, &legacyResult)
+        #expect(legacyStatus == errSecItemNotFound, "Legacy slot must be cleared post-migration")
+    }
+
+    /// `currentStorageLocation()` is the debug-UI signal for "is this
+    /// device on the new synced layout yet". Three states.
+    @Test func currentStorageLocationReportsTheActiveSlot() async throws {
+        try await keychainStore.delete()
+        #expect(keychainStore.currentStorageLocation() == .missing)
+
+        let keys = try await keychainStore.generateKeys()
+        _ = try await keychainStore.save(
+            inboxId: "loc-inbox",
+            clientId: "loc-client",
+            keys: keys
+        )
+        #expect(keychainStore.currentStorageLocation() == .synced)
     }
 
     @Test func encodesIdentityRoundTrip() async throws {

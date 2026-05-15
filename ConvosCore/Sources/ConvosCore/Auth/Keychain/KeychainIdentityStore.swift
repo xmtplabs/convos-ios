@@ -101,6 +101,31 @@ public enum KeychainIdentityStoreError: Error, LocalizedError {
     }
 }
 
+// MARK: - Storage Location
+
+/// Where the on-device XMTP identity currently lives. Surfaces in the
+/// debug UI so testers can verify which slot the identity is in and
+/// whether iCloud-Keychain propagation has happened.
+public enum IdentityStorageLocation: String, Sendable {
+    /// Synchronizable slot — iCloud Keychain pushes this to every
+    /// device signed in to the same Apple ID. Same wallet → same SIWE
+    /// address → same backend `Account`.
+    case synced
+    /// Legacy device-local slot from before the sync rollout. Still
+    /// readable; gets migrated to `.synced` on the next save.
+    case legacy
+    /// No identity stored on this device.
+    case missing
+
+    public var description: String {
+        switch self {
+        case .synced: return "Synced (iCloud Keychain)"
+        case .legacy: return "Local-only (legacy v3)"
+        case .missing: return "Not stored"
+        }
+    }
+}
+
 // MARK: - Keychain Operations
 
 private struct KeychainQuery {
@@ -166,29 +191,59 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     func delete() throws
 }
 
-/// Secure storage for the user's XMTP identity keys in the device keychain.
+/// Secure storage for the user's XMTP identity keys in the app-group
+/// keychain.
 ///
-/// The app holds one identity per install. The slot is device-local —
-/// `kSecAttrSynchronizable = false` + `kSecAttrAccessibleAfterFirstUnlock`
-/// so identity keys never leave this device via iCloud Keychain. The
-/// item is stored in the app-group keychain so the Notification Service
-/// Extension can read it.
+/// The identity now lives in a **synced** slot
+/// (`kSecAttrSynchronizable = true`) so it follows the user across
+/// every device signed in to the same Apple ID. Same key → same
+/// Ethereum address → same backend `Account` via SIWE, no per-device
+/// onboarding. The accessibility flag stays at
+/// `kSecAttrAccessibleAfterFirstUnlock` (already sync-compatible),
+/// which is also required so the Notification Service Extension can
+/// read the identity post-first-unlock.
+///
+/// Two service identifiers exist:
+///
+/// - `legacyIdentityService` (`…v3`, `synchronizable: false`) — the
+///   pre-sync slot. Existing installs find their identity here on the
+///   first launch with this code.
+/// - `syncedIdentityService` (`…v4-synced`, `synchronizable: true`) —
+///   the new slot. All future writes land here; `load()` migrates
+///   from legacy to synced on first read after upgrade.
+///
+/// Migration is lazy and idempotent: every `load()` checks the synced
+/// slot first; if empty, it reads the legacy slot and (best-effort)
+/// re-writes the data to the synced slot before returning it. If the
+/// sync write fails (e.g. iCloud Keychain disabled), the legacy slot
+/// is preserved so the user doesn't lose their identity.
+///
+/// See `docs/plans/icloud-keychain-identity-sync.md`.
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
-    private let keychainService: String
     private let keychainAccessGroup: String
 
-    public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v3"
+    /// Pre-sync identity slot. Read-only after migration; new code
+    /// must not write here.
+    public static let legacyIdentityService: String = "org.convos.ios.KeychainIdentityStore.v3"
 
-    /// Fixed account key for the stored identity.
+    /// Synced (iCloud Keychain) identity slot. Where every new write
+    /// goes; where `load()` reads from first.
+    public static let syncedIdentityService: String = "org.convos.ios.KeychainIdentityStore.v4-synced"
+
+    /// Source-compat alias for callers that historically referenced
+    /// `defaultService` to identify the live slot. Points at the
+    /// synced slot now.
+    public static let defaultService: String = syncedIdentityService
+
+    /// Fixed account key shared by both slots.
     public static let identityAccount: String = "convos-identity"
 
     // MARK: - Initialization
 
     public init(accessGroup: String) {
         self.keychainAccessGroup = accessGroup
-        self.keychainService = Self.defaultService
     }
 
     // MARK: - Public Interface
@@ -200,40 +255,105 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     public func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity {
         let identity = KeychainIdentity(inboxId: inboxId, clientId: clientId, keys: keys)
         let data = try JSONEncoder().encode(identity)
-        let query = KeychainQuery(
-            account: Self.identityAccount,
-            service: keychainService,
-            accessGroup: keychainAccessGroup
-        )
-        try saveData(data, with: query)
+        try saveData(data, with: syncedQuery())
+        // One-shot migration: drop the legacy slot once the synced
+        // write has succeeded. `?` because "no legacy item" is a
+        // perfectly normal outcome on fresh installs.
+        try? deleteData(with: legacyQuery())
         return identity
     }
 
     public func load() throws -> KeychainIdentity? {
-        try loadSync()
+        if let identity = try loadIdentity(from: syncedQuery()) {
+            return identity
+        }
+        // Synced slot is empty. Check legacy and migrate inline.
+        guard let pair = try loadIdentityWithBytes(from: legacyQuery()) else {
+            return nil
+        }
+        do {
+            try saveData(pair.data, with: syncedQuery())
+            // Only delete the legacy slot after a successful synced
+            // write — otherwise we'd risk losing the identity if
+            // iCloud Keychain refused the write.
+            try? deleteData(with: legacyQuery())
+        } catch {
+            // Sync write failed (e.g. iCloud Keychain disabled). Keep
+            // the legacy slot intact so subsequent loads keep
+            // returning the user's identity.
+        }
+        return pair.identity
     }
 
     public nonisolated func loadSync() throws -> KeychainIdentity? {
-        let query = KeychainQuery(
-            account: Self.identityAccount,
-            service: keychainService,
-            accessGroup: keychainAccessGroup
-        )
-        do {
-            let data = try Self.loadKeychainData(with: query.toReadDictionary())
-            return try JSONDecoder().decode(KeychainIdentity.self, from: data)
-        } catch KeychainIdentityStoreError.identityNotFound {
-            return nil
+        // Read-only path used from contexts where actor hops aren't
+        // possible (NSE, sync construction). Prefers the synced
+        // slot, falls back to legacy. Does NOT migrate — the
+        // actor-isolated `load()` is the one place that performs
+        // the legacy→synced copy.
+        if let identity = try loadIdentity(from: syncedQuery()) {
+            return identity
         }
+        return try loadIdentityWithBytes(from: legacyQuery())?.identity
     }
 
     public func delete() throws {
-        let query = KeychainQuery(
+        // Wipe both slots so a sign-out is total — leaving the
+        // legacy slot populated would resurrect the identity on the
+        // next load().
+        try deleteData(with: syncedQuery())
+        try? deleteData(with: legacyQuery())
+    }
+
+    /// Reports where the identity (if any) currently lives. Used by
+    /// debug UI to verify the iCloud Keychain rollout per device.
+    /// Nonisolated + synchronous so the debug screen doesn't need to
+    /// pay an actor hop just to render a status row.
+    public nonisolated func currentStorageLocation() -> IdentityStorageLocation {
+        if (try? loadIdentity(from: syncedQuery())) != nil {
+            return .synced
+        }
+        if (try? loadIdentity(from: legacyQuery())) != nil {
+            return .legacy
+        }
+        return .missing
+    }
+
+    // MARK: - Slot Helpers
+
+    private nonisolated func syncedQuery() -> KeychainQuery {
+        KeychainQuery(
             account: Self.identityAccount,
-            service: keychainService,
-            accessGroup: keychainAccessGroup
+            service: Self.syncedIdentityService,
+            accessGroup: keychainAccessGroup,
+            accessible: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
-        try deleteData(with: query)
+    }
+
+    private nonisolated func legacyQuery() -> KeychainQuery {
+        KeychainQuery(
+            account: Self.identityAccount,
+            service: Self.legacyIdentityService,
+            accessGroup: keychainAccessGroup,
+            accessible: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: false
+        )
+    }
+
+    private nonisolated func loadIdentity(from query: KeychainQuery) throws -> KeychainIdentity? {
+        try loadIdentityWithBytes(from: query)?.identity
+    }
+
+    private nonisolated func loadIdentityWithBytes(
+        from query: KeychainQuery
+    ) throws -> (identity: KeychainIdentity, data: Data)? {
+        do {
+            let data = try Self.loadKeychainData(with: query.toReadDictionary())
+            return (try JSONDecoder().decode(KeychainIdentity.self, from: data), data)
+        } catch KeychainIdentityStoreError.identityNotFound {
+            return nil
+        }
     }
 
     // MARK: - Generic Keychain Operations

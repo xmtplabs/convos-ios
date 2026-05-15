@@ -131,6 +131,10 @@ public enum BackendAuthProbe {
         public let issuedAt: Date?
         public let jwtExpiry: Date?
         public let isJWTValid: Bool    // true iff JWT present, structurally valid, exp > now+60s
+        /// Which slot the identity (private key) currently lives in:
+        /// the synced (iCloud Keychain) slot, the legacy device-local
+        /// slot, or missing entirely.
+        public let identityStorage: IdentityStorageLocation
 
         public init(
             address: String?,
@@ -138,7 +142,8 @@ public enum BackendAuthProbe {
             accountId: String?,
             issuedAt: Date?,
             jwtExpiry: Date?,
-            isJWTValid: Bool
+            isJWTValid: Bool,
+            identityStorage: IdentityStorageLocation
         ) {
             self.address = address
             self.jwt = jwt
@@ -146,6 +151,7 @@ public enum BackendAuthProbe {
             self.issuedAt = issuedAt
             self.jwtExpiry = jwtExpiry
             self.isJWTValid = isJWTValid
+            self.identityStorage = identityStorage
         }
     }
 
@@ -158,10 +164,24 @@ public enum BackendAuthProbe {
         let keychain = KeychainService()
         let deviceId = DeviceInfo.deviceIdentifier
 
+        // `currentStorageLocation()` lives on the concrete store
+        // (debug-only signal, intentionally not in the protocol).
+        // For non-concrete conformers (mocks) we fall through to the
+        // `.missing` default.
+        let storage: IdentityStorageLocation = (identityStore as? KeychainIdentityStore)?.currentStorageLocation() ?? .missing
+
         let identity: KeychainIdentity?
         identity = try? await identityStore.load()
         guard let identity else {
-            return Status(address: nil, jwt: nil, accountId: nil, issuedAt: nil, jwtExpiry: nil, isJWTValid: false)
+            return Status(
+                address: nil,
+                jwt: nil,
+                accountId: nil,
+                issuedAt: nil,
+                jwtExpiry: nil,
+                isJWTValid: false,
+                identityStorage: storage
+            )
         }
 
         let address = EthereumAddress.toChecksummed(identity.keys.privateKey.identity.identifier)
@@ -179,7 +199,8 @@ public enum BackendAuthProbe {
                 accountId: cachedAccountId,
                 issuedAt: nil,
                 jwtExpiry: nil,
-                isJWTValid: false
+                isJWTValid: false,
+                identityStorage: storage
             )
         }
 
@@ -195,7 +216,8 @@ public enum BackendAuthProbe {
             accountId: accountId,
             issuedAt: issuedAt,
             jwtExpiry: expiry,
-            isJWTValid: isValid
+            isJWTValid: isValid,
+            identityStorage: storage
         )
     }
 
