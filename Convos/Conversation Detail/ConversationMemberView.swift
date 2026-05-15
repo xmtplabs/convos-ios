@@ -24,7 +24,7 @@ struct ConversationMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
-        .onReceive(MockCreditsService.shared.balancePublisher) { newBalance in
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
             creditsBalance = newBalance
         }
         .sheet(isPresented: $presentingPaywall) {

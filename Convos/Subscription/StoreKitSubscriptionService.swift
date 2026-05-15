@@ -4,12 +4,16 @@ import Foundation
 import StoreKit
 
 public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked Sendable {
-    public static let shared: StoreKitSubscriptionService = StoreKitSubscriptionService()
+    public static let shared: StoreKitSubscriptionService = StoreKitSubscriptionService(
+        apiClient: ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)
+    )
 
+    private let apiClient: any ConvosAPIClientProtocol
     private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
     private var updateListenerTask: Task<Void, Never>?
 
-    public init() {
+    public init(apiClient: any ConvosAPIClientProtocol) {
+        self.apiClient = apiClient
         self.subscriptionSubject = CurrentValueSubject(nil)
         let listenerTask = Task.detached { [weak self] in
             guard let self else { return }
@@ -49,8 +53,11 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         switch result {
         case .success(let verification):
             let transaction = try verifiedTransaction(verification)
-            // Backend verify: POST /v2/subscriptions/me/verify with transaction.jwsRepresentation.
-            // Implemented as a no-op until that route lands; StoreKit-local state still updates.
+            await sendToBackendVerify(
+                jwsRepresentation: verification.jwsRepresentation,
+                transaction: transaction,
+                fallbackToken: appAccountToken
+            )
             await refreshFromEntitlements()
             await transaction.finish()
         case .userCancelled:
@@ -70,9 +77,42 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             guard let transaction = try? verifiedTransaction(result) else { continue }
-            // Backend verify hook lands here too once /v2/subscriptions/me/verify exists.
+            await sendToBackendVerify(
+                jwsRepresentation: result.jwsRepresentation,
+                transaction: transaction,
+                fallbackToken: nil
+            )
             await refreshFromEntitlements()
             await transaction.finish()
+        }
+    }
+
+    /// Best-effort relay of a verified StoreKit transaction to the backend so it
+    /// can credit the account ledger. Failures are logged but do not fail the
+    /// local purchase — `Transaction.currentEntitlements` is still authoritative
+    /// for UI state.
+    ///
+    /// `fallbackToken` is the UUID we passed to `product.purchase()` on the
+    /// initial purchase. On a renewal transaction from `Transaction.updates`,
+    /// Apple replays the original `appAccountToken` carried by the transaction;
+    /// `fallbackToken` is nil in that path because we don't generate a new one.
+    private func sendToBackendVerify(
+        jwsRepresentation: String,
+        transaction: Transaction,
+        fallbackToken: UUID?
+    ) async {
+        let token: UUID? = transaction.appAccountToken ?? fallbackToken
+        guard let token else {
+            Log.warning("StoreKit verify skipped: no appAccountToken on transaction \(transaction.id)")
+            return
+        }
+        do {
+            _ = try await apiClient.verifySubscription(
+                jwsRepresentation: jwsRepresentation,
+                appAccountToken: token.uuidString
+            )
+        } catch {
+            Log.error("Backend verify failed for transaction \(transaction.id): \(error)")
         }
     }
 

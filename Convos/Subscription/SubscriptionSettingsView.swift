@@ -20,10 +20,10 @@ struct SubscriptionSettingsView: View {
         .background(.colorBackgroundRaisedSecondary)
         .navigationTitle("Subscription")
         .navigationBarTitleDisplayMode(.inline)
-        .onReceive(MockCreditsService.shared.balancePublisher) { newBalance in
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
             balance = newBalance
         }
-        .onReceive(MockSubscriptionService.shared.subscriptionPublisher) { newSubscription in
+        .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
             subscription = newSubscription
         }
         .sheet(isPresented: $presentingPaywall) {

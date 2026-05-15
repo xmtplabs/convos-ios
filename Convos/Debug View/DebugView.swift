@@ -45,6 +45,7 @@ struct DebugViewSection: View {
     @State private var presentingPaywall: Bool = false
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
+    @State private var useRealCredits: Bool = CreditsServices.useRealBackend
 
     var body: some View {
         Group {
@@ -98,8 +99,12 @@ struct DebugViewSection: View {
                 .onChange(of: useRealStoreKit) { _, newValue in
                     SubscriptionServices.setUseRealStoreKit(newValue)
                 }
+            Toggle("Use real backend credits", isOn: $useRealCredits)
+                .onChange(of: useRealCredits) { _, newValue in
+                    CreditsServices.setUseRealBackend(newValue)
+                }
 
-            if !useRealStoreKit {
+            if !useRealStoreKit && !useRealCredits {
                 Picker("Credits state", selection: $creditsPresetSelection) {
                     ForEach(CreditsStatePreset.allCases) { preset in
                         Text(preset.displayName).tag(preset)

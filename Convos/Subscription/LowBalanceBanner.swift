@@ -11,7 +11,7 @@ struct LowBalanceBanner: View {
                 bannerContent(balance: balance)
             }
         }
-        .onReceive(MockCreditsService.shared.balancePublisher) { newBalance in
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
             balance = newBalance
         }
         .sheet(isPresented: $presentingPaywall) {

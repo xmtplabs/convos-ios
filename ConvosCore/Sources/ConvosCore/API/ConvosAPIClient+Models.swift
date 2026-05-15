@@ -220,6 +220,17 @@ public enum ConvosAPI {
             let error: String?
         }
     }
+
+    // MARK: - IAP Subscription verify
+
+    struct VerifySubscriptionRequest: Encodable {
+        let jwsRepresentation: String
+        let appAccountToken: String
+    }
+
+    struct VerifySubscriptionResponse: Decodable {
+        let subscription: UserSubscription
+    }
 }
 
 // MARK: - Asset Renewal Result

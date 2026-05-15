@@ -10,7 +10,7 @@ struct CreditsBadge: View {
                 CreditsBadgePill(balance: balance)
             }
         }
-        .onReceive(MockCreditsService.shared.balancePublisher) { newBalance in
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
             balance = newBalance
         }
     }

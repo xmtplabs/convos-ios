@@ -2,12 +2,12 @@ import ConvosAppData
 import ConvosLogging
 import Foundation
 
-protocol ConvosAPIClientFactoryType {
+public protocol ConvosAPIClientFactoryType {
     static func client(environment: AppEnvironment, overrideJWTToken: String?) -> any ConvosAPIClientProtocol
 }
 
-enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
-    static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
+public enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
+    public static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
         guard !environment.isTestingEnvironment else {
             return MockAPIClient()
         }
@@ -90,6 +90,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse
     func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse]
     func revokeCloudConnection(connectionId: String) async throws
+
+    // IAP credits + subscriptions
+    func getCreditBalance() async throws -> CreditBalance
+    func getSubscription() async throws -> UserSubscription?
+    func verifySubscription(jwsRepresentation: String, appAccountToken: String) async throws -> UserSubscription
 }
 
 extension ConvosAPIClientProtocol {
@@ -744,6 +749,35 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     func revokeCloudConnection(connectionId: String) async throws {
         let request = try authenticatedRequest(for: "v2/connections/\(connectionId)", method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
+    }
+
+    // MARK: - IAP Credits + Subscriptions
+
+    func getCreditBalance() async throws -> CreditBalance {
+        let request = try authenticatedRequest(for: "v2/accounts/me/credits", method: "GET")
+        return try await performRequest(request)
+    }
+
+    func getSubscription() async throws -> UserSubscription? {
+        let request = try authenticatedRequest(for: "v2/accounts/me/subscription", method: "GET")
+        do {
+            let sub: UserSubscription = try await performRequest(request)
+            return sub
+        } catch APIError.noContent {
+            return nil
+        }
+    }
+
+    func verifySubscription(jwsRepresentation: String, appAccountToken: String) async throws -> UserSubscription {
+        var request = try authenticatedRequest(for: "v2/accounts/me/subscription/verify", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ConvosAPI.VerifySubscriptionRequest(
+            jwsRepresentation: jwsRepresentation,
+            appAccountToken: appAccountToken
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+        let response: ConvosAPI.VerifySubscriptionResponse = try await performRequest(request)
+        return response.subscription
     }
 
     // MARK: - Helper Methods

@@ -52,7 +52,7 @@ struct AppSettingsView: View {
                 linksSection
                 deleteSection
             }
-            .onReceive(MockCreditsService.shared.balancePublisher) { newBalance in
+            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
                 subscriptionBalance = newBalance
             }
             .scrollContentBackground(.hidden)
