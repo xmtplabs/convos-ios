@@ -107,4 +107,14 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     /// fires, so the agent's incoming-payload handler can be exercised end-to-end. The UI
     /// entry point is `#if DEBUG`-gated in the main app target.
     func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws
+
+    /// Returns the current device's inbox state — installation id, inbox id, and every
+    /// installation the network reports for this inbox. Used by the debug menu to show
+    /// whether the device has hit the 10-installation cap.
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot
+
+    /// Revokes every installation registered to this inbox except the one currently
+    /// active on this device. Returns the ids that were revoked. Used to recover from
+    /// the 10-installation cap after wipe-and-reinstall cycles accumulate stale entries.
+    func revokeOtherInstallations() async throws -> [String]
 }

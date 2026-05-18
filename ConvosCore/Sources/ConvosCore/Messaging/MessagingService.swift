@@ -350,4 +350,41 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         }
         try await sender.sendTypingIndicator(isTyping: isTyping)
     }
+
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let installations = try await result.client.listInstallations(refreshFromNetwork: refreshFromNetwork)
+        return InstallationsSnapshot(
+            inboxId: result.client.inboxId,
+            currentInstallationId: result.client.installationId,
+            installations: installations.sorted { lhs, rhs in
+                switch (lhs.createdAt, rhs.createdAt) {
+                case let (l?, r?): return l < r
+                case (nil, _?): return false
+                case (_?, nil): return true
+                case (nil, nil): return lhs.id < rhs.id
+                }
+            }
+        )
+    }
+
+    func revokeOtherInstallations() async throws -> [String] {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+        let installations = try await result.client.listInstallations(refreshFromNetwork: true)
+        let currentId = result.client.installationId
+        let othersHex = installations.map { $0.id }.filter { $0 != currentId }
+        guard !othersHex.isEmpty else { return [] }
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: othersHex
+        )
+        return othersHex
+    }
+}
+
+enum MessagingServiceError: Error {
+    case noIdentity
 }

@@ -104,6 +104,7 @@ public protocol XMTPClientProvider: AnyObject {
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo]
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -206,6 +207,11 @@ extension XMTPiOS.Client: XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
+    }
+
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        let state = try await inboxState(refreshFromNetwork: refreshFromNetwork)
+        return state.installations.map { InstallationInfo(id: $0.id, createdAt: $0.createdAt) }
     }
 }
 

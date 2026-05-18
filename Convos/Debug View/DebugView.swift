@@ -49,6 +49,7 @@ struct DebugViewSection: View {
             pushNotificationsSection
             debugSection
             authProbeSection
+            installationsSection
             sentryTestingSection
             pendingInvitesSection
             assetRenewalSection
@@ -187,6 +188,18 @@ struct DebugViewSection: View {
                 DebugAuthProbeView(environment: environment)
             } label: {
                 Text("Run SIWE Auth Probe")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var installationsSection: some View {
+        Section("XMTP Installations") {
+            NavigationLink {
+                DebugInstallationsView(messagingService: session.messagingServiceSync())
+            } label: {
+                Text("Manage installations")
                     .foregroundStyle(.colorTextPrimary)
             }
         }
