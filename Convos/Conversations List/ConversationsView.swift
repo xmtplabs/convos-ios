@@ -323,8 +323,8 @@ private struct ConversationsSheetModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
-            .sheet(item: $viewModel.pendingGrantRequest) { request in
-                let dismissAction = { viewModel.pendingGrantRequest = nil }
+            .sheet(item: $navState.pendingGrantRequest) { request in
+                let dismissAction = { navState.pendingGrantRequest = nil }
                 CloudConnectionGrantRequestSheet(
                     viewModel: viewModel.makeGrantRequestSheetViewModel(for: request),
                     onDismiss: dismissAction

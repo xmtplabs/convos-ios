@@ -206,12 +206,16 @@ struct AssistantFilesLinksView: View {
             } message: {
                 Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
             }
-            // `initial: true` runs the binding once on first appear and then again
-            // whenever the active conversation changes — the same view model
-            // instance follows the selection instead of being torn down via `.id`.
             .onChange(of: conversationId, initial: true) {
                 viewModel.observe(repository)
                 presentingPreview = nil
+            }
+            .onAppear {
+                navState?.markScreenAppeared()
+            }
+            .onDisappear {
+                let durationSecs: Float = navState?.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+                navigator?.closed(context: ScreenContext(durationSecs: durationSecs))
             }
     }
 
@@ -284,13 +288,6 @@ struct AssistantFilesLinksView: View {
         case .all: return "Nothing matches"
         case .files: return "No files"
         case .links: return "No links"
-        }
-        .onAppear {
-            navState?.markScreenAppeared()
-        }
-        .onDisappear {
-            let durationSecs: Float = navState?.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
-            navigator?.closed(context: ScreenContext(durationSecs: durationSecs))
         }
     }
 

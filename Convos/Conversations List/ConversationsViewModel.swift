@@ -567,7 +567,9 @@ final class ConversationsViewModel {
                 guard !Task.isCancelled else { return }
                 let inboxId = inboxResult.client.inboxId
                 metrics.identify(userId: inboxId)
-                await self?.sendCurrentUserProperties()
+                await MainActor.run {
+                    self?.sendCurrentUserProperties()
+                }
             } catch {
                 Log.warning("Metrics identify failed: \(error.localizedDescription)")
             }
@@ -580,13 +582,18 @@ final class ConversationsViewModel {
         userPropertiesTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            await self?.sendCurrentUserProperties()
+            await MainActor.run {
+                self?.sendCurrentUserProperties()
+            }
         }
     }
 
-    private func sendCurrentUserProperties() async {
+    private func sendCurrentUserProperties() {
         let properties: UserProperties = currentUserProperties()
-        await coreMetrics.updateUserProperties(properties: properties)
+        let metrics: CoreMetrics = coreMetrics
+        Task {
+            await metrics.updateUserProperties(properties: properties)
+        }
     }
 
     private func currentUserProperties() -> UserProperties {

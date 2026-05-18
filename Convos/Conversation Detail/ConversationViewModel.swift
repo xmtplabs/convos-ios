@@ -1986,7 +1986,7 @@ extension ConversationViewModel {
             recordSentMessageMetric(
                 startedAt: metricStartedAt,
                 memberCount: metricMemberCount,
-                attachmentTypes: metricAttachmentTypes,
+                attachmentCount: metricAttachmentTypes.count,
                 hasText: hasText,
                 hasAssistant: metricHasAssistant,
                 isSuccess: sendSucceeded
@@ -1997,7 +1997,7 @@ extension ConversationViewModel {
     private func recordSentMessageMetric(
         startedAt: Date,
         memberCount: Int,
-        attachmentTypes: [String],
+        attachmentCount: Int,
         hasText: Bool,
         hasAssistant: Bool,
         isSuccess: Bool
@@ -2008,7 +2008,7 @@ extension ConversationViewModel {
             await metrics.actions.sentMessage(
                 sendingTime: sendingTime,
                 memberCount: memberCount,
-                attachmentTypes: attachmentTypes,
+                attachmentCount: attachmentCount,
                 hasText: hasText,
                 hasAssistant: hasAssistant,
                 isSuccess: isSuccess
