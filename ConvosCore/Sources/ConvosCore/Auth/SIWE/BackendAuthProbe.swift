@@ -164,14 +164,14 @@ public enum BackendAuthProbe {
         let keychain = KeychainService()
         let deviceId = DeviceInfo.deviceIdentifier
 
+        // load() migrates legacy → synced inline, so query the storage
+        // location *after* the load to avoid reporting a stale .legacy.
         // `currentStorageLocation()` lives on the concrete store
-        // (debug-only signal, intentionally not in the protocol).
-        // For non-concrete conformers (mocks) we fall through to the
-        // `.missing` default.
-        let storage: IdentityStorageLocation = (identityStore as? KeychainIdentityStore)?.currentStorageLocation() ?? .missing
-
+        // (debug-only signal, intentionally not in the protocol);
+        // mocks fall through to `.missing`.
         let identity: KeychainIdentity?
         identity = try? await identityStore.load()
+        let storage: IdentityStorageLocation = (identityStore as? KeychainIdentityStore)?.currentStorageLocation() ?? .missing
         guard let identity else {
             return Status(
                 address: nil,
