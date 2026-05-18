@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 600" width="380" height="600" role="img" aria-label="convos.org/template/&lt;id&gt; web preview">
+<title>convos.org/template/&lt;id&gt; web preview</title>
+
+  <rect x="0.5" y="0.5" width="379" height="599" rx="8" ry="8" fill="#f2f2f7" stroke="#d1d1d6" stroke-width="1"/>
+
+  <rect x="0.5" y="0.5" width="379" height="36" rx="8" ry="8" fill="#fff" stroke="#d1d1d6" stroke-width="1"/>
+  <circle cx="16" cy="18" r="5" fill="#ff5f57"/>
+  <circle cx="32" cy="18" r="5" fill="#febc2e"/>
+  <circle cx="48" cy="18" r="5" fill="#28c840"/>
+  <rect x="78" y="9" width="290" height="18" rx="9" fill="#f2f2f7"/>
+  <path d="M 84 18 a 2 2 0 1 0 0 -0.01 z" fill="#8e8e93"/>
+  <circle cx="86" cy="18" r="2" fill="none" stroke="#34c759" stroke-width="1"/>
+  <text x="98" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#48484a" text-anchor="start">convos.org/template/eb0cad22-...</text>
+
+  <rect x="100" y="58" width="180" height="38" rx="19" fill="#fff" stroke="#e5e5ea" stroke-width="1"/>
+  <circle cx="123" cy="77" r="11" fill="#ff453a"/>
+  <path d="M 119 73 q 4 -4 8 0 q 4 4 0 8 q -4 4 -8 0 q -4 -4 0 -8" fill="#fff"/>
+  <text x="145" y="74" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="600" fill="#000" text-anchor="start">Convos</text>
+  <text x="145" y="88" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#8e8e93" text-anchor="start">Agent templates</text>
+
+  <rect x="40" y="118" width="300" height="84" rx="14" fill="#fff" stroke="#e5e5ea" stroke-width="1"/>
+  <circle cx="76" cy="156" r="20" fill="#000"/>
+  <path d="M 67 154 q 9 7 18 0" fill="#fff"/>
+  <text x="106" y="146" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="14" font-weight="600" fill="#000" text-anchor="start">Chat to customize</text>
+  <text x="106" y="164" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#48484a" text-anchor="start">Install Convos, then scan the</text>
+  <text x="106" y="178" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#48484a" text-anchor="start">QR to chat.</text>
+  <rect x="244" y="132" width="84" height="26" rx="6" fill="#000"/>
+  <text x="286" y="142" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="7" font-weight="400" fill="#fff" text-anchor="middle">Download on the</text>
+  <text x="286" y="153" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="600" fill="#fff" text-anchor="middle">App Store</text>
+  <rect x="244" y="162" width="84" height="26" rx="6" fill="#000"/>
+  <text x="286" y="172" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="7" font-weight="400" fill="#fff" text-anchor="middle">GET IT ON</text>
+  <text x="286" y="183" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="600" fill="#fff" text-anchor="middle">Google Play</text>
+
+  <rect x="40" y="218" width="300" height="320" rx="14" fill="#fff" stroke="#e5e5ea" stroke-width="1"/>
+
+  <rect x="116" y="244" width="148" height="148" rx="10" fill="#fff" stroke="#e5e5ea" stroke-width="0.5"/>
+  <g fill="#000">
+    <rect x="124" y="252" width="22" height="22"/>
+    <rect x="234" y="252" width="22" height="22"/>
+    <rect x="124" y="362" width="22" height="22"/>
+    <rect x="128" y="256" width="14" height="14" fill="#fff"/>
+    <rect x="238" y="256" width="14" height="14" fill="#fff"/>
+    <rect x="128" y="366" width="14" height="14" fill="#fff"/>
+    <rect x="132" y="260" width="6" height="6"/>
+    <rect x="242" y="260" width="6" height="6"/>
+    <rect x="132" y="370" width="6" height="6"/>
+
+    <rect x="152" y="252" width="4" height="4"/>
+    <rect x="162" y="256" width="4" height="4"/>
+    <rect x="172" y="252" width="4" height="4"/>
+    <rect x="180" y="258" width="4" height="4"/>
+    <rect x="192" y="252" width="4" height="4"/>
+    <rect x="202" y="254" width="4" height="4"/>
+    <rect x="212" y="252" width="4" height="4"/>
+    <rect x="222" y="258" width="4" height="4"/>
+
+    <rect x="124" y="282" width="4" height="4"/>
+    <rect x="124" y="292" width="4" height="4"/>
+    <rect x="124" y="302" width="4" height="4"/>
+    <rect x="124" y="312" width="4" height="4"/>
+    <rect x="124" y="324" width="4" height="4"/>
+    <rect x="124" y="336" width="4" height="4"/>
+    <rect x="124" y="348" width="4" height="4"/>
+
+    <rect x="252" y="282" width="4" height="4"/>
+    <rect x="252" y="294" width="4" height="4"/>
+    <rect x="252" y="304" width="4" height="4"/>
+    <rect x="252" y="316" width="4" height="4"/>
+    <rect x="252" y="326" width="4" height="4"/>
+    <rect x="252" y="338" width="4" height="4"/>
+    <rect x="252" y="348" width="4" height="4"/>
+
+    <rect x="152" y="380" width="4" height="4"/>
+    <rect x="162" y="384" width="4" height="4"/>
+    <rect x="172" y="380" width="4" height="4"/>
+    <rect x="182" y="384" width="4" height="4"/>
+    <rect x="192" y="380" width="4" height="4"/>
+    <rect x="202" y="384" width="4" height="4"/>
+    <rect x="212" y="380" width="4" height="4"/>
+    <rect x="222" y="384" width="4" height="4"/>
+  </g>
+  <circle cx="190" cy="318" r="30" fill="#000"/>
+  <ellipse cx="190" cy="320" rx="20" ry="14" fill="#1a1a1a" stroke="#8e8e93" stroke-width="0.6"/>
+  <circle cx="190" cy="318" r="8" fill="#f4c79a"/>
+  <circle cx="190" cy="318" r="3" fill="#e07a2a"/>
+
+  <text x="190" y="440" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="24" font-weight="700" fill="#000" text-anchor="middle">Tifoso</text>
+  <text x="190" y="466" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#48484a" text-anchor="middle">Your in-house expert on the pro cycling scene,</text>
+  <text x="190" y="481" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#48484a" text-anchor="middle">from the Giro Hurt to the Hero Dirt.</text>
+
+  <text x="190" y="508" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="500" fill="#8e8e93" text-anchor="middle">WHAT TIFOSO CAN DO</text>
+  <rect x="130" y="516" width="56" height="20" rx="10" fill="#fff" stroke="#d1d1d6" stroke-width="0.8"/>
+  <text x="158" y="530" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#000" text-anchor="middle">Recap</text>
+  <rect x="190" y="516" width="64" height="20" rx="10" fill="#fff" stroke="#d1d1d6" stroke-width="0.8"/>
+  <text x="222" y="530" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#000" text-anchor="middle">Plan ride</text>
+
+  <text x="190" y="568" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#8e8e93" text-anchor="middle">convos://template/eb0cad22-2998-4f86-abb0-f3ab2fe763b2</text>
+  <text x="190" y="582" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#8e8e93" text-anchor="middle">Universal Link opens directly into the contact page on devices with Convos installed</text>
+</svg>
