@@ -1,7 +1,7 @@
 import Foundation
 
 extension Notification.Name {
-    /// Posted by the contacts picker confirm path (ContactsView / ContactCardView)
+    /// Posted by the contacts picker confirm path (ContactsView / ContactDetailView)
     /// when the user picks contacts and asks to start a conversation with them.
     /// Carries `["inboxIds": [String]]` in `userInfo`.
     ///

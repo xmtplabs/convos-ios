@@ -12,7 +12,7 @@ import SwiftUI
 //      `ConversationsViewModel` reacts by presenting a
 //      `NewConversationView` driven by
 //      `NewConversationViewModel(mode: .newConversationWithMembers(...))`.
-//   2. Send-a-message CTA on the contact card (`ContactCardView`, either
+//   2. Send-a-message CTA on the contact card (`ContactDetailView`, either
 //      standalone or scoped), `mode: .newConversation` with
 //      `preselectedInboxIds: [contact.inboxId]`.
 //   3. Add from Contacts in the chat plus-menu (`ConversationView` ->
@@ -21,7 +21,7 @@ import SwiftUI
 //      passed as `alreadyInChatInboxIds`. Confirm calls
 //      `ConversationViewModel.addMembersFromContacts(_:)`.
 //
-// Mirrors `ContactCardMode`'s "one component, two-or-more entry points"
+// Mirrors `ContactDetailMode`'s "one component, two-or-more entry points"
 // pattern. The view itself is presentation-only; callers own the side
 // effect on confirm by passing in `onConfirm`.
 

@@ -3,9 +3,9 @@ import SwiftUI
 
 // MARK: - Module overview
 //
-// `ContactCardView` is the single canonical "look at this person" surface
+// `ContactDetailView` is the single canonical "look at this person" surface
 // in the app. It is invoked from two entry points, parameterized by
-// `ContactCardMode`:
+// `ContactDetailMode`:
 //
 //   1. Contacts list (`ContactsView`) -> `mode: .standalone`. Default.
 //   2. Member-avatar tap inside a chat (`ConversationView` presents
@@ -13,29 +13,32 @@ import SwiftUI
 //
 // Section visibility is driven by the mode plus the contact's stored state:
 //
-//   - Header (avatar / name) - always
+//   - Close (X) button - always, top-leading overlay
+//   - Header (avatar / name / optional role-label capsule) - always
+//   - Subtitle - "Invited X ago by Y" in scoped mode when the member has a
+//     `joinedAt`; otherwise "Added X ago" from `contact.addedAt`
 //   - Agent rows (Get skills / Learn about assistants) - both modes, when
 //     `contact.agentVerification?.isVerified == true`
-//   - Pop up a convo - both modes; calls `contactsWriter.upsertContact(...)`
+//   - Chat - both modes; calls `contactsWriter.upsertContact(...)`
 //     before opening the picker so a synthetic / non-yet-stored contact is
-//     promoted to a real one (the narrow per-person upsert documented in
-//     the contacts PRD, "Send-message on a non-contact" section)
-//   - Block / Unblock - both modes
-//   - Remove from convo - scoped mode only, when the viewer is an admin
+//     promoted to a real one. Disabled for verified agents (no DMs yet).
+//   - Remove - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
+//   - Block / Unblock - both modes (hidden for the current user)
 //
 // Mirrors `ContactsPickerMode`'s "one component, two entry points" pattern.
 
-/// Unified contact card. See module-overview comment above for entry-point
-/// mapping and section visibility rules.
-struct ContactCardView: View {
+/// Unified contact detail view. See module-overview comment above for
+/// entry-point mapping and section visibility rules.
+struct ContactDetailView: View {
     let contact: Contact
-    let mode: ContactCardMode
+    let mode: ContactDetailMode
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
     private let onRemove: (() -> Void)?
 
+    @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isBlocked: Bool
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
@@ -45,7 +48,7 @@ struct ContactCardView: View {
 
     init(
         contact: Contact,
-        mode: ContactCardMode = .standalone,
+        mode: ContactDetailMode = .standalone,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
@@ -64,9 +67,10 @@ struct ContactCardView: View {
         bodyContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
-            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .modifier(ContactCardModalsModifier(
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar { closeToolbarItem }
+            .modifier(ContactDetailModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
                 presentingSendMessageError: $presentingSendMessageError,
@@ -79,36 +83,52 @@ struct ContactCardView: View {
             .task(id: contact.inboxId) { await syncBlockedState() }
     }
 
+    @ToolbarContentBuilder
+    private var closeToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            let action = { dismiss() }
+            Button(role: .cancel, action: action)
+                .accessibilityIdentifier("contact-detail-close")
+        }
+    }
+
     @ViewBuilder
     private var bodyContent: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            VStack(spacing: DesignConstants.Spacing.stepX) {
-                ContactCardHeader(contact: contact)
-                ContactCardMetadata(addedAt: contact.addedAt, isBlocked: isBlocked)
-            }
+        VStack(spacing: 0.0) {
+            ContactDetailHeader(contact: contact)
+                .padding(.top, 60.0)
+            ContactDetailSubtitle(
+                contact: contact,
+                invitedBy: mode.invitedBy,
+                joinedAt: mode.joinedAt,
+                isBlocked: isBlocked
+            )
+            .padding(.top, DesignConstants.Spacing.step2x)
             if isVerifiedAgent {
-                ContactCardAgentLinks()
+                ContactDetailAgentLinks()
+                    .padding(.top, DesignConstants.Spacing.step8x)
             }
-            ContactCardActions(
+            ContactDetailActions(
                 isBlocked: isBlocked,
                 isApplyingBlockChange: isApplyingBlockChange,
                 // Verified agents (Convos / OAuth-verified) don't accept
-                // 1:1 DMs today, so the Pop-up-a-convo CTA would open a
-                // conversation that goes nowhere. Disable until DM support
-                // for agents lands; the "Get skills" / "Learn about
-                // assistants" rows above remain the right way to interact.
+                // 1:1 DMs today, so the Chat CTA would open a conversation
+                // that goes nowhere. Disable until DM support for agents
+                // lands; the "Get skills" / "Learn about assistants" rows
+                // above remain the right way to interact.
                 canSendMessage: session != nil && !isVerifiedAgent,
+                showRemove: mode.isScopedToConversation
+                    && !mode.isCurrentUser
+                    && mode.canRemoveMembers,
+                showBlock: !mode.isCurrentUser,
                 contactDisplayName: contact.resolvedDisplayName,
                 onSendMessage: handleSendMessage,
+                onRemove: handleRemoveTap,
                 onToggleBlock: handleBlockTap
             )
-            if mode.isScopedToConversation && !mode.isCurrentUser && mode.canRemoveMembers {
-                ContactCardGroupActions(
-                    contactDisplayName: contact.resolvedDisplayName,
-                    onRemove: handleRemoveTap
-                )
-            }
-            Spacer()
+            .padding(.top, DesignConstants.Spacing.step8x)
+            .padding(.bottom, 80.0)
+            Spacer(minLength: 0.0)
         }
     }
 
@@ -271,14 +291,13 @@ struct ContactCardView: View {
 
 // MARK: - Header
 
-private struct ContactCardHeader: View {
+private struct ContactDetailHeader: View {
     let contact: Contact
 
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
             ContactAvatarView(contact: contact)
-                .frame(width: 140.0, height: 140.0)
-                .padding(.top, DesignConstants.Spacing.step6x)
+                .frame(width: 160.0, height: 160.0)
 
             Text(contact.resolvedDisplayName)
                 .font(.largeTitle.weight(.bold))
@@ -291,21 +310,26 @@ private struct ContactCardHeader: View {
                     .padding(.horizontal, DesignConstants.Spacing.step2x)
                     .padding(.vertical, DesignConstants.Spacing.stepX)
                     .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-                    .accessibilityIdentifier("contact-card-role-label-\(contact.inboxId)")
+                    .accessibilityIdentifier("contact-detail-role-label-\(contact.inboxId)")
             }
         }
     }
 }
 
-// MARK: - Metadata
+// MARK: - Subtitle
 
-private struct ContactCardMetadata: View {
-    let addedAt: Date
+/// Renders "Invited X ago by Y" when scoped-mode `joinedAt` is available,
+/// otherwise "Added X ago" sourced from `contact.addedAt`. The blocked row
+/// is appended underneath when the contact is currently blocked.
+private struct ContactDetailSubtitle: View {
+    let contact: Contact
+    let invitedBy: Profile?
+    let joinedAt: Date?
     let isBlocked: Bool
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.stepX) {
-            Text("Added \(relativeAddedAt)")
+            Text(subtitleText)
                 .foregroundStyle(.colorTextSecondary)
             if isBlocked {
                 blockedRow
@@ -316,13 +340,21 @@ private struct ContactCardMetadata: View {
         .padding(.horizontal, DesignConstants.Spacing.step3x)
     }
 
-    /// Mirrors the `RelativeDateTimeFormatter(.abbreviated)` convention from
-    /// `ConversationMemberView`'s "Added X by Y" subtitle so the contact card
-    /// reads the same way ("Added 20m ago", "Added 3h ago", "Added 2w ago").
-    private var relativeAddedAt: String {
+    private var subtitleText: String {
+        if let joinedAt {
+            let prefix = "Invited \(relativeString(for: joinedAt))"
+            if let inviter = invitedBy?.displayName, !inviter.isEmpty {
+                return "\(prefix) by \(inviter)"
+            }
+            return prefix
+        }
+        return "Added \(relativeString(for: contact.addedAt))"
+    }
+
+    private func relativeString(for date: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: addedAt, relativeTo: Date())
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     private var blockedRow: some View {
@@ -336,7 +368,7 @@ private struct ContactCardMetadata: View {
 
 // MARK: - Agent links
 
-private struct ContactCardAgentLinks: View {
+private struct ContactDetailAgentLinks: View {
     @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
@@ -345,13 +377,13 @@ private struct ContactCardAgentLinks: View {
                 title: "Get skills",
                 subtitle: "Browse 100+ curated capabilities",
                 url: AgentLinks.getSkillsURL,
-                accessibilityIdentifier: "contact-card-get-skills"
+                accessibilityIdentifier: "contact-detail-get-skills"
             )
             agentLinkRow(
                 title: "Learn about assistants",
                 subtitle: "Capabilities, privacy and security",
                 url: AgentLinks.learnAboutAssistantsURL,
-                accessibilityIdentifier: "contact-card-learn-about-assistants"
+                accessibilityIdentifier: "contact-detail-learn-about-assistants"
             )
         }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
@@ -388,34 +420,62 @@ private struct ContactCardAgentLinks: View {
     }
 }
 
-// MARK: - Action buttons
+// MARK: - Action stack
 
-private struct ContactCardActions: View {
+/// Renders Chat + (optional) Remove + (optional) Block in the order shown
+/// in the design. Chat is the primary CTA (filled dark pill); Remove and
+/// Block use the secondary action-row style (white pill + caption).
+private struct ContactDetailActions: View {
     let isBlocked: Bool
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
+    let showRemove: Bool
+    let showBlock: Bool
     let contactDisplayName: String
     let onSendMessage: () -> Void
+    let onRemove: () -> Void
     let onToggleBlock: () -> Void
 
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
-            popUpConvoRow
-            blockRow
+        VStack(spacing: DesignConstants.Spacing.step6x) {
+            chatButton
+            if showRemove {
+                removeRow
+            }
+            if showBlock {
+                blockRow
+            }
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.top, DesignConstants.Spacing.step4x)
     }
 
-    private var popUpConvoRow: some View {
-        ContactCardActionRow(
-            label: "Pop up a convo",
-            footer: "Message \(contactDisplayName)",
+    private var chatButton: some View {
+        let backgroundOpacity: Double = canSendMessage ? 1.0 : 0.4
+        return Button(action: onSendMessage) {
+            Text("Chat")
+                .font(.body.weight(.medium))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DesignConstants.Spacing.step4x)
+                .background(
+                    RoundedRectangle(cornerRadius: 32.0)
+                        .fill(.colorTextPrimary.opacity(backgroundOpacity))
+                )
+        }
+        .disabled(!canSendMessage)
+        .accessibilityLabel("Chat with \(contactDisplayName)")
+        .accessibilityIdentifier("contact-detail-chat")
+    }
+
+    private var removeRow: some View {
+        ContactDetailActionRow(
+            label: "Remove",
+            footer: "Remove from convo",
             color: .colorTextPrimary,
-            isDisabled: !canSendMessage,
-            accessibilityLabel: "Pop up a convo with \(contactDisplayName)",
-            accessibilityIdentifier: "contact-card-send-message",
-            action: onSendMessage
+            isDisabled: false,
+            accessibilityLabel: "Remove \(contactDisplayName)",
+            accessibilityIdentifier: "remove-member-button",
+            action: onRemove
         )
     }
 
@@ -423,9 +483,9 @@ private struct ContactCardActions: View {
         let label: String = isBlocked ? "Unblock" : "Block"
         let footer: String = isBlocked
             ? "Start receiving convo invites from \(contactDisplayName) again"
-            : "Block all future convo invites from \(contactDisplayName)"
-        let identifier: String = isBlocked ? "contact-card-unblock" : "contact-card-block"
-        return ContactCardActionRow(
+            : "So they can't contact you"
+        let identifier: String = isBlocked ? "contact-detail-unblock" : "contact-detail-block"
+        return ContactDetailActionRow(
             label: label,
             footer: footer,
             color: .colorCaution,
@@ -437,40 +497,13 @@ private struct ContactCardActions: View {
     }
 }
 
-// MARK: - Group actions (scoped mode only)
-
-/// Renders conversation-scoped actions on the contact card. Today only
-/// "Remove" lives here; it appears when the viewer is an admin who can
-/// remove the tapped member. The plain Block row (above, in
-/// `ContactCardActions`) covers the block intent in every mode, so this
-/// view stays focused on conversation-scope-specific affordances.
-private struct ContactCardGroupActions: View {
-    let contactDisplayName: String
-    let onRemove: () -> Void
-
-    var body: some View {
-        ContactCardActionRow(
-            label: "Remove",
-            footer: "Remove \(contactDisplayName) from the convo",
-            color: .colorCaution,
-            isDisabled: false,
-            accessibilityLabel: "Remove \(contactDisplayName)",
-            accessibilityIdentifier: "remove-member-button",
-            action: onRemove
-        )
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.top, DesignConstants.Spacing.step2x)
-    }
-}
-
 // MARK: - Shared action row
 
-/// Reusable row used by both `ContactCardActions` (Pop up a convo, Block)
-/// and `ContactCardGroupActions` (Remove, Block and leave). The shape -
+/// Reusable row for the secondary actions (Remove, Block). The shape -
 /// rounded white pill on top with a small grey footer caption below - is
 /// the canonical card action style. The label color is the only knob: dark
 /// primary for affirmative actions, caution red for destructive.
-private struct ContactCardActionRow: View {
+private struct ContactDetailActionRow: View {
     let label: String
     let footer: String
     let color: Color
@@ -483,14 +516,12 @@ private struct ContactCardActionRow: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             Button(action: action) {
                 Text(label)
-                    .font(.body.weight(.medium))
+                    .font(.body)
                     .foregroundStyle(color)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
-                    )
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .background(Capsule().fill(.colorFillMinimal))
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
@@ -499,14 +530,14 @@ private struct ContactCardActionRow: View {
             Text(footer)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
     }
 }
 
 // MARK: - Modals modifier
 
-private struct ContactCardModalsModifier<
+private struct ContactDetailModalsModifier<
     BlockActions: View,
     PickerContent: View
 >: ViewModifier {
@@ -546,9 +577,8 @@ private struct ContactCardModalsModifier<
 extension Contact {
     /// Builds a presentation-only `Contact` from a chat member when the
     /// inbox is not yet a stored contact. The card uses this until the user
-    /// taps "Send a message", at which point the writer's idempotent upsert
-    /// promotes the synthetic to a real contact attributed to the source
-    /// conversation.
+    /// taps "Chat", at which point the writer's idempotent upsert promotes
+    /// the synthetic to a real contact attributed to the source conversation.
     public static func synthetic(
         inboxId: String,
         displayName: String?,
@@ -577,10 +607,10 @@ extension Contact {
     /// stored `Contact` if the inbox is a known contact, otherwise a
     /// synthetic one built from the member's profile snapshot.
     ///
-    /// Used by the chat-side `ContactCardView` entry points (member-avatar
-    /// tap, members list) so the card renders uniformly for contact
-    /// members and non-contact members. The synthetic fallback is
-    /// promoted to a real contact when the user taps "Send a message".
+    /// Used by the chat-side `ContactDetailView` entry points (member-avatar
+    /// tap, members list) so the view renders uniformly for contact members
+    /// and non-contact members. The synthetic fallback is promoted to a
+    /// real contact when the user taps "Chat".
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
@@ -604,7 +634,7 @@ extension Contact {
 
 #Preview("Default") {
     NavigationStack {
-        ContactCardView(
+        ContactDetailView(
             contact: .mock(displayName: "Alice"),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()
@@ -614,7 +644,7 @@ extension Contact {
 
 #Preview("Blocked") {
     NavigationStack {
-        ContactCardView(
+        ContactDetailView(
             contact: .mock(displayName: "Alice", isBlocked: true),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()
@@ -624,7 +654,7 @@ extension Contact {
 
 #Preview("Verified agent") {
     NavigationStack {
-        ContactCardView(
+        ContactDetailView(
             contact: .mock(
                 displayName: "Convos Assistant",
                 agentVerification: .verified(.convos)
@@ -637,12 +667,14 @@ extension Contact {
 
 #Preview("Scoped to conversation, admin") {
     NavigationStack {
-        ContactCardView(
-            contact: .mock(displayName: "Bob"),
+        ContactDetailView(
+            contact: .mock(displayName: "Andy"),
             mode: .scopedToConversation(
                 conversationId: "convo-1",
                 canRemoveMembers: true,
-                isCurrentUser: false
+                isCurrentUser: false,
+                invitedBy: Profile.mock(name: "Shane"),
+                joinedAt: Date().addingTimeInterval(-20 * 60)
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository(),

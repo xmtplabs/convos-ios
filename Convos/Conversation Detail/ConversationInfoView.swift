@@ -120,7 +120,7 @@ struct ConversationInfoView: View {
                 repository: viewModel.makeAssistantFilesLinksRepository(),
                 members: viewModel.conversation.members,
                 profileSheetContent: { member in
-                    AnyView(MemberContactCardSheetContent(viewModel: viewModel, member: member))
+                    AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member))
                 }
             )
         } label: {

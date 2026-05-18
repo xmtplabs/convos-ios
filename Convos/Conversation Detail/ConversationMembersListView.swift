@@ -85,7 +85,7 @@ struct ConversationMembersListView: View {
             .buttonStyle(.plain)
         } else {
             NavigationLink {
-                memberContactCardDestination(for: member)
+                memberContactDetailDestination(for: member)
             } label: {
                 row
             }
@@ -93,7 +93,7 @@ struct ConversationMembersListView: View {
     }
 
     @ViewBuilder
-    private func memberContactCardDestination(for member: ConversationMember) -> some View {
+    private func memberContactDetailDestination(for member: ConversationMember) -> some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
         let contactsWriter = messagingService.contactsWriter()
@@ -103,12 +103,14 @@ struct ConversationMembersListView: View {
             contactsRepository: contactsRepository
         )
         let onRemove: () -> Void = { viewModel.remove(member: member) }
-        ContactCardView(
+        ContactDetailView(
             contact: resolvedContact,
             mode: .scopedToConversation(
                 conversationId: viewModel.conversation.id,
                 canRemoveMembers: viewModel.canRemoveMembers,
-                isCurrentUser: member.isCurrentUser
+                isCurrentUser: member.isCurrentUser,
+                invitedBy: member.invitedBy,
+                joinedAt: member.joinedAt
             ),
             contactsWriter: contactsWriter,
             contactsRepository: contactsRepository,

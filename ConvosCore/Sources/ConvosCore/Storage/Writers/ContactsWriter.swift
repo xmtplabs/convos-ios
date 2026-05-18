@@ -20,7 +20,7 @@ public extension Notification.Name {
 /// unit: `replacingProfile(of:with:)` wholesale-replaces every field on
 /// the stored row, including `nil`s. An untimestamped snapshot is a
 /// fill-defaults payload from a local hydration site
-/// (`ContactSyncCoordinator`, `ContactCardView.handleSendMessage`); it
+/// (`ContactSyncCoordinator`, `ContactDetailView.handleSendMessage`); it
 /// only seeds new contact rows and never updates an existing one.
 public struct ContactProfileSnapshot: Sendable, Hashable {
     public let displayName: String?

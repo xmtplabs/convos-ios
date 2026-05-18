@@ -56,7 +56,7 @@ struct ContactsView: View {
                 Section(header: ContactsListSectionHeader(title: section.title)) {
                     ForEach(section.contacts) { contact in
                         NavigationLink {
-                            ContactCardView(
+                            ContactDetailView(
                                 contact: contact,
                                 contactsWriter: contactsWriter,
                                 contactsRepository: contactsRepository,

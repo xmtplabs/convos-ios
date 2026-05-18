@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared destinations for the agent-related rows on `ContactCardView`.
+/// Shared destinations for the agent-related rows on `ContactDetailView`.
 enum AgentLinks {
     // swiftlint:disable:next force_unwrapping
     static let getSkillsURL: URL = URL(string: "https://convos.org/assistants")!

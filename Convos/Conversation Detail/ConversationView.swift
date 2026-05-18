@@ -267,8 +267,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     @ViewBuilder
-    private func memberContactCardSheet(for member: ConversationMember) -> some View {
-        MemberContactCardSheetContent(viewModel: viewModel, member: member)
+    private func memberContactDetailSheet(for member: ConversationMember) -> some View {
+        MemberContactDetailSheetContent(viewModel: viewModel, member: member)
     }
 
     private var scanInviteButton: some View {
@@ -304,7 +304,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
-        AnyView(MemberContactCardSheetContent(viewModel: viewModel, member: member))
+        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member))
     }
 
     private var pagerDotsInset: CGFloat {
@@ -414,7 +414,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
-            memberContactCardSheet(for: member)
+            memberContactDetailSheet(for: member)
         }
         .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
             ReactionsDrawerView(message: message) { reaction in
@@ -468,16 +468,7 @@ private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
     .mock
 }
 
-struct AttachmentProfileSheetCloseButton: View {
-    @Environment(\.dismiss) private var dismiss: DismissAction
-
-    var body: some View {
-        let action = { dismiss() }
-        Button(role: .cancel, action: action)
-    }
-}
-
-struct MemberContactCardSheetContent: View {
+struct MemberContactDetailSheetContent: View {
     let viewModel: ConversationViewModel
     let member: ConversationMember
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -496,23 +487,20 @@ struct MemberContactCardSheetContent: View {
             dismiss()
         }
         NavigationStack {
-            ContactCardView(
+            ContactDetailView(
                 contact: resolvedContact,
                 mode: .scopedToConversation(
                     conversationId: viewModel.conversation.id,
                     canRemoveMembers: viewModel.canRemoveMembers,
-                    isCurrentUser: member.isCurrentUser
+                    isCurrentUser: member.isCurrentUser,
+                    invitedBy: member.invitedBy,
+                    joinedAt: member.joinedAt
                 ),
                 contactsWriter: contactsWriter,
                 contactsRepository: contactsRepository,
                 session: viewModel.session,
                 onRemove: onRemove
             )
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    AttachmentProfileSheetCloseButton()
-                }
-            }
         }
     }
 }
