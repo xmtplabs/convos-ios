@@ -57,16 +57,21 @@ final class WhiteboardViewController: UIViewController {
         view.backgroundColor = .white
         title = "Whiteboard"
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
+        let cancelButton = UIBarButtonItem(
             barButtonSystemItem: .cancel,
             target: self,
             action: #selector(handleCancel)
         )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        cancelButton.accessibilityIdentifier = "whiteboard-cancel-button"
+        navigationItem.leftBarButtonItem = cancelButton
+
+        let doneButton = UIBarButtonItem(
             barButtonSystemItem: .done,
             target: self,
             action: #selector(handleDone)
         )
+        doneButton.accessibilityIdentifier = "whiteboard-done-button"
+        navigationItem.rightBarButtonItem = doneButton
 
         view.addSubview(canvasView)
         NSLayoutConstraint.activate([
