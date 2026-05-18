@@ -85,6 +85,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var isMessageInputFocused: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
+    @State private var isWhiteboardPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
     @State private var showFileTooLargeAlert: Bool = false
     @State private var showFileTruncatedAlert: Bool = false
@@ -135,6 +136,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             .fullScreenCover(isPresented: $isCameraPresented) {
                 cameraPickerCover
             }
+            .fullScreenCover(isPresented: $isWhiteboardPresented) {
+                whiteboardCover
+            }
     }
 
     @ViewBuilder
@@ -175,6 +179,22 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onVideoCaptured: { url in
                 onVideoSelected(url)
                 isCameraPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            }
+        )
+        .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private var whiteboardCover: some View {
+        WhiteboardView(
+            onImageCreated: { image in
+                onPhotoSelected(image)
+                isWhiteboardPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            },
+            onCancel: {
+                isWhiteboardPresented = false
                 focusCoordinator.moveFocus(to: .message)
             }
         )
@@ -393,6 +413,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
+                    isWhiteboardPresented: $isWhiteboardPresented,
                     onVoiceMemoTap: startVoiceMemoRecording,
                     onFilePickerTap: {
                         isFilePickerPresented = true

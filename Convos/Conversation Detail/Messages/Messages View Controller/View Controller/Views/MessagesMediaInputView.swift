@@ -3,6 +3,7 @@ import SwiftUI
 struct MessagesMediaButtonsView: View {
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
+    @Binding var isWhiteboardPresented: Bool
     let onVoiceMemoTap: () -> Void
     let onFilePickerTap: () -> Void
     let onConvosAction: () -> Void
@@ -49,6 +50,20 @@ struct MessagesMediaButtonsView: View {
             .disabled(isMediaCapacityFull)
             .accessibilityLabel("Camera")
             .accessibilityIdentifier("camera-button")
+
+            Button {
+                isWhiteboardPresented = true
+            } label: {
+                Image(systemName: "pencil.tip.crop.circle")
+                    .font(.system(size: 18.0, weight: .medium))
+                    .foregroundStyle(mediaTint)
+                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(isMediaCapacityFull)
+            .accessibilityLabel("Whiteboard")
+            .accessibilityIdentifier("whiteboard-button")
 
             Button {
                 onVoiceMemoTap()
@@ -124,10 +139,12 @@ struct MessagesMediaButtonsView: View {
 #Preview {
     @Previewable @State var isPhotoPickerPresented: Bool = false
     @Previewable @State var isCameraPresented: Bool = false
+    @Previewable @State var isWhiteboardPresented: Bool = false
 
     MessagesMediaButtonsView(
         isPhotoPickerPresented: $isPhotoPickerPresented,
         isCameraPresented: $isCameraPresented,
+        isWhiteboardPresented: $isWhiteboardPresented,
         onVoiceMemoTap: {},
         onFilePickerTap: {},
         onConvosAction: {}
