@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 693" width="320" height="693" role="img" aria-label="Contacts picker with humans and agents">
+<title>Contacts picker with humans and agents</title>
+
+  <rect x="1.5" y="1.5" width="317" height="690" rx="34" ry="34" fill="#000" stroke="#2a2a2a" stroke-width="3"/>
+  <rect x="122" y="6" width="76" height="18" rx="9" ry="9" fill="#000"/>
+
+  <text x="20" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#fff" text-anchor="start">4:35</text>
+  <text x="270" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#fff" text-anchor="start">SOS</text>
+  <rect x="288" y="14" width="14" height="9" rx="2" fill="none" stroke="#fff" stroke-width="0.8"/>
+  <rect x="290" y="16" width="6" height="5" fill="#fff"/>
+  <circle cx="284" cy="19" r="1" fill="#fff"/>
+  <path d="M 278 21 a 4 4 0 0 1 8 0" fill="none" stroke="#fff" stroke-width="0.8"/>
+
+  <rect x="14" y="36" width="32" height="32" rx="16" fill="#1c1c1e"/>
+  <text x="30" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="18" font-weight="400" fill="#fff" text-anchor="middle">‹</text>
+  <text x="160" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="middle">New conversation</text>
+  <rect x="274" y="36" width="32" height="32" rx="16" fill="#1c1c1e"/>
+  <text x="290" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="400" fill="#fff" text-anchor="middle">✕</text>
+
+  <text x="20" y="86" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">To:</text>
+
+  <rect x="42" y="74" width="78" height="22" rx="11" fill="#3b3b3d"/>
+  <circle cx="52" cy="85" r="7" fill="#5a3a2a"/>
+  <text x="52" y="88" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="8" font-weight="500" fill="#d1d1d6" text-anchor="middle">G</text>
+  <text x="76" y="89" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="500" fill="#fff" text-anchor="start">Gerald</text>
+  <text x="112" y="89" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#8e8e93" text-anchor="middle">×</text>
+
+  <rect x="126" y="74" width="68" height="22" rx="11" fill="#3b3b3d"/>
+  <circle cx="136" cy="85" r="7" fill="#3b86ff"/>
+  <circle cx="136" cy="83" r="3.5" fill="#f4c79a"/>
+  <path d="M 134 86 q 2 2 4 0" fill="#3a2a1a"/>
+  <text x="160" y="89" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="500" fill="#fff" text-anchor="start">Tifoso</text>
+  <text x="186" y="89" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#8e8e93" text-anchor="middle">×</text>
+
+  <rect x="14" y="108" width="292" height="30" rx="15" fill="#1c1c1e"/>
+  <circle cx="32" cy="123" r="5" fill="none" stroke="#8e8e93" stroke-width="1.2"/>
+  <line x1="36" y1="127" x2="40" y2="131" stroke="#8e8e93" stroke-width="1.2"/>
+  <text x="48" y="127" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="400" fill="#8e8e93" text-anchor="start">Search contacts</text>
+
+  <rect x="14" y="148" width="44" height="24" rx="12" fill="#fff"/>
+  <text x="36" y="164" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="600" fill="#000" text-anchor="middle">All</text>
+  <rect x="64" y="148" width="68" height="24" rx="12" fill="#1c1c1e" stroke="#2c2c2e" stroke-width="1"/>
+  <text x="98" y="164" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="500" fill="#fff" text-anchor="middle">Humans</text>
+  <rect x="138" y="148" width="64" height="24" rx="12" fill="#1c1c1e" stroke="#2c2c2e" stroke-width="1"/>
+  <text x="170" y="164" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="500" fill="#fff" text-anchor="middle">Agents</text>
+
+  <text x="20" y="194" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">C</text>
+  <g>
+    <circle cx="34" cy="216" r="17" fill="#5a3a2a"/>
+    <text x="34" y="220" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">CD</text>
+    <text x="60" y="212" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Cam Droid</text>
+    <text x="60" y="228" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">2 shared convos</text>
+    <circle cx="296" cy="216" r="9" fill="none" stroke="#48484a" stroke-width="1.5"/>
+  </g>
+
+  <text x="20" y="254" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">G</text>
+  <g>
+    <circle cx="34" cy="276" r="17" fill="#2c2c2e"/>
+    <text x="34" y="280" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">G</text>
+    <text x="60" y="272" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Gerald</text>
+    <text x="60" y="288" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">1 shared convo · 4d</text>
+    <circle cx="296" cy="276" r="9" fill="#fff"/><path d="M 292 277 l 3 3 l 6 -6" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="20" y="314" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">M</text>
+  <g>
+    <circle cx="34" cy="336" r="17" fill="#7b5a3a"/>
+    <circle cx="34" cy="332" r="9" fill="#f4c79a"/>
+    <path d="M 28 338 q 6 6 12 0" fill="#3a2a1a"/>
+    <text x="60" y="332" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Mise</text>
+    <rect x="86" y="322" width="40" height="14" rx="7" fill="#2c2c2e"/>
+    <text x="106" y="332" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="8.5" font-weight="600" fill="#8e8e93" text-anchor="middle">AGENT</text>
+    <text x="60" y="348" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">Your nightly what-to-cook coach</text>
+    <circle cx="296" cy="336" r="9" fill="none" stroke="#48484a" stroke-width="1.5"/>
+  </g>
+
+  <text x="20" y="374" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">Q</text>
+  <g>
+    <circle cx="34" cy="396" r="17" fill="#5a3a2a"/>
+    <text x="34" y="400" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#d1d1d6" text-anchor="middle">Q</text>
+    <text x="60" y="392" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Quarter</text>
+    <text x="60" y="408" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">3 shared convos</text>
+    <circle cx="296" cy="396" r="9" fill="none" stroke="#48484a" stroke-width="1.5"/>
+  </g>
+
+  <text x="20" y="434" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">T</text>
+  <g>
+    <circle cx="34" cy="456" r="17" fill="#3b86ff"/>
+    <circle cx="34" cy="452" r="9" fill="#f4c79a"/>
+    <path d="M 28 458 q 6 6 12 0" fill="#3a2a1a"/>
+    <text x="60" y="452" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="500" fill="#fff" text-anchor="start">Tifoso</text>
+    <rect x="92" y="442" width="40" height="14" rx="7" fill="#2c2c2e"/>
+    <text x="112" y="452" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="8.5" font-weight="600" fill="#8e8e93" text-anchor="middle">AGENT</text>
+    <text x="60" y="468" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">Pro cycling expert</text>
+    <circle cx="296" cy="456" r="9" fill="#fff"/><path d="M 292 457 l 3 3 l 6 -6" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="160" y="566" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#6e6e73" text-anchor="middle">Each checked agent spawns a fresh instance</text>
+  <text x="160" y="580" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#6e6e73" text-anchor="middle">when the conversation is created.</text>
+
+  <rect x="20" y="613" width="280" height="40" rx="20" fill="#fff"/>
+  <text x="160" y="638" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="13" font-weight="600" fill="#000" text-anchor="middle">Start conversation (2)</text>
+</svg>
