@@ -30,6 +30,9 @@ struct CellConfig {
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
+    /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`
+    /// cell renders the invite menu without the QR card above it.
+    let hidesInviteCard: Bool
     /// Maps an inbox to a contact-list display name when the
     /// per-conversation profile name is empty. Cells thread this into
     /// `update.summary(memberNameOverride:)` for system-message rendering.

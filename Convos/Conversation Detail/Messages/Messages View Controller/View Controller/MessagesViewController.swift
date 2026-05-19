@@ -551,6 +551,11 @@ extension MessagesViewController {
 
         var cells: [MessagesListItemType] = messages
 
+        // Mirror the conversation's persisted "hide invite QR" flag onto the
+        // data source so the `.invite` cell renderer can drop the QR card
+        // while keeping the invite menu visible.
+        dataSource.hidesInviteCard = conversation.hidesInviteCard
+
         // Add invite or conversation info at the beginning if all messages are loaded
         if hasLoadedAllMessages, !conversation.isDraft {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {

@@ -108,7 +108,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
                 case .invite(let invite):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
-                        InviteView(invite: invite)
+                        if !config.hidesInviteCard {
+                            InviteView(invite: invite)
+                        }
                         NewConvoIdentityView(
                             onCopyLink: config.onCopyInviteLink,
                             onConvoCode: config.onConvoCode,

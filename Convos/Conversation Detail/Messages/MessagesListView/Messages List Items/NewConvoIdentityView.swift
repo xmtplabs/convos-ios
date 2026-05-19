@@ -8,8 +8,6 @@ struct NewConvoIdentityView: View {
     var isAssistantJoinPending: Bool = false
     var isAssistantEnabled: Bool = false
 
-    @State private var presentingInfoSheet: Bool = false
-
     private var showInviteMenu: Bool { onCopyLink != nil }
 
     private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
@@ -22,17 +20,6 @@ struct NewConvoIdentityView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            let infoAction = { presentingInfoSheet = true }
-            Button(action: infoAction) {
-                HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Image(systemName: "infinity.circle.fill")
-                        .foregroundStyle(.colorTextTertiary)
-                    Text("New convo, new everything")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                .font(.caption)
-            }
-
             if showInviteMenu {
                 Menu {
                     let copyLinkAction: () -> Void = { onCopyLink?() }
@@ -77,10 +64,10 @@ struct NewConvoIdentityView: View {
                     }
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "plus")
                         Text("Invite members")
                     }
-                    .font(.footnote)
+                    .font(.callout)
                     .foregroundStyle(.colorTextPrimary)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
                     .padding(.vertical, DesignConstants.Spacing.step3HalfX)
@@ -93,30 +80,6 @@ struct NewConvoIdentityView: View {
             }
         }
         .padding(.top, DesignConstants.Spacing.step2x)
-        .selfSizingSheet(isPresented: $presentingInfoSheet) {
-            NewConvoIdentityInfoSheet()
-        }
-    }
-}
-
-struct NewConvoIdentityInfoSheet: View {
-    @Environment(\.dismiss) var dismiss: DismissAction
-
-    var body: some View {
-        FeatureInfoSheet(
-            tagline: "Private chat for the AI era",
-            title: "Every convo is a new world",
-            subtitle: "And you're a new you, too.",
-            paragraphs: [
-                .init("You have Infinite Identities, so you control how you show up, every time.", style: .primary),
-                .init("No info is shared between convos, so there's nothing to leak, link or spam.", size: .subheadline),
-            ],
-            primaryButtonTitle: "Awesome",
-            primaryButtonAction: { dismiss() },
-            learnMoreTitle: "About infinite identity",
-            learnMoreURL: URL(string: "https://learn.convos.org/infinite-identity"),
-            showDragIndicator: true
-        )
     }
 }
 
@@ -131,15 +94,4 @@ struct NewConvoIdentityInfoSheet: View {
 
 #Preview("Joiner") {
     NewConvoIdentityView()
-}
-
-#Preview("Info Sheet") {
-    @Previewable @State var isPresented: Bool = true
-    VStack {
-        let action = { isPresented.toggle() }
-        Button(action: action) { Text("Show") }
-    }
-    .selfSizingSheet(isPresented: $isPresented) {
-        NewConvoIdentityInfoSheet()
-    }
 }

@@ -51,6 +51,11 @@ class NewConversationViewModel: Identifiable {
     private(set) var messagesTopBarTrailingItemEnabled: Bool = false
     private(set) var messagesTextFieldEnabled: Bool = false
     private let startedWithFullscreenScanner: Bool
+    /// True when this VM was created with `.newConversationWithMembers`
+    /// (i.e. the contacts picker started the convo). Drives
+    /// `ConversationViewModel.hidesInviteCard` so the QR header isn't
+    /// rendered on top of a chat that already has members.
+    private let startedWithSeededMembers: Bool
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
     private(set) var showingFullScreenScanner: Bool
@@ -143,6 +148,12 @@ class NewConversationViewModel: Identifiable {
             self.allowsDismissingScanner = true
         }
 
+        if case .newConversationWithMembers = mode {
+            self.startedWithSeededMembers = true
+        } else {
+            self.startedWithSeededMembers = false
+        }
+
         self.isCreatingConversation = mode.isNewConversation
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
@@ -160,6 +171,7 @@ class NewConversationViewModel: Identifiable {
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
+        self.startedWithSeededMembers = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
 
@@ -303,6 +315,7 @@ class NewConversationViewModel: Identifiable {
                 do {
                     try await stateManager.createConversation()
                     await self?.applyGlobalConversationDefaultsIfNeeded(using: stateManager)
+                    await self?.persistHidesInviteCardIfNeeded(stateManager: stateManager)
                 } catch {
                     Log.error("Error auto-creating conversation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -311,6 +324,28 @@ class NewConversationViewModel: Identifiable {
                     }
                 }
             }
+        } else if existingConversationId != nil {
+            // Warm-cached convo: the DB row already exists, so the flag
+            // can be persisted right away without waiting on create.
+            Task { [weak self, stateManager] in
+                await self?.persistHidesInviteCardIfNeeded(stateManager: stateManager)
+            }
+        }
+    }
+
+    /// Persist `hidesInviteCard = true` on the conversation's local state
+    /// when this VM was launched via the contacts picker
+    /// (`.newConversationWithMembers`). Survives navigating away and
+    /// re-opening the chat from the conversations list.
+    private func persistHidesInviteCardIfNeeded(
+        stateManager: any ConversationStateManagerProtocol
+    ) async {
+        guard startedWithSeededMembers else { return }
+        let conversationId = stateManager.draftConversationRepository.conversationId
+        do {
+            try await stateManager.conversationLocalStateWriter.setHidesInviteCard(true, for: conversationId)
+        } catch {
+            Log.error("Failed to persist hidesInviteCard for \(conversationId): \(error.localizedDescription)")
         }
     }
 
