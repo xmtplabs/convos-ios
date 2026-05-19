@@ -42,6 +42,7 @@ struct ContactDetailView: View {
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
+    private let profileSettingsViewModel: ProfileSettingsViewModel
     private let onRemove: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -51,6 +52,7 @@ struct ContactDetailView: View {
     @State private var presentingPicker: Bool = false
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
+    @State private var presentingNewConvo: NewConversationViewModel?
 
     init(
         contact: Contact,
@@ -58,6 +60,7 @@ struct ContactDetailView: View {
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         onRemove: (() -> Void)? = nil
     ) {
@@ -66,6 +69,7 @@ struct ContactDetailView: View {
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
+        self.profileSettingsViewModel = profileSettingsViewModel
         self.showsCloseButton = showsCloseButton
         self.onRemove = onRemove
         _isBlocked = State(initialValue: contact.isBlocked)
@@ -88,6 +92,13 @@ struct ContactDetailView: View {
                 blockAlertActions: { blockAlertActions },
                 pickerSheet: { pickerSheet }
             ))
+            .sheet(item: $presentingNewConvo) { vm in
+                NewConversationView(
+                    viewModel: vm,
+                    profileSettingsViewModel: profileSettingsViewModel
+                )
+                .background(.colorBackgroundSurfaceless)
+            }
             .task(id: contact.inboxId) { await syncBlockedState() }
     }
 
@@ -276,18 +287,18 @@ struct ContactDetailView: View {
         }
     }
 
-    /// Forwards the picked inbox IDs to the conversations layer via
-    /// notification; that layer constructs a `NewConversationViewModel`
-    /// in `.newConversationWithMembers` mode so the placeholder UI shows
-    /// immediately and the state machine folds `addMembers` into its
-    /// create sequence atomically.
+    /// Spins up a `NewConversationViewModel` locally and presents it as a
+    /// sheet from this view, so the new conversation appears in place of
+    /// the picker while whatever hosts this contact card (App Settings
+    /// sheet stack, or the chat) stays alive underneath. Mirrors
+    /// `ContactsView.handlePickerConfirm` and the invite-cell-tap pattern
+    /// where the new-convo sheet is owned by the same view that hosted
+    /// the picker.
     private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty else { return }
-        let ids = Array(inboxIds)
-        NotificationCenter.default.post(
-            name: .contactsRequestedNewConversation,
-            object: nil,
-            userInfo: ["inboxIds": ids]
+        guard !inboxIds.isEmpty, let session else { return }
+        presentingNewConvo = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
         )
     }
 

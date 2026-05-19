@@ -7,14 +7,16 @@ import SwiftUI
 // It is invoked from three entry points, parameterized by `ContactsPickerMode`:
 //
 //   1. Compose toolbar on the contacts list (`ContactsView` toolbar `+`),
-//      `mode: .newConversation`. Confirm posts
-//      `.contactsRequestedNewConversation` with the chosen inbox IDs;
-//      `ConversationsViewModel` reacts by presenting a
-//      `NewConversationView` driven by
-//      `NewConversationViewModel(mode: .newConversationWithMembers(...))`.
+//      `mode: .newConversation`. Confirm builds a
+//      `NewConversationViewModel(mode: .newConversationWithMembers(...))`
+//      and presents it as a sheet from `ContactsView` itself, in place of
+//      the picker, so the App Settings sheet stack stays alive.
 //   2. Send-a-message CTA on the contact card (`ContactDetailView`, either
 //      standalone or scoped), `mode: .newConversation` with
-//      `preselectedInboxIds: [contact.inboxId]`.
+//      `preselectedInboxIds: [contact.inboxId]`. Confirm presents the
+//      new-convo sheet from `ContactDetailView` itself using the same
+//      pattern, so whatever hosts the card (App Settings stack or a chat)
+//      stays alive underneath.
 //   3. Add from Contacts in the chat plus-menu (`ConversationView` ->
 //      `AddToConversationMenu.onAddFromContacts`), `mode:
 //      .addToConversation(...)` with the conversation's existing members

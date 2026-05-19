@@ -268,7 +268,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ViewBuilder
     private func memberContactDetailSheet(for member: ConversationMember) -> some View {
-        MemberContactDetailSheetContent(viewModel: viewModel, member: member)
+        MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel)
     }
 
     private var scanInviteButton: some View {
@@ -304,7 +304,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
-        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member))
+        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
     }
 
     private var pagerDotsInset: CGFloat {
@@ -373,16 +373,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // the new-conversation flow. Reuses the same picker state the
             // chat plus-menu's "Add from Contacts" row drives.
             presentingAddFromContactsPicker = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .contactsRequestedNewConversation)) { _ in
-            // The picker may have been presented over a contact-card sheet
-            // (member avatar tap, "Send a message", picker). When the user
-            // confirms, the conversations-list layer is about to present
-            // `NewConversationView` from its own sheet anchor; tear our
-            // contact-card sheet down in the same render pass so SwiftUI
-            // runs the dismissals in parallel rather than serially, which
-            // eliminates the brief conversation-list flash between sheets.
-            viewModel.presentingProfileForMember = nil
         }
         .addFromContactsPicker(
             viewModel: viewModel,
@@ -471,6 +461,7 @@ private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
 struct MemberContactDetailSheetContent: View {
     let viewModel: ConversationViewModel
     let member: ConversationMember
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -499,6 +490,7 @@ struct MemberContactDetailSheetContent: View {
                 contactsWriter: contactsWriter,
                 contactsRepository: contactsRepository,
                 session: viewModel.session,
+                profileSettingsViewModel: profileSettingsViewModel,
                 onRemove: onRemove
             )
         }

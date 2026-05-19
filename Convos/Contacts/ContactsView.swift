@@ -4,20 +4,24 @@ import SwiftUI
 struct ContactsView: View {
     @State private var viewModel: ContactsViewModel
     @State private var presentingPicker: Bool = false
+    @State private var presentingNewConvo: NewConversationViewModel?
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
     private let session: (any SessionManagerProtocol)?
+    private let profileSettingsViewModel: ProfileSettingsViewModel
 
     init(
         contactsRepository: any ContactsRepositoryProtocol,
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
-        session: (any SessionManagerProtocol)? = nil
+        session: (any SessionManagerProtocol)? = nil,
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared
     ) {
         _viewModel = State(initialValue: ContactsViewModel(contactsRepository: contactsRepository))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
         self.session = session
+        self.profileSettingsViewModel = profileSettingsViewModel
     }
 
     var body: some View {
@@ -39,6 +43,13 @@ struct ContactsView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { toolbarContent }
         .sheet(isPresented: $presentingPicker) { pickerSheet }
+        .sheet(item: $presentingNewConvo) { vm in
+            NewConversationView(
+                viewModel: vm,
+                profileSettingsViewModel: profileSettingsViewModel
+            )
+            .background(.colorBackgroundSurfaceless)
+        }
     }
 
     // MARK: - List
@@ -74,6 +85,7 @@ struct ContactsView: View {
                         contactsWriter: contactsWriter,
                         contactsRepository: contactsRepository,
                         session: session,
+                        profileSettingsViewModel: profileSettingsViewModel,
                         showsCloseButton: false
                     )
                 } label: {
@@ -136,19 +148,19 @@ struct ContactsView: View {
         presentingPicker = true
     }
 
-    /// The picker doesn't create the conversation itself; it just hands
-    /// the chosen inbox IDs to the conversations layer, which spins up a
-    /// `NewConversationViewModel` driven by
-    /// `.newConversationWithMembers(...)`. That view model presents the
-    /// placeholder UI instantly and folds `addMembers` into the state
-    /// machine's create sequence so `.ready` already includes them.
+    /// Spins up a `NewConversationViewModel` locally and presents it as a
+    /// sheet from this view, so the new conversation appears in place of
+    /// the picker while the App Settings sheet stack stays alive
+    /// underneath. Dismissing the new-convo sheet lands the user back on
+    /// the contacts list, not at the root conversations list. Mirrors the
+    /// invite-cell-tap pattern (`presentingNewConversationForInvite` on
+    /// `ConversationViewModel`) where the sheet is owned by the same view
+    /// that hosted the picker.
     private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty else { return }
-        let ids = Array(inboxIds)
-        NotificationCenter.default.post(
-            name: .contactsRequestedNewConversation,
-            object: nil,
-            userInfo: ["inboxIds": ids]
+        guard !inboxIds.isEmpty, let session else { return }
+        presentingNewConvo = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
         )
     }
 }
