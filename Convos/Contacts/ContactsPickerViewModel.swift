@@ -115,7 +115,7 @@ final class ContactsPickerViewModel {
     var pillTitle: String {
         switch mode {
         case .newConversation:
-            return "New convo"
+            return "New Convo"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
                 return title

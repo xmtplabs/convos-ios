@@ -172,8 +172,29 @@ private struct ContactsPickerIndicatorPill: View {
         if let conversation {
             ConversationAvatarView(conversation: conversation, conversationImage: nil)
         } else {
-            EmojiAvatarView(emoji: Constant.placeholderEmoji)
+            placeholderAvatar
         }
+    }
+
+    /// `EmojiAvatarView`'s default `.colorFillMinimal` fill (#FAFAFA) is
+    /// indistinguishable from the surrounding glass capsule, so the emoji
+    /// reads as floating with no avatar ring. Paint the placeholder with
+    /// the page background fill plus a thin tertiary stroke so the circle
+    /// stays visible against the glass material.
+    private var placeholderAvatar: some View {
+        Circle()
+            .fill(.colorBackgroundRaisedSecondary)
+            .overlay(
+                Circle().stroke(.colorTextTertiary.opacity(0.2), lineWidth: 0.5)
+            )
+            .overlay(
+                GeometryReader { geometry in
+                    let side = min(geometry.size.width, geometry.size.height)
+                    Text(Constant.placeholderEmoji)
+                        .font(.system(size: side * 0.43, weight: .semibold, design: .rounded))
+                        .frame(width: side, height: side)
+                }
+            )
     }
 
     private enum Constant {
