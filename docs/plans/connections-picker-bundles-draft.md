@@ -34,11 +34,11 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
 
 ```json
 {
-  "version": 1,
   "services": [
     {
       "id": "googlecalendar",
       "composio_slug": "googlecalendar",
+      "version": 1,
       "display_name": { "en": "Google Calendar" },
       "icon": {
         "format": "png",
@@ -47,7 +47,6 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
       "bundles": [
         {
           "id": "calendar.events",
-          "version": 1,
           "title": { "en": "Events" },
           "description": { "en": "View and edit events on all calendars" },
           "default_enabled": false,
@@ -64,13 +63,13 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
 }
 ```
 
-Key fields on a bundle:
-- `id` — stable identifier we persist on the grant
-- `version` — bumped whenever `composio_actions` (or other semantically meaningful fields) change; sent in connection messages so the assistant can detect stale clients (see Versioning below)
-- `title` — localized map; bold line in the card
-- `description` — localized map; rationale line under the title (renamed from `rationale` to match Figma copy)
-- `default_enabled` — figma shows toggles off; flip per-bundle if we want one on by default
-- `composio_actions` — what we actually send to Composio when granted
+Key fields:
+- `services[].version` — service-level version; bumped whenever *anything* about that service changes (icon, copy, any bundle's actions). Sent in connection messages so the assistant can detect stale clients (see Versioning below).
+- `bundles[].id` — stable identifier we persist on the grant
+- `bundles[].title` — localized map; bold line in the card
+- `bundles[].description` — localized map; rationale line under the title (renamed from `rationale` to match Figma copy)
+- `bundles[].default_enabled` — figma shows toggles off; flip per-bundle if we want one on by default
+- `bundles[].composio_actions` — what we actually send to Composio when granted
 
 Localized strings always carry at minimum an `en` key. Renderer is:
 
@@ -84,27 +83,30 @@ Open question: do we also want `read_only` / `write` hints per bundle so we can 
 
 ## Versioning + self-healing clients
 
-We query the bundle config out of band (separate from the conversation). That means a device can be on `version: 1` of "Events" while the assistant has been upgraded to expect `version: 3`. To handle this without baking the config into every conversation, every connection message carries the bundle id **and** the version the device knows about:
+We query the service config out of band (separate from the conversation). That means a device can be on `googlecalendar` version `1` while the assistant has been upgraded to expect version `3`. To handle this without baking the config into every conversation, every connection message carries the service id, the bundle id, **and** the service version the device knows about:
 
 ```json
 {
-  "bundle_id": "calendar.events",
-  "bundle_version": 1
+  "service_id": "googlecalendar",
+  "service_version": 1,
+  "bundle_id": "calendar.events"
 }
 ```
 
-If the assistant sees a stale version, it returns a `stale_resource` status on the existing `CapabilityRequestResult` codec (inline — no side-channel event), telling the device which bundles to refresh:
+Versioning is **per-service**, not per-bundle. Connection messages always reference a single service, so the wire cost is the same as per-bundle versioning, but the backend only has to bump one number when anything about that service changes (icon, copy, any bundle's actions). Coarser than per-bundle, but avoids the storm-of-invalidations problem of a top-level config version. Trade-off chosen: small extra refresh churn for any change inside a service, in exchange for much simpler backend bookkeeping.
+
+If the assistant sees a stale version, it returns a `stale_resource` status on the existing `CapabilityRequestResult` codec (inline — no side-channel event), telling the device which services to refresh:
 
 ```json
 {
   "status": "stale_resource",
-  "stale_bundles": [
-    { "id": "calendar.events", "expected_version": 3 }
+  "stale_services": [
+    { "id": "googlecalendar", "expected_version": 3 }
   ]
 }
 ```
 
-Device refetches the config, retries the capability call. Self-healing, one extra round-trip in the worst case. Reuses the codec we just stabilized in #771 — no new top-level event type.
+Device refetches that service's config, retries the capability call. Self-healing, one extra round-trip in the worst case. Reuses the codec we just stabilized in #771 — no new top-level event type.
 
 ## Renames vs earlier scribbles
 
