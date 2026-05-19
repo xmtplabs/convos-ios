@@ -50,7 +50,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return MessagesView(
             conversation: viewModel.conversation,
-            messages: viewModel.messagesWithTypingIndicator,
+            messages: viewModel.messagesWithThinkingIndicators,
             invite: viewModel.invite,
             hasLoadedAllMessages: viewModel.hasLoadedAllMessages,
             profile: viewModel.profile,
@@ -98,6 +98,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
             onTapReadReceipts: viewModel.onTapReadReceipts(_:),
+            onTapThinkingIndicator: { descriptor in
+                viewModel.presentingThinkingDetail = descriptor
+            },
             onReply: { message in
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
@@ -419,6 +422,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
             ReadByDrawerView(members: group.readByMembers)
+        }
+        .sheet(item: $viewModel.presentingThinkingDetail) { descriptor in
+            ThinkingDetailView(
+                descriptor: descriptor,
+                conversation: viewModel.conversation,
+                viewModel: viewModel,
+                profileSheetForMember: profileSheetForMember
+            )
         }
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(

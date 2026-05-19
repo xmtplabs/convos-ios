@@ -10,6 +10,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)? { get set }
     var onReaction: ((String, String) -> Void)? { get set }
     var onToggleReaction: ((String, String) -> Void)? { get set }
     var onReply: ((AnyMessage) -> Void)? { get set }

@@ -100,6 +100,34 @@ AGENT_HOME="$HOME/.convos-debug-agent-$SLUG"
 CONVOS_HOME="$AGENT_HOME" convos init --env dev --force >/dev/null
 ```
 
+### Step 4b: Pick an emoji for the profile metadata
+
+iOS reads `metadata.emoji` off the agent's `ProfileUpdate` and renders it as the avatar fallback / sticker on the contact card. Map the persona to a fitting emoji so the agent stands out in the chat list instead of showing a default "A" tile. Pick from the persona's name with a small case-insensitive substring match; fall back to `🤖` for anything unrecognised.
+
+```bash
+case "$(echo "$PERSONA" | tr '[:upper:]' '[:lower:]')" in
+    *fitness*|*trainer*)               EMOJI="🏋️" ;;
+    *travel*|*trip*)                   EMOJI="✈️" ;;
+    *calendar*|*schedul*)              EMOJI="📅" ;;
+    *training*|*workout*)              EMOJI="💪" ;;
+    *meal*|*chef*|*food*|*recipe*)     EMOJI="🍽️" ;;
+    *coach*)                           EMOJI="🎯" ;;
+    *finance*|*money*|*budget*)        EMOJI="💸" ;;
+    *therap*|*coun*)                   EMOJI="🧠" ;;
+    *music*|*song*|*dj*)               EMOJI="🎵" ;;
+    *photo*|*pic*|*image*)             EMOJI="📸" ;;
+    *book*|*read*|*librar*)            EMOJI="📚" ;;
+    *garden*|*plant*)                  EMOJI="🌱" ;;
+    *dog*|*pet*|*cat*)                 EMOJI="🐾" ;;
+    *bike*|*cyclist*|*cycle*|*ride*)   EMOJI="🚴" ;;
+    *run*|*runner*)                    EMOJI="🏃" ;;
+    *) EMOJI="🤖" ;;
+esac
+echo "🎨 Emoji: $EMOJI"
+```
+
+If the user wants a specific emoji rather than the auto-pick, accept `<displayName>::<profileName>::<emoji>` as the persona arg (split on `::`) — same parsing convention as the existing display/profile-name override.
+
 ### Step 5: Join (or attach), with one command
 
 Two paths, both single-shot now that the CLI signs internally with `--attestation-private-key`:
@@ -112,6 +140,7 @@ PERSONA_NAME="$PERSONA"
 
 JOIN=$(CONVOS_HOME="$AGENT_HOME" convos conversations join "$INVITE" \
     --profile-name "$PERSONA_NAME" \
+    --metadata "emoji=$EMOJI" \
     --attestation-private-key "$KEY_PATH" \
     --attestation-kid "$KID" \
     --timeout 120 \
@@ -120,15 +149,18 @@ CONV_ID=$(echo "$JOIN" | jq -r '.conversationId')
 echo "🤝 Joined conversation $CONV_ID"
 ```
 
-The CLI mints the attestation itself, signing `sha256(inboxId || now)` once the XMTP client materializes the inboxId. No re-mint, no manual `update-profile` push.
+The CLI mints the attestation itself, signing `sha256(inboxId || now)` once the XMTP client materializes the inboxId. No re-mint, no manual `update-profile` push. The `--metadata emoji=…` is included in the join's profile and persists through every `ProfileUpdate` the serve loop publishes afterward.
 
 **b. Attaching to an existing conversation:**
 
 ```bash
 CONV_ID="<existing-id>"
+CONVOS_HOME="$AGENT_HOME" convos conversation update-profile "$CONV_ID" \
+    --name "$PERSONA_NAME" \
+    --metadata "emoji=$EMOJI"
 ```
 
-(Skip the join — go straight to step 6 with `--attestation-private-key` and the agent serve loop will publish a fresh ProfileUpdate at startup containing the attestation.)
+(Skip the join — push the emoji via `update-profile` so the metadata is in the agent's stored profile, then go to step 6. The agent serve loop will publish a fresh ProfileUpdate at startup carrying the attestation + the metadata you just set.)
 
 ### Step 6: Serve
 

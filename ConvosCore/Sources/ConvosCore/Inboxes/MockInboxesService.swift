@@ -125,6 +125,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         AssistantBuilderSummaryRepository(databaseReader: Self.mockDatabase)
     }
 
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: Self.mockDatabase)
+    }
+
     // MARK: - Notifications
 
     public func notifyChangesInDatabase() {

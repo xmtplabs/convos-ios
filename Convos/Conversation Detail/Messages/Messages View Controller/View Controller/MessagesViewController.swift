@@ -174,6 +174,36 @@ final class MessagesViewController: UIViewController {
         }
     }
 
+    /// Hosts that don't render a bottom bar (e.g. the thinking detail sheet)
+    /// set this to false so the controller doesn't sit on its initial state
+    /// update waiting for a `bottomBarHeight > 0` that will never arrive.
+    /// The chat path leaves it true and clears the gate via `bottomBarHeight`
+    /// once the composer measures.
+    var hasBottomBar: Bool = true {
+        didSet {
+            if !hasBottomBar {
+                currentInterfaceActions.options.remove(.determiningBottomBarHeight)
+            }
+        }
+    }
+
+    /// Extra top inset (in points) added to the controller's safe area, used
+    /// when the host floats a bar over the collection view rather than
+    /// installing it through `safeAreaBar(edge: .top)`. The collection view's
+    /// `contentInsetAdjustmentBehavior = .always` picks the value up via
+    /// `view.safeAreaInsets.top`, so newest-message bottom anchoring lands
+    /// below the floating bar while the collection view itself still spans
+    /// the full host (older content scrolls under the bar visually without
+    /// being clipped). Default 0 preserves the chat path, which floats its
+    /// top pill via the parent ConversationPresenter and relies on a leading
+    /// `.invite` / `.conversationInfo` cell to occupy the area behind it.
+    var topContentInset: CGFloat = 0.0 {
+        didSet {
+            guard topContentInset != oldValue else { return }
+            additionalSafeAreaInsets.top = topContentInset
+        }
+    }
+
     private var lastKeyboardFrameChange: KeyboardInfo?
 
     var onUserInteraction: (() -> Void)?
@@ -212,6 +242,7 @@ final class MessagesViewController: UIViewController {
     var onToggleReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
@@ -405,6 +436,10 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapReadReceipts = { [weak self] group in
             guard let self = self else { return }
             self.onTapReadReceipts?(group)
+        }
+        dataSource.onTapThinkingIndicator = { [weak self] descriptor in
+            guard let self = self else { return }
+            self.onTapThinkingIndicator?(descriptor)
         }
         dataSource.onReaction = { [weak self] emoji, messageId in
             guard let self = self else { return }

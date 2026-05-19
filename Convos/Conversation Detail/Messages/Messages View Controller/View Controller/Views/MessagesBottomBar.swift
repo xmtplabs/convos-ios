@@ -518,6 +518,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onToggleReaction: { _, _ in },
             onTapReactions: { _ in },
             onTapReadReceipts: { _ in },
+            onTapThinkingIndicator: { _ in },
             onReply: { _ in },
             contextMenuState: .init(),
             onPhotoRevealed: { _ in },

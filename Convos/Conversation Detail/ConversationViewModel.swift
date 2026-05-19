@@ -366,6 +366,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
     var typingMembers: [ConversationMember] = []
 
+    /// Active thinking sessions for this conversation, sourced from
+    /// `ThinkingSessionRepository`. Drives the in-list thinking bubble in
+    /// `messagesWithIndicators`. Mirror of how `typingMembers` drives the
+    /// typing bubble, but persisted in GRDB rather than in-memory.
+    var thinkingSessions: [ThinkingSessionRecord] = []
+
     @ObservationIgnored
     var isTypingSent: Bool = false
     @ObservationIgnored
@@ -469,6 +475,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
+    var presentingThinkingDetail: ThinkingSessionDescriptor?
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
@@ -808,9 +815,24 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             .store(in: &cancellables)
     }
 
+    /// Subscribe to the GRDB-backed thinking session feed for this
+    /// conversation. The publisher fires whenever the writer inserts or
+    /// closes a row, which propagates into `messagesWithThinkingIndicators`
+    /// via the `thinkingSessions` property the extension reads.
+    func observeThinkingSessions() {
+        session.thinkingSessionRepository()
+            .activeSessionsPublisher(for: conversation.id)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sessions in
+                self?.thinkingSessions = sessions
+            }
+            .store(in: &cancellables)
+    }
+
     private func observe() {
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
+        observeThinkingSessions()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
         messagesListRepository.messagesListPublisher

@@ -541,6 +541,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AssistantBuilderSummaryRepository(databaseReader: databaseReader)
     }
 
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: databaseReader)
+    }
+
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }

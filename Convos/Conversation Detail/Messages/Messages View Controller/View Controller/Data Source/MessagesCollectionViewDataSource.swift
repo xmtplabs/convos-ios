@@ -19,6 +19,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReaction: ((String, String) -> Void)?
     var onToggleReaction: ((String, String) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
@@ -94,6 +95,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onTapReadReceipts: { [weak self] group in
                 self?.onTapReadReceipts?(group)
+            },
+            onTapThinkingIndicator: { [weak self] descriptor in
+                self?.onTapThinkingIndicator?(descriptor)
             },
             onReaction: { [weak self] emoji, messageId in
                 self?.onReaction?(emoji, messageId)

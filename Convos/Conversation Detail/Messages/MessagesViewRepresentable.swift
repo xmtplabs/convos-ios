@@ -17,6 +17,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onTapReadReceipts: (MessagesGroup) -> Void
+    let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
     let onPhotoRevealed: (String) -> Void
@@ -39,6 +40,15 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     var assistantBuilderSummary: AssistantBuilderSummary?
     var assistantBuilderTransitionNamespace: Namespace.ID?
     let bottomBarHeight: CGFloat
+    /// Hosts that intentionally have no composer (the thinking detail sheet)
+    /// pass `false` so the controller doesn't wait for a non-existent bottom
+    /// bar measurement before applying its initial state.
+    var hasBottomBar: Bool = true
+    /// Top inset (in points) added to the controller's safe area for hosts
+    /// that float a bar over the collection view. See
+    /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
+    /// path on its existing layout.
+    var topContentInset: CGFloat = 0.0
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
@@ -70,6 +80,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
         Log.debug("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
+        messagesViewController.hasBottomBar = hasBottomBar
+        messagesViewController.topContentInset = topContentInset
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.focusCoordinator = focusCoordinator
 
@@ -80,6 +92,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onTapReadReceipts = onTapReadReceipts
+        messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
         messagesViewController.onPhotoRevealed = { key in
@@ -156,6 +169,7 @@ let menuPresented = contextMenuState.isPresented
         onToggleReaction: { _, _ in },
         onTapReactions: { _ in },
         onTapReadReceipts: { _ in },
+        onTapThinkingIndicator: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
         onPhotoRevealed: { _ in },

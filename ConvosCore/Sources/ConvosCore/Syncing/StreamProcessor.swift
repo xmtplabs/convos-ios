@@ -71,6 +71,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let pushTopicSubscriptionManager: any PushTopicSubscriptionManaging
+    private let thinkingSessionWriter: any ThinkingSessionWriterProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
@@ -111,6 +112,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             identityStore: identityStore,
             databaseWriter: databaseWriter
         )
+        self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
     }
 
     // MARK: - Public Interface
@@ -238,6 +240,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if await processThinking(message, conversationId: conversation.id, params: params) {
+                        return
+                    }
+
                     if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
@@ -346,6 +352,36 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         onTypingIndicator?(conversationId, message.senderInboxId, content.isTyping)
+        return true
+    }
+
+    private func processThinking(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) async -> Bool {
+        guard message.isThinking else {
+            return false
+        }
+
+        guard message.senderInboxId != params.client.inboxId else {
+            return true
+        }
+
+        guard let content = try? ThinkingCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode Thinking from message \(message.id)")
+            return true
+        }
+
+        Log.info("[Thinking] received state=\(content.state.rawValue) target=\(content.targetMessageId) sender=\(message.senderInboxId) conversation=\(conversationId)")
+
+        await thinkingSessionWriter.apply(
+            event: content,
+            momentId: message.id,
+            conversationId: conversationId,
+            senderInboxId: message.senderInboxId,
+            sentAtNs: message.sentAtNs
+        )
         return true
     }
 

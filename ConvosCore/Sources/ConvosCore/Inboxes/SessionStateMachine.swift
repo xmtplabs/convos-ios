@@ -940,7 +940,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 CapabilityRequestCodec(),
                 CapabilityRequestResultCodec(),
                 TypingIndicatorCodec(),
-                ReadReceiptCodec()
+                ReadReceiptCodec(),
+                ThinkingCodec()
             ] + ConvosConnectionsXMTP.codecs(),
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,

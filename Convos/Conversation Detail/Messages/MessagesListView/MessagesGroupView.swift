@@ -10,6 +10,7 @@ struct MessagesGroupView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
@@ -109,6 +110,29 @@ struct MessagesGroupView: View {
         .id("typing-indicator-\(group.id)")
     }
 
+    private var thinkingIndicator: some View {
+        HStack(alignment: .bottom, spacing: avatarSpacing) {
+            if !group.sender.isCurrentUser {
+                Color.clear
+                    .frame(width: avatarSize, height: avatarSize)
+            }
+
+            ThinkingIndicatorBubbleView(
+                content: group.thinkingContent ?? "",
+                senderName: group.sender.profile.displayName,
+                hidesContent: true
+            )
+            .overlay(alignment: .bottomLeading) {
+                if !group.sender.isCurrentUser {
+                    avatarOverlay()
+                }
+            }
+        }
+        .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
+        .id("thinking-indicator-bubble-\(group.id)")
+    }
+
     private var multiTyperIndicator: some View {
         let typers = group.allTypingMembers
         let names = typers.compactMap(\.profile.displayName)
@@ -156,12 +180,12 @@ struct MessagesGroupView: View {
         // so it can sit above the assistant contact card prefix as well as the
         // first message bubble.
         if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply
-            && group.assistantContactCard == nil {
+            && group.assistantContactCard == nil && !group.hidesSenderLabel {
             senderLabel
         }
 
         let isLastInGroup: Bool = message == group.messages.last
-        let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
+        let isLast: Bool = isLastInGroup && !group.showsTypingIndicator && !group.showsThinkingIndicator
         // When the last message is a voice memo with a transcript row attached, the
         // transcript becomes the visual bottom of the group, so the tail moves from
         // the voice memo bubble down onto the transcript row.
@@ -179,7 +203,47 @@ struct MessagesGroupView: View {
             voiceMemoTranscriptIsTailed: transcriptIsTailed
         )
         reactionRow(message: message, isFullWidthAttachment: isFullWidthAttachment)
-        statusRow(message: message, isFailed: isFailed, showsSentStatus: showsSentStatus)
+
+        let thinkingDescriptor: ThinkingSessionDescriptor? = group.thinkingByMessageId[message.messageId]
+        let mergesThinkingIntoStatus: Bool = showsSentStatus && thinkingDescriptor != nil && !group.onlyVisibleToSender
+        if mergesThinkingIntoStatus, let descriptor = thinkingDescriptor {
+            mergedThinkingStatusRow(message: message, descriptor: descriptor)
+        } else {
+            thinkingFooterRow(message: message)
+            statusRow(message: message, isFailed: isFailed, showsSentStatus: showsSentStatus)
+        }
+    }
+
+    @ViewBuilder
+    private func mergedThinkingStatusRow(message: AnyMessage, descriptor: ThinkingSessionDescriptor) -> some View {
+        let assistant: ConversationMember = descriptor.sender
+        let dedupedReaders: [ConversationMember] = group.readByMembers.filter { $0.profile.inboxId != assistant.profile.inboxId }
+        let hasOtherReaders: Bool = !dedupedReaders.isEmpty
+        let tap: () -> Void = { onTapThinkingIndicator?(descriptor) }
+
+        HStack(spacing: DesignConstants.Spacing.stepX) {
+            Spacer()
+            Button(action: tap) {
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    MergedThinkingCaption(descriptor: descriptor, showsLeadingAvatar: !hasOtherReaders)
+                    if hasOtherReaders {
+                        ReadReceiptAvatarsView(members: [assistant] + dedupedReaders)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(descriptor.sender.profile.displayName) is thinking: \(descriptor.content)")
+            .accessibilityHint("Tap to see thinking details")
+        }
+        .transition(.blurReplace)
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+        .padding(.leading, DesignConstants.Spacing.step2x)
+        .padding(.trailing, DesignConstants.Spacing.step4x)
+        .foregroundStyle(.colorTextSecondary)
+        .zIndex(-1)
+        .id("merged-thinking-receipt-\(message.differenceIdentifier)")
     }
 
     @ViewBuilder
@@ -188,7 +252,7 @@ struct MessagesGroupView: View {
         // assistant hasn't sent any messages yet (synthesized empty group).
         // Otherwise the regular `messageRowContent` avatar overlay handles
         // the leading avatar on the last message — we don't want to double up.
-        let cardIsLast: Bool = group.allMessages.isEmpty && !group.showsTypingIndicator
+        let cardIsLast: Bool = group.allMessages.isEmpty && !group.showsTypingIndicator && !group.showsThinkingIndicator
         HStack(alignment: .bottom, spacing: avatarSpacing) {
             if !group.sender.isCurrentUser {
                 Color.clear
@@ -227,27 +291,49 @@ struct MessagesGroupView: View {
                     .frame(width: avatarSize, height: avatarSize)
             }
 
-            MessagesGroupItemView(
-                message: message,
-                conversationId: conversationId,
-                bubbleType: bubbleType,
-                shouldBlurPhotos: shouldBlurPhotos,
-                onTapAvatar: onTapAvatar,
-                onTapInvite: onTapInvite,
-                onReply: onReply,
-                onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: onPhotoHidden,
-                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                onOpenFile: onOpenFile,
-                onTapReactions: onTapReactions,
-                onReaction: onReaction,
-                onToggleReaction: onToggleReaction,
-                voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
-                voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
-                onRetryTranscript: onRetryTranscript,
-                parentAudioTranscriptText: parentAudioTranscriptText(for: message),
-                omitTrailingPadding: isFailed
-            )
+            Group {
+                if group.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
+                    HStack(spacing: 0.0) {
+                        ThoughtBubble {
+                            // Type spec from design: 16pt regular, 24pt
+                            // line height, 0.3pt tracking. `.callout` is
+                            // 16pt by default on iOS and scales with
+                            // Dynamic Type. SF Pro 16pt's natural line
+                            // height is ~19pt, so 5pt extra `lineSpacing`
+                            // brings each line to ~24pt.
+                            Text(text)
+                                .font(.callout)
+                                .tracking(0.3)
+                                .lineSpacing(5.0)
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                        Spacer(minLength: 50.0)
+                            .layoutPriority(-1)
+                    }
+                } else {
+                    MessagesGroupItemView(
+                        message: message,
+                        conversationId: conversationId,
+                        bubbleType: bubbleType,
+                        shouldBlurPhotos: shouldBlurPhotos,
+                        onTapAvatar: onTapAvatar,
+                        onTapInvite: onTapInvite,
+                        onReply: onReply,
+                        onPhotoRevealed: onPhotoRevealed,
+                        onPhotoHidden: onPhotoHidden,
+                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        onOpenFile: onOpenFile,
+                        onTapReactions: onTapReactions,
+                        onReaction: onReaction,
+                        onToggleReaction: onToggleReaction,
+                        voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
+                        voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
+                        onRetryTranscript: onRetryTranscript,
+                        parentAudioTranscriptText: parentAudioTranscriptText(for: message),
+                        omitTrailingPadding: isFailed
+                    )
+                }
+            }
             .zIndex(100)
             .id("messages-group-item-\(message.differenceIdentifier)")
             .transition(
@@ -275,6 +361,16 @@ struct MessagesGroupView: View {
         .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
     }
 
+    /// Returns the plain text of `message` when it should render in a
+    /// `ThoughtBubble` — i.e. the message is a `.message` with `.text`
+    /// content. Reply / emoji / attachment / invite cases stay on the
+    /// regular bubble path even when the group is in thought-bubble mode.
+    private func thoughtBubbleText(for message: AnyMessage) -> String? {
+        guard case .message(let inner, _) = message,
+              case .text(let text) = inner.content else { return nil }
+        return text
+    }
+
     private func parentAudioTranscriptText(for message: AnyMessage) -> String? {
         guard case .reply(let reply, _) = message,
               reply.parentMessage.content.primaryVoiceMemoAttachment != nil
@@ -296,6 +392,39 @@ struct MessagesGroupView: View {
             .transition(.identity)
             .zIndex(50)
             .id("reactions-\(message.differenceIdentifier)")
+        }
+    }
+
+    @ViewBuilder
+    private func thinkingFooterRow(message: AnyMessage) -> some View {
+        if let descriptor = group.thinkingByMessageId[message.messageId] {
+            let isOutgoing: Bool = message.sender.isCurrentUser
+            // Skip the leading avatar when the thinker is also the message's
+            // sender — the message's avatar already conveys "who" on that side
+            // of the conversation, so repeating it in the footer reads as noise.
+            // Outgoing messages now keep the avatar too, since this row only
+            // renders when there's no read-receipt row to fold into.
+            let thinkerIsMessageSender: Bool = descriptor.sender.profile.inboxId == message.sender.profile.inboxId
+            let showsLeadingAvatar: Bool = !thinkerIsMessageSender
+            let footerTap: () -> Void = { onTapThinkingIndicator?(descriptor) }
+            HStack(spacing: 0) {
+                if isOutgoing {
+                    Spacer()
+                }
+                ThinkingIndicatorFooterView(
+                    descriptor: descriptor,
+                    showsLeadingAvatar: showsLeadingAvatar,
+                    onTap: footerTap
+                )
+                if !isOutgoing {
+                    Spacer()
+                }
+            }
+            .padding(.leading, isOutgoing ? 0 : (avatarWidth + DesignConstants.Spacing.step4x))
+            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0)
+            .padding(.vertical, DesignConstants.Spacing.stepHalf)
+            .transition(.opacity)
+            .id("thinking-footer-\(message.messageId)")
         }
     }
 
@@ -382,6 +511,10 @@ struct MessagesGroupView: View {
                     singleTyperIndicator
                 }
             }
+
+            if group.showsThinkingIndicator {
+                thinkingIndicator
+            }
         }
         .id("message-group-container-\(group.id)")
         .transition(
@@ -408,6 +541,50 @@ struct MessagesGroupView: View {
             }
         }
         .id("messages-group-\(group.id)")
+    }
+}
+
+/// Caption used in the merged thinking + read-receipt row. Mirrors
+/// `ThinkingIndicatorFooterView`'s pulse cadence (0.5 ↔ 1.0 over 1.2s,
+/// matching `AssistantContactCardView.PulsingSubtitle`). When other
+/// members have already read the message, the assistant avatar lives in
+/// the trailing avatars list so this caption only shows text + chevron.
+/// When the assistant is the only "reader", the avatar moves to the
+/// leading edge of this caption — there's no avatars list on the
+/// trailing side, so leading the indicator makes "who is thinking"
+/// obvious without dangling avatar chrome to its right. The whole row
+/// (avatar + text + chevron) shares the pulse envelope in that case.
+private struct MergedThinkingCaption: View {
+    let descriptor: ThinkingSessionDescriptor
+    var showsLeadingAvatar: Bool = false
+    @State private var isPulsed: Bool = false
+
+    private var isResolved: Bool {
+        !descriptor.isActive
+    }
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.stepX) {
+            if showsLeadingAvatar {
+                MessageAvatarView(
+                    profile: descriptor.sender.profile,
+                    size: DesignConstants.ImageSizes.extraSmallAvatar,
+                    agentVerification: descriptor.sender.agentVerification
+                )
+            }
+            Text(descriptor.content)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+                .foregroundStyle(.colorTextTertiary)
+        }
+        .opacity(isResolved ? 1.0 : (isPulsed ? 0.5 : 1.0))
+        .animation(
+            isResolved ? .default : .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
+            value: isPulsed
+        )
+        .onAppear { isPulsed = !isResolved }
     }
 }
 

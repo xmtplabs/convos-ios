@@ -20,6 +20,12 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeReadReceipt.authorityID
             && contentType.typeID == ContentTypeReadReceipt.typeID
     }
+
+    var isThinking: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeThinking.authorityID
+            && contentType.typeID == ContentTypeThinking.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -72,6 +78,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private let inviteWriter: any InviteWriterProtocol
     private let messageWriter: any IncomingMessageWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
+    private let thinkingSessionWriter: any ThinkingSessionWriterProtocol
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
@@ -83,6 +90,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+        self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
     }
 
     func store(
@@ -271,7 +279,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Store last message (skip profile messages and read receipts which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt {
+        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt, !lastMessage.isThinking {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation
@@ -639,6 +647,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 await storeReadReceipt(message, conversationId: conversation.id)
                 continue
             }
+            if message.isThinking {
+                await storeThinking(message, conversationId: conversation.id, currentInboxId: myInboxId)
+                continue
+            }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread,
@@ -651,6 +663,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if marksConversationAsUnread {
             try await localStateWriter.setUnread(true, for: conversation.id)
         }
+    }
+
+    private func storeThinking(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async {
+        guard message.senderInboxId != currentInboxId else { return }
+        guard let content = try? ThinkingCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode Thinking from caught-up message \(message.id)")
+            return
+        }
+        await thinkingSessionWriter.apply(
+            event: content,
+            momentId: message.id,
+            conversationId: conversationId,
+            senderInboxId: message.senderInboxId,
+            sentAtNs: message.sentAtNs
+        )
     }
 
     private func storeReadReceipt(_ message: DecodedMessage, conversationId: String) async {

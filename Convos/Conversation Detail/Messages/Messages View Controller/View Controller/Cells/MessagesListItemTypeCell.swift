@@ -93,6 +93,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onTapInvite: config.onTapInvite,
                         onTapReactions: config.onTapReactions,
                         onTapReadReceipts: config.onTapReadReceipts,
+                        onTapThinkingIndicator: config.onTapThinkingIndicator,
                         onReaction: config.onReaction,
                         onToggleReaction: config.onToggleReaction,
                         onReply: config.onReply,

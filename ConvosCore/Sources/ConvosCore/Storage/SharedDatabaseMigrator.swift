@@ -174,6 +174,10 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAssistantBuilderSummary)
 
+        migrator.registerMigration("createThinkingSession", migrate: Self.createThinkingSession)
+
+        migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
+
         return migrator
     }
 
@@ -192,6 +196,63 @@ extension SharedDatabaseMigrator {
             t.column("createdAt", .datetime).notNull()
             t.column("cutoffDate", .datetime).notNull()
         }
+    }
+
+    /// One row per `convos.org/thinking:1.0` session received from a remote
+    /// agent. `endedAtNs == NULL` marks an in-flight session; `resultMessageId`
+    /// is populated on `stop` when the agent linked a reply message. Cascade
+    /// with the conversation. A partial unique index keeps at most one active
+    /// session per (conversation, sender, targetMessage) — closed history
+    /// rows for the same triple are allowed.
+    private static func createThinkingSession(_ db: Database) throws {
+        try db.create(table: "thinkingSession") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("senderInboxId", .text).notNull()
+            t.column("targetMessageId", .text).notNull()
+            t.column("content", .text).notNull()
+            t.column("startedAtNs", .integer).notNull()
+            t.column("endedAtNs", .integer)
+            t.column("resultMessageId", .text)
+        }
+        try db.execute(sql: """
+            CREATE UNIQUE INDEX thinkingSession_activeKey
+            ON thinkingSession(conversationId, senderInboxId, targetMessageId)
+            WHERE endedAtNs IS NULL
+        """)
+        try db.create(
+            index: "thinkingSession_conversationId_startedAtNs",
+            on: "thinkingSession",
+            columns: ["conversationId", "startedAtNs"]
+        )
+    }
+
+    /// Replace `thinkingSession` (one row per session, idempotent-refresh
+    /// semantics) with `thinkingMoment` (one row per codec event). The
+    /// session aggregate is computed at read time by the repository. Each
+    /// agent `start` now becomes its own moment so the detail view can
+    /// render the full history; `id` is the XMTP message id so re-delivery
+    /// of the same event is a PK no-op. Drop+recreate is acceptable —
+    /// thinking is still on a feature branch with no production data.
+    private static func replaceThinkingSessionWithThinkingMoment(_ db: Database) throws {
+        try db.drop(table: "thinkingSession")
+        try db.create(table: "thinkingMoment") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("senderInboxId", .text).notNull()
+            t.column("targetMessageId", .text).notNull()
+            t.column("state", .text).notNull()
+            t.column("content", .text).notNull()
+            t.column("sentAtNs", .integer).notNull()
+            t.column("resultMessageId", .text)
+        }
+        try db.create(
+            index: "thinkingMoment_sessionKey",
+            on: "thinkingMoment",
+            columns: ["conversationId", "senderInboxId", "targetMessageId", "sentAtNs"]
+        )
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
