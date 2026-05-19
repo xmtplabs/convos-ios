@@ -335,7 +335,7 @@ Add ConvosCore tests:
 
 Prereqs:
 
-- Backend on `fbac/authentication-api`, local or dev. Required env: `SIWE_DOMAIN=convos.app`, `SIWE_URI=https://convos.app`, `SIWE_ALLOWED_CHAIN_IDS=1`, `NONCE_HMAC_SECRET`, ES256 `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY`, App Check debug token configured (or `app_attest_enabled=false`).
+- Backend on `fbac/authentication-api`, local or dev. Required env (must exactly match the `siwe*` fields in the iOS `config.<env>.json` for the build under test — the values below are for local/dev/PR builds, which all use the dev domain; prod builds use `convos.org` / `https://convos.org`): `SIWE_DOMAIN=dev.convos.org`, `SIWE_URI=https://dev.convos.org`, `SIWE_ALLOWED_CHAIN_IDS=1`, `NONCE_HMAC_SECRET`, ES256 `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY`, App Check debug token configured (or `app_attest_enabled=false`).
 - Backend has `/api/v2/account-auth-check` mounted with `authMiddleware + requireAccount`.
 - Backend is emitting the non-prod cookie form on local/dev (`convos_nonce`, no `Secure`).
 - iOS `config.local.json` siwe fields exactly match backend env.
