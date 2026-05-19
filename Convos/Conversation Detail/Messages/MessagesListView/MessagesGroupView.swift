@@ -291,8 +291,8 @@ struct MessagesGroupView: View {
                     .frame(width: avatarSize, height: avatarSize)
             }
 
-            Group {
-                if group.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
+            if group.usesThoughtBubbleStyle, let text = thoughtBubbleText(for: message) {
+                ThoughtBubbleAppearance(animates: message.origin == .inserted) {
                     HStack(spacing: 0.0) {
                         ThoughtBubble {
                             // Type spec from design: 16pt regular, 24pt
@@ -310,41 +310,48 @@ struct MessagesGroupView: View {
                         Spacer(minLength: 50.0)
                             .layoutPriority(-1)
                     }
-                } else {
-                    MessagesGroupItemView(
-                        message: message,
-                        conversationId: conversationId,
-                        bubbleType: bubbleType,
-                        shouldBlurPhotos: shouldBlurPhotos,
-                        onTapAvatar: onTapAvatar,
-                        onTapInvite: onTapInvite,
-                        onReply: onReply,
-                        onPhotoRevealed: onPhotoRevealed,
-                        onPhotoHidden: onPhotoHidden,
-                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                        onOpenFile: onOpenFile,
-                        onTapReactions: onTapReactions,
-                        onReaction: onReaction,
-                        onToggleReaction: onToggleReaction,
-                        voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
-                        voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
-                        onRetryTranscript: onRetryTranscript,
-                        parentAudioTranscriptText: parentAudioTranscriptText(for: message),
-                        omitTrailingPadding: isFailed
-                    )
                 }
-            }
-            .zIndex(100)
-            .id("messages-group-item-\(message.differenceIdentifier)")
-            .transition(
-                .asymmetric(
-                    insertion: .identity,
-                    removal: .opacity
+                .zIndex(100)
+                .id("messages-group-item-\(message.differenceIdentifier)")
+                .overlay(alignment: .bottomLeading) {
+                    if isLast && !group.sender.isCurrentUser {
+                        avatarOverlay { onTapAvatar(message) }
+                    }
+                }
+            } else {
+                MessagesGroupItemView(
+                    message: message,
+                    conversationId: conversationId,
+                    bubbleType: bubbleType,
+                    shouldBlurPhotos: shouldBlurPhotos,
+                    onTapAvatar: onTapAvatar,
+                    onTapInvite: onTapInvite,
+                    onReply: onReply,
+                    onPhotoRevealed: onPhotoRevealed,
+                    onPhotoHidden: onPhotoHidden,
+                    onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                    onOpenFile: onOpenFile,
+                    onTapReactions: onTapReactions,
+                    onReaction: onReaction,
+                    onToggleReaction: onToggleReaction,
+                    voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
+                    voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
+                    onRetryTranscript: onRetryTranscript,
+                    parentAudioTranscriptText: parentAudioTranscriptText(for: message),
+                    omitTrailingPadding: isFailed
                 )
-            )
-            .overlay(alignment: .bottomLeading) {
-                if isLast && !group.sender.isCurrentUser {
-                    avatarOverlay { onTapAvatar(message) }
+                .zIndex(100)
+                .id("messages-group-item-\(message.differenceIdentifier)")
+                .transition(
+                    .asymmetric(
+                        insertion: .identity,
+                        removal: .opacity
+                    )
+                )
+                .overlay(alignment: .bottomLeading) {
+                    if isLast && !group.sender.isCurrentUser {
+                        avatarOverlay { onTapAvatar(message) }
+                    }
                 }
             }
 
@@ -600,6 +607,7 @@ private struct MergedThinkingCaption: View {
             Text(descriptor.content)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
             Image(systemName: "chevron.right")
                 .font(.caption2)
                 .foregroundStyle(.colorTextTertiary)
@@ -610,6 +618,43 @@ private struct MergedThinkingCaption: View {
             value: isPulsed
         )
         .onAppear { isPulsed = !isResolved }
+    }
+}
+
+/// SwiftUI-side analogue of `MessagesGroupItemView`'s `@State`-driven
+/// appearance animation, applied to `ThoughtBubble` rows in
+/// `ThinkingDetailView`. The detail view runs every moment through a single
+/// `MessagesGroup` cell, so the collection-view layout never sees per-moment
+/// insertions and can't drive the chat's cell-level slide-up. Each row
+/// instead owns its own appearance state: on first `onAppear` it animates
+/// from a folded-in pose (scaled, offset down, faded) to settled. Only the
+/// newest moment (`origin == .inserted`) actually animates — earlier
+/// moments flip straight to settled with `.none`, matching how
+/// `MessagesGroupItemView` gates its own animation.
+private struct ThoughtBubbleAppearance<Content: View>: View {
+    let animates: Bool
+    @ViewBuilder let content: () -> Content
+    @State private var isAppearing: Bool = true
+    @State private var hasAnimated: Bool = false
+
+    var body: some View {
+        content()
+            .scaleEffect(isAppearing ? 0.8 : 1.0, anchor: .bottomLeading)
+            .opacity(isAppearing ? 0.0 : 1.0)
+            .offset(y: isAppearing ? 40 : 0)
+            .onAppear {
+                guard isAppearing, !hasAnimated else { return }
+                hasAnimated = true
+                if animates {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isAppearing = false
+                    }
+                } else {
+                    withAnimation(.none) {
+                        isAppearing = false
+                    }
+                }
+            }
     }
 }
 

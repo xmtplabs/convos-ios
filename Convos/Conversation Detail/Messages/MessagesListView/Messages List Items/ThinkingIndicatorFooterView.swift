@@ -38,6 +38,7 @@ struct ThinkingIndicatorFooterView: View {
                 Text(descriptor.content)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
                 Image(systemName: "chevron.right")
                     .font(.caption2)
                     .foregroundStyle(.colorTextTertiary)
