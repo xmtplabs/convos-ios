@@ -56,6 +56,13 @@ class NewConversationViewModel: Identifiable {
     /// `ConversationViewModel.hidesInviteCard` so the QR header isn't
     /// rendered on top of a chat that already has members.
     private let startedWithSeededMembers: Bool
+    /// Captured initial-member inbox ids for the seeded-members flow.
+    /// Used to seed each draft `Conversation` with contact-derived
+    /// members so the chat header renders the contact's name and
+    /// avatar from the moment the sheet opens, instead of flickering
+    /// through "New Convo" while the state machine creates the real
+    /// group.
+    private let seededMemberInboxIds: [String]
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
     private(set) var showingFullScreenScanner: Bool
@@ -148,10 +155,12 @@ class NewConversationViewModel: Identifiable {
             self.allowsDismissingScanner = true
         }
 
-        if case .newConversationWithMembers = mode {
+        if case .newConversationWithMembers(let ids) = mode {
             self.startedWithSeededMembers = true
+            self.seededMemberInboxIds = ids
         } else {
             self.startedWithSeededMembers = false
+            self.seededMemberInboxIds = []
         }
 
         self.isCreatingConversation = mode.isNewConversation
@@ -172,6 +181,7 @@ class NewConversationViewModel: Identifiable {
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false
+        self.seededMemberInboxIds = []
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
 
@@ -241,7 +251,7 @@ class NewConversationViewModel: Identifiable {
 
     private func createPlaceholderConversationViewModel() {
         let draftId: String = "draft-\(UUID().uuidString)"
-        let draftConversation: Conversation = .empty(id: draftId)
+        let draftConversation: Conversation = makeDraftConversation(id: draftId)
         let messagesRepo = MockMessagesRepository(conversationId: draftId)
         let draftRepo = MockDraftConversationRepository(conversation: draftConversation, messagesRepository: messagesRepo)
         let stateManager = MockConversationStateManager(
@@ -258,6 +268,40 @@ class NewConversationViewModel: Identifiable {
         )
         convoVM.showsInfoView = !startedWithFullscreenScanner
         self.conversationViewModel = convoVM
+    }
+
+    /// Returns a draft `Conversation` for use as a placeholder. When this
+    /// VM was started by the contacts picker
+    /// (`startedWithSeededMembers == true`), the draft carries synthetic
+    /// `ConversationMember`s built from the contact list so the chat
+    /// header renders the contact's name + avatar (and `kind = .dm` for
+    /// a single contact) from the moment the sheet opens. The
+    /// conversation publisher's `.ready` emission later replaces the
+    /// synthetic members with the real ones keyed by the same `inboxId`,
+    /// so the transition is a no-op re-render rather than a flicker.
+    private func makeDraftConversation(id: String) -> Conversation {
+        guard startedWithSeededMembers, !seededMemberInboxIds.isEmpty else {
+            return .empty(id: id)
+        }
+        let contactsRepository = session.messagingServiceSync().contactsRepository()
+        let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }
+        guard !seededContacts.isEmpty else {
+            return .empty(id: id)
+        }
+        var members: [ConversationMember] = seededContacts.map { $0.syntheticMember(conversationId: id) }
+        if case .authorized(let selfInboxId) = session.messagingServiceSync().state {
+            let selfProfile = Profile(
+                inboxId: selfInboxId,
+                conversationId: id,
+                name: nil,
+                avatar: nil
+            )
+            members.insert(
+                ConversationMember(profile: selfProfile, role: .superAdmin, isCurrentUser: true),
+                at: 0
+            )
+        }
+        return .draft(id: id, seededMembers: members)
     }
 
     private func configureWithMessagingService(
@@ -286,7 +330,7 @@ class NewConversationViewModel: Identifiable {
         }
         self.conversationStateManager = stateManager
         self.acquiredMessagingService = messagingService
-        let draftConversation: Conversation = .empty(
+        let draftConversation: Conversation = makeDraftConversation(
             id: stateManager.draftConversationRepository.conversationId
         )
         let convoVM = ConversationViewModel(

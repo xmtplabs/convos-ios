@@ -26,13 +26,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var presentingAddFromContactsPicker: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    /// Substitutes contact-list display names when a member's
-    /// per-conversation profile name is missing (system messages,
-    /// "Somebody joined" becomes "Alice joined" when Alice is a contact).
-    /// Built once per `ConversationView` lifetime; reads through the
-    /// messaging service's contacts repository.
-    private var contactNameOverride: @Sendable (String) -> String? {
-        viewModel.messagingService.contactsRepository().contactName(for:)
+    /// Substitutes the user's contact (name + avatar) for any member's
+    /// per-conversation profile when the inbox is a known contact. The
+    /// chat surfaces this so the join-system row reads
+    /// "Alice joined" with Alice's avatar instead of "Somebody" + S
+    /// monogram while Alice has not yet published her per-conversation
+    /// profile. Built once per `ConversationView` lifetime; reads
+    /// through the messaging service's contacts repository.
+    private var contactOverride: @Sendable (String) -> Contact? {
+        viewModel.messagingService.contactsRepository().contact(for:)
     }
 
     private var showPullToAddAssistant: Bool {
@@ -132,7 +134,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.retryTranscript(for: item)
             },
             profileSheetForMember: profileSheetForMember,
-            memberNameOverride: contactNameOverride,
+            memberContactOverride: contactOverride,
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,

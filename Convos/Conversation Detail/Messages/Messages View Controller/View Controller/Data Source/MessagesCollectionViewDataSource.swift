@@ -36,7 +36,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
-    var memberNameOverride: ((String) -> String?)?
+    var memberContactOverride: ((String) -> Contact?)?
     var hasAssistant: Bool = false
     var isAssistantJoinPending: Bool = false
     var isAssistantEnabled: Bool = false
@@ -151,8 +151,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             isAssistantJoinPending: isAssistantJoinPending,
             isAssistantEnabled: isAssistantEnabled,
             hidesInviteCard: hidesInviteCard,
-            memberNameOverride: { [weak self] inboxId in
-                self?.memberNameOverride?(inboxId)
+            memberContactOverride: { [weak self] inboxId in
+                self?.memberContactOverride?(inboxId)
             }
         )
         return CellFactory.createCell(

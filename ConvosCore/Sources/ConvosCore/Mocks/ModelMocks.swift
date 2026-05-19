@@ -102,6 +102,53 @@ public extension Conversation {
             hasHadVerifiedAssistant: false
         )
     }
+
+    /// Draft placeholder seeded with members. Used by the contacts
+    /// picker flow so the chat header renders the contact's name and
+    /// avatar from the moment the new-convo sheet opens, instead of
+    /// flickering through "New Convo" while the state machine creates
+    /// the real conversation. `kind` is inferred from the count of
+    /// non-self members (1 -> `.dm`, otherwise `.group`).
+    static func draft(id: String, seededMembers: [ConversationMember]) -> Conversation {
+        let nonSelfCount = seededMembers.lazy.filter { !$0.isCurrentUser }.count
+        let resolvedKind: ConversationKind = nonSelfCount == 1 ? .dm : .group
+        let creator: ConversationMember = seededMembers.first(where: { $0.isCurrentUser }) ?? .empty(isCurrentUser: true)
+        let otherMember: ConversationMember? = resolvedKind == .dm
+            ? seededMembers.first(where: { !$0.isCurrentUser })
+            : nil
+        return Conversation(
+            id: id,
+            clientConversationId: id,
+            creator: creator,
+            createdAt: .distantFuture,
+            consent: .allowed,
+            kind: resolvedKind,
+            name: nil,
+            description: nil,
+            members: seededMembers,
+            otherMember: otherMember,
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            lastMessage: nil,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            includeInfoInPublicPreview: false,
+            isDraft: true,
+            invite: nil,
+            expiresAt: .distantFuture,
+            debugInfo: .empty,
+            isLocked: false,
+            assistantJoinStatus: nil,
+            hasHadVerifiedAssistant: false
+        )
+    }
 }
 
 public extension ConversationMember {

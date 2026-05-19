@@ -8,9 +8,12 @@ struct ConversationMembersListView: View {
 
     /// Same pattern as `ConversationView`. Substitutes contact-list
     /// display names for members whose per-conversation profile name is
-    /// empty.
+    /// empty. Adapted from the unified `contact(for:)` resolver to the
+    /// name-only shape ConvosCore's `displayName(memberNameOverride:)`
+    /// expects.
     private var contactNameOverride: @Sendable (String) -> String? {
-        viewModel.messagingService.contactsRepository().contactName(for:)
+        let resolver: @Sendable (String) -> Contact? = viewModel.messagingService.contactsRepository().contact(for:)
+        return { resolver($0)?.displayName }
     }
 
     var body: some View {

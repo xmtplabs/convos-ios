@@ -65,10 +65,22 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .update(_, let update, _):
+                    // Substitute the user's contact (name + avatar) for the
+                    // per-conversation profile when the inbox is a known
+                    // contact. Without this, a system row reads "Alice
+                    // joined" (text resolves via the name override) but
+                    // shows an "S" monogram (the raw profile fell back to
+                    // "Somebody" because the joiner has not published a
+                    // per-conversation profile yet).
+                    let nameResolver: (String) -> String? = { config.memberContactOverride($0)?.displayName }
+                    let resolvedProfile: Profile? = update.profile.map { profile in
+                        config.memberContactOverride(profile.inboxId)
+                            .map { profile.overlaying(contact: $0) } ?? profile
+                    }
                     VStack(spacing: 0) {
                         TextTitleContentView(
-                            title: update.summary(memberNameOverride: config.memberNameOverride),
-                            profile: update.profile,
+                            title: update.summary(memberNameOverride: nameResolver),
+                            profile: resolvedProfile,
                             agentVerification: update.profileMember?.agentVerification ?? .unverified,
                             onTap: update.profileMember.map { member in
                                 { config.onTapUpdateMember(member) }

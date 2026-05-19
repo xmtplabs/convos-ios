@@ -33,11 +33,14 @@ struct CellConfig {
     /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`
     /// cell renders the invite menu without the QR card above it.
     let hidesInviteCard: Bool
-    /// Maps an inbox to a contact-list display name when the
-    /// per-conversation profile name is empty. Cells thread this into
-    /// `update.summary(memberNameOverride:)` for system-message rendering.
-    /// Returns nil for non-contacts (the renderer falls back to "Somebody").
-    let memberNameOverride: (String) -> String?
+    /// Maps an inbox to the user's full `Contact` when the inbox is a
+    /// known contact. Cells use it for both the display-name override
+    /// (via `?.displayName`) and avatar substitution (so a system-
+    /// message row reads "Alice joined" with Alice's actual avatar
+    /// rather than the per-conversation placeholder profile + S
+    /// monogram). Returns nil for non-contacts, in which case the
+    /// renderer falls back to the per-conversation profile.
+    let memberContactOverride: (String) -> Contact?
 }
 
 // swiftlint:disable force_cast

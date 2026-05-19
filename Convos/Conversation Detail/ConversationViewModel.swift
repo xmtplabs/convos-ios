@@ -176,6 +176,16 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     let voiceMemoTranscriptionService: any VoiceMemoTranscriptionServicing
     private let applyGlobalDefaultsForNewConversation: Bool
+    /// Count of non-self members in the conversation passed to init.
+    /// When the contacts picker constructs this VM through
+    /// `NewConversationViewModel`, the synthetic draft is seeded with
+    /// the picked contacts so the chat header renders immediately. The
+    /// publisher subscription uses this together with
+    /// `hasMetSeededExpectation` to ignore early DB emissions that
+    /// haven't yet folded in those members - otherwise the indicator
+    /// briefly flips back to the empty-conversation placeholder.
+    private let initialSeededMemberCount: Int
+    private var hasMetSeededExpectation: Bool
     let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
@@ -259,18 +269,13 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     /// Inbox-to-contact-name lookup used for auto-generated unnamed-group
-    /// titles in the chat header. Mirrors the resolver injected into the
-    /// conversation list. Returns the contact's stored display name when
-    /// the inbox is a known contact, else `nil` so the legacy precedence
-    /// (per-conversation profile name, then "Somebody") applies.
+    /// titles in the chat header. Adapted from the unified
+    /// `ContactsRepository.contact(for:)` resolver to the name-only
+    /// shape ConvosCore expects; returns nil when the inbox is not a
+    /// contact (or the contact has no display name) so the legacy
+    /// precedence applies.
     private func contactNameLookup(_ inboxId: String) -> String? {
-        guard let contact = try? messagingService.contactsRepository().fetchContact(inboxId: inboxId) else {
-            return nil
-        }
-        guard let stored = contact.displayName, !stored.isEmpty else {
-            return nil
-        }
-        return stored
+        messagingService.contactsRepository().contactName(for: inboxId)
     }
     var conversationInfoSubtitle: String {
         if let expiresAt = scheduledExplosionDate {
@@ -592,6 +597,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
+        self.initialSeededMemberCount = conversation.membersWithoutCurrent.count
+        self.hasMetSeededExpectation = false
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -677,6 +684,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
+        self.initialSeededMemberCount = conversation.membersWithoutCurrent.count
+        self.hasMetSeededExpectation = false
 
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
@@ -778,6 +787,36 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             .compactMap { $0 }
             .sink { [weak self] conversation in
                 guard let self else { return }
+                // During the contacts-picker create flow the VM is seeded
+                // with a synthetic draft Conversation that already carries
+                // the picked members (built from the contact list, so the
+                // chat header renders the contact's name + avatar from the
+                // moment the sheet opens). The DB-backed publisher may
+                // emit an emptier draft row first - the row exists from
+                // `UnusedConversationCache` but the state machine has not
+                // yet folded in the picked members. Ignore those emissions
+                // so we don't flicker back to "New Convo" before the real
+                // members land.
+                // When this VM was seeded via the contacts picker
+                // (`initialSeededMemberCount > 0`), the DB-backed publisher
+                // can emit a Conversation that hasn't yet folded in the
+                // picked members - first as an `isDraft = true` cache row
+                // with no members, then briefly as `isDraft = false` with
+                // no members before the state machine's addMembers hook
+                // lands. Either case would flip the chat indicator back
+                // to the empty placeholder for a frame. Skip incoming
+                // emissions with fewer non-self members than the seed
+                // until we've seen one that meets or exceeds the seed -
+                // after that, the gate stays open so later member
+                // additions/removals propagate normally.
+                if !hasMetSeededExpectation,
+                   initialSeededMemberCount > 0,
+                   conversation.membersWithoutCurrent.count < initialSeededMemberCount {
+                    return
+                }
+                if conversation.membersWithoutCurrent.count >= initialSeededMemberCount {
+                    hasMetSeededExpectation = true
+                }
                 let previousId = self.conversation.id
                 let wasViewingConversation = self.isViewingConversation
                 self.conversation = conversation
