@@ -1,6 +1,6 @@
 # Connections Picker — Bundles + Backend Config (draft)
 
-**status:** sharing for vibes-check
+**status:** draft
 **owner:** louis
 **date:** 2026-05-19
 
@@ -92,7 +92,6 @@ Earlier draft had `rationale`. New name: `description`. Reason: the Figma label 
 ## Stuff I'm punting on
 
 - Localization. English-only copy for now; structure supports `{ "en": "...", "fr": "..." }` later but I'd rather not bake it in until we actually localize.
-- Granting from inside a convo vs from the global connections screen — same schema, two entry points. UX of the global screen is unblocked by this.
 
 ## Asks
 
