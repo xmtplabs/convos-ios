@@ -37,7 +37,7 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
   "version": 1,
   "services": [
     {
-      "id": "google_calendar",
+      "id": "googlecalendar",
       "composio_slug": "googlecalendar",
       "display_name": { "en": "Google Calendar" },
       "icon": {
