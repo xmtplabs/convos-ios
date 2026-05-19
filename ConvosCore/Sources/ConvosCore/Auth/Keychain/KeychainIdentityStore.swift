@@ -77,6 +77,12 @@ public struct KeychainIdentity: Codable, Sendable {
     public let inboxId: String
     public let clientId: String
     public let keys: KeychainIdentityKeys
+
+    public init(inboxId: String, clientId: String, keys: KeychainIdentityKeys) {
+        self.inboxId = inboxId
+        self.clientId = clientId
+        self.keys = keys
+    }
 }
 
 // MARK: - Errors
