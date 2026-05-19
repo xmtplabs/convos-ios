@@ -51,7 +51,17 @@ final class PaywallViewModel {
         isLoadingProducts = true
         defer { isLoadingProducts = false }
         do {
-            products = try await subscriptionService.availableProducts()
+            let loaded = try await subscriptionService.availableProducts()
+            products = loaded
+            if loaded.isEmpty {
+                Log.error("Paywall loaded 0 products — check the StoreKit configuration is wired in the scheme and that Convos.storekit is a member of the project")
+                showAlert(
+                    title: "No plans available",
+                    message: "Couldn't load subscription plans. Check the StoreKit configuration."
+                )
+            } else {
+                Log.info("Paywall loaded \(loaded.count) product(s)")
+            }
         } catch {
             Log.error("Paywall failed to load products: \(error)")
             showAlert(title: "Something went wrong", message: "Couldn't load plans. Pull to retry or try again later.")

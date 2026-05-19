@@ -108,7 +108,7 @@ struct PaywallView: View {
     private func tierCard(for tier: SubscriptionTier) -> some View {
         let product: PaywallProduct? = viewModel.product(for: tier, period: viewModel.selectedPeriod)
         let isCurrent: Bool = viewModel.currentTier == tier
-        let isPurchasing: Bool = viewModel.purchasingProductId == product?.id
+        let isPurchasing: Bool = product != nil && viewModel.purchasingProductId == product?.id
         let purchaseHandler: (PaywallProduct) -> Void = { product in
             Task { await viewModel.purchase(product: product) }
         }
