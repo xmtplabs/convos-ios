@@ -64,7 +64,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 id: SubscriptionProductIDs.builderMonthly,
                 tier: .builder,
                 period: .monthly,
-                displayPrice: "$9.99",
+                displayPrice: "$19.99",
                 pricePerMonthDisplay: nil,
                 currencyCode: "USD"
             ),
@@ -72,15 +72,15 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 id: SubscriptionProductIDs.builderAnnual,
                 tier: .builder,
                 period: .annual,
-                displayPrice: "$79.99",
-                pricePerMonthDisplay: "$6.67/mo",
+                displayPrice: "$214.89",
+                pricePerMonthDisplay: "$17.91/mo",
                 currencyCode: "USD"
             ),
             PaywallProduct(
                 id: SubscriptionProductIDs.proMonthly,
                 tier: .pro,
                 period: .monthly,
-                displayPrice: "$29.99",
+                displayPrice: "$199.99",
                 pricePerMonthDisplay: nil,
                 currencyCode: "USD"
             ),
@@ -88,8 +88,8 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 id: SubscriptionProductIDs.proAnnual,
                 tier: .pro,
                 period: .annual,
-                displayPrice: "$239.99",
-                pricePerMonthDisplay: "$20.00/mo",
+                displayPrice: "$1,919.90",
+                pricePerMonthDisplay: "$159.99/mo",
                 currencyCode: "USD"
             ),
         ]

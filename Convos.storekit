@@ -72,49 +72,28 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "9.99",
+          "displayPrice" : "1919.90",
           "familyShareable" : false,
           "groupNumber" : 1,
-          "internalID" : "9001A001-0000-0000-0000-000000000001",
+          "internalID" : "9001A001-0000-0000-0000-000000000004",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Builder plan — monthly subscription with credits to power your agents.",
-              "displayName" : "Builder Monthly",
+              "description" : "Pro plan — annual subscription with a larger credit allotment and priority support.",
+              "displayName" : "Convos Pro",
               "locale" : "en_US"
             }
           ],
-          "productID" : "app.convos.subs.builder.monthly",
-          "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Builder Monthly",
-          "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
-          "type" : "RecurringSubscription"
-        },
-        {
-          "adHocOffers" : [],
-          "codeOffers" : [],
-          "displayPrice" : "79.99",
-          "familyShareable" : false,
-          "groupNumber" : 1,
-          "internalID" : "9001A001-0000-0000-0000-000000000002",
-          "introductoryOffer" : null,
-          "localizations" : [
-            {
-              "description" : "Builder plan — annual subscription with credits to power your agents.",
-              "displayName" : "Builder Annual",
-              "locale" : "en_US"
-            }
-          ],
-          "productID" : "app.convos.subs.builder.annual",
+          "productID" : "app.convos.subs.pro.annual",
           "recurringSubscriptionPeriod" : "P1Y",
-          "referenceName" : "Builder Annual",
+          "referenceName" : "Pro Annual (-20%)",
           "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
           "type" : "RecurringSubscription"
         },
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "29.99",
+          "displayPrice" : "199.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "9001A001-0000-0000-0000-000000000003",
@@ -122,7 +101,7 @@
           "localizations" : [
             {
               "description" : "Pro plan — monthly subscription with a larger credit allotment and priority support.",
-              "displayName" : "Pro Monthly",
+              "displayName" : "Convos Pro",
               "locale" : "en_US"
             }
           ],
@@ -135,21 +114,42 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "239.99",
+          "displayPrice" : "214.89",
           "familyShareable" : false,
-          "groupNumber" : 2,
-          "internalID" : "9001A001-0000-0000-0000-000000000004",
+          "groupNumber" : 3,
+          "internalID" : "9001A001-0000-0000-0000-000000000002",
           "introductoryOffer" : null,
           "localizations" : [
             {
-              "description" : "Pro plan — annual subscription with a larger credit allotment and priority support.",
-              "displayName" : "Pro Annual",
+              "description" : "Builder plan — annual subscription with credits to power your agents.",
+              "displayName" : "Convos Builder",
               "locale" : "en_US"
             }
           ],
-          "productID" : "app.convos.subs.pro.annual",
+          "productID" : "app.convos.subs.builder.annual",
           "recurringSubscriptionPeriod" : "P1Y",
-          "referenceName" : "Pro Annual",
+          "referenceName" : "Builder Annual (-10%)",
+          "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 4,
+          "internalID" : "9001A001-0000-0000-0000-000000000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Builder plan — monthly subscription with credits to power your agents.",
+              "displayName" : "Convos Builder",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "app.convos.subs.builder.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Builder Monthly",
           "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
           "type" : "RecurringSubscription"
         }
