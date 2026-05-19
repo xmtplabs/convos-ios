@@ -395,6 +395,28 @@ struct MessagesGroupView: View {
         }
     }
 
+    /// Inline thinking footer anchored to the contact card (not to a
+    /// specific message). The card row above already shows the assistant
+    /// avatar, so this footer suppresses its own leading avatar to avoid
+    /// visual duplication. Tap forwards to the same detail sheet as the
+    /// per-message inline footers.
+    @ViewBuilder
+    private func contactCardThinkingFooterRow(descriptor: ThinkingSessionDescriptor) -> some View {
+        let tap: () -> Void = { onTapThinkingIndicator?(descriptor) }
+        HStack(spacing: 0) {
+            ThinkingIndicatorFooterView(
+                descriptor: descriptor,
+                showsLeadingAvatar: false,
+                onTap: tap
+            )
+            Spacer()
+        }
+        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.stepHalf)
+        .transition(.opacity)
+        .id("contact-card-thinking-\(descriptor.id)")
+    }
+
     @ViewBuilder
     private func thinkingFooterRow(message: AnyMessage) -> some View {
         if let descriptor = group.thinkingByMessageId[message.messageId] {
@@ -498,6 +520,9 @@ struct MessagesGroupView: View {
             if let card = group.assistantContactCard {
                 senderLabel
                 contactCardRow(card: card)
+                if let descriptor = group.contactCardThinkingDescriptor {
+                    contactCardThinkingFooterRow(descriptor: descriptor)
+                }
             }
 
             ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in

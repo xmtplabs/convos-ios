@@ -51,6 +51,14 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// thinking detail processor so the moments read as the agent's
     /// internal monologue rather than chat messages.
     public var usesThoughtBubbleStyle: Bool = false
+    /// When non-nil and `assistantContactCard != nil`, renders an inline
+    /// thinking footer immediately below the contact card. Set by the
+    /// view-model layer when the assistant has a thinking session whose
+    /// `targetMessageId` is a build-flow user prompt — either still
+    /// visible (pre-Make) or filtered out by the builder summary cutoff
+    /// (post-Make). The card is the canonical anchor for "the assistant
+    /// is thinking about your build input".
+    public var contactCardThinkingDescriptor: ThinkingSessionDescriptor?
 
     public var isMultiTyper: Bool {
         allTypingMembers.count > 1
@@ -139,7 +147,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.hidesSenderLabel == rhs.hidesSenderLabel &&
         lhs.showsThinkingIndicator == rhs.showsThinkingIndicator &&
         lhs.thinkingContent == rhs.thinkingContent &&
-        lhs.usesThoughtBubbleStyle == rhs.usesThoughtBubbleStyle
+        lhs.usesThoughtBubbleStyle == rhs.usesThoughtBubbleStyle &&
+        lhs.contactCardThinkingDescriptor == rhs.contactCardThinkingDescriptor
     }
 }
 
@@ -164,6 +173,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(showsThinkingIndicator)
         hasher.combine(thinkingContent)
         hasher.combine(usesThoughtBubbleStyle)
+        hasher.combine(contactCardThinkingDescriptor)
     }
 }
 
