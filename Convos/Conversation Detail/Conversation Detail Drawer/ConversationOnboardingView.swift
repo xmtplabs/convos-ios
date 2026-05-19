@@ -72,14 +72,21 @@ struct ConversationOnboardingView: View {
         .animation(.spring(duration: 0.4, bounce: 0.2), value: coordinator.state)
         .sheet(isPresented: nuxPaywallPresented) {
             nuxPaywallSheetContent
-                .interactiveDismissDisabled()
         }
     }
 
     private var nuxPaywallPresented: Binding<Bool> {
         Binding(
             get: { coordinator.state == .presentingPaywall },
-            set: { _ in }
+            set: { newValue in
+                // External dismissal (close X or swipe-down): advance the
+                // coordinator so the NUX sheet doesn't re-present on the next
+                // conversation. No trial granted on this path — the user has
+                // to tap the explicit Skip-to-trial button to claim it.
+                if !newValue, coordinator.state == .presentingPaywall {
+                    Task { await coordinator.userDidCompleteNUXPaywall() }
+                }
+            }
         )
     }
 

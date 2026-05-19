@@ -37,11 +37,7 @@ struct PaywallView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if onSkip == nil {
-                    closeButton
-                }
-            }
+            .toolbar { closeButton }
         }
         .task { await viewModel.loadProducts() }
         .alert(
