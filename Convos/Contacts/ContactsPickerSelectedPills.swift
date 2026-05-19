@@ -54,22 +54,20 @@ private struct SelectedContactPill: View {
 
     var body: some View {
         Button(action: onRemove) {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
                 ContactAvatarView(contact: contact)
                     .frame(width: Constant.avatarSize, height: Constant.avatarSize)
 
                 Text(truncatedDisplayName)
-                    .font(.subheadline.weight(.medium))
+                    .font(.body)
                     .foregroundStyle(.colorTextPrimaryInverted)
                     .lineLimit(1)
 
                 Image(systemName: "xmark.circle.fill")
-                    .font(.subheadline)
+                    .font(.body)
                     .foregroundStyle(.colorTextPrimaryInverted.opacity(Constant.removeIconOpacity))
             }
-            .padding(.leading, DesignConstants.Spacing.step2x)
-            .padding(.trailing, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(DesignConstants.Spacing.step3x)
             .background(
                 Capsule().fill(.colorTextPrimary)
             )

@@ -32,12 +32,19 @@ struct ContactsPickerView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     let onConfirm: (_ inboxIds: Set<String>) -> Void
+    /// Optional source conversation that informs the indicator pill's
+    /// emoji avatar. For the new-convo flow callers can pass the current
+    /// draft so the picker reflects whatever emoji the convo will inherit;
+    /// for the add-to-conversation flow callers can pass the destination
+    /// conversation. Nil shows a stable default avatar.
+    let pillConversation: Conversation?
 
     init(
         mode: ContactsPickerMode,
         contactsRepository: any ContactsRepositoryProtocol,
         alreadyInChatInboxIds: Set<String> = [],
         preselectedInboxIds: Set<String> = [],
+        pillConversation: Conversation? = nil,
         onConfirm: @escaping (_ inboxIds: Set<String>) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
@@ -46,6 +53,7 @@ struct ContactsPickerView: View {
             alreadyInChatInboxIds: alreadyInChatInboxIds,
             preselectedInboxIds: preselectedInboxIds
         ))
+        self.pillConversation = pillConversation
         self.onConfirm = onConfirm
     }
 
@@ -66,6 +74,7 @@ struct ContactsPickerView: View {
                 placeholder: "Contacts",
                 accessibilityIdentifier: "contacts-picker-search-field"
             )
+            .zIndex(1)
             ContactsPickerSelectedPills(
                 contacts: viewModel.selectedContacts,
                 onRemove: handleRemove
@@ -88,7 +97,8 @@ struct ContactsPickerView: View {
             Button(role: .cancel, action: handleCancel)
         }
         ToolbarItem(placement: .principal) {
-            ContactsPickerTitlePill(
+            ContactsPickerIndicatorPill(
+                conversation: pillConversation,
                 title: viewModel.pillTitle,
                 subtitle: viewModel.pillSubtitle
             )
@@ -117,35 +127,60 @@ struct ContactsPickerView: View {
     }
 }
 
-// MARK: - Title pill
+// MARK: - Indicator pill
 
-/// Elevated capsule shown in the navigation bar's principal slot. Two-line
-/// layout: pill title on top ("New convo" / "Add to convo"), member-count
-/// subtitle below. Replaces the standard nav title to match the design.
-private struct ContactsPickerTitlePill: View {
+/// Conversation-indicator-style pill rendered at the top of the picker.
+/// Mirrors the `ConversationToolbarButton` look used by `ConversationIndicator`
+/// (avatar + title + subtitle inside a glass capsule) so the picker reads
+/// as the entry point to a forthcoming conversation. The avatar peeks at
+/// the supplied source conversation's emoji; when no conversation is
+/// supplied a stable default emoji is rendered as the placeholder.
+private struct ContactsPickerIndicatorPill: View {
+    let conversation: Conversation?
     let title: String
     let subtitle: String
 
     var body: some View {
-        VStack(spacing: 0.0) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.colorTextPrimary)
-            Text(subtitle)
-                .font(.caption2)
-                .foregroundStyle(.colorTextSecondary)
+        HStack(spacing: 0.0) {
+            avatar
+                .frame(width: 36.0, height: 36.0)
+
+            VStack(alignment: .leading, spacing: 0.0) {
+                Text(title)
+                    .lineLimit(1)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .fixedSize()
+                Text(subtitle)
+                    .lineLimit(1)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .padding(.vertical, DesignConstants.Spacing.stepX)
-        .background(
-            Capsule().fill(.colorBackgroundRaisedSecondary)
-        )
-        .overlay(
-            Capsule().stroke(.colorTextTertiary.opacity(0.15), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 6.0, x: 0.0, y: 2.0)
+        .padding(DesignConstants.Spacing.step2x)
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(.capsule)
+        .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("contacts-picker-title-pill")
+        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityIdentifier("contacts-picker-indicator-pill")
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let conversation {
+            ConversationAvatarView(conversation: conversation, conversationImage: nil)
+        } else {
+            EmojiAvatarView(emoji: Constant.placeholderEmoji)
+        }
+    }
+
+    private enum Constant {
+        /// Used when the picker is opened without a source conversation
+        /// (e.g. starting a brand-new convo from the contacts list).
+        /// Picked to read as "a new conversation about to happen".
+        static let placeholderEmoji: String = "✨"
     }
 }
 
@@ -159,30 +194,24 @@ private struct ContactsPickerList: View {
         if viewModel.sections.isEmpty {
             emptyState
         } else {
-            sectionedList
+            ContactsListView(
+                sections: viewModel.sections.map { section in
+                    ContactsListSection(
+                        id: section.id,
+                        title: section.title,
+                        rows: section.rows
+                    )
+                },
+                rowContent: { (row: ContactsPickerViewModel.Row) in
+                    ContactsPickerRow(
+                        row: row,
+                        isSelected: viewModel.isSelected(inboxId: row.id),
+                        onTap: rowTapAction(for: row)
+                    )
+                },
+                listBackground: { Color.colorBackgroundRaisedSecondary }
+            )
         }
-    }
-
-    @ViewBuilder
-    private var sectionedList: some View {
-        List {
-            ForEach(viewModel.sections) { section in
-                Section(header: ContactsPickerSectionHeader(title: section.title)) {
-                    ForEach(section.rows) { row in
-                        ContactsPickerRow(
-                            row: row,
-                            isSelected: viewModel.isSelected(inboxId: row.id),
-                            onTap: rowTapAction(for: row)
-                        )
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    }
-                }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(.colorBackgroundRaisedSecondary)
     }
 
     private var emptyState: some View {
@@ -210,20 +239,6 @@ private struct ContactsPickerList: View {
     }
 }
 
-// MARK: - Section header
-
-private struct ContactsPickerSectionHeader: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.caption)
-            .foregroundStyle(.colorTextSecondary)
-            .textCase(nil)
-            .padding(.leading, DesignConstants.Spacing.step2x)
-    }
-}
-
 // MARK: - Confirm CTA
 
 private struct ContactsPickerConfirmButton: View {
@@ -235,7 +250,7 @@ private struct ContactsPickerConfirmButton: View {
         let backgroundOpacity: Double = isEnabled ? 1.0 : 0.4
         Button(action: onTap) {
             Text(title)
-                .font(.body.weight(.semibold))
+                .font(.body)
                 .foregroundStyle(.colorTextPrimaryInverted)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, DesignConstants.Spacing.step6x)

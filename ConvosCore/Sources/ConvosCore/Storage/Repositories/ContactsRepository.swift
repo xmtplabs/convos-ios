@@ -23,6 +23,24 @@ public protocol ContactsRepositoryProtocol: Sendable {
 
     /// Fetches a single contact by inboxId.
     func fetchContact(inboxId: String) throws -> Contact?
+
+    /// Batch lookup of source-conversation metadata (name + kind) for the
+    /// "you met them in X" subtitle on contact rows. Callers index by
+    /// `addedViaConversationId`. Missing ids are absent from the result
+    /// (conversation was deleted, or the contact has no source convo).
+    func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation]
+}
+
+/// Minimal snapshot of the conversation that promoted an inbox to a
+/// contact. Returned by `ContactsRepositoryProtocol.sourceConversations`.
+public struct ContactSourceConversation: Sendable, Hashable {
+    public let name: String?
+    public let kind: ConversationKind
+
+    public init(name: String?, kind: ConversationKind) {
+        self.name = name
+        self.kind = kind
+    }
 }
 
 extension ContactsRepositoryProtocol {
@@ -91,6 +109,28 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
     func fetchContact(inboxId: String) throws -> Contact? {
         try databaseReader.read { db in
             try DBContact.fetchOne(db, key: inboxId).map(Contact.init(dbContact:))
+        }
+    }
+
+    func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation] {
+        guard !ids.isEmpty else { return [:] }
+        return try databaseReader.read { db in
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+            let rows = try GRDB.Row.fetchAll(
+                db,
+                sql: "SELECT id, name, kind FROM conversation WHERE id IN (\(placeholders))",
+                arguments: StatementArguments(Array(ids))
+            )
+            var result: [String: ContactSourceConversation] = [:]
+            for row in rows {
+                guard let id: String = row["id"] else { continue }
+                guard let kindRaw: String = row["kind"],
+                      let kind = ConversationKind(rawValue: kindRaw) else { continue }
+                let name: String? = row["name"]
+                let trimmed: String? = name.flatMap { $0.isEmpty ? nil : $0 }
+                result[id] = ContactSourceConversation(name: trimmed, kind: kind)
+            }
+            return result
         }
     }
 

@@ -13,21 +13,11 @@ struct ContactsPickerRow: View {
         Button(action: onTap) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 ContactAvatarView(contact: row.contact)
-                    .frame(width: 36.0, height: 36.0)
+                    .frame(width: 56.0, height: 56.0)
 
-                ContactsPickerRowText(contact: row.contact)
+                ContactsPickerRowText(contact: row.contact, subtitle: row.subtitle)
 
                 Spacer(minLength: 0.0)
-
-                if let roleLabel = row.contact.agentVerification?.roleLabel {
-                    Text(roleLabel)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                        .padding(.horizontal, DesignConstants.Spacing.step2x)
-                        .padding(.vertical, DesignConstants.Spacing.stepX)
-                        .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-                        .accessibilityIdentifier("contacts-picker-role-label-\(row.contact.inboxId)")
-                }
 
                 ContactsPickerRowAccessory(
                     isAlreadyInChat: row.isAlreadyInChat,
@@ -48,13 +38,20 @@ struct ContactsPickerRow: View {
 
 private struct ContactsPickerRowText: View {
     let contact: Contact
+    let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2.0) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
             Text(contact.resolvedDisplayName)
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
                 .lineLimit(1)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
         }
     }
 }
@@ -88,13 +85,15 @@ private struct ContactsPickerRowAccessory: View {
 
     private var selectedIndicator: some View {
         Image(systemName: "checkmark.circle.fill")
-            .font(.title3)
+            .resizable()
+            .frame(width: 24.0, height: 24.0)
             .foregroundStyle(.colorTextPrimary)
     }
 
     private var unselectedIndicator: some View {
         Image(systemName: "circle")
-            .font(.title3)
+            .resizable()
+            .frame(width: 24.0, height: 24.0)
             .foregroundStyle(.colorTextTertiary)
     }
 }
@@ -111,22 +110,22 @@ private struct ContactsPickerRowAccessory: View {
     )
     return VStack(alignment: .leading, spacing: 12.0) {
         ContactsPickerRow(
-            row: .init(id: alice.inboxId, contact: alice, isAlreadyInChat: false),
+            row: .init(id: alice.inboxId, contact: alice, isAlreadyInChat: false, subtitle: "Bike Trip 2026"),
             isSelected: false,
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: bob.inboxId, contact: bob, isAlreadyInChat: false),
+            row: .init(id: bob.inboxId, contact: bob, isAlreadyInChat: false, subtitle: "DM"),
             isSelected: true,
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: carol.inboxId, contact: carol, isAlreadyInChat: true),
+            row: .init(id: carol.inboxId, contact: carol, isAlreadyInChat: true, subtitle: "Game Night"),
             isSelected: false,
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: assistant.inboxId, contact: assistant, isAlreadyInChat: false),
+            row: .init(id: assistant.inboxId, contact: assistant, isAlreadyInChat: false, subtitle: "Convos Assistant"),
             isSelected: false,
             onTap: {}
         )

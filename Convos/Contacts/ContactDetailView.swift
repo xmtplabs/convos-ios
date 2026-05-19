@@ -33,6 +33,12 @@ import SwiftUI
 struct ContactDetailView: View {
     let contact: Contact
     let mode: ContactDetailMode
+    /// True when the view should render its own X close button in the
+    /// nav-bar's cancellation slot. Sheet entry points (where there is no
+    /// system back button) keep this on; NavigationLink push entry points
+    /// (where the system already renders a chevron back button) pass false
+    /// so the user doesn't see two redundant dismiss controls.
+    let showsCloseButton: Bool
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
@@ -52,6 +58,7 @@ struct ContactDetailView: View {
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
+        showsCloseButton: Bool = true,
         onRemove: (() -> Void)? = nil
     ) {
         self.contact = contact
@@ -59,6 +66,7 @@ struct ContactDetailView: View {
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
+        self.showsCloseButton = showsCloseButton
         self.onRemove = onRemove
         _isBlocked = State(initialValue: contact.isBlocked)
     }
@@ -85,10 +93,12 @@ struct ContactDetailView: View {
 
     @ToolbarContentBuilder
     private var closeToolbarItem: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            let action = { dismiss() }
-            Button(role: .cancel, action: action)
-                .accessibilityIdentifier("contact-detail-close")
+        if showsCloseButton {
+            ToolbarItem(placement: .cancellationAction) {
+                let action = { dismiss() }
+                Button(role: .cancel, action: action)
+                    .accessibilityIdentifier("contact-detail-close")
+            }
         }
     }
 

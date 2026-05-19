@@ -41,6 +41,11 @@ final class ContactsPickerViewModel {
         let id: String
         let contact: Contact
         let isAlreadyInChat: Bool
+        /// Caption rendered under the contact name. Resolves to the name of
+        /// the conversation that promoted the inbox to a contact, falling
+        /// back to the agent role label (for verified agents) or "DM" (no
+        /// group convo name available).
+        let subtitle: String
     }
 
     let mode: ContactsPickerMode
@@ -104,32 +109,30 @@ final class ContactsPickerViewModel {
         }
     }
 
-    /// Top-line text for the elevated pill in the picker toolbar. Mirrors the
-    /// "New convo" / "Add to convo" framing used in the existing UI copy.
+    /// Top-line text for the indicator pill. "New convo" while assembling
+    /// a fresh conversation; existing convo name (or "Add to convo") when
+    /// the picker is scoped to an existing chat.
     var pillTitle: String {
         switch mode {
         case .newConversation:
             return "New convo"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
-                return "Add to \(title)"
+                return title
             }
             return "Add to convo"
         }
     }
 
-    /// Subtitle inside the elevated pill. For new conversations the local user
-    /// is implicit, so the total membership count is `selectionCount + 1`. For
-    /// the add-to-conversation flow we only count members being added since the
-    /// existing chat membership is already known to the user.
+    /// Subtitle below the title in the indicator pill. Reads "Draft" when
+    /// the user hasn't picked anyone yet, then transitions to "N selected"
+    /// once they start picking. Identical wording across both modes — the
+    /// title already disambiguates the intent.
     var pillSubtitle: String {
-        switch mode {
-        case .newConversation:
-            let total = selectionCount + 1
-            return "\(total) \(total == 1 ? "member" : "members")"
-        case .addToConversation:
-            return "\(selectionCount) selected"
+        if selectionCount == 0 {
+            return "Draft"
         }
+        return "\(selectionCount) selected"
     }
 
     var confirmButtonTitle: String {
@@ -181,12 +184,21 @@ final class ContactsPickerViewModel {
             by: { $0.alphabeticalSectionKey }
         )
         let sortedKeys = grouped.keys.sorted(by: Self.sectionKeyOrder)
+
+        // Batched read of source-conversation metadata so each row's subtitle
+        // can show the convo the user met the contact in. Missing entries
+        // (deleted convo, never-recorded source) fall through to the agent
+        // label or empty in the subtitle resolver below.
+        let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
+        let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
+
         sections = sortedKeys.map { key in
             let rows = (grouped[key] ?? []).map { contact in
                 Row(
                     id: contact.inboxId,
                     contact: contact,
-                    isAlreadyInChat: alreadyInChatInboxIds.contains(contact.inboxId)
+                    isAlreadyInChat: alreadyInChatInboxIds.contains(contact.inboxId),
+                    subtitle: contact.listSubtitle(sources: sources)
                 )
             }
             return Section(id: key, title: key, rows: rows)

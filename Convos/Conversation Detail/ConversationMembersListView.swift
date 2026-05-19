@@ -115,6 +115,7 @@ struct ConversationMembersListView: View {
             contactsWriter: contactsWriter,
             contactsRepository: contactsRepository,
             session: viewModel.session,
+            showsCloseButton: false,
             onRemove: onRemove
         )
     }
