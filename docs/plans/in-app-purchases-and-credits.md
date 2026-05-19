@@ -40,6 +40,20 @@ What this does **not** change:
 
 The economic model, ledger schema, and StoreKit wiring are all still load-bearing. The shift is in **how we talk to users** and **who we incentivize**.
 
+### Round 2 — as-shipped reality (2026-05-19)
+
+A second round of design mediation with @borja during backend PR #215 produced four load-bearing flips. The PRD body below has been edited in place to match; this entry captures the deltas for traceability.
+
+1. **Slow-mode is gone, not "internal-only".** Backend `consume()` hard-fails at 0 (`InsufficientBalanceError`). There is no fallback model, no `slow_mode` mode flag, no `PAYMENTS_SLOW_MODE_MODEL_KEY`. iOS shows the out-of-credits paywall when the balance is 0. §5.6 and §6.5 rewritten accordingly.
+
+2. **Subscription credits are derived, not granted.** `monthlyGrant` lives in per-tier env config (`PAYMENTS_GRANT_BUILDER_MONTHLY`, `PAYMENTS_GRANT_PRO_MONTHLY`). `monthlyGrantUsed` = Σ |consume deltas| since `Subscription.currentPeriodStart`. The `grant()` primitive is **never** called on verify or renewal. The ledger stays canonical for additive credits only (NUX trial, top-ups, manual, promo, daily refills) — Hermes reads `UserCredits.balance`, iOS reads the derived view, and the two converge at 0 because there's no slow-mode floor. §5.5 / §6.0 rewritten.
+
+3. **Cross-device transfer inverted to strict ownership.** First `/verify` binds `originalTransactionId → accountId`. Subsequent verifies from a different account → `409 subscription_account_mismatch`. The original buyer owns the sub for life; transfer is a support op. The `appAccountToken` is extracted from the verified JWS, not trusted from the request body — drops a session-stealing vector. §6.4 rewritten.
+
+4. **User routes live under `/v2/accounts/me/*`, not `/v2/subscriptions/*` or `/v2/credits/me/*`.** Per @borja's audience-namespace cut: credits and subscriptions are **properties** of an account, not top-level resources. Agent-facing `/v2/credits/{check,consume,grant}` stay where they are. §6.2 rewritten.
+
+Plus smaller deltas absorbed inline: `payments-repoint` landed inside PR #191 (no longer a prereq); `willRenew` + `isInTrial` columns added to `Subscription`; `idempotencyKey` + `notificationUUID` columns added to `AppleReceipt`; pricing prose corrected (`markupRate=2.0` is a 2× multiplier, not "+$2 markup"); real launch prices folded into §5 and §9.5.3.
+
 ---
 
 ## 1. Goals (v1)
@@ -78,8 +92,8 @@ Operationally, we can:
 | Vendor | **Build ourselves.** | Account model + ledger schema already in `convos-backend` (PR 194 + PR 191). RC's high-value features (paywall A/B, MMP attribution, retention analytics) don't change unit economics for us. 1% of MTR is cheap on day 1 but a fixed tax forever. |
 | Products | **Builder + Pro × Monthly + Annual** = 4 SKUs in one subscription group. | Matches the design. Annual is the upsell paywall lever. Single group → Apple handles up/down/cross-grade proration. Both tiers can use any model — see §5.9. |
 | Plan differentiation | **Credit allotment + outcome benchmarks only — no model gating.** | (Revised — see Revision history.) "Standard model on every reply" vs "Premium model access" is the wrong axis. Better models → better experience → more retention. Pro tier still gets more credits, annual still discounts; we just don't restrict which model a user can route to. |
-| Release valve | **Internal slow-mode + out-of-credits upsell.** | (Revised — see Revision history.) When balance hits 0 Hermes silently routes to a cheaper fallback model. **Slow-mode is never named in user-facing copy** — the contact sheet just says "out of credits" with an Upgrade CTA. Top-up SKUs deferred. See §5.6. |
-| Free tier | **7-day trial: 500 credits; account stays usable on internal fallback after expiry.** | Single `GrantKind { id: 'trial_2026_05', expiresAfterDays: 7 }` row. Easy to A/B (issue new GrantKind monthly). |
+| Release valve | **None.** Out of credits → consume hard-fails → iOS paywall. | (Revised in Round 2 — see Revision history.) No slow-mode, no fallback model. The agent stops responding; iOS recovers via paywall. Top-up SKUs deferred. See §5.6. |
+| Free tier | **NUX trial: server-issued additive grant; deferred from PR #215.** | Will flow through `grant({ kind: "trial_nux" })` when it lands — additive credits, not subscription-derived. iOS-side 7-day trial UX is separate from Apple's Introductory Offer mechanism (§9.5.4). |
 | Admin UI | **New `admin/` app in convos-backend.** | Source-of-truth coupling. Operator-only auth. Talks to backend Prisma directly. Decouples from public `convos-assistants/dashboard`. |
 | Credit abstraction | **Virtual currency**, per RC pattern. | Implemented in PR 191's ledger module. `CreditLedger` records per-row rates so we can change them monthly without rewriting history. |
 | Pricing configuration | **Env vars** (per PR 191). | Borja's preference for v1; tuning UI is a v1.1 concern once we have real usage data. |
@@ -106,18 +120,22 @@ This is the load-bearing section of the plan. The numbers below are **launch def
 
 ### 5.1 Apple's cut after fees
 
-Worst-case worldwide blend (1st year, 30% Apple, EU/UK VAT pre-deducted by Apple):
+Real launch prices (set in App Store Connect — see §9.5.3). Worst-case worldwide blend (1st year, 30% Apple, EU/UK VAT pre-deducted by Apple):
 
 | SKU | Gross USD | Apple cut (30% / 15% SBP) | EU VAT impact* | **Net to Convos** |
 |---|---|---|---|---|
-| Builder Monthly $9.99 | $9.99 | $3.00 / $1.50 | ~$1.50 | **~$5.50 (yr1) / ~$6.80 (yr2 SBP)** |
-| Pro Monthly $29.99 | $29.99 | $9.00 / $4.50 | ~$4.50 | **~$17 (yr1) / ~$20 (yr2 SBP)** |
-| Builder Annual $79.99 | $79.99 | $24 / $12 | ~$12 | **~$45 (yr1) / ~$54 (yr2 SBP)** |
-| Pro Annual $239.99 | $239.99 | $72 / $36 | ~$36 | **~$135 (yr1) / ~$162 (yr2 SBP)** |
+| Builder Monthly $19.99 | $19.99 | $6.00 / $3.00 | ~$3.00 | **~$11 (yr1) / ~$14 (yr2 SBP)** |
+| Pro Monthly $199.99 | $199.99 | $60.00 / $30.00 | ~$30.00 | **~$110 (yr1) / ~$140 (yr2 SBP)** |
+| Builder Annual $214.89 | $214.89 | $64.47 / $32.23 | ~$32 | **~$118 (yr1) / ~$150 (yr2 SBP)** |
+| Pro Annual $1919.90 | $1919.90 | $575.97 / $287.99 | ~$288 | **~$1,056 (yr1) / ~$1,344 (yr2 SBP)** |
 
 *VAT is Apple's burden, not ours — they collect from the user and remit. The "VAT impact" column is the effective price drop our net sees after Apple netted EU/UK customer revenue. Apple's [pricing tiers](https://developer.apple.com/help/app-store-connect/manage-subscriptions/configure-prices) show ~30% lower take for EU SKUs. Apple Small Business Program (SBP): 15% if you earned <$1M from App Store last year — auto-applies after enrollment.
 
-**Planning assumption:** $6 net Builder, $18 net Pro at launch (year-1, worst-case worldwide). Annuals = ~9× monthly net (10% paid-up-front discount).
+**Annual discounts** (off the 12× monthly anchor):
+- Builder Annual: $214.89 vs 12 × $19.99 = $239.88 → **~10.4% off** (about 11 months for the price of 12)
+- Pro Annual: $1919.90 vs 12 × $199.99 = $2399.88 → **20.0% off** (about 9.6 months for the price of 12)
+
+**Planning assumption (yr1 worst-case net):** ~$11 Builder Monthly, ~$110 Pro Monthly, ~$118 Builder Annual, ~$1,056 Pro Annual. The Pro tier is a heavyweight enterprise/builder price point — see §5.4 for the margin implications.
 
 ### 5.2 Virtual currency — the abstraction
 
@@ -126,71 +144,77 @@ We follow the **RevenueCat Virtual Currency pattern**: credits are opaque, non-t
 Internally, two levers turn credits into real economics, both stored **per ledger row** (in PR 191's `CreditLedger` schema):
 
 1. **`creditsPerDollar: BigInt`** — the credit↔USD exchange rate at the time of the grant or burn. Stored on each ledger entry. Changing the env var tomorrow does not rewrite yesterday's entries.
-2. **`markupRate: Decimal(8,4)`** — how much we charge users above raw model cost. Stored per ledger entry on a burn. `markupRate = 2.0` means $1 of OpenRouter spend deducts the credit-equivalent of $3 ($1 raw cost + $2 markup).
+2. **`markupRate: Decimal(8,4)`** — multiplicative markup over raw model cost. Stored per ledger entry on a burn. **`markupRate = 2.0` means a 2× multiplier**: $1 of OpenRouter spend deducts the credit-equivalent of $2 (1× cost + 1× margin = 50% gross margin in profit-margin terms). This matches the formula `credits_to_deduct = estimated_cost_usd × markup_rate × credits_per_dollar` (§6.0). It is **not** "+$2 added markup" — increase the value if you want a wider cushion.
 
 **Per-model rate card is NOT used** in v1. We deduct against OpenRouter's reported `estimated_cost_usd` directly, applied uniformly via env-var markup. This avoids the maintenance burden of a per-model rate table and matches PR 191's implementation. If we later need per-model differentiation (e.g. premium-model upcharge), we can introduce a multiplier table without changing ledger row shape.
 
 ### 5.3 Launch config (env-var driven)
 
-The numbers below match the design figure ("500 remaining / 1500 per month" on the Settings row) and the PR 191 env-var layout.
+PR #191's payment-side knobs are joined by per-tier grant amounts owned by the subscriptions side. Final values are an ops/product decision; the table below shows what's wired in the codebase today.
 
-| Env var | Launch value | Purpose |
-|---|---|---|
-| `PAYMENTS_CREDITS_PER_USD` | **1000** (1 credit = $0.001 nominal) | Headline-friendly unit (1,500 credits ≈ "$1.50 of AI") |
-| `PAYMENTS_MARKUP_RATE` | **2.0** (deduct 3× raw cost in credit-equivalent) | Industry-standard AI-SaaS markup with room to compete |
-| `PAYMENTS_RESERVED_MAX_TURN_CREDITS` | **100** | Reserved at turn start so a long answer can't underflow mid-turn |
-| `PAYMENTS_MIN_BALANCE_CREDITS` | **0** | If `0`, allow burns until empty then route to slow-mode. If `>0`, gate slow-mode at this floor instead. **Open — see team Q B1.** |
-| `PAYMENTS_GRANT_BUILDER_MONTHLY` | **1500** | Credits granted on each Builder renewal |
-| `PAYMENTS_GRANT_PRO_MONTHLY` | **5000** | Credits granted on each Pro renewal |
-| `PAYMENTS_GRANT_TRIAL` | **500** | Credits granted on NUX trial redemption |
-| `PAYMENTS_TRIAL_EXPIRY_DAYS` | **7** | Trial credits expire after this many days |
-| `PAYMENTS_SLOW_MODE_MODEL_KEY` | `google/gemini-2.5-flash` | Cheap fallback model when balance is depleted |
+| Env var | Launch value | Owner | Purpose |
+|---|---|---|---|
+| `PAYMENTS_MARKUP_RATE` | **2.0** (2× multiplier — 50% gross margin) | PR 191 | Multiplicative markup over OpenRouter raw cost — see §5.2 |
+| `PAYMENTS_CREDITS_PER_USD` | **1000** (1 credit = $0.001 nominal) | PR 191 | Headline-friendly unit (2,500 credits ≈ "$2.50 of AI") |
+| `PAYMENTS_RESERVED_MAX_TURN_CREDITS` | **1** | PR 191 | Minimum balance to start a turn (Hermes `/check` gate) |
+| `PAYMENTS_MIN_BALANCE_CREDITS` | **0** | PR 191 | Hard floor; `consume()` throws `InsufficientBalanceError` below this. There is no slow-mode below 0. |
+| `PAYMENTS_GRANT_BUILDER_MONTHLY` | **2500** (placeholder — final TBD by product) | PR 215 | Per-tier credit allotment for `monthlyGrant` in iOS `CreditBalance`. Annual = 12× this. |
+| `PAYMENTS_GRANT_PRO_MONTHLY` | **10000** (placeholder — final TBD by product) | PR 215 | Same, Pro tier. |
 
-**Two reality checks on these numbers:**
+**Sanity check at the placeholder numbers.** A Builder user has 2,500 credits/period = $2.50 of OpenRouter spend at `markupRate=2.0` and `creditsPerDollar=1000` (2500 credits ÷ 2.0 ÷ 1000). At Claude Sonnet 4.6 pricing, that's roughly 60–120 typical agent turns/month. The Pro tier (10,000 credits = $10 of spend at the same rates) covers ~250–500 turns. Both numbers are placeholders and product will retune before launch.
 
-- 1,500 credits at `creditsPerDollar=1000` `markupRate=2.0` = $0.50 of real OpenRouter spend. At Claude Sonnet 4.6 pricing, that's ~25-50 typical agent turns/month. **This is intentionally tight** for a $9.99 product. Cursor Pro at $20 gives 500 fast requests (~$0.04 each = $20 face), running them ~50% margin on power users. We're ~91% margin on full-burn users — the cushion to absorb Apple's 30% cut and to subsidize slow-mode.
-- The cushion has a cost: **users who burn through in 5 days will be annoyed**. Mitigation = generous slow-mode (option A: free slow-mode forever; option B: slow-mode metered at 0.1× standard cost). Pick option A for launch — it's strictly cheaper to retain than to re-acquire.
+**Note on grant amount provenance.** Subscription credit allotments are **derived** from `PAYMENTS_GRANT_<TIER>_MONTHLY` at read time — they are NOT written to the credit ledger via `grant()`. See §5.5 for the policy and §6.0 for the implementation contract.
 
 ### 5.4 Margin model — why this works
 
+At the placeholder grants (2,500 Builder / 10,000 Pro) and `markupRate=2.0`:
+
 ```
-Net revenue per Builder user (yr1, worst case):  $6.00
-Raw OpenRouter spend at full grant burn:         $0.50
-Slow-mode bonus spend (estimated):               $0.30
-Net contribution:                                $5.20 (~87% gross margin)
+Builder Monthly:
+  Net revenue (yr1, worst case):           $11.00
+  Raw OpenRouter spend at full grant burn: $2.50
+  Net contribution:                        $8.50 (~77% gross margin)
+
+Pro Monthly:
+  Net revenue (yr1, worst case):           $110.00
+  Raw OpenRouter spend at full grant burn: $10.00
+  Net contribution:                        $100.00 (~91% gross margin)
 ```
 
-A user who NEVER burns their credits = ~$6 contribution. A user who burns the full grant + heavy slow-mode = ~$5. This is the design intent: **flat ~$5 contribution regardless of usage**, paid by Apple. Sub price → credits ratio is the lever that flattens it.
+A user who NEVER burns their credits = full net revenue as contribution. A full-burn user keeps a comfortable margin because the markup is built into the credit→USD conversion, not bolted on after the fact. There is no slow-mode subsidy to model — `consume()` hard-fails at 0, so worst-case spend per period is capped at `(monthlyGrant ÷ markupRate ÷ creditsPerDollar)` USD by construction.
 
-For Pro at $18 net, same math gives ~$17 contribution. Pro burns more credits → more raw spend → still 85%+ margin.
-
-This is fundamentally **freemium economics**, not AI-cost-pass-through. It is the right model for a messaging app where most users send a handful of agent messages a week, not the wrong model for power users (whom we throttle into slow-mode).
+This is fundamentally **freemium economics**, not AI-cost-pass-through. It is the right model for a messaging app where most users send a handful of agent messages a week. Pro is a heavyweight tier intended for builders and power users; the credits ratio is the lever we use to retune margin once we have real usage data.
 
 ### 5.5 Grant policy — kinds and cadence
 
-Two `GrantKind`s in v1, plus a third planned via cron:
+**Subscription credits are derived, not granted.** This is the load-bearing call from the as-shipped revision (see Revision history round 2). The `grant()` primitive in `src/payments/` is reserved for **additive credits**: one-off injections that stick around (top-ups, NUX trial, manual ops, promo, daily refills). Subscription monthly allotments DO NOT flow through `grant()`. They are computed at read time from the active `Subscription` row + per-tier env config.
 
-| GrantKind id | Source | When | Amount | Expiry |
+**Why**: writing a `grant()` ledger entry on every subscription renewal AND a matching `adjust(-leftover)` to enforce "use it or lose it" creates two ledger writes per renewal plus a race-condition surface. Reading derived state from a single Subscription row + a ledger sum since `currentPeriodStart` is simpler, has a single source of truth, and converges naturally at 0 since there is no slow-mode floor (§5.6).
+
+The `GrantKind` rows shipped in PR #191's migration:
+
+| GrantKind id | Source | When | Amount | Notes |
 |---|---|---|---|---|
-| `subscription_builder_2026_05` | StoreKit purchase | On every Builder renewal (initial + DID_RENEW) | `PAYMENTS_GRANT_BUILDER_MONTHLY` (=1500) | renewal + 35 days (5-day grace) |
-| `subscription_pro_2026_05` | StoreKit purchase | On every Pro renewal | `PAYMENTS_GRANT_PRO_MONTHLY` (=5000) | renewal + 35 days |
-| `trial_nux_2026_05` | NUX onboarding | On first `POST /v2/credits/me/redeem-trial` per account (one-time) | `PAYMENTS_GRANT_TRIAL` (=500) | now + `PAYMENTS_TRIAL_EXPIRY_DAYS` days |
-| `daily_free_2026_05` | Cron job | Daily, to eligible accounts | TBD — see team Q B2 | day-end |
+| `signup_bonus` | Server-issued | Once per account on first agent creation | TBD (deferred — not yet wired) | One-time additive grant. Lives in the ledger; rolls over. |
+| `daily_refill` | Cron job | Daily, to eligible accounts | TBD — see team Q B2 | Future cron-driven additive top-up. Idempotency key shape `account:<accountId>:date:YYYY-MM-DD`. |
+| `manual` | Admin action | Operator-initiated | Per-grant | Refunds, comps, promo escalations. |
 
-**Reset, not rollover.** On every subscription renewal, grant the full tier allotment as a new `CreditLedger` entry. Old unspent credits expire naturally. Simpler accounting, predictable COGS, no power-user rollover hoarding. Matches industry default (Cursor, Claude Pro).
+**Not in v1**: `subscription_*`, `trial_nux_*` (NUX trial is deferred per the brief). When the NUX trial ships in a follow-up, it will use a new `GrantKind` row like `trial_nux` or `signup_trial` and flow through `grant()` — additive, not subscription-derived.
 
-The daily cron grant is mentioned in Borja's design thread but its parameters (amount, cadence, eligibility) are still open — see team Q B2. Adding the row to `GrantKind` early lets us toggle it on without a schema migration.
+**iOS-visible behavior** (no functional change vs the earlier draft): `monthlyGrant` = tier env config, `monthlyGrantUsed` = Σ |consume deltas| since `Subscription.currentPeriodStart`. Period rollover happens at `DID_RENEW` because the webhook updates `currentPeriodStart`, naturally resetting `monthlyGrantUsed` to 0 on the next read. No ledger write needed.
 
-### 5.6 Release valve policy
+### 5.6 Out-of-credits policy
 
-Balance hits 0 (or falls below `PAYMENTS_MIN_BALANCE_CREDITS` if set) → Hermes routes next turn to a cheaper internal fallback model. Fallback requests deduct 0 credits (option A above).
+Balance hits 0 → `consume()` throws `InsufficientBalanceError`. There is **no slow-mode**, **no fallback model**, **no zero-cost burn path**. The agent simply does not respond to the next turn. iOS is the only surface that recovers — by showing the paywall.
 
-**Important framing rule (revised — see Revision history):** the fallback mechanism is **never named or surfaced to the user**. No footer hints, no "slower model" copy, no per-message warnings. The product just keeps working at a lower internal cost while we drive an upgrade. Two UI affordances handle the upsell — both are about the **balance**, not the mode:
+This is a deliberate simplification from earlier drafts of the PRD. Slow-mode added complexity (per-call routing decisions, $0 ledger entries for observability, eligibility gates, the operational risk of running an unmetered fallback model) for a benefit (lower churn at the 0-balance moment) that was speculative. We removed it during the as-shipped round; if real usage data shows a retention cliff at 0, we can revisit with a concrete proposal.
 
-1. **In-conversation low-balance banner** (account-level, since credits are account-level — not per-agent): when balance is low or 0, a banner pinned above the messages list reads *"⚠ 180 credits left"* or *"⛔ You're out of credits"*, with a single Upgrade CTA. No mention of model routing.
+**Two UI affordances handle the upsell:**
+
+1. **In-conversation low-balance banner** (account-level, since credits are account-level — not per-agent): when balance is low or 0, a banner pinned above the messages list reads *"⚠ 180 credits left"* or *"⛔ You're out of credits"*, with a single Upgrade CTA.
 2. **Contact sheet out-of-credits section** (agent contact only): when `balance == 0`, an "Out of credits — your agents are paused until you upgrade or top up" section appears at the top of the agent detail, with an Upgrade CTA. (The "Top up" button is **hidden in v1** — gating consumable IAP to v1.1.)
 
-Internal-only operational concerns about the fallback (which model, eligibility, idempotency of $0 ledger rows, observability) live in §6.5 — they're a backend-and-Hermes concern, not a user-facing one.
+Both surfaces talk about the **balance**, not any operational mode. There is no operational mode to talk about.
 
 #### 5.6.1 Owner-pays semantics
 
@@ -203,7 +227,7 @@ UI implications:
 | Frame 1 (HOME credits pill) | shown — their balance | shown — their balance, unaffected by other people's agents |
 | Frame 2 (convo low-balance banner) | shown — account-level banner above the messages list | shown only if the non-owner's own balance is low (banner reads their own state) |
 | Frame 4 (contact sheet, healthy) | full chart + balance + "Manage" CTA | agent info + small "Operated by {owner}" line, no balance, no upgrade CTA |
-| Frame 5 (contact sheet, out of credits) | full chart + "Out of credits" + **Upgrade** CTA | "This agent's owner is out of credits." No upgrade CTA (we can't sell a sub on someone else's behalf). Do **not** say "slow mode". |
+| Frame 5 (contact sheet, out of credits) | full chart + "Out of credits" + **Upgrade** CTA | "This agent's owner is out of credits." No upgrade CTA (we can't sell a sub on someone else's behalf). |
 
 Frame 3 ("CONVO future / group balance, multi-user funding") is **out of v1 scope**.
 
@@ -258,7 +282,7 @@ This section captures the load-bearing copy/UX rule for every user-facing credit
 **Rules of thumb for every credits surface.**
 
 1. **Never expose tokens.** Tokens are an implementation detail. If a future surface needs a granular count, it's "credits", not "tokens".
-2. **Never expose the fallback / slow-mode mechanism by name.** That's §5.6. The product simply keeps working at a lower internal cost while we drive an upgrade.
+2. **No slow-mode language exists, period.** There's no fallback model to euphemize. When balance is 0, the agent doesn't respond and iOS shows the paywall — that's the entire mechanism. See §5.6.
 3. **Outcome examples beat raw counts on the paywall and NUX.** Outcome examples should never appear in operational/account UI (Settings → Subscription, runway estimate). Those need real numbers; outcomes belong in marketing/onboarding surfaces.
 4. **Don't train users to avoid expensive operations.** The per-agent usage breakdown is a transparency feature, not a budgeting feature. We want users pushing the edges (so we learn to make those operations cheaper); we do NOT want them learning to avoid browsing because today it costs more.
 5. **Spacing & visual rhythm.** The paywall ships at 24pt between sections and 12pt between cards; bullets render in one flat VStack with 8pt spacing. The Subscribe button keeps a stable height across idle/in-flight states (Text label always present, spinner in `.overlay`). These are not arbitrary — they're the difference between a paywall that reads cleanly and one that feels noisy.
@@ -269,186 +293,228 @@ This section captures the load-bearing copy/UX rule for every user-facing credit
 
 ## 6. Backend plan
 
-### 6.0 Reference: PR 191 ledger module
+### 6.0 Reference: PR #191 payments module (merged)
 
-PR 191 ("Payments API foundations") implements the ledger as a typed module in `convos-backend/src/services/payments/` (path approximate — confirm against PR). No HTTP bindings yet; this PRD adds them. The module shape (per @borja's design thread):
+PR #191 ("Payments API foundations") is merged into `otr-dev`. The module lives at `convos-backend/src/payments/` (no nested `services/` dir). It is **HTTP-bound for agents only** today (`POST /v2/credits/{check,consume,grant}` with `X-Agent-API-Key`); user-facing reads/writes live under `/v2/accounts/me/*` per §6.2. The `payments-repoint` work (re-keying `UserCredits`/`CreditLedger` from `inboxId` to `accountId`) landed inside PR #191 itself — no longer a separate prereq.
 
-**Methods** (confirm signatures against the PR when implementation starts):
-- `grant({ owner, amount, grantKind, idempotencyKey, expiresAt? })` → ledger entry + new balance
-- `consume({ owner, estimatedCostUsd, agentInstanceId, requestId, costStatus, costSource })` → ledger entry + new balance + `mode: "standard" | "slow_mode" | "blocked"`
-- `balance({ owner })` → current balance + active grants
-- `check({ owner, reservedCredits })` → `{ allowed: boolean, mode, balance }` (used by Hermes before each turn)
-- `promo({ owner, code })` → applies a promo `GrantKind` to the account
-- (v1.1) `refund({ owner, ledgerEntryId, reason })` — operator action
+**Service-layer methods** (`src/payments/index.ts`, accountId-keyed):
+- `grant({ accountId, credits, kind, idempotencyKey, note?, requestId? })` → ledger entry + new balance
+- `consume({ accountId, usdCostMicros, idempotencyKey, requestId, model? })` → ledger entry + new balance. **Throws `InsufficientBalanceError`** if balance would drop below `PAYMENTS_MIN_BALANCE_CREDITS`. No `mode` return value — there is no slow-mode (§5.6).
+- `adjust({ accountId, delta, idempotencyKey, note })` → signed adjustment (operator refunds / corrections)
+- `getBalance(accountId)` → current `UserCredits.balance` as `bigint`
+- `isAllowed(accountId)` → advisory boolean (`balance >= PAYMENTS_RESERVED_MAX_TURN_CREDITS`); not an authorization gate
+- `getHistory(accountId, limit?, cursor?)` → keyset-paginated ledger entries
 
-**Env vars** (defined by PR 191; treat as authoritative):
-- `PAYMENTS_MARKUP_RATE` — multiplier over raw OpenRouter cost
-- `PAYMENTS_CREDITS_PER_USD` — credits per $1 nominal
-- `PAYMENTS_RESERVED_MAX_TURN_CREDITS` — reservation budget for a single turn
-- `PAYMENTS_MIN_BALANCE_CREDITS` — floor to allow new turns (0 = run until empty + slow-mode below; >0 = slow-mode at this floor)
+**Env vars** owned by PR #191 — see §5.3 for values:
+- `PAYMENTS_MARKUP_RATE`, `PAYMENTS_CREDITS_PER_USD`, `PAYMENTS_RESERVED_MAX_TURN_CREDITS`, `PAYMENTS_MIN_BALANCE_CREDITS`
 
-**Pricing formula** (verbatim from PR 191):
+**Pricing formula** (verbatim from `src/payments/credits/pricing.ts`):
 ```
-credits_to_deduct = estimated_cost_usd × markup_rate × credits_per_dollar
+credits_to_deduct = ceil(usd_cost_micros × markup_rate × credits_per_dollar / scale)
 ```
+where `scale = 10000 × 1_000_000` (markup is stored in basis points, USD cost in micros). `markup_rate = 2.0` is a 2× multiplier — see §5.2.
 
-**Cost source**: Hermes returns `estimated_cost_usd` from OpenRouter's response, with `cost_status: "estimated" | "included" | "unknown"` and `cost_source: <provider>`. For v1, we restrict to known-pricing models so `unknown` doesn't appear. Policy for `unknown` — see team Q C3.
+**Cost source**: Hermes returns `estimatedCostUsd` from OpenRouter's response. For v1, we restrict to known-pricing models so `unknown` doesn't appear. Policy for `unknown` — see team Q C3.
+
+**Subscription credits do not touch this module.** They're derived at read time from the `Subscription` row + per-tier env config — see §5.5 and §6.2's `GET /v2/accounts/me/credits`. `grant()` is reserved for additive credits (NUX trial, top-ups, manual ops, promo, daily refills).
 
 ### 6.1 Schema additions
 
-Build on PR 191. Use PR 191's `UserCredits`, `CreditLedger`, `GrantKind` verbatim — do not redefine. The `payments-repoint` branch (PR pending) re-keys `UserCredits` and `CreditLedger` from `inboxId` to `accountId`; that is a hard prereq.
+Built on PR #191's payments tables (`UserCredits`, `CreditLedger`, `GrantKind`) which were re-keyed to `accountId` inside PR #191 itself. Subscription/AppleReceipt tables shipped in PR #215 (`20260515093120_add_subscriptions_and_apple_receipts`).
 
-**New tables to add on top of PR 191:**
+**As-shipped Subscription + AppleReceipt models** (lowercase enum values match Prisma's `@@unique` / iOS Codable raw-value convention):
 
 ```prisma
 model Subscription {
-  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  accountId          String              @db.Uuid
-  productId          String              // "app.convos.subs.builder.monthly"
-  tier               SubscriptionTier    // Builder | Pro
-  period             SubscriptionPeriod  // Monthly | Annual
-  status             SubscriptionStatus  // Trial | Active | Grace | BillingRetry | Expired | Revoked
-  originalTransactionId String           @unique  // Apple's stable per-subscriber ID
-  appAccountToken    String              @unique @db.Uuid  // our generated UUID, sent at purchase
-  startedAt          DateTime
-  currentPeriodStart DateTime
-  currentPeriodEnd   DateTime
-  cancelledAt        DateTime?
-  gracePeriodEnd     DateTime?
-  environment        AppleEnv            // Sandbox | Production
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  account            Account             @relation(fields: [accountId], references: [id])
-  receipts           AppleReceipt[]
+  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId             String             @db.Uuid
+  productId             String             // e.g. "app.convos.subs.builder.monthly"
+  tier                  SubscriptionTier   // builder | pro
+  period                SubscriptionPeriod // monthly | annual
+  status                SubscriptionStatus // trial | active | grace | billingRetry | expired | revoked
+  originalTransactionId String             @unique   // Apple's stable per-sub identifier
+  appAccountToken       String             @unique @db.Uuid  // extracted from the verified JWS, bound on first /verify
+  startedAt             DateTime
+  currentPeriodStart    DateTime
+  currentPeriodEnd      DateTime
+  willRenew             Boolean            @default(true)   // mirrors Apple autoRenewStatus; updated by DID_CHANGE_RENEWAL_STATUS
+  isInTrial             Boolean            @default(false)  // derived from JWS offerType=INTRODUCTORY_OFFER
+  cancelledAt           DateTime?
+  gracePeriodEnd        DateTime?
+  environment           AppleEnv           // sandbox | production
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  account  Account        @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  receipts AppleReceipt[]
 
   @@index([accountId])
-  @@index([originalTransactionId])
+  @@index([status, currentPeriodEnd])
 }
 
 model AppleReceipt {
-  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  subscriptionId    String           @db.Uuid
-  transactionId     String           @unique
-  notificationType  String           // SUBSCRIBED, DID_RENEW, DID_FAIL_TO_RENEW, GRACE_PERIOD_EXPIRED, REVOKE, REFUND, ...
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscriptionId      String   @db.Uuid
+  idempotencyKey      String   @unique   // (transactionId, notificationType[:subtype]) tuple flattened — see §6.3
+  notificationUUID    String?  @unique   // Apple's notificationUUID when present; null for /verify-originated receipts
+  transactionId       String              // per-transaction ID; NOT unique (a refund + a renewal may share an originalTransactionId)
+  notificationType    String              // SUBSCRIBED, DID_RENEW, DID_FAIL_TO_RENEW, REVOKE, REFUND, ... or "VERIFY"
   notificationSubtype String?
-  signedPayload     String           // raw JWS from Apple (audit trail)
-  receivedAt        DateTime         @default(now())
-  subscription      Subscription     @relation(fields: [subscriptionId], references: [id])
+  signedPayload       String   @db.Text   // raw JWS from Apple for audit
+  receivedAt          DateTime @default(now())
 
-  @@index([subscriptionId])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([transactionId])
+  @@index([subscriptionId, receivedAt])
 }
 
-enum SubscriptionTier      { Builder Pro }
-enum SubscriptionPeriod    { Monthly Annual }
-enum SubscriptionStatus    { Trial Active Grace BillingRetry Expired Revoked }
-enum AppleEnv              { Sandbox Production }
+enum SubscriptionTier   { builder pro }
+enum SubscriptionPeriod { monthly annual }
+enum SubscriptionStatus { trial active grace billingRetry expired revoked }
+enum AppleEnv           { sandbox production }
 ```
 
 **Notable absences** (vs an earlier draft of this PRD):
 
-- **No `ModelRateCard` table.** PR 191 deducts against OpenRouter's reported `estimated_cost_usd` uniformly. Per-model differentiation can return in v2 as a simple env-var multiplier without schema changes.
+- **No `ModelRateCard` table.** PR #191 deducts against OpenRouter's reported `estimated_cost_usd` uniformly. Per-model differentiation can return in v2 as a simple env-var multiplier without schema changes.
 - **No `PolicyConfig` row.** Per Borja, env vars are the v1 config surface. The admin UI for tuning is a v1.1 concern.
+- **No `subscription_*` GrantKind rows.** Subscription credits are derived (§5.5); they never write to the ledger.
 
-**Seed `GrantKind` rows:**
+**`GrantKind` seeds** (from PR #191's migration, unchanged by PR #215):
+
 ```sql
-INSERT INTO grant_kind (id, name, active) VALUES
-  ('subscription_builder_2026_05', 'Builder Monthly Grant (2026-05)', true),
-  ('subscription_pro_2026_05',     'Pro Monthly Grant (2026-05)',     true),
-  ('trial_nux_2026_05',            'NUX 7-Day Trial (2026-05)',       true),
-  ('daily_free_2026_05',           'Daily Free Grant (2026-05)',      false);  -- toggled on once amounts decided
+INSERT INTO "GrantKind" ("id", "name", ...) VALUES
+  ('signup_bonus', 'Signup bonus',  ...),
+  ('daily_refill', 'Daily refill',  ...),
+  ('manual',       'Manual grant',  ...);
 ```
+
+NUX trial, promo, and any subscription-related grant kinds are deferred. They'll be added as additional rows when the corresponding flows ship — no schema migration needed beyond an `INSERT ... ON CONFLICT DO NOTHING`.
 
 ### 6.2 HTTP API surface
 
-All routes mounted under `/v2` (matches PR 194 pattern). All require `requireAccount` middleware unless noted.
+Routing follows the **audience-namespace cut** agreed during PR #215: user-facing reads/writes live under `/v2/accounts/me/*` (credits and subscriptions are properties of an account); agent-facing endpoints stay under `/v2/credits/*` with `X-Agent-API-Key`. The webhook is Apple-bound and lives under `/v2/webhooks/apple/*`. The same handler is mounted at both `/ssn` (iOS brief naming) and `/server-notifications` (PRD / App Store Connect naming) for compatibility.
+
+**User-facing** (JWT + `requireAccount`):
 
 | Method | Path | Body | Returns | Notes |
 |---|---|---|---|---|
-| `GET` | `/v2/credits/me` | – | `{ balance: number, monthlyGrant: number, monthlyGrantUsed: number, nextRefreshAt: ISO, periodLabel: string }` | Used by HOME pill and Settings row. |
-| `GET` | `/v2/credits/me/usage` | `?from=ISO&to=ISO&groupBy=agent\|day` | `{ totalCredits: number, byAgent: [{agentInstanceId, agentName, credits}], byDay: [{date, credits}] }` | Powers contact sheet chart + Settings detail. |
-| `GET` | `/v2/credits/me/usage/agent/:agentInstanceId` | `?from=ISO&to=ISO` | `{ credits, samples: [{day, credits}], lastActivity: ISO }` | Powers agent contact sheet. |
-| `GET` | `/v2/subscriptions/me` | – | `{ tier, period, status, currentPeriodEnd, productId, willRenew, isInTrial }` | Settings row + paywall current-plan banner. |
-| `POST` | `/v2/subscriptions/me/verify` | `{ signedTransactionInfo: string, appAccountToken: UUID }` | `{ subscription, creditsBalance }` | Client posts the JWS from StoreKit after purchase. Server verifies via App Store Server API. Idempotent on `originalTransactionId`. |
-| `POST` | `/v2/credits/me/redeem-trial` | – | `{ creditsBalance, grantId }` | Idempotent: returns existing trial grant if already issued for this account. |
-| `POST` | `/v2/webhooks/apple/server-notifications` | Apple JWS payload | 200 | **No auth** — verifies Apple's signature against their X.509 cert chain. See [§6.3](#63-app-store-server-notifications-v2-webhook). |
-| `GET` | `/v2/products` | – | `{ products: [{id, tier, period, displayName}] }` | Decouples client from hardcoded SKU list (so we can swap StoreKit product IDs without an app update). |
-| **Admin** (separate auth — see [§9.12](#912-admin-app)) | | | | |
-| `GET` | `/admin/accounts/:id` | – | account detail + subscription + balance + last 50 ledger entries | |
-| `POST` | `/admin/accounts/:id/grant` | `{ credits, reason, expiresAt? }` | new ledger entry | |
-| `POST` | `/admin/accounts/:id/refund` | `{ credits, reason }` | new ledger entry + slack alert | |
-| `GET` | `/admin/policy` | – | current env-var values (read-only mirror in v1) | |
-| `GET` | `/admin/grant-kinds` | – | active `GrantKind` rows | |
-| `PATCH` | `/admin/grant-kinds/:id` | partial update (active/inactive) | toggle a grant kind on/off | |
+| `GET` | `/v2/accounts/me/credits` | – | `{ balance, monthlyGrant, monthlyGrantUsed, nextRefreshAt, periodLabel }` | Feeds iOS `CreditBalance`. **Derived** at read time from Subscription row + per-tier env config + Σ consume deltas since `currentPeriodStart`. With no subscription: all credit fields = 0, `nextRefreshAt` = start of next calendar month. |
+| `GET` | `/v2/accounts/me/subscription` | – | `{ tier, period, status, productId, currentPeriodEnd, willRenew, isInTrial }` or `204 No Content` | Feeds iOS `UserSubscription`. 204 when caller has no sub. |
+| `POST` | `/v2/accounts/me/subscription/verify` | `{ jwsRepresentation: string }` | `{ subscription }` | iOS posts the StoreKit JWS only. `appAccountToken` is extracted from the verified payload, not trusted from the body (§6.4). Idempotent on `transactionId`. Returns `409 subscription_account_mismatch` if a different account already owns this `originalTransactionId`. |
+
+**Agent-facing** (PR #191, `X-Agent-API-Key`):
+
+| Method | Path | Body | Returns | Notes |
+|---|---|---|---|---|
+| `POST` | `/v2/credits/check` | `{ accountId }` | `{ allowed, balance }` | Advisory gate. Returns `allowed=true` iff `balance >= PAYMENTS_RESERVED_MAX_TURN_CREDITS`. |
+| `POST` | `/v2/credits/consume` | `{ accountId, usdCostMicros, idempotencyKey, requestId, model? }` | `{ spent, balance, replayed }` | Atomic ledger write. `402 insufficient_balance` when below floor. Idempotent on `(accountId, idempotencyKey)`. |
+| `POST` | `/v2/credits/grant` | `{ accountId, credits, grantKindId, idempotencyKey, note? }` | `{ granted, balance, replayed }` | Additive credits only (see §5.5). Today's allowed kinds: `signup_bonus`, `manual`. `daily_refill` is reserved for the future cron path and intentionally not API-callable. |
+
+**Apple-bound** (JWS signature is the auth):
+
+| Method | Path | Body | Returns | Notes |
+|---|---|---|---|---|
+| `POST` | `/v2/webhooks/apple/ssn` | `{ signedPayload }` | `200` | Same handler as below. iOS brief naming. |
+| `POST` | `/v2/webhooks/apple/server-notifications` | `{ signedPayload }` | `200` | Same handler. App Store Connect / PRD naming. See [§6.3](#63-app-store-server-notifications-v2-webhook). |
+
+**Deferred (post-Phase-1)**: per the iOS brief, these are not in the IAP+credits scope and will land in follow-up PRs. Paths shown reflect the agreed namespace.
+
+| Method | Path | Status |
+|---|---|---|
+| `GET` | `/v2/accounts/me/credits/usage` | Powers contact sheet chart + Settings detail. |
+| `GET` | `/v2/accounts/me/credits/usage/agent/:agentInstanceId` | Powers agent contact sheet. |
+| `POST` | `/v2/accounts/me/credits/redeem-trial` | NUX 7-day trial grant (additive, uses `grant()`). |
+| `GET` | `/v2/products` | Decouples iOS from hardcoded SKU list. |
+| **Admin** (separate auth — see §9.12) | | |
+| `GET` | `/admin/accounts/:id` | account detail + subscription + balance + last 50 ledger entries |
+| `POST` | `/admin/accounts/:id/grant` | new ledger entry |
+| `POST` | `/admin/accounts/:id/refund` | new ledger entry + slack alert |
+| `GET` | `/admin/policy` | read-only env-var mirror in v1 |
+| `GET` | `/admin/grant-kinds` | active `GrantKind` rows |
+| `PATCH` | `/admin/grant-kinds/:id` | toggle active/inactive |
 
 ### 6.3 App Store Server Notifications v2 webhook
 
-Apple POSTs to `/v2/webhooks/apple/server-notifications` for every renewal, billing retry, grace start/end, refund, revoke. Critical events to handle:
+Apple POSTs to `/v2/webhooks/apple/ssn` or `/v2/webhooks/apple/server-notifications` (same handler, both paths registered) for every renewal, billing retry, grace start/end, refund, revoke. Subscription state changes; the credit ledger is **never** written from this handler — subscription credits are derived (§5.5).
 
 | `notificationType` | Action |
 |---|---|
-| `SUBSCRIBED` (initial / resubscribe) | Create `Subscription` row, grant tier credits. |
-| `DID_RENEW` | Move `currentPeriodEnd`, grant fresh tier credits with new `idempotencyKey=originalTransactionId:periodStart`. |
-| `DID_FAIL_TO_RENEW` (subtype: `BILLING_RETRY`) | Set status → `BillingRetry`. Do NOT grant credits. |
-| `DID_FAIL_TO_RENEW` (subtype: `GRACE_PERIOD`) | Set status → `Grace`. Continue serving until `gracePeriodEnd`. |
-| `GRACE_PERIOD_EXPIRED` | Set status → `Expired`. New burns → slow-mode only. |
-| `EXPIRED` | Set status → `Expired`. |
-| `REVOKE` (family sharing revocation) | Set status → `Revoked`. Burn all remaining credits via negative ledger entry (so balance reads 0). |
-| `REFUND` | Set status → `Revoked`. Negative ledger entry. Slack alert. |
-| `DID_CHANGE_RENEWAL_STATUS` (auto-renew toggled) | Update `willRenew` field. No credit change. |
-| `DID_CHANGE_RENEWAL_PREF` (cross-grade Builder↔Pro) | Update tier. Pro-rate by re-granting prorated delta. |
-| `PRICE_INCREASE` (consent required) | Update flag for Settings banner. |
+| `SUBSCRIBED` (initial / resubscribe) | Update or create `Subscription` row. Status → `active` (or `trial` if `offerType=INTRODUCTORY_OFFER`). No ledger write. |
+| `DID_RENEW` | Move `currentPeriodStart` + `currentPeriodEnd`. Status → `active`. `monthlyGrantUsed` naturally resets to 0 on the next read of `/v2/accounts/me/credits` because consumes are filtered by `createdAt >= currentPeriodStart`. No ledger write. |
+| `DID_FAIL_TO_RENEW` (subtype: `BILLING_RETRY`) | Set status → `billingRetry`. |
+| `DID_FAIL_TO_RENEW` (subtype: `GRACE_PERIOD`) | Set status → `grace`, set `gracePeriodEnd`. Continue serving (period window still active). |
+| `GRACE_PERIOD_EXPIRED` / `EXPIRED` | Set status → `expired`, `willRenew=false`. iOS shows the paywall when balance hits 0. |
+| `REVOKE` (family sharing revocation) | Set status → `revoked`, `cancelledAt=now`, `willRenew=false`. **No ledger entry** — the derived `monthlyGrant` goes to 0 naturally once status is non-active. |
+| `REFUND` | Same as `REVOKE` for the subscription row. Slack alert. **No negative ledger entry** — refunds at the credit-ledger level (top-ups, etc.) are an operator action via `/admin/accounts/:id/refund`, not a webhook side effect. |
+| `DID_CHANGE_RENEWAL_STATUS` (auto-renew toggled) | Update `willRenew` based on subtype (`AUTO_RENEW_ENABLED` / `AUTO_RENEW_DISABLED`). No credit change. |
+| `DID_CHANGE_RENEWAL_PREF` (cross-grade Builder↔Pro) | Update `tier` + `period` + `productId`. No re-grant or proration write — `monthlyGrant` simply reads the new tier on the next API call. |
+| `PRICE_INCREASE` / `PRICE_CHANGE` | No-op ack. (Settings banner is a follow-up; today no state mutates.) |
+| `TEST`, `OFFER_REDEEMED`, `RENEWAL_EXTENDED`, `RENEWAL_EXTENSION`, `REFUND_DECLINED`, `REFUND_REVERSED`, `CONSUMPTION_REQUEST`, `METADATA_UPDATE`, `MIGRATION`, `EXTERNAL_PURCHASE_TOKEN`, `ONE_TIME_CHARGE`, `RESCIND_CONSENT` | No-op ack. Receipt still written for audit. |
 
-Verification: Apple signs the entire payload as JWS. The header's `x5c` array contains the cert chain — verify chain root against `AppleRootCA-G3`. Library: `app-store-server-library` (Apple-published TS package).
+**Verification**: Apple signs the entire payload as JWS. The header's `x5c` array contains the cert chain — verified against Apple Root CA G2 + G3 (shipped at `src/subscriptions/certs/`). Library: `@apple/app-store-server-library` (Apple-published TS package).
 
-Idempotency: Apple may resend. Use `(originalTransactionId, transactionId, notificationType)` as the dedup key — store every receipt in `AppleReceipt` table, ignore duplicates.
+**Idempotency** (as shipped — tighter than the original spec): `AppleReceipt` enforces `@unique` on **both** `idempotencyKey` and `notificationUUID`. The handler computes `idempotencyKey` as the dedup tuple flattened to a string and inserts the row inside a transaction; a `P2002` violation is the replay signal and the handler short-circuits without re-applying state.
 
-### 6.4 Linking Apple's transaction to our `accountId`
+**Response semantics**: `200` on every ack (including replay, unknown_subscription, and TEST). `400` only when the JWS itself fails to verify or the body is malformed. `500` for unexpected runtime errors — Apple retries those over a 3-day window with exponential backoff.
 
-The Apple receipt is tied to Apple ID, not our `accountId`. The bridge: **`appAccountToken`** (a UUID we generate per-purchase, pass to StoreKit, Apple includes it in the receipt and every renewal notification).
+**Unknown SKU resilience**: a `productId` that doesn't match `app.convos.subs.<builder|pro>.<monthly|annual>` is logged and the notification still acks `200`. We accept the receipt for audit but skip the Subscription update (a 500 would loop Apple's retries for 3 days; better to fix forward).
 
-Flow:
-1. iOS app generates `appAccountToken = UUID()` before calling `product.purchase(options:)`.
-2. iOS sends the token along with the `signedTransactionInfo` to `POST /v2/subscriptions/me/verify`.
-3. Backend: verify signature → check `appAccountToken` matches an authenticated `accountId` (we stored it in `Subscription.appAccountToken` at verify time) → bind subscription to account.
-4. Every subsequent Apple notification arrives with the same `appAccountToken`. Backend looks it up to find the account.
+### 6.4 Linking Apple's transaction to our `accountId` (strict ownership)
 
-Edge case: a user signs in to Convos on a 2nd device with a different `accountId` but same Apple ID. Apple's `originalTransactionId` is the same, but our second device generated a new `appAccountToken`. Resolution: when we receive a `verify` call with a new `appAccountToken` but a known `originalTransactionId`, we **trust the latest accountId** (transfer the sub). Log a warning.
+The Apple receipt is tied to Apple ID, not our `accountId`. The bridge: **`appAccountToken`** (a UUID iOS generates per-purchase, passes to StoreKit, Apple persists, and echoes back in every receipt and notification). It is **extracted from the verified JWS payload** — never trusted from the request body.
 
-### 6.5 Slow-mode routing — Hermes-driven, backend-decided
+**As-shipped flow** (changed from the earlier "trust the latest accountId, transfer" draft per @borja's security review on PR #215):
 
-The agent runtime (Hermes, in `convos-assistants/runtime/openclaw/`) is the consumer of the ledger. Flow per turn:
+1. iOS app generates `appAccountToken = UUID()` before calling `product.purchase(options: .appAccountToken(uuid))`.
+2. iOS posts `POST /v2/accounts/me/subscription/verify` with body `{ jwsRepresentation }` (no `appAccountToken` field — server reads it from the JWS).
+3. Backend: JWS verify → extract `appAccountToken` from the decoded transaction → look up Subscription by `originalTransactionId`:
+   - **Not found** → create Subscription row. Bind `accountId = caller`, `appAccountToken = JWS value`. First purchase claims the sub.
+   - **Found, same `accountId`** → update mutable fields (status, period, etc.). Normal renewal / re-verify path.
+   - **Found, different `accountId`** → **`409 subscription_account_mismatch`**. The original buyer owns the subscription for life. No silent transfer.
+
+**Why strict and not "transfer to latest":** trusting the caller-supplied appAccountToken (or silently reassigning on a JWS replay) opened a session-stealing vector — a leaked JWS could be replayed under any caller's account. Strict ownership eliminates that class of attack. Cross-account transfer (a user signs into Convos with a different account on a device with the same Apple ID) becomes a support operation, not an automatic code path. This was explicitly chosen over the convenience flow during the PR #215 review.
+
+**What stays automatic:** subsequent verifies from the **same** account on the **same** Apple ID work transparently — JWS contains the original appAccountToken, server matches it, updates the row. The `appAccountToken` UNIQUE constraint on `Subscription` formalizes the 1:1 binding.
+
+### 6.5 Hermes-side gating (as shipped)
+
+The agent runtime (Hermes, in `convos-assistants/runtime/openclaw/`) is the consumer of the ledger. There is **no slow-mode** — `consume()` hard-fails at the `PAYMENTS_MIN_BALANCE_CREDITS` floor.
+
+Flow per turn:
 
 ```
 1. User sends message to agent.
 2. Hermes handle_message():
-   a. POST /v2/credits/check { accountId, agentInstanceId, reservedCredits: PAYMENTS_RESERVED_MAX_TURN_CREDITS }
-      → response: { allowed, mode: "standard"|"slow_mode"|"blocked", balance, routeModel }
-   b. If mode == "blocked": send "insufficient funds" reply, do not call OpenRouter.
-   c. If mode == "slow_mode": call OpenRouter with `routeModel = PAYMENTS_SLOW_MODE_MODEL_KEY`.
-   d. If mode == "standard": call OpenRouter with the agent's configured model.
+   a. POST /v2/credits/check { accountId }
+      → 200 { allowed: boolean, balance: string }
+   b. If allowed == false: send "insufficient funds" reply, do not call OpenRouter.
+   c. If allowed == true: call OpenRouter with the agent's configured model.
 3. After OpenRouter response, in parallel:
    a. Relay reply to convos (XMTP message).
-   b. POST /v2/credits/consume { accountId, agentInstanceId, requestId, estimated_cost_usd, cost_status, cost_source, prompt_tokens, completion_tokens, model }
-      → response: { balance, mode }
-   c. Hermes caches { balance, mode } per session.
-4. Next turn re-evaluates from the cached state (and re-checks via /check at safe intervals).
+   b. POST /v2/credits/consume { accountId, usdCostMicros, idempotencyKey, requestId, model? }
+      → 200 { spent, balance, replayed } on success
+      → 402 { code: "insufficient_balance", ... } if the deduction would breach the floor
+   c. On 402: surface "out of credits" + paywall hint to iOS. Do not retry.
+4. Next turn re-evaluates via /check.
 ```
-
-**Cache staleness on mid-session top-up** — open question, see team Q C5. Initial approach: refresh on every turn boundary anyway (cheap, the `/check` call is fast), and add a push from backend to Hermes on grant events if needed in v1.1.
 
 **Long-term enforcement** moves into Nick's Cloudflare Durable Object wrapping the runtime; ledger model stays the same.
 
-### 6.6 Push notifications for subscription state
+### 6.6 Push notifications for subscription state (deferred — Phase 2)
 
-Extend `PushNotificationPayload` (in iOS `ConvosCore/Sources/ConvosCore/Notifications/PushNotificationPayload.swift`) with a new `notificationData.type` value:
+**Not shipped in PR #215.** Captured here as the planned surface; wiring will land after the IAP flow is dogfooded.
 
-- `"credits_low"` — fires at 20% remaining. Body: "Your credits are running low."
-- `"credits_depleted"` — fires at 0. Body: "Out of credits — agents are now in slow mode."
-- `"sub_renewed"` — fires on `DID_RENEW`. Silent (or quiet). Body: "Your Builder plan renewed. Fresh credits added."
-- `"sub_grace_period"` — fires on `BILLING_RETRY` / `GRACE_PERIOD`. Body: "Your payment didn't go through — fix it in Settings."
+Planned: extend `PushNotificationPayload` (in iOS `ConvosCore/Sources/ConvosCore/Notifications/PushNotificationPayload.swift`) with a new `notificationData.type` value:
+
+- `"credits_low"` — fires at 20% remaining. Body: *"Your credits are running low."*
+- `"credits_depleted"` — fires at 0. Body: *"Out of credits — upgrade to keep your agents running."* (No "slow mode" copy — there is no slow mode; see §5.6 and the framing rule in §5.9.)
+- `"sub_renewed"` — fires on `DID_RENEW`. Silent (or quiet). Body: *"Your Builder plan renewed. Fresh credits added."*
+- `"sub_grace_period"` — fires on `BILLING_RETRY` / `GRACE_PERIOD`. Body: *"Your payment didn't go through — fix it in Settings."*
 - `"sub_expired"` — fires on `EXPIRED` / `REVOKED`.
 
-Backend triggers these from the webhook handler (`sub_*`) and from the credits-burn path (`credits_*`).
+Backend will trigger these from the webhook handler (`sub_*`) and from the credits-burn path (`credits_*`).
 
 ### 6.7 OpenRouter funding ops
 
@@ -638,7 +704,7 @@ Shipped in `Convos/Subscription/PaywallView.swift`, `TierCard.swift`, and `Subsc
 **What is intentionally NOT on the paywall** (per §5.9):
 
 - No "Standard model on every reply" / "Premium model access" / "Use any model" bullets — model gating is not the product axis.
-- No "Free slow-mode when credits run low" — slow-mode is internal-only (§5.6).
+- No "Free slow-mode when credits run low" — there is no slow-mode at all (§5.6).
 - No per-message token counts.
 
 **ViewModel** (unchanged from initial draft): `PaywallViewModel`. Loads products via `Product.products(for: ProductIDs.all)`, maps to tiers, handles purchase / restore / error states. Today injected with `MockSubscriptionService`; swap to the real `SubscriptionService` once the StoreKit + backend wiring lands.
@@ -738,10 +804,10 @@ Toggle: build config `DEBUG` and `LOCAL` schemes use the .storekit file; `RELEAS
 Presets the user/designer can play with:
 - `.builder_ample` — Builder plan, 1,400 credits remaining
 - `.builder_low` — Builder, 180 credits (≤20%)
-- `.builder_depleted` — Builder, 0 credits, slow-mode
+- `.builder_depleted` — Builder, 0 credits (next turn → out-of-credits paywall)
 - `.pro_ample` — Pro, 4,500 credits
 - `.trial_active` — trial, 350 credits, expires in 4 days
-- `.trial_expired` — no sub, 0 credits, slow-mode
+- `.trial_expired` — no sub, 0 credits (next turn → out-of-credits paywall)
 - `.billing_retry` — Pro sub in BillingRetry
 - `.grace_period` — Builder in Grace, 2 days remaining
 - `.no_sub_no_trial` — never subscribed, no trial available
@@ -890,15 +956,15 @@ Add the following 4 auto-renewable subscriptions to the **Convos Plans** group, 
 
 | Rank | Tier | Reference Name | Product ID | Duration | Price (USD) | Family Sharing |
 |---|---|---|---|---|---|---|
-| 1 (highest) | Pro | Pro Annual | `app.convos.subs.pro.annual` | 1 year | $239.99 | OFF (v1) |
-| 2 | Pro | Pro Monthly | `app.convos.subs.pro.monthly` | 1 month | $29.99 | OFF |
-| 3 | Builder | Builder Annual | `app.convos.subs.builder.annual` | 1 year | $79.99 | OFF |
-| 4 (lowest) | Builder | Builder Monthly | `app.convos.subs.builder.monthly` | 1 month | $9.99 | OFF |
+| 1 (highest) | Pro | Pro Annual (-20%) | `app.convos.subs.pro.annual` | 1 year | $1919.90 | OFF (v1) |
+| 2 | Pro | Pro Monthly | `app.convos.subs.pro.monthly` | 1 month | $199.99 | OFF |
+| 3 | Builder | Builder Annual (-10%) | `app.convos.subs.builder.annual` | 1 year | $214.89 | OFF |
+| 4 (lowest) | Builder | Builder Monthly | `app.convos.subs.builder.monthly` | 1 month | $19.99 | OFF |
 
 For each subscription, fill:
 
 - **Subscription Display Name** (English-US): "Convos Builder" / "Convos Pro"
-- **Description** (English-US, ~70 words): mention monthly credit grant, agent usage, slow-mode fallback policy. Plain English only — Apple rejects marketing speak like "best" / "amazing" / "limited time".
+- **Description** (English-US, ~70 words): mention monthly credit allotment, agent usage, renewal/billing wording. **No "slow mode" copy** — there is no slow-mode mechanism (§5.6). Plain English only — Apple rejects marketing speak like "best" / "amazing" / "limited time".
 - **Promotional Image** (1024×1024 PNG, no alpha, no transparency) — one per subscription
 - **Review Screenshot** (640×920 minimum, JPG or PNG) — shows the paywall + subscribed state in the iOS UI. App Store Reviewers cannot test without it.
 - **Review Notes**: brief paragraph explaining how to access the paywall (e.g. "Settings → My Subscription → Upgrade plan").
@@ -1132,12 +1198,12 @@ Phases are sequenced by dependency, not by calendar time. Several can run in par
 | **Cross-grade proration logic** is fiddly. | Lean on Apple's `DID_CHANGE_RENEWAL_PREF` notification — they tell us when the user changes plans, we just grant the delta. Don't compute proration client-side. |
 | **`appAccountToken` lost** (user uninstalls + reinstalls + signs into same Apple ID). | The new install generates a new `appAccountToken`. We bind to the latest. As long as the user authenticates with the same `accountId` (via SIWE), the binding works. Without an `accountId` we can't recover — they must sign in. |
 | **Sandbox renewal acceleration** sometimes flaky. | Use StoreKit Config file for primary dev; reserve Sandbox for pre-release validation only. |
-| **Migration of `UserCredits` from `inboxId` to `accountId`** in `payments-repoint` not yet on a PR. | Coordinate with backend team. **Phase 0 blocker.** |
+| **Migration of `UserCredits` from `inboxId` to `accountId`** — ✅ landed inside PR #191; no longer a blocker. | (resolved) |
 | **macOS test compilation rule** (per CLAUDE.md). | StoreKit 2 is iOS/macOS compatible. `ProductIDs` and `PaywallView` are main-app only (iOS-only) so the constraint is only on `Credits*Service` and models in ConvosCore — those use only Foundation. |
 | **Free-tier abuse** (user creates many accounts to farm trial credits). | Trial grant is per `accountId`; SIWE binding means a wallet can only generate one accountId. Multi-wallet farming is possible but bounded. Add a per-IP cap in v1.1 if abuse appears. |
-| **Slow-mode quality cliff.** Gemini Flash is much weaker than Sonnet for tool-using agents. | Validate in Phase 2 with real prompts before locking in slow-mode model. Alternative: same Sonnet model but rate-limited. Configurable per `PAYMENTS_SLOW_MODE_MODEL_KEY`. |
+| **Retention cliff at 0 balance.** No slow-mode means users hit a hard stop. If real data shows churn spike at depletion, revisit. | Track depletion → upgrade conversion. If <X%, propose a concrete slow-mode-or-something proposal with cost model. v1 explicitly ships without it (§5.6). |
 | **CDO (Cloudflare Durable Object) enforcement architecture timing.** Nick's design eventually gates OpenRouter at infra level. If it lands in v1, iOS bypasses Hermes-side coordination; if v1.1+, we ship Hermes-based first and migrate later. Ledger model unchanged. | See team Q C1 for timing. v1 plan assumes Hermes-based enforcement; migration is purely server-side. |
-| **Hermes per-session cache staleness.** If a user tops up (or renews) mid-session, the cached balance is stale until next turn. | See team Q C5. v1 fallback: re-check via `/v2/credits/check` at every turn boundary anyway. v1.1: push refresh from backend on grant events. |
+| **Hermes per-session cache staleness.** If a user tops up (or renews) mid-session, the cached balance is stale until next turn. | v1: re-check via `/v2/credits/check` at every turn boundary anyway. v1.1: push refresh from backend on grant events. |
 
 ---
 
@@ -1158,12 +1224,12 @@ These don't block iOS implementation start — mock services, StoreKit Configura
 
 | # | Question | Owner |
 |---|---|---|
-| B1 | Confirm launch values: `PAYMENTS_MARKUP_RATE` (proposed 2.0), `PAYMENTS_CREDITS_PER_USD` (proposed 1000), `PAYMENTS_RESERVED_MAX_TURN_CREDITS` (proposed 100?), `PAYMENTS_MIN_BALANCE_CREDITS` (proposed 0 = run until empty, OR use as slow-mode floor?). Use Borja's `credit-pricing-calculator.html`. | Saul + Borja |
-| B2 | Daily cron free-tier grant — amount + cadence + eligibility. Options: (a) every account, N credits/day forever; (b) only "active in last 7d"; (c) only "no active sub"; (d) something else. | PM + Borja |
-| B3 | Subscription grant cadence — Builder $9.99 charges: (i) lump 1500 credits valid until next renewal (current PRD); (ii) prorated 50/day for 30 days; (iii) hybrid? Affects churn refund logic. | Borja + PM |
-| B4 | Cross-grade Builder→Pro mid-cycle — prorate immediately, or wait until next renewal? Apple supports either; PRD defaults to "prorate immediately". | PM |
-| B5 | Slow-mode cost — 0 credits (recommended for retention) or some discounted rate? | Borja + Saul |
-| B6 | "Earn on usage" credit source mentioned by @borja — referral, engagement reward, both, neither? When does it ship? | PM |
+| B1 | Confirm launch values: `PAYMENTS_MARKUP_RATE` (currently 2.0), `PAYMENTS_CREDITS_PER_USD` (currently 1000), `PAYMENTS_RESERVED_MAX_TURN_CREDITS` (currently 1), `PAYMENTS_MIN_BALANCE_CREDITS` (currently 0, hard floor — no slow-mode). Plus `PAYMENTS_GRANT_BUILDER_MONTHLY` (placeholder 2500) and `PAYMENTS_GRANT_PRO_MONTHLY` (placeholder 10000). Final per-tier numbers TBD by product. Use Borja's `credit-pricing-calculator.html`. | Saul + Borja |
+| B2 | Daily cron free-tier grant — amount + cadence + eligibility. Options: (a) every account, N credits/day forever; (b) only "active in last 7d"; (c) only "no active sub"; (d) something else. Will flow through `grant({ kind: "daily_refill" })`. | PM + Borja |
+| B3 | ~~Subscription grant cadence~~ — **resolved**: subscription credits are derived, not granted (§5.5). Period rollover = move `currentPeriodStart` on `DID_RENEW`, used = Σ consumes since that boundary. | (resolved) |
+| B4 | Cross-grade Builder↔Pro mid-cycle — Apple sends `DID_CHANGE_RENEWAL_PREF`; backend updates `tier`/`period`/`productId` in the row. `monthlyGrant` reads the new tier on the next API call. No proration write. Confirm UX expectation matches. | PM |
+| B5 | ~~Slow-mode cost~~ — **resolved**: there is no slow-mode (§5.6). Consume hard-fails at 0; iOS shows paywall. | (resolved) |
+| B6 | "Earn on usage" credit source mentioned by @borja — referral, engagement reward, both, neither? When does it ship? Will flow through `grant()` with a new `GrantKind` row. | PM |
 | B7 | Should the contact-sheet chart show usage by model (Sonnet vs Flash vs Opus) in addition to by-day? Currently §7 shows daily-only. | Design + PM |
 
 ### Group C — Architecture / enforcement *(Nick + Borja's threads)*
@@ -1255,7 +1321,7 @@ ConvosCore/Tests/ConvosCoreTests/Mocks/MockSubscriptionService.swift
 ```
 Convos/Conversations List/ConversationsView.swift          (add credits pill in navbar)
 Convos/Conversation Detail/ConversationMemberView.swift   (add agent pip)
-Convos/Conversation Detail/Messages/MessagesListView/MessagesGroupView.swift (slow-mode footer)
+Convos/Conversation Detail/Messages/MessagesListView/MessagesGroupView.swift (no per-message UI — out-of-credits is the conversation banner)
 Convos/App Settings/AppSettingsView.swift                  (add subscription section)
 Convos/Conversation Detail/Conversation Detail Drawer/ConversationOnboardingView.swift (paywall step)
 ConvosCore/Sources/ConvosCore/Notifications/PushNotificationPayload.swift (new push types)
@@ -1305,25 +1371,24 @@ workers/openrouter-balance-monitor/src/index.ts           (new — daily balance
 Single source-of-truth table for the launch defaults. Editable via env vars (no DB row in v1).
 
 ```bash
-# convos-backend env vars — launch defaults
-PAYMENTS_CREDITS_PER_USD=1000             # 1 credit = $0.001 nominal
-PAYMENTS_MARKUP_RATE=2.0                  # 1 USD raw cost → 3 USD-equivalent credits deducted
-PAYMENTS_RESERVED_MAX_TURN_CREDITS=100    # reserved per-turn to avoid mid-turn underflow
-PAYMENTS_MIN_BALANCE_CREDITS=0            # 0 = run until empty + slow-mode; >0 = slow-mode floor
+# convos-backend env vars — launch defaults (PR #191 + PR #215)
+PAYMENTS_CREDITS_PER_USD=1000              # 1 credit = $0.001 nominal
+PAYMENTS_MARKUP_RATE=2.0                   # 2× multiplier (50% gross margin) — see §5.2
+PAYMENTS_RESERVED_MAX_TURN_CREDITS=1       # advisory check: balance must be ≥ this to start a turn
+PAYMENTS_MIN_BALANCE_CREDITS=0             # hard floor; consume() throws below this. No slow-mode.
 
-PAYMENTS_GRANT_BUILDER_MONTHLY=1500       # credits granted per Builder renewal
-PAYMENTS_GRANT_PRO_MONTHLY=5000           # credits granted per Pro renewal
-PAYMENTS_GRANT_TRIAL=500                  # credits granted on NUX trial
-PAYMENTS_TRIAL_EXPIRY_DAYS=7              # trial credits expire after this many days
+# Per-tier monthly credit allotments (PR #215). Annual = 12× monthly per renewal cycle.
+# Placeholder values — final TBD by product. Read at /v2/accounts/me/credits.
+PAYMENTS_GRANT_BUILDER_MONTHLY=2500
+PAYMENTS_GRANT_PRO_MONTHLY=10000
 
-PAYMENTS_SLOW_MODE_MODEL_KEY=google/gemini-2.5-flash
-
-# Apple integration
-APPLE_BUNDLE_ID=org.convos.ios
-APPLE_BUNDLE_ID_DEV=org.convos.ios-preview
-APPLE_KEY_ID=<10 chars>
-APPLE_ISSUER_ID=<uuid>
-APPLE_PRIVATE_KEY=<.p8 contents>
+# Apple integration (PR #215)
+APPLE_BUNDLE_ID=org.convos.ios             # required at runtime
+APPLE_ENV=production                       # one of: production | sandbox | local-testing (local-testing rejected in prod)
+APPLE_APP_APPLE_ID=<numeric app id>        # required in production (numeric, from App Store Connect)
+APPLE_API_ISSUER_ID=<uuid>                 # In-App Purchase Key issuer ID
+APPLE_API_KEY_ID=<10 chars>                # In-App Purchase Key ID
+APPLE_API_SIGNING_KEY=<.p8 PEM contents>   # SECRET — goes in AWS Secrets Manager, not env_vars
 APPLE_ENV=production                      # or `sandbox` for non-prod backends
 
 # Backend gating
