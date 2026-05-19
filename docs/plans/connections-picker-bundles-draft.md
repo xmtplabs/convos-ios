@@ -30,7 +30,7 @@ A few reasons piling up:
 
 ## Schema (draft)
 
-Backend-served, cached on device. App icon embedded as base64 so we don't need a CDN round-trip in the picker.
+Backend-served, cached on device. App icon embedded as base64 so we don't need a CDN round-trip in the picker. All user-facing strings (`display_name`, `title`, `description`) are localized maps with `en` as the guaranteed fallback — single code path, no migration when we add more locales later.
 
 ```json
 {
@@ -39,7 +39,7 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
     {
       "id": "google_calendar",
       "composio_slug": "googlecalendar",
-      "display_name": "Google Calendar",
+      "display_name": { "en": "Google Calendar" },
       "icon": {
         "format": "png",
         "base64": "iVBORw0KGgoAAAANSUhEUgA..."
@@ -47,8 +47,9 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
       "bundles": [
         {
           "id": "calendar.events",
-          "title": "Events",
-          "description": "View and edit events on all calendars",
+          "version": 1,
+          "title": { "en": "Events" },
+          "description": { "en": "View and edit events on all calendars" },
           "default_enabled": false,
           "composio_actions": [
             "GOOGLECALENDAR_LIST_EVENTS",
@@ -65,12 +66,45 @@ Backend-served, cached on device. App icon embedded as base64 so we don't need a
 
 Key fields on a bundle:
 - `id` — stable identifier we persist on the grant
-- `title` — what the user reads (bold line in the card)
-- `description` — the rationale line under the title; renamed from `rationale` in earlier sketches to match Figma copy
+- `version` — bumped whenever `composio_actions` (or other semantically meaningful fields) change; sent in connection messages so the assistant can detect stale clients (see Versioning below)
+- `title` — localized map; bold line in the card
+- `description` — localized map; rationale line under the title (renamed from `rationale` to match Figma copy)
 - `default_enabled` — figma shows toggles off; flip per-bundle if we want one on by default
 - `composio_actions` — what we actually send to Composio when granted
 
+Localized strings always carry at minimum an `en` key. Renderer is:
+
+```swift
+func localized(_ map: [String: String], locale: Locale) -> String {
+    map[locale.languageCode] ?? map["en"] ?? ""
+}
+```
+
 Open question: do we also want `read_only` / `write` hints per bundle so we can show a small "writes" badge on cards that mutate? Probably v2.
+
+## Versioning + self-healing clients
+
+We query the bundle config out of band (separate from the conversation). That means a device can be on `version: 1` of "Events" while the assistant has been upgraded to expect `version: 3`. To handle this without baking the config into every conversation, every connection message carries the bundle id **and** the version the device knows about:
+
+```json
+{
+  "bundle_id": "calendar.events",
+  "bundle_version": 1
+}
+```
+
+If the assistant sees a stale version, it returns a `stale_resource` status on the existing `CapabilityRequestResult` codec (inline — no side-channel event), telling the device which bundles to refresh:
+
+```json
+{
+  "status": "stale_resource",
+  "stale_bundles": [
+    { "id": "calendar.events", "expected_version": 3 }
+  ]
+}
+```
+
+Device refetches the config, retries the capability call. Self-healing, one extra round-trip in the worst case. Reuses the codec we just stabilized in #771 — no new top-level event type.
 
 ## Renames vs earlier scribbles
 
@@ -91,7 +125,8 @@ Earlier draft had `rationale`. New name: `description`. Reason: the Figma label 
 
 ## Stuff I'm punting on
 
-- Localization. English-only copy for now; structure supports `{ "en": "...", "fr": "..." }` later but I'd rather not bake it in until we actually localize.
+- Per-bundle `read_only` / `write` hints surfaced as badges. v2.
+- Multi-locale launch. Structure supports it day one (`{ "en": "...", "fr": "..." }`), but copy is en-only until we actually localize.
 
 ## Asks
 
