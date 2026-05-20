@@ -15,6 +15,20 @@ extension Notification.Name {
         "ContactsRequestedNewConversation"
     )
 
+    /// Posted by the agent contact card (`ContactCardView`) when the user
+    /// taps "Pop up a convo" on a template-backed agent. Carries
+    /// `["templateId": String]` in `userInfo`.
+    ///
+    /// `ConversationsViewModel` listens for this and presents a
+    /// `NewConversationView` driven by
+    /// `NewConversationViewModel(mode: .newConversationWithTemplate(...))` -
+    /// the same spawn-and-join path the `convos://template/<id>` deeplink
+    /// uses. Each post spawns a fresh agent instance into a new
+    /// conversation; there is no existing-1:1 short-circuit.
+    static let contactsRequestedAgentTemplateConversation: Notification.Name = Notification.Name(
+        "ContactsRequestedAgentTemplateConversation"
+    )
+
     /// Posted by surfaces inside an active chat (e.g. the "Add from Contacts"
     /// row in `NewConvoIdentityView`'s invite-members menu) to ask the
     /// containing `ConversationView` to present its contacts picker. Avoids

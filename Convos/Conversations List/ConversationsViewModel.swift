@@ -362,6 +362,14 @@ final class ConversationsViewModel {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default
+            .publisher(for: .contactsRequestedAgentTemplateConversation)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                self?.handleContactsRequestedAgentTemplateConversation(notification)
+            }
+            .store(in: &cancellables)
+
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
                 guard let conversationId = notification.userInfo?["conversationId"] as? String else {
@@ -461,6 +469,24 @@ final class ConversationsViewModel {
             session: session,
             mode: .newConversationWithMembers(initialMemberInboxIds: inboxIds)
         )
+    }
+
+    /// Spawns a fresh instance of an agent template into a new
+    /// conversation when the user taps "Pop up a convo" on a
+    /// template-backed agent's contact card. Routes through the same
+    /// `startConversation(withAgentTemplateId:)` path the
+    /// `convos://template/<id>` deeplink uses, so the spawn-and-join
+    /// behavior is identical regardless of entry point.
+    private func handleContactsRequestedAgentTemplateConversation(_ notification: Notification) {
+        guard let templateId = notification.userInfo?["templateId"] as? String, !templateId.isEmpty else {
+            Log.warning("contactsRequestedAgentTemplateConversation fired without templateId")
+            return
+        }
+        Log.info("Starting new conversation from agent template")
+        if selectedConversationId != nil {
+            selectedConversationId = nil
+        }
+        startConversation(withAgentTemplateId: templateId)
     }
 
     private func handleConversationNotificationTap(_ notification: Notification) {
