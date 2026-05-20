@@ -19,10 +19,15 @@ import SwiftUI
 //   - Share - both modes, when the contact is a template-backed agent
 //     (`contact.agentTemplatePublishedURL != nil`); presents the system
 //     share sheet seeded with the template's web link
-//   - Pop up a convo - both modes; calls `contactsWriter.upsertContact(...)`
-//     before opening the picker so a synthetic / non-yet-stored contact is
-//     promoted to a real one (the narrow per-person upsert documented in
-//     the contacts PRD, "Send-message on a non-contact" section)
+//   - Pop up a convo - both modes. For a human contact it calls
+//     `contactsWriter.upsertContact(...)` before opening the picker so a
+//     synthetic / non-yet-stored contact is promoted to a real one (the
+//     narrow per-person upsert documented in the contacts PRD,
+//     "Send-message on a non-contact" section). For a template-backed
+//     agent (`contact.agentTemplateId != nil`) it instead posts
+//     `.contactsRequestedAgentTemplateConversation`, spawning a fresh
+//     agent instance into a new conversation - the same path the
+//     `convos://template/<id>` deeplink takes.
 //   - Block / Unblock - both modes
 //   - Remove from convo - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
@@ -96,14 +101,17 @@ struct ContactCardView: View {
                 isBlocked: isBlocked,
                 isApplyingBlockChange: isApplyingBlockChange,
                 // Verified agents (Convos / OAuth-verified) don't accept
-                // 1:1 DMs today, so the Pop-up-a-convo CTA would open a
-                // conversation that goes nowhere. Disable until DM support
-                // for agents lands; the "Get skills" / "Learn about
-                // assistants" rows above remain the right way to interact.
+                // 1:1 DMs today, so for a non-template verified agent the
+                // Pop-up-a-convo CTA would open a conversation that goes
+                // nowhere - keep it disabled. A template-backed agent
+                // overrides this: the row spawns a fresh instance instead
+                // (see `isAgentTemplate` / `handleChatWithAgentTemplate`).
                 canSendMessage: session != nil && !isVerifiedAgent,
+                isAgentTemplate: isAgentTemplate,
                 contactDisplayName: contact.resolvedDisplayName,
                 agentTemplateShareURL: agentTemplateShareURL,
                 onSendMessage: handleSendMessage,
+                onChatWithAgentTemplate: handleChatWithAgentTemplate,
                 onToggleBlock: handleBlockTap
             )
             if mode.isScopedToConversation && !mode.isCurrentUser && mode.canRemoveMembers {
@@ -120,6 +128,13 @@ struct ContactCardView: View {
 
     private var isVerifiedAgent: Bool {
         contact.isVerifiedAgent
+    }
+
+    /// True when this contact is a template-backed agent - it carries the
+    /// `templateId` needed to spawn a fresh instance. Drives the
+    /// Pop-up-a-convo row's behavior (spawn vs. open the picker).
+    private var isAgentTemplate: Bool {
+        contact.agentTemplateId != nil
     }
 
     /// The template share link for a template-backed agent, ready for the
@@ -200,6 +215,22 @@ struct ContactCardView: View {
                 presentingPicker = true
             }
         }
+    }
+
+    /// Spawn-and-join for a template-backed agent. Posts
+    /// `.contactsRequestedAgentTemplateConversation`; `ConversationsViewModel`
+    /// picks it up and routes into a fresh conversation with a new
+    /// instance of the template - the same path the
+    /// `convos://template/<id>` deeplink takes. The containing
+    /// contact-card sheet is torn down by `ConversationView`'s `.onReceive`
+    /// for the same notification.
+    private func handleChatWithAgentTemplate() {
+        guard let templateId = contact.agentTemplateId else { return }
+        NotificationCenter.default.post(
+            name: .contactsRequestedAgentTemplateConversation,
+            object: nil,
+            userInfo: ["templateId": templateId]
+        )
     }
 
     private func handleBlockTap() {
@@ -405,10 +436,15 @@ private struct ContactCardActions: View {
     let isBlocked: Bool
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
+    /// When true, the Pop-up-a-convo row spawns a fresh agent instance
+    /// (`onChatWithAgentTemplate`) instead of opening the contacts picker;
+    /// the row is always enabled in this case.
+    let isAgentTemplate: Bool
     let contactDisplayName: String
     /// Non-nil only for template-backed agents; drives the Share row.
     let agentTemplateShareURL: URL?
     let onSendMessage: () -> Void
+    let onChatWithAgentTemplate: () -> Void
     let onToggleBlock: () -> Void
 
     var body: some View {
@@ -427,14 +463,22 @@ private struct ContactCardActions: View {
     }
 
     private var popUpConvoRow: some View {
-        ContactCardActionRow(
+        let footer: String = isAgentTemplate
+            ? "Start a new convo with \(contactDisplayName)"
+            : "Message \(contactDisplayName)"
+        let identifier: String = isAgentTemplate
+            ? "contact-card-chat-agent-template"
+            : "contact-card-send-message"
+        let isDisabled: Bool = isAgentTemplate ? false : !canSendMessage
+        let action: () -> Void = isAgentTemplate ? onChatWithAgentTemplate : onSendMessage
+        return ContactCardActionRow(
             label: "Pop up a convo",
-            footer: "Message \(contactDisplayName)",
+            footer: footer,
             color: .colorTextPrimary,
-            isDisabled: !canSendMessage,
+            isDisabled: isDisabled,
             accessibilityLabel: "Pop up a convo with \(contactDisplayName)",
-            accessibilityIdentifier: "contact-card-send-message",
-            action: onSendMessage
+            accessibilityIdentifier: identifier,
+            action: action
         )
     }
 
@@ -612,6 +656,7 @@ extension Contact {
         avatarKey: Data? = nil,
         addedViaConversationId: String?,
         agentVerification: AgentVerification?,
+        agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil
     ) -> Contact {
         Contact(
@@ -625,6 +670,7 @@ extension Contact {
             addedViaConversationId: addedViaConversationId,
             isBlocked: false,
             agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL
         )
     }
@@ -638,18 +684,21 @@ extension Contact {
     /// members and non-contact members. The synthetic fallback is
     /// promoted to a real contact when the user taps "Send a message".
     ///
-    /// The agent-template `publishedUrl` lives only in the per-conversation
-    /// member profile metadata (`DBContact` has no template column), so it
-    /// is overlaid here onto whichever contact is returned - stored or
-    /// synthetic - from the freshest source.
+    /// The agent-template `templateId` and `publishedUrl` live only in the
+    /// per-conversation member profile metadata (`DBContact` has no
+    /// template column), so they are overlaid here onto whichever contact
+    /// is returned - stored or synthetic - from the freshest source.
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
         contactsRepository: any ContactsRepositoryProtocol
     ) -> Contact {
+        let templateId: String? = member.profile.agentTemplateId
         let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
-            return stored.with(agentTemplatePublishedURL: templatePublishedURL)
+            return stored
+                .with(agentTemplateId: templateId)
+                .with(agentTemplatePublishedURL: templatePublishedURL)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -660,6 +709,7 @@ extension Contact {
             avatarKey: member.profile.avatarKey,
             addedViaConversationId: conversationId,
             agentVerification: member.agentVerification,
+            agentTemplateId: templateId,
             agentTemplatePublishedURL: templatePublishedURL
         )
     }
@@ -704,6 +754,7 @@ extension Contact {
             contact: .mock(
                 displayName: "Tifoso",
                 agentVerification: .verified(.convos),
+                agentTemplateId: "200e27dc-badc-429f-a431-b01b0281ec95",
                 agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o"
             ),
             contactsWriter: MockContactsWriter(),

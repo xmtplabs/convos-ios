@@ -89,32 +89,61 @@ struct ProfileAgentTemplateMetadataTests {
         )
     }
 
-    @Test("A template-backed agent profile exposes the published URL")
-    func templateBackedAgentExposesPublishedURL() {
+    @Test("A template-backed agent profile exposes the template id and published URL")
+    func templateBackedAgentExposesFields() {
         let profile = makeProfile(
             isAgent: true,
-            metadata: ["publishedUrl": .string("https://agents-dev.convos.org/tifoso.pnw1o")]
+            metadata: [
+                "templateId": .string("200e27dc-badc-429f-a431-b01b0281ec95"),
+                "publishedUrl": .string("https://agents-dev.convos.org/tifoso.pnw1o")
+            ]
         )
+        #expect(profile.agentTemplateId == "200e27dc-badc-429f-a431-b01b0281ec95")
         #expect(profile.agentTemplatePublishedURL == "https://agents-dev.convos.org/tifoso.pnw1o")
     }
 
-    @Test("A human profile exposes no published URL")
-    func humanProfileHasNoPublishedURL() {
+    @Test("A human profile exposes no agent-template fields")
+    func humanProfileHasNoTemplateFields() {
         let profile = makeProfile(isAgent: false, metadata: nil)
+        #expect(profile.agentTemplateId == nil)
         #expect(profile.agentTemplatePublishedURL == nil)
     }
 
-    @Test("A non-string publishedUrl value does not resolve")
-    func nonStringPublishedURLIgnored() {
+    @Test("A non-string metadata value does not resolve")
+    func nonStringMetadataValueIgnored() {
         let profile = makeProfile(
             isAgent: true,
-            metadata: ["publishedUrl": .number(42)]
+            metadata: ["templateId": .number(42), "publishedUrl": .number(42)]
         )
+        #expect(profile.agentTemplateId == nil)
         #expect(profile.agentTemplatePublishedURL == nil)
     }
 }
 
 struct ContactAgentTemplateTests {
+    @Test("with(agentTemplateId:) overlays the id onto a copy")
+    func withOverlaysTemplateId() {
+        let base = Contact.mock(displayName: "Tifoso")
+        #expect(base.agentTemplateId == nil)
+
+        let overlaid = base.with(agentTemplateId: "200e27dc-badc-429f-a431-b01b0281ec95")
+        #expect(overlaid.agentTemplateId == "200e27dc-badc-429f-a431-b01b0281ec95")
+        #expect(overlaid.inboxId == base.inboxId)
+        #expect(overlaid.displayName == base.displayName)
+        #expect(overlaid.isBlocked == base.isBlocked)
+    }
+
+    @Test("with(agentTemplateId:) preserves an existing published URL")
+    func withTemplateIdPreservesPublishedURL() {
+        let base = Contact.mock(
+            displayName: "Tifoso",
+            agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o"
+        )
+        let overlaid = base.with(agentTemplateId: "200e27dc-badc-429f-a431-b01b0281ec95")
+        #expect(overlaid.agentTemplateId == "200e27dc-badc-429f-a431-b01b0281ec95")
+        #expect(overlaid.agentTemplatePublishedURL == "https://agents-dev.convos.org/tifoso.pnw1o")
+    }
+
     @Test("with(agentTemplatePublishedURL:) overlays the URL onto a copy")
     func withOverlaysPublishedURL() {
         let base = Contact.mock(displayName: "Tifoso")

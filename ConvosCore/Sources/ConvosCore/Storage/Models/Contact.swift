@@ -27,6 +27,13 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// card surfaces verified-agent affordances (Get skills, Learn about
     /// assistants) iff `agentVerification?.isVerified == true`.
     public let agentVerification: AgentVerification?
+    /// The backend `AgentTemplate.id` a template-backed agent was
+    /// provisioned from. `nil` for human contacts and for agents that do
+    /// not carry a template. Not persisted on `DBContact`; it is overlaid
+    /// onto the contact at resolution time from the per-conversation
+    /// member profile metadata (see `Contact.resolved(member:...)`), which
+    /// is the freshest source. Drives the contact card's Chat action.
+    public let agentTemplateId: String?
     /// The shareable web URL for a template-backed agent (the backend's
     /// `publishedUrl`). `nil` for human contacts and for agents that do
     /// not carry a template. Not persisted on `DBContact`; it is overlaid
@@ -46,6 +53,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         addedViaConversationId: String?,
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil
     ) {
         self.inboxId = inboxId
@@ -58,6 +66,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.addedViaConversationId = addedViaConversationId
         self.isBlocked = isBlocked
         self.agentVerification = agentVerification
+        self.agentTemplateId = agentTemplateId
         self.agentTemplatePublishedURL = agentTemplatePublishedURL
     }
 
@@ -138,6 +147,7 @@ extension Contact {
         addedViaConversationId: String? = nil,
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil
     ) -> Contact {
         Contact(
@@ -151,6 +161,28 @@ extension Contact {
             addedViaConversationId: addedViaConversationId,
             isBlocked: isBlocked,
             agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL
+        )
+    }
+
+    /// Returns a copy with `agentTemplateId` overlaid. Used by
+    /// `Contact.resolved(member:...)` to carry the freshest template id
+    /// from the per-conversation member profile onto a stored contact,
+    /// which has no template column of its own.
+    public func with(agentTemplateId: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL
         )
     }
@@ -171,6 +203,7 @@ extension Contact {
             addedViaConversationId: addedViaConversationId,
             isBlocked: isBlocked,
             agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL
         )
     }
