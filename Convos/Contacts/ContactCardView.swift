@@ -3,72 +3,55 @@ import SwiftUI
 
 // MARK: - Module overview
 //
-// `ContactDetailView` is the single canonical "look at this person" surface
+// `ContactCardView` is the single canonical "look at this person" surface
 // in the app. It is invoked from two entry points, parameterized by
-// `ContactDetailMode`:
+// `ContactCardMode`:
 //
 //   1. Contacts list (`ContactsView`) -> `mode: .standalone`. Default.
 //   2. Member-avatar tap inside a chat (`ConversationView` presents
 //      `presentingProfileForMember`) -> `mode: .scopedToConversation(...)`.
 //
-// One row framework for everyone: header / subtitle / optional pill / a
-// stack of secondary rows that all share `ContactDetailActionRow`. Human,
-// verified-agent, and the current user's own card differ only in *which*
-// rows render, in this fixed order:
+// Section visibility is driven by the mode plus the contact's stored state:
 //
-//   - Close (X) button - always, top-leading overlay
-//   - Header (avatar + name) - always
-//   - Subtitle - "Invited X ago by Y" in scoped mode when the member has a
-//     `joinedAt`; otherwise "Added X ago" from `contact.addedAt`
-//   - Pill below the subtitle - "You" for the current user's own card,
-//     the agent role label ("Assistant", "Verified by ...") for verified
-//     agents, otherwise nothing
-//   - Chat - hidden for the current user; disabled for verified agents
-//     (no DMs yet); calls `contactsWriter.upsertContact(...)` before
-//     opening the picker so a synthetic / non-yet-stored contact is
-//     promoted to a real one
-//   - Get skills / Learn about assistants - verified agents only, inline
-//     in the action stack after Chat
-//   - Remove - scoped mode only, when the viewer is an admin
+//   - Header (avatar / name) - always
+//   - Agent rows (Get skills / Learn about assistants) - both modes, when
+//     `contact.agentVerification?.isVerified == true`
+//   - Share - both modes, when the contact is a template-backed agent
+//     (`contact.agentTemplatePublishedURL != nil`); presents the system
+//     share sheet seeded with the template's web link
+//   - Pop up a convo - both modes; calls `contactsWriter.upsertContact(...)`
+//     before opening the picker so a synthetic / non-yet-stored contact is
+//     promoted to a real one (the narrow per-person upsert documented in
+//     the contacts PRD, "Send-message on a non-contact" section)
+//   - Block / Unblock - both modes
+//   - Remove from convo - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
-//   - Block / Unblock - hidden for the current user; both modes otherwise
 //
 // Mirrors `ContactsPickerMode`'s "one component, two entry points" pattern.
 
-/// Unified contact detail view. See module-overview comment above for
-/// entry-point mapping and section visibility rules.
-struct ContactDetailView: View {
+/// Unified contact card. See module-overview comment above for entry-point
+/// mapping and section visibility rules.
+struct ContactCardView: View {
     let contact: Contact
-    let mode: ContactDetailMode
-    /// True when the view should render its own X close button in the
-    /// nav-bar's cancellation slot. Sheet entry points (where there is no
-    /// system back button) keep this on; NavigationLink push entry points
-    /// (where the system already renders a chevron back button) pass false
-    /// so the user doesn't see two redundant dismiss controls.
-    let showsCloseButton: Bool
+    let mode: ContactCardMode
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
-    private let profileSettingsViewModel: ProfileSettingsViewModel
     private let onRemove: (() -> Void)?
 
-    @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isBlocked: Bool
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
     @State private var presentingPicker: Bool = false
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
-    @State private var presentingNewConvo: NewConversationViewModel?
 
     init(
         contact: Contact,
-        mode: ContactDetailMode = .standalone,
+        mode: ContactCardMode = .standalone,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
-        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
-        showsCloseButton: Bool = true,
         onRemove: (() -> Void)? = nil
     ) {
         self.contact = contact
@@ -76,8 +59,6 @@ struct ContactDetailView: View {
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
-        self.profileSettingsViewModel = profileSettingsViewModel
-        self.showsCloseButton = showsCloseButton
         self.onRemove = onRemove
         _isBlocked = State(initialValue: contact.isBlocked)
     }
@@ -86,10 +67,9 @@ struct ContactDetailView: View {
         bodyContent
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.colorBackgroundRaisedSecondary)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar { closeToolbarItem }
-            .modifier(ContactDetailModalsModifier(
+            .modifier(ContactCardModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
                 presentingSendMessageError: $presentingSendMessageError,
@@ -99,82 +79,41 @@ struct ContactDetailView: View {
                 blockAlertActions: { blockAlertActions },
                 pickerSheet: { pickerSheet }
             ))
-            .sheet(item: $presentingNewConvo) { vm in
-                NewConversationView(
-                    viewModel: vm,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-            }
             .task(id: contact.inboxId) { await syncBlockedState() }
-    }
-
-    @ToolbarContentBuilder
-    private var closeToolbarItem: some ToolbarContent {
-        if showsCloseButton {
-            ToolbarItem(placement: .cancellationAction) {
-                let action = { dismiss() }
-                Button(role: .cancel, action: action)
-                    .accessibilityIdentifier("contact-detail-close")
-            }
-        }
     }
 
     @ViewBuilder
     private var bodyContent: some View {
-        // ScrollView (not a plain VStack with a Spacer) because verified
-        // agents render two extra link rows + a Remove row above Block,
-        // and on smaller phones that content can exceed the sheet's
-        // height. The previous VStack+Spacer layout pushed long content
-        // *up* behind the transparent toolbar - the avatar would visually
-        // overlap with the close button. A ScrollView keeps the header
-        // pinned below the toolbar and lets the rest scroll.
-        ScrollView {
-            // Spacing 0 here is load-bearing: `headerBadge` returns an
-            // `EmptyView` when there's no pill to show, and a non-zero
-            // VStack spacing would still reserve space around that empty
-            // view, inflating the gap between subtitle and actions.
-            VStack(spacing: 0.0) {
-                ContactDetailHeader(contact: contact)
-                ContactDetailSubtitle(
-                    contact: contact,
-                    invitedBy: mode.invitedBy,
-                    joinedAt: mode.joinedAt,
-                    isBlocked: isBlocked
-                )
-                .padding(.top, DesignConstants.Spacing.step2x)
-                headerBadge
-                ContactDetailActions(
-                    isBlocked: isBlocked,
-                    isApplyingBlockChange: isApplyingBlockChange,
-                    // Verified agents (Convos / OAuth-verified) don't accept
-                    // 1:1 DMs today, so the Chat CTA would open a conversation
-                    // that goes nowhere. Disable until DM support for agents
-                    // lands; the agent rows that follow the Chat button
-                    // remain the right way to interact.
-                    canSendMessage: session != nil && !isVerifiedAgent,
-                    showChat: !mode.isCurrentUser,
-                    showAgentLinks: isVerifiedAgent,
-                    showRemove: mode.isScopedToConversation
-                        && !mode.isCurrentUser
-                        && mode.canRemoveMembers,
-                    showBlock: !mode.isCurrentUser,
-                    contactDisplayName: contact.resolvedDisplayName,
-                    agentTemplateShareURL: agentTemplateShareURL,
-                    onSendMessage: handleSendMessage,
-                    onRemove: handleRemoveTap,
-                    onToggleBlock: handleBlockTap
-                )
-                .padding(.top, DesignConstants.Spacing.step8x)
-                .padding(.bottom, 80.0)
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            VStack(spacing: DesignConstants.Spacing.stepX) {
+                ContactCardHeader(contact: contact)
+                ContactCardMetadata(addedAt: contact.addedAt, isBlocked: isBlocked)
             }
+            if isVerifiedAgent {
+                ContactCardAgentLinks()
+            }
+            ContactCardActions(
+                isBlocked: isBlocked,
+                isApplyingBlockChange: isApplyingBlockChange,
+                // Verified agents (Convos / OAuth-verified) don't accept
+                // 1:1 DMs today, so the Pop-up-a-convo CTA would open a
+                // conversation that goes nowhere. Disable until DM support
+                // for agents lands; the "Get skills" / "Learn about
+                // assistants" rows above remain the right way to interact.
+                canSendMessage: session != nil && !isVerifiedAgent,
+                contactDisplayName: contact.resolvedDisplayName,
+                agentTemplateShareURL: agentTemplateShareURL,
+                onSendMessage: handleSendMessage,
+                onToggleBlock: handleBlockTap
+            )
+            if mode.isScopedToConversation && !mode.isCurrentUser && mode.canRemoveMembers {
+                ContactCardGroupActions(
+                    contactDisplayName: contact.resolvedDisplayName,
+                    onRemove: handleRemoveTap
+                )
+            }
+            Spacer()
         }
-        // ScrollView on short content (human card with just Chat + Block)
-        // would otherwise rubber-band on touch even though the content
-        // already fits. `.basedOnSize` disables bounce when the content
-        // fits the viewport and re-enables it when it doesn't (agent or
-        // self card on smaller phones).
-        .scrollBounceBehavior(.basedOnSize)
     }
 
     // MARK: - Derived
@@ -188,27 +127,6 @@ struct ContactDetailView: View {
     /// without a published template, which hides the row.
     private var agentTemplateShareURL: URL? {
         contact.agentTemplatePublishedURL.flatMap { URL(string: $0) }
-    }
-
-    /// Pill rendered below the subtitle. "You" for the current user's
-    /// own card, the agent role label for verified agents, otherwise
-    /// nothing. The top padding is inside the builder so it doesn't
-    /// inflate the gap above the actions row when no badge is showing.
-    @ViewBuilder
-    private var headerBadge: some View {
-        if mode.isCurrentUser {
-            ContactDetailBadge(
-                label: "You",
-                accessibilityIdentifier: "contact-detail-you-badge"
-            )
-            .padding(.top, DesignConstants.Spacing.step2x)
-        } else if let roleLabel = contact.agentVerification?.roleLabel {
-            ContactDetailBadge(
-                label: roleLabel,
-                accessibilityIdentifier: "contact-detail-role-label-\(contact.inboxId)"
-            )
-            .padding(.top, DesignConstants.Spacing.step2x)
-        }
     }
 
     // MARK: - Picker sheet
@@ -279,55 +197,9 @@ struct ContactDetailView: View {
                 return
             }
             await MainActor.run {
-                routeToChat()
+                presentingPicker = true
             }
         }
-    }
-
-    /// Decides where "Chat" lands the user. If the current user
-    /// already has a 1:1 with this contact, the existing conversation
-    /// opens in the same sheet anchor we use for the new-convo flow -
-    /// otherwise the picker takes over (preselected with this contact)
-    /// so the standard new-convo creation path runs. Prevents the
-    /// "tap Chat twice, end up with two 1:1s with the same person"
-    /// regression.
-    private func routeToChat() {
-        if let session, let existing = findExistingOneToOne(session: session) {
-            presentingNewConvo = NewConversationViewModel(
-                session: session,
-                mode: .existingConversation(conversationId: existing.id)
-            )
-        } else {
-            presentingPicker = true
-        }
-    }
-
-    /// Looks for an active 1:1 (current user + this contact, no other
-    /// non-self members) in the user's accepted *and* pending
-    /// conversations. The repository pushes the predicate into SQL so
-    /// we don't hydrate every conversation just to find one match.
-    ///
-    /// `.unknown` is included alongside `.allowed` so an outstanding
-    /// invite from this contact routes "Chat" into that pending
-    /// thread instead of letting the user create a duplicate convo
-    /// alongside it; the chat's own consent gate handles the accept /
-    /// decline flow from there. Locked conversations are intentionally
-    /// included - "locked" only freezes invite-code minting; the chat
-    /// itself still works, and routing to an existing locked 1:1 is
-    /// preferable to spinning up a second one. Drafts, expired,
-    /// quarantined, and unused conversations are excluded upstream.
-    ///
-    /// When this view is opened scoped to a conversation
-    /// (`mode.conversationId != nil`) the source conversation is
-    /// excluded from the search - if the user is already chatting in
-    /// a 1:1 with this contact and taps "Chat", they almost certainly
-    /// want a different chat, so falling through to the picker is the
-    /// right move. Multiple 1:1s with the same person are allowed; the
-    /// SQL ordering picks the most-recently-active alternative.
-    private func findExistingOneToOne(session: any SessionManagerProtocol) -> Conversation? {
-        try? session
-            .conversationsRepository(for: [.allowed, .unknown])
-            .findOneToOne(with: contact.inboxId, excluding: mode.conversationId)
     }
 
     private func handleBlockTap() {
@@ -385,84 +257,66 @@ struct ContactDetailView: View {
         }
     }
 
-    /// Spins up a `NewConversationViewModel` locally and presents it as a
-    /// sheet from this view, so the new conversation appears in place of
-    /// the picker while whatever hosts this contact card (App Settings
-    /// sheet stack, or the chat) stays alive underneath. Mirrors
-    /// `ContactsView.handlePickerConfirm` and the invite-cell-tap pattern
-    /// where the new-convo sheet is owned by the same view that hosted
-    /// the picker.
+    /// Forwards the picked inbox IDs to the conversations layer via
+    /// notification; that layer constructs a `NewConversationViewModel`
+    /// in `.newConversationWithMembers` mode so the placeholder UI shows
+    /// immediately and the state machine folds `addMembers` into its
+    /// create sequence atomically.
     private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
-        presentingNewConvo = NewConversationViewModel(
-            session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+        guard !inboxIds.isEmpty else { return }
+        let ids = Array(inboxIds)
+        NotificationCenter.default.post(
+            name: .contactsRequestedNewConversation,
+            object: nil,
+            userInfo: ["inboxIds": ids]
         )
     }
 
     private func syncBlockedState() async {
-        do {
-            guard let updated = try contactsRepository.fetchContact(inboxId: contact.inboxId) else {
-                return
-            }
-            isBlocked = updated.isBlocked
-        } catch {
-            Log.error("Failed to sync blocked state for \(contact.inboxId): \(error.localizedDescription)")
+        guard let updated = try? contactsRepository.fetchContact(inboxId: contact.inboxId) else {
+            return
         }
+        isBlocked = updated.isBlocked
     }
 }
 
 // MARK: - Header
 
-private struct ContactDetailHeader: View {
+private struct ContactCardHeader: View {
     let contact: Contact
 
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
             ContactAvatarView(contact: contact)
-                .frame(width: 160.0, height: 160.0)
+                .frame(width: 140.0, height: 140.0)
+                .padding(.top, DesignConstants.Spacing.step6x)
 
             Text(contact.resolvedDisplayName)
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
+
+            if let roleLabel = contact.agentVerification?.roleLabel {
+                Text(roleLabel)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .padding(.horizontal, DesignConstants.Spacing.step2x)
+                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .background(.colorTextSecondary.opacity(0.1), in: .capsule)
+                    .accessibilityIdentifier("contact-card-role-label-\(contact.inboxId)")
+            }
         }
     }
 }
 
-/// Small capsule pill rendered below the subtitle. Used for the
-/// verified-agent role label ("Assistant", "Verified by ...") and for
-/// the "You" indicator on the current user's own card - same shape so
-/// the spacing around the pill mirrors the surrounding label spacing
-/// regardless of which one is showing.
-private struct ContactDetailBadge: View {
-    let label: String
-    let accessibilityIdentifier: String
+// MARK: - Metadata
 
-    var body: some View {
-        Text(label)
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-            .accessibilityIdentifier(accessibilityIdentifier)
-    }
-}
-
-// MARK: - Subtitle
-
-/// Renders "Invited X ago by Y" when scoped-mode `joinedAt` is available,
-/// otherwise "Added X ago" sourced from `contact.addedAt`. The blocked row
-/// is appended underneath when the contact is currently blocked.
-private struct ContactDetailSubtitle: View {
-    let contact: Contact
-    let invitedBy: Profile?
-    let joinedAt: Date?
+private struct ContactCardMetadata: View {
+    let addedAt: Date
     let isBlocked: Bool
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.stepX) {
-            Text(subtitleText)
+            Text("Added \(relativeAddedAt)")
                 .foregroundStyle(.colorTextSecondary)
             if isBlocked {
                 blockedRow
@@ -473,21 +327,13 @@ private struct ContactDetailSubtitle: View {
         .padding(.horizontal, DesignConstants.Spacing.step3x)
     }
 
-    private var subtitleText: String {
-        if let joinedAt {
-            let prefix = "Invited \(relativeString(for: joinedAt))"
-            if let inviter = invitedBy?.displayName, !inviter.isEmpty {
-                return "\(prefix) by \(inviter)"
-            }
-            return prefix
-        }
-        return "Added \(relativeString(for: contact.addedAt))"
-    }
-
-    private func relativeString(for date: Date) -> String {
+    /// Mirrors the `RelativeDateTimeFormatter(.abbreviated)` convention from
+    /// `ConversationMemberView`'s "Added X by Y" subtitle so the contact card
+    /// reads the same way ("Added 20m ago", "Added 3h ago", "Added 2w ago").
+    private var relativeAddedAt: String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        return formatter.localizedString(for: addedAt, relativeTo: Date())
     }
 
     private var blockedRow: some View {
@@ -499,103 +345,96 @@ private struct ContactDetailSubtitle: View {
     }
 }
 
-// MARK: - Action stack
+// MARK: - Agent links
 
-/// Renders Chat (always first) plus any combination of the verified-
-/// agent links, Remove, and Block - in that order. Chat is the primary
-/// CTA (filled dark pill); the rest use the secondary action-row style
-/// (capsule label + caption below) so an agent and human card share
-/// one row framework and only differ in which rows render.
-private struct ContactDetailActions: View {
+private struct ContactCardAgentLinks: View {
+    @Environment(\.openURL) private var openURL: OpenURLAction
+
+    var body: some View {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            agentLinkRow(
+                title: "Get skills",
+                subtitle: "Browse 100+ curated capabilities",
+                url: AgentLinks.getSkillsURL,
+                accessibilityIdentifier: "contact-card-get-skills"
+            )
+            agentLinkRow(
+                title: "Learn about assistants",
+                subtitle: "Capabilities, privacy and security",
+                url: AgentLinks.learnAboutAssistantsURL,
+                accessibilityIdentifier: "contact-card-learn-about-assistants"
+            )
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+    }
+
+    private func agentLinkRow(
+        title: String,
+        subtitle: String,
+        url: URL,
+        accessibilityIdentifier: String
+    ) -> some View {
+        let action = { openURL(url) }
+        return Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2.0) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .padding(DesignConstants.Spacing.step3x)
+            .background(
+                RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+            )
+        }
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+// MARK: - Action buttons
+
+private struct ContactCardActions: View {
     let isBlocked: Bool
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
-    let showChat: Bool
-    let showAgentLinks: Bool
-    let showRemove: Bool
-    let showBlock: Bool
     let contactDisplayName: String
     /// Non-nil only for template-backed agents; drives the Share row.
     let agentTemplateShareURL: URL?
     let onSendMessage: () -> Void
-    let onRemove: () -> Void
     let onToggleBlock: () -> Void
 
-    @Environment(\.openURL) private var openURL: OpenURLAction
-
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step6x) {
-            if showChat {
-                chatButton
-            }
+        VStack(spacing: DesignConstants.Spacing.step4x) {
             if let agentTemplateShareURL {
-                ContactDetailShareRow(
+                ContactCardShareRow(
                     url: agentTemplateShareURL,
                     contactDisplayName: contactDisplayName
                 )
             }
-            if showAgentLinks {
-                agentLinkRows
-            }
-            if showRemove {
-                removeRow
-            }
-            if showBlock {
-                blockRow
-            }
+            popUpConvoRow
+            blockRow
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step4x)
     }
 
-    @ViewBuilder
-    private var agentLinkRows: some View {
-        ContactDetailActionRow(
-            label: "Get skills",
-            footer: "Browse 100+ curated capabilities",
+    private var popUpConvoRow: some View {
+        ContactCardActionRow(
+            label: "Pop up a convo",
+            footer: "Message \(contactDisplayName)",
             color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Get skills",
-            accessibilityIdentifier: "contact-detail-get-skills",
-            action: { openURL(AgentLinks.getSkillsURL) }
-        )
-        ContactDetailActionRow(
-            label: "Learn about assistants",
-            footer: "Capabilities, privacy and security",
-            color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Learn about assistants",
-            accessibilityIdentifier: "contact-detail-learn-about-assistants",
-            action: { openURL(AgentLinks.learnAboutAssistantsURL) }
-        )
-    }
-
-    private var chatButton: some View {
-        let backgroundOpacity: Double = canSendMessage ? 1.0 : 0.4
-        return Button(action: onSendMessage) {
-            Text("Chat")
-                .font(.body.weight(.medium))
-                .foregroundStyle(.colorTextPrimaryInverted)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, DesignConstants.Spacing.step4x)
-                .background(
-                    RoundedRectangle(cornerRadius: 32.0)
-                        .fill(.colorTextPrimary.opacity(backgroundOpacity))
-                )
-        }
-        .disabled(!canSendMessage)
-        .accessibilityLabel("Chat with \(contactDisplayName)")
-        .accessibilityIdentifier("contact-detail-chat")
-    }
-
-    private var removeRow: some View {
-        ContactDetailActionRow(
-            label: "Remove",
-            footer: "Remove from convo",
-            color: .colorTextPrimary,
-            isDisabled: false,
-            accessibilityLabel: "Remove \(contactDisplayName)",
-            accessibilityIdentifier: "remove-member-button",
-            action: onRemove
+            isDisabled: !canSendMessage,
+            accessibilityLabel: "Pop up a convo with \(contactDisplayName)",
+            accessibilityIdentifier: "contact-card-send-message",
+            action: onSendMessage
         )
     }
 
@@ -603,9 +442,9 @@ private struct ContactDetailActions: View {
         let label: String = isBlocked ? "Unblock" : "Block"
         let footer: String = isBlocked
             ? "Start receiving convo invites from \(contactDisplayName) again"
-            : "So they can't contact you"
-        let identifier: String = isBlocked ? "contact-detail-unblock" : "contact-detail-block"
-        return ContactDetailActionRow(
+            : "Block all future convo invites from \(contactDisplayName)"
+        let identifier: String = isBlocked ? "contact-card-unblock" : "contact-card-block"
+        return ContactCardActionRow(
             label: label,
             footer: footer,
             color: .colorCaution,
@@ -617,13 +456,40 @@ private struct ContactDetailActions: View {
     }
 }
 
+// MARK: - Group actions (scoped mode only)
+
+/// Renders conversation-scoped actions on the contact card. Today only
+/// "Remove" lives here; it appears when the viewer is an admin who can
+/// remove the tapped member. The plain Block row (above, in
+/// `ContactCardActions`) covers the block intent in every mode, so this
+/// view stays focused on conversation-scope-specific affordances.
+private struct ContactCardGroupActions: View {
+    let contactDisplayName: String
+    let onRemove: () -> Void
+
+    var body: some View {
+        ContactCardActionRow(
+            label: "Remove",
+            footer: "Remove \(contactDisplayName) from the convo",
+            color: .colorCaution,
+            isDisabled: false,
+            accessibilityLabel: "Remove \(contactDisplayName)",
+            accessibilityIdentifier: "remove-member-button",
+            action: onRemove
+        )
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step2x)
+    }
+}
+
 // MARK: - Shared action row
 
-/// Reusable row for the secondary actions (Remove, Block). The shape -
+/// Reusable row used by both `ContactCardActions` (Pop up a convo, Block)
+/// and `ContactCardGroupActions` (Remove, Block and leave). The shape -
 /// rounded white pill on top with a small grey footer caption below - is
 /// the canonical card action style. The label color is the only knob: dark
 /// primary for affirmative actions, caution red for destructive.
-private struct ContactDetailActionRow: View {
+private struct ContactCardActionRow: View {
     let label: String
     let footer: String
     let color: Color
@@ -636,12 +502,14 @@ private struct ContactDetailActionRow: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             Button(action: action) {
                 Text(label)
-                    .font(.body)
+                    .font(.body.weight(.medium))
                     .foregroundStyle(color)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .background(Capsule().fill(.colorFillMinimal))
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+                    )
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
@@ -650,7 +518,7 @@ private struct ContactDetailActionRow: View {
             Text(footer)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
         }
     }
 }
@@ -662,7 +530,7 @@ private struct ContactDetailActionRow: View {
 /// the system share sheet) rather than a plain action button, since the
 /// share intent is fully handled by the system. Rendered only when the
 /// agent carries a template `publishedUrl`.
-private struct ContactDetailShareRow: View {
+private struct ContactCardShareRow: View {
     let url: URL
     let contactDisplayName: String
 
@@ -692,7 +560,7 @@ private struct ContactDetailShareRow: View {
 
 // MARK: - Modals modifier
 
-private struct ContactDetailModalsModifier<
+private struct ContactCardModalsModifier<
     BlockActions: View,
     PickerContent: View
 >: ViewModifier {
@@ -732,8 +600,9 @@ private struct ContactDetailModalsModifier<
 extension Contact {
     /// Builds a presentation-only `Contact` from a chat member when the
     /// inbox is not yet a stored contact. The card uses this until the user
-    /// taps "Chat", at which point the writer's idempotent upsert promotes
-    /// the synthetic to a real contact attributed to the source conversation.
+    /// taps "Send a message", at which point the writer's idempotent upsert
+    /// promotes the synthetic to a real contact attributed to the source
+    /// conversation.
     public static func synthetic(
         inboxId: String,
         displayName: String?,
@@ -764,10 +633,10 @@ extension Contact {
     /// stored `Contact` if the inbox is a known contact, otherwise a
     /// synthetic one built from the member's profile snapshot.
     ///
-    /// Used by the chat-side `ContactDetailView` entry points (member-avatar
-    /// tap, members list) so the view renders uniformly for contact members
-    /// and non-contact members. The synthetic fallback is promoted to a
-    /// real contact when the user taps "Chat".
+    /// Used by the chat-side `ContactCardView` entry points (member-avatar
+    /// tap, members list) so the card renders uniformly for contact
+    /// members and non-contact members. The synthetic fallback is
+    /// promoted to a real contact when the user taps "Send a message".
     ///
     /// The agent-template `publishedUrl` lives only in the per-conversation
     /// member profile metadata (`DBContact` has no template column), so it
@@ -798,7 +667,7 @@ extension Contact {
 
 #Preview("Default") {
     NavigationStack {
-        ContactDetailView(
+        ContactCardView(
             contact: .mock(displayName: "Alice"),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()
@@ -808,7 +677,7 @@ extension Contact {
 
 #Preview("Blocked") {
     NavigationStack {
-        ContactDetailView(
+        ContactCardView(
             contact: .mock(displayName: "Alice", isBlocked: true),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()
@@ -818,7 +687,7 @@ extension Contact {
 
 #Preview("Verified agent") {
     NavigationStack {
-        ContactDetailView(
+        ContactCardView(
             contact: .mock(
                 displayName: "Convos Assistant",
                 agentVerification: .verified(.convos)
@@ -845,14 +714,12 @@ extension Contact {
 
 #Preview("Scoped to conversation, admin") {
     NavigationStack {
-        ContactDetailView(
-            contact: .mock(displayName: "Andy"),
+        ContactCardView(
+            contact: .mock(displayName: "Bob"),
             mode: .scopedToConversation(
                 conversationId: "convo-1",
                 canRemoveMembers: true,
-                isCurrentUser: false,
-                invitedBy: Profile.mock(name: "Shane"),
-                joinedAt: Date().addingTimeInterval(-20 * 60)
+                isCurrentUser: false
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository(),
