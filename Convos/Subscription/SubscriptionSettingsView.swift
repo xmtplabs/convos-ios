@@ -3,8 +3,11 @@ import StoreKit
 import SwiftUI
 
 struct SubscriptionSettingsView: View {
-    @State private var balance: CreditBalance?
-    @State private var subscription: UserSubscription?
+    // Seed @State synchronously from whatever the services have cached so the
+    // first render shows real data instead of nil for one runloop tick.
+    // `.onReceive` still drives updates on subsequent fetches.
+    @State private var balance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var subscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var presentingPaywall: Bool = false
     @State private var presentingManageSubscriptions: Bool = false
 

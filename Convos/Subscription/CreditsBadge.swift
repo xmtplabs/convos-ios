@@ -2,7 +2,7 @@ import ConvosCore
 import SwiftUI
 
 struct CreditsBadge: View {
-    @State private var balance: CreditBalance?
+    @State private var balance: CreditBalance? = CreditsServices.shared.currentBalance
 
     var body: some View {
         Group {

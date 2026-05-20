@@ -35,7 +35,7 @@ struct AppSettingsView: View {
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
-    @State private var subscriptionBalance: CreditBalance?
+    @State private var subscriptionBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
 

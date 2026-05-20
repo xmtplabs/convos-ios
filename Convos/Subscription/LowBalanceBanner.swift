@@ -2,7 +2,7 @@ import ConvosCore
 import SwiftUI
 
 struct LowBalanceBanner: View {
-    @State private var balance: CreditBalance?
+    @State private var balance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var presentingPaywall: Bool = false
 
     var body: some View {

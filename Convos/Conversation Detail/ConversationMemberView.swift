@@ -6,7 +6,7 @@ struct ConversationMemberView: View {
     let member: ConversationMember
 
     @State private var presentingBlockConfirmation: Bool = false
-    @State private var creditsBalance: CreditBalance?
+    @State private var creditsBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var presentingPaywall: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
