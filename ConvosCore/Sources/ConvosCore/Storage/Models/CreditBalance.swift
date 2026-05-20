@@ -21,13 +21,19 @@ public struct CreditBalance: Codable, Equatable, Hashable, Sendable {
         self.periodLabel = periodLabel
     }
 
-    public var fractionRemaining: Double {
-        guard monthlyGrant > 0 else { return 0 }
+    /// Fraction of the monthly grant still remaining. `nil` when there's no
+    /// grant to compare against (e.g. a user with purchased top-up credits and
+    /// no active subscription) — in that case "low" isn't a defined concept,
+    /// callers must handle the nil explicitly instead of treating zero as
+    /// "almost depleted".
+    public var fractionRemaining: Double? {
+        guard monthlyGrant > 0 else { return nil }
         return Double(balance) / Double(monthlyGrant)
     }
 
     public var isLow: Bool {
-        balance > 0 && fractionRemaining <= 0.2
+        guard let fractionRemaining else { return false }
+        return balance > 0 && fractionRemaining <= 0.2
     }
 
     public var isDepleted: Bool {
