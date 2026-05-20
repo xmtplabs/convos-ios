@@ -35,6 +35,13 @@ enum NewConversationMode {
     /// conversation arrives at `.ready` with the picked members already
     /// in it.
     case newConversationWithMembers(initialMemberInboxIds: [String])
+    /// Opens an existing conversation in the same sheet presentation we
+    /// use for the new-convo flows. Used when "Chat" on a contact card
+    /// resolves to a 1:1 the user already has with that person, so the
+    /// app doesn't let them spin up a second redundant 1:1. The state
+    /// machine uses `.useExisting` (no create, no addMembers), and the
+    /// conversation publisher emits `.ready` against the existing row.
+    case existingConversation(conversationId: String)
     case scanner
     case joinInvite(code: String)
 }
@@ -56,6 +63,15 @@ class NewConversationViewModel: Identifiable {
     /// `ConversationViewModel.hidesInviteCard` so the QR header isn't
     /// rendered on top of a chat that already has members.
     private let startedWithSeededMembers: Bool
+    /// True when this VM was created with `.existingConversation` -
+    /// i.e. the sheet is *opening* an existing 1:1, not creating one.
+    /// `cleanUpIfNeeded` checks this so a sheet dismissed before the
+    /// state machine emits `.ready` can never delete the real
+    /// conversation behind it. Today `deleteConversation()` happens to
+    /// be a no-op (it only cancels in-flight tasks), but the guard
+    /// here is the contract that anchors that safety regardless of
+    /// what `deleteConversation()` does in the future.
+    private let isExistingConversation: Bool
     /// Captured initial-member inbox ids for the seeded-members flow.
     /// Used to seed each draft `Conversation` with contact-derived
     /// members so the chat header renders the contact's name and
@@ -142,6 +158,12 @@ class NewConversationViewModel: Identifiable {
             self.showingFullScreenScanner = false
             self.allowsDismissingScanner = true
 
+        case .existingConversation:
+            self.autoCreateConversation = false
+            self.startedWithFullscreenScanner = false
+            self.showingFullScreenScanner = false
+            self.allowsDismissingScanner = true
+
         case .scanner:
             self.autoCreateConversation = false
             self.startedWithFullscreenScanner = true
@@ -163,6 +185,12 @@ class NewConversationViewModel: Identifiable {
             self.seededMemberInboxIds = []
         }
 
+        if case .existingConversation = mode {
+            self.isExistingConversation = true
+        } else {
+            self.isExistingConversation = false
+        }
+
         self.isCreatingConversation = mode.isNewConversation
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
@@ -182,6 +210,11 @@ class NewConversationViewModel: Identifiable {
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false
         self.seededMemberInboxIds = []
+        // This internal init is used by tests / warm-cache paths that
+        // construct against a draft id, not a user-existing 1:1.
+        // Leave the existing-conversation guard off so the cleanup
+        // semantics match the historical behavior.
+        self.isExistingConversation = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
 
@@ -202,6 +235,12 @@ class NewConversationViewModel: Identifiable {
 
     func cleanUpIfNeeded() {
         guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
+        // `deleteConversation` is currently a no-op (only cancels
+        // in-flight tasks), but never call it when the sheet was just
+        // *opening* an existing 1:1 - if that contract ever changes,
+        // dismissing the sheet before the state machine emits `.ready`
+        // would silently destroy the real conversation behind it.
+        guard !isExistingConversation else { return }
         _cleanedUp = true
         deleteConversation()
     }
@@ -233,6 +272,16 @@ class NewConversationViewModel: Identifiable {
                     messagingService,
                     existingConversationId: existingConversationId,
                     initialMemberInboxIds: initialMemberInboxIds
+                )
+
+            case .existingConversation(let conversationId):
+                let messagingService = session.messagingService()
+                guard !Task.isCancelled else { return }
+                let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
+                Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
+                configureWithMessagingService(
+                    messagingService,
+                    existingConversationId: conversationId
                 )
 
             case .scanner, .joinInvite:
@@ -813,7 +862,7 @@ private extension NewConversationMode {
         switch self {
         case .newConversation, .newConversationWithMembers:
             return true
-        case .scanner, .joinInvite:
+        case .existingConversation, .scanner, .joinInvite:
             return false
         }
     }

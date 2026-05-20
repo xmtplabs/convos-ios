@@ -226,9 +226,55 @@ struct ContactDetailView: View {
                 return
             }
             await MainActor.run {
-                presentingPicker = true
+                routeToChat()
             }
         }
+    }
+
+    /// Decides where "Chat" lands the user. If the current user
+    /// already has a 1:1 with this contact, the existing conversation
+    /// opens in the same sheet anchor we use for the new-convo flow -
+    /// otherwise the picker takes over (preselected with this contact)
+    /// so the standard new-convo creation path runs. Prevents the
+    /// "tap Chat twice, end up with two 1:1s with the same person"
+    /// regression.
+    private func routeToChat() {
+        if let session, let existing = findExistingOneToOne(session: session) {
+            presentingNewConvo = NewConversationViewModel(
+                session: session,
+                mode: .existingConversation(conversationId: existing.id)
+            )
+        } else {
+            presentingPicker = true
+        }
+    }
+
+    /// Looks for an active 1:1 (current user + this contact, no other
+    /// non-self members) in the user's accepted *and* pending
+    /// conversations. The repository pushes the predicate into SQL so
+    /// we don't hydrate every conversation just to find one match.
+    ///
+    /// `.unknown` is included alongside `.allowed` so an outstanding
+    /// invite from this contact routes "Chat" into that pending
+    /// thread instead of letting the user create a duplicate convo
+    /// alongside it; the chat's own consent gate handles the accept /
+    /// decline flow from there. Locked conversations are intentionally
+    /// included - "locked" only freezes invite-code minting; the chat
+    /// itself still works, and routing to an existing locked 1:1 is
+    /// preferable to spinning up a second one. Drafts, expired,
+    /// quarantined, and unused conversations are excluded upstream.
+    ///
+    /// When this view is opened scoped to a conversation
+    /// (`mode.conversationId != nil`) the source conversation is
+    /// excluded from the search - if the user is already chatting in
+    /// a 1:1 with this contact and taps "Chat", they almost certainly
+    /// want a different chat, so falling through to the picker is the
+    /// right move. Multiple 1:1s with the same person are allowed; the
+    /// SQL ordering picks the most-recently-active alternative.
+    private func findExistingOneToOne(session: any SessionManagerProtocol) -> Conversation? {
+        try? session
+            .conversationsRepository(for: [.allowed, .unknown])
+            .findOneToOne(with: contact.inboxId, excluding: mode.conversationId)
     }
 
     private func handleBlockTap() {
