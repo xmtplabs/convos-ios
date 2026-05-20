@@ -120,7 +120,7 @@ struct ConvosApp: App {
                 // Foreground refresh — TTL-debounced inside both services, so
                 // this is a cheap no-op if we were just active. Catches the
                 // case where credits changed server-side while the app was
-                // backgrounded (Hermes consume, Apple webhook, manual op).
+                // backgrounded (agent runtime consume, Apple webhook, manual op).
                 Task {
                     await CreditsServices.shared.refresh()
                     await SubscriptionServices.shared.refresh()

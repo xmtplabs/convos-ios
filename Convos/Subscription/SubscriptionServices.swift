@@ -7,8 +7,12 @@ enum SubscriptionServices {
     }
 
     static var useRealStoreKit: Bool {
-        if ConfigManager.shared.currentEnvironment.isProduction { return true }
-        return UserDefaults.standard.bool(forKey: Constant.useRealStoreKitKey)
+        let environment = ConfigManager.shared.currentEnvironment
+        if environment.isProduction { return true }
+        if let stored = UserDefaults.standard.object(forKey: Constant.useRealStoreKitKey) as? Bool {
+            return stored
+        }
+        return environment.buildEnvironment == .distribution
     }
 
     static func setUseRealStoreKit(_ value: Bool) {

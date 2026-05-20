@@ -13,6 +13,7 @@ public actor CreditBalanceWriter {
     private let databaseWriter: any DatabaseWriter
     private let apiClient: any ConvosAPIClientProtocol
     private var lastFetchedAt: Date?
+    private var refreshTask: Task<Bool, Never>?
 
     public init(
         databaseWriter: any DatabaseWriter,
@@ -23,16 +24,31 @@ public actor CreditBalanceWriter {
     }
 
     public func refresh(force: Bool) async {
+        if let refreshTask {
+            _ = await refreshTask.value
+            return
+        }
         if !force, let last = lastFetchedAt,
            Date().timeIntervalSince(last) < Self.refreshTTL {
             return
         }
+        let task: Task<Bool, Never> = Task { await performRefresh() }
+        refreshTask = task
+        let didRefresh = await task.value
+        refreshTask = nil
+        if didRefresh {
+            lastFetchedAt = Date()
+        }
+    }
+
+    private func performRefresh() async -> Bool {
         do {
             let balance = try await apiClient.getCreditBalance()
             try await write(balance)
-            lastFetchedAt = Date()
+            return true
         } catch {
             Log.error("Failed to refresh credit balance from backend: \(error)")
+            return false
         }
     }
 

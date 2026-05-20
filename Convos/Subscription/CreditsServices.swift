@@ -27,8 +27,12 @@ enum CreditsServices {
     }
 
     static var useRealBackend: Bool {
-        if ConfigManager.shared.currentEnvironment.isProduction { return true }
-        return UserDefaults.standard.bool(forKey: Constant.useRealBackendKey)
+        let environment = ConfigManager.shared.currentEnvironment
+        if environment.isProduction { return true }
+        if let stored = UserDefaults.standard.object(forKey: Constant.useRealBackendKey) as? Bool {
+            return stored
+        }
+        return environment.buildEnvironment == .distribution
     }
 
     static func setUseRealBackend(_ value: Bool) {

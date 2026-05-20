@@ -12,7 +12,7 @@ import GRDB
 /// internal. The repo-based observation lets the HOME pill, conversation
 /// banner, settings detail, and paywall stay in lockstep through the same
 /// GRDB observation channel the rest of the app uses.
-public final class BackendCreditsService: CreditsServiceProtocol, @unchecked Sendable {
+public final class BackendCreditsService: CreditsServiceProtocol {
     private let writer: CreditBalanceWriter
     private let repository: CreditsRepository
 
@@ -23,9 +23,6 @@ public final class BackendCreditsService: CreditsServiceProtocol, @unchecked Sen
     ) {
         self.writer = CreditBalanceWriter(databaseWriter: databaseWriter, apiClient: apiClient)
         self.repository = CreditsRepository(databaseReader: databaseReader)
-        Task { [weak self] in
-            await self?.refresh(force: true)
-        }
     }
 
     public var balancePublisher: AnyPublisher<CreditBalance?, Never> {
@@ -33,7 +30,12 @@ public final class BackendCreditsService: CreditsServiceProtocol, @unchecked Sen
     }
 
     public var currentBalance: CreditBalance? {
-        try? repository.currentBalance()
+        do {
+            return try repository.currentBalance()
+        } catch {
+            Log.error("Failed reading cached credit balance: \(error)")
+            return nil
+        }
     }
 
     public func refresh(force: Bool) async {
