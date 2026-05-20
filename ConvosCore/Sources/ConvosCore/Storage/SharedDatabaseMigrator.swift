@@ -156,6 +156,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
 
         migrator.registerMigration("renameConversationHasHadVerifiedAssistantToAgent", migrate: Self.renameConversationHasHadVerifiedAssistantToAgent)
+        Self.registerAgentTemplateContactMigrations(on: &migrator)
 
         migrator.registerMigration("addAgentBuilderSummaryCloudConnectionIds", migrate: Self.addAgentBuilderSummaryCloudConnectionIds)
 
@@ -388,6 +389,18 @@ extension SharedDatabaseMigrator {
                 t.column("periodLabel", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
             }
+        }
+    }
+
+    /// Agent Templates Phase 2: the templateId-keyed agent-template contact
+    /// table. Separate from the inboxId-keyed `contact` table because a
+    /// template instantiated into N conversations produces N distinct agent
+    /// inboxIds - the stable identity of the contact is the template.
+    /// Registered after the contacts-MVP migrations so the
+    /// `addedViaConversationId` foreign key against `conversation` resolves.
+    private static func registerAgentTemplateContactMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createAgentTemplateContactTable") { db in
+            try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
         }
     }
 
@@ -786,5 +799,36 @@ extension SharedDatabaseMigrator {
                 .references("conversation", onDelete: .cascade)
             t.column("contactsSyncedAt", .datetime).notNull()
         }
+    }
+
+    /// Agent-template contact table. Keyed by `templateId` (the backend
+    /// `AgentTemplate.id`), storing a most-recent-wins snapshot of the
+    /// template profile fields observed from encountered instances.
+    /// `addedViaConversationId` uses `setNull` so the contact survives its
+    /// source conversation, matching the `contact` table. No `blockedAt`
+    /// column: agent-template contacts support Remove only (see
+    /// docs/plans/agent-templates-phase-2-prd.md).
+    private static func createAgentTemplateContactSchema(_ db: Database) throws {
+        try db.create(table: "agentTemplateContact") { t in
+            t.column("templateId", .text)
+                .notNull()
+                .primaryKey()
+            t.column("addedAt", .datetime).notNull()
+            t.column("addedViaConversationId", .text)
+                .references("conversation", onDelete: .setNull)
+            t.column("displayName", .text)
+            t.column("emoji", .text)
+            t.column("descriptionText", .text)
+            t.column("publishedURL", .text)
+            t.column("avatarURL", .text)
+            t.column("agentVerification", .jsonText)
+            t.column("profileUpdatedAt", .datetime)
+        }
+
+        try db.create(
+            index: "idx_agentTemplateContact_displayName",
+            on: "agentTemplateContact",
+            columns: ["displayName"]
+        )
     }
 }
