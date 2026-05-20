@@ -115,7 +115,20 @@ extension ConvosAPIClientProtocol {
 /// state we need so the authenticated request path and the 401 refresh
 /// path can pick up the same context the session-level auth call used,
 /// without exposing libxmtp / KeychainIdentity through the protocol.
+///
+/// Shared across all `ConvosAPIClient` instances via `.shared`. Multiple
+/// services in the app (`SessionManager` and any non-session services
+/// that construct their own `ConvosAPIClient` via the factory — e.g.
+/// `BackendCreditsService`, `StoreKitSubscriptionService` on the IAP
+/// credits branch) each get their own client. Per-instance slots meant
+/// only the SessionManager's client saw the registered context, and the
+/// others silently fell back to legacy device-only auth on 401 refresh,
+/// minting JWTs without `accountId` and 403-ing every `requireAccount`-
+/// gated call. The static singleton keeps the registered context visible
+/// to all clients in the process.
 final class LockedSigningContext: @unchecked Sendable {
+    static let shared: LockedSigningContext = LockedSigningContext()
+
     private let lock: NSLock = NSLock()
     private var value: BackendAuthSigningContext?
 
@@ -137,7 +150,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     let keychainService: any KeychainServiceProtocol = KeychainService()
     private let overrideJWTToken: String?  // Immutable JWT override from APNS payload
     let maxRetryCount: Int = 3
-    let siweSigningContext: LockedSigningContext = LockedSigningContext()
+    let siweSigningContext: LockedSigningContext = .shared
 
     fileprivate init(environment: AppEnvironment, overrideJWTToken: String? = nil) {
         guard let apiBaseURL = URL(string: environment.apiBaseURL) else {
