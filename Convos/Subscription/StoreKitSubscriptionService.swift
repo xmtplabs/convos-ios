@@ -91,10 +91,6 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         return new
     }
 
-    private enum Constant {
-        static let appAccountTokenKey: String = "storeKit.appAccountToken"
-    }
-
     public func restorePurchases() async throws {
         try await AppStore.sync()
         await refreshFromEntitlements()
@@ -142,7 +138,7 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         var latest: UserSubscription?
         for await result in Transaction.currentEntitlements {
             guard let transaction = try? verifiedTransaction(result) else { continue }
-            guard let sub = userSubscription(from: transaction) else { continue }
+            guard let sub = await userSubscription(from: transaction) else { continue }
             latest = sub
         }
         subscriptionSubject.send(latest)
@@ -186,23 +182,69 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         )
     }
 
-    private func userSubscription(from transaction: Transaction) -> UserSubscription? {
+    private func userSubscription(from transaction: Transaction) async -> UserSubscription? {
         guard let tier = SubscriptionProductIDs.tier(for: transaction.productID),
               let period = SubscriptionProductIDs.period(for: transaction.productID) else {
             return nil
         }
-        let status: ConvosCore.SubscriptionStatus = subscriptionStatus(from: transaction)
-        let willRenew: Bool = transaction.revocationDate == nil
+        let snapshot: StoreKitSubscriptionSnapshot = await storeKitSubscriptionSnapshot(for: transaction)
         let isInTrial: Bool = transaction.offer?.type == .introductory
         return UserSubscription(
             tier: tier,
             period: period,
-            status: status,
+            status: snapshot.status,
             productId: transaction.productID,
             currentPeriodEnd: transaction.expirationDate ?? Date(),
-            willRenew: willRenew,
+            willRenew: snapshot.willRenew,
             isInTrial: isInTrial
         )
+    }
+
+    /// Combines what we can derive from the Transaction alone with what only
+    /// StoreKit's subscription-status APIs can tell us:
+    ///
+    ///   - `RenewalInfo.willAutoRenew` is the only reliable signal for "did
+    ///     the user cancel auto-renewal?". `Transaction.revocationDate` is
+    ///     unrelated — it only fires on a refund / Family Sharing revoke.
+    ///   - `Product.SubscriptionInfo.RenewalState` distinguishes
+    ///     in-grace-period and in-billing-retry from plain active, neither
+    ///     of which the bare Transaction surfaces.
+    ///
+    /// Falls back to the transaction-only derivation if the status lookup
+    /// fails (network hiccup, product gone from ASC, verified transaction
+    /// without a matching status row).
+    private func storeKitSubscriptionSnapshot(for transaction: Transaction) async -> StoreKitSubscriptionSnapshot {
+        let fallback: StoreKitSubscriptionSnapshot = StoreKitSubscriptionSnapshot(
+            status: subscriptionStatus(from: transaction),
+            // Conservative fallback: at purchase time auto-renew is on by
+            // default. If the user cancelled since and we can't read the
+            // renewal info, we'll be wrong until the next successful status
+            // read — preferable to silently flipping non-renewing users to
+            // "Expires" while their plan is still active.
+            willRenew: transaction.revocationDate == nil
+        )
+
+        do {
+            let products = try await Product.products(for: [transaction.productID])
+            guard let subscription = products.first?.subscription else {
+                return fallback
+            }
+            let statuses: [Product.SubscriptionInfo.Status] = try await subscription.status
+            guard let status = statuses.first(where: { status in
+                guard let statusTransaction = try? verifiedTransaction(status.transaction) else { return false }
+                return statusTransaction.originalID == transaction.originalID
+            }) else {
+                return fallback
+            }
+            let renewalInfo: Product.SubscriptionInfo.RenewalInfo = try verifiedTransaction(status.renewalInfo)
+            return StoreKitSubscriptionSnapshot(
+                status: subscriptionStatus(from: status.state, transaction: transaction),
+                willRenew: renewalInfo.willAutoRenew
+            )
+        } catch {
+            Log.error("Failed reading StoreKit renewal info for \(transaction.productID): \(error)")
+            return fallback
+        }
     }
 
     private func subscriptionStatus(from transaction: Transaction) -> ConvosCore.SubscriptionStatus {
@@ -213,9 +255,41 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         return transaction.offer?.type == .introductory ? .trial : .active
     }
 
+    /// Maps StoreKit's authoritative `RenewalState` onto our local
+    /// `SubscriptionStatus`. Preferred over the Transaction-only derivation
+    /// because it surfaces grace-period and billing-retry states.
+    private func subscriptionStatus(
+        from renewalState: Product.SubscriptionInfo.RenewalState,
+        transaction: Transaction
+    ) -> ConvosCore.SubscriptionStatus {
+        switch renewalState {
+        case .subscribed:
+            return transaction.offer?.type == .introductory ? .trial : .active
+        case .inGracePeriod:
+            return .grace
+        case .inBillingRetryPeriod:
+            return .billingRetry
+        case .expired:
+            return .expired
+        case .revoked:
+            return .revoked
+        default:
+            return subscriptionStatus(from: transaction)
+        }
+    }
+
     private func perMonthString(for product: Product) -> String? {
         let monthly: Decimal = product.price / 12
         let formatted: String = monthly.formatted(product.priceFormatStyle)
         return "\(formatted)/mo"
+    }
+
+    private struct StoreKitSubscriptionSnapshot {
+        let status: ConvosCore.SubscriptionStatus
+        let willRenew: Bool
+    }
+
+    private enum Constant {
+        static let appAccountTokenKey: String = "storeKit.appAccountToken"
     }
 }
