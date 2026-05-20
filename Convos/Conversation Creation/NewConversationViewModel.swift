@@ -261,10 +261,7 @@ class NewConversationViewModel: Identifiable {
                 )
 
             case .existingConversation(let conversationId):
-                configureWithMessagingService(
-                    session.messagingService(),
-                    existingConversationId: conversationId
-                )
+                configureWithMessagingService(session.messagingService(), existingConversationId: conversationId)
 
             case .scanner, .joinInvite:
                 let messagingService = session.messagingService()
