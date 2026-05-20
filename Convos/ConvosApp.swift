@@ -88,8 +88,14 @@ struct ConvosApp: App {
         )
         // Seed the credit_balance table on cold launch. The scene-phase
         // handler covers subsequent foreground transitions, but on first
-        // launch (or post-wipe) the table is empty until this refresh lands.
-        // Forced so the 15s TTL doesn't gate an empty cache.
+        // launch (or post-wipe) the table is empty until this refresh
+        // lands. Forced so the 15s TTL doesn't gate an empty cache. The
+        // unstructured Task is intentional: views default `@State` to
+        // `nil`, render gracefully during the brief window before the
+        // refresh completes, and update via `CreditsRepository`'s GRDB
+        // observation once the row is upserted. Bumping priority would
+        // be theatre on the launch path where everything is already
+        // foregrounded.
         Task {
             await CreditsServices.shared.refresh(force: true)
         }
