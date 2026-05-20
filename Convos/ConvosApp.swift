@@ -86,6 +86,13 @@ struct ConvosApp: App {
             client: convos,
             apiClient: ConvosAPIClientFactory.client(environment: environment)
         )
+        // Seed the credit_balance table on cold launch. The scene-phase
+        // handler covers subsequent foreground transitions, but on first
+        // launch (or post-wipe) the table is empty until this refresh lands.
+        // Forced so the 15s TTL doesn't gate an empty cache.
+        Task {
+            await CreditsServices.shared.refresh(force: true)
+        }
 
         // Sync the mock credits/subscription state from the persisted picker
         // preset so HOME pill + paywall reflect the operator's last selection.

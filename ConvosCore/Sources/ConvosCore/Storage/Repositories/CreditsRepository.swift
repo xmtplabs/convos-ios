@@ -26,7 +26,10 @@ public final class CreditsRepository: CreditsRepositoryProtocol, Sendable {
                     .hydrate()
             }
             .publisher(in: databaseReader, scheduling: .immediate)
-            .replaceError(with: nil)
+            .catch { error -> Just<CreditBalance?> in
+                Log.error("Credit balance observation failed: \(error)")
+                return Just(nil)
+            }
             .eraseToAnyPublisher()
     }
 
