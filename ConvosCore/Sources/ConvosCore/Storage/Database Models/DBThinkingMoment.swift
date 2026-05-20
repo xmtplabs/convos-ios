@@ -30,13 +30,13 @@ struct DBThinkingMoment: Codable, FetchableRecord, PersistableRecord, Sendable {
     var resultMessageId: String?
 
     enum Columns {
-        static let id = Column(CodingKeys.id)
-        static let conversationId = Column(CodingKeys.conversationId)
-        static let senderInboxId = Column(CodingKeys.senderInboxId)
-        static let targetMessageId = Column(CodingKeys.targetMessageId)
-        static let state = Column(CodingKeys.state)
-        static let content = Column(CodingKeys.content)
-        static let sentAtNs = Column(CodingKeys.sentAtNs)
-        static let resultMessageId = Column(CodingKeys.resultMessageId)
+        static let id: Column = Column(CodingKeys.id)
+        static let conversationId: Column = Column(CodingKeys.conversationId)
+        static let senderInboxId: Column = Column(CodingKeys.senderInboxId)
+        static let targetMessageId: Column = Column(CodingKeys.targetMessageId)
+        static let state: Column = Column(CodingKeys.state)
+        static let content: Column = Column(CodingKeys.content)
+        static let sentAtNs: Column = Column(CodingKeys.sentAtNs)
+        static let resultMessageId: Column = Column(CodingKeys.resultMessageId)
     }
 }

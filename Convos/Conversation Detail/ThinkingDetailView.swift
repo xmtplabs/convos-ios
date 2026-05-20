@@ -116,7 +116,8 @@ struct ThinkingDetailView: View {
     }
 
     private var dismissButton: some View {
-        Button(action: { dismiss() }) {
+        let action: () -> Void = { dismiss() }
+        return Button(action: action) {
             Image(systemName: "checkmark")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(.colorTextPrimaryInverted)
