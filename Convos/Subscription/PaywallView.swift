@@ -95,7 +95,13 @@ struct PaywallView: View {
     private var tierStack: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             ForEach(SubscriptionTier.allCases, id: \.self) { tier in
-                tierCard(for: tier)
+                // Hide tier cards that have no product for the currently-
+                // selected period (e.g. Pro on Annual — Apple's price-tier
+                // ceiling for non-large-merchant accounts kept us from
+                // shipping Pro Annual at launch).
+                if viewModel.product(for: tier, period: viewModel.selectedPeriod) != nil {
+                    tierCard(for: tier)
+                }
             }
         }
     }

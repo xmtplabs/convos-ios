@@ -72,30 +72,9 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "1919.90",
-          "familyShareable" : false,
-          "groupNumber" : 1,
-          "internalID" : "9001A001-0000-0000-0000-000000000004",
-          "introductoryOffer" : null,
-          "localizations" : [
-            {
-              "description" : "Pro plan — annual subscription with a larger credit allotment and priority support.",
-              "displayName" : "Convos Pro",
-              "locale" : "en_US"
-            }
-          ],
-          "productID" : "app.convos.subs.pro.annual",
-          "recurringSubscriptionPeriod" : "P1Y",
-          "referenceName" : "Pro Annual (-20%)",
-          "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
-          "type" : "RecurringSubscription"
-        },
-        {
-          "adHocOffers" : [],
-          "codeOffers" : [],
           "displayPrice" : "199.99",
           "familyShareable" : false,
-          "groupNumber" : 2,
+          "groupNumber" : 1,
           "internalID" : "9001A001-0000-0000-0000-000000000003",
           "introductoryOffer" : null,
           "localizations" : [
@@ -114,9 +93,9 @@
         {
           "adHocOffers" : [],
           "codeOffers" : [],
-          "displayPrice" : "214.89",
+          "displayPrice" : "214.99",
           "familyShareable" : false,
-          "groupNumber" : 3,
+          "groupNumber" : 2,
           "internalID" : "9001A001-0000-0000-0000-000000000002",
           "introductoryOffer" : null,
           "localizations" : [
@@ -137,7 +116,7 @@
           "codeOffers" : [],
           "displayPrice" : "19.99",
           "familyShareable" : false,
-          "groupNumber" : 4,
+          "groupNumber" : 3,
           "internalID" : "9001A001-0000-0000-0000-000000000001",
           "introductoryOffer" : null,
           "localizations" : [
