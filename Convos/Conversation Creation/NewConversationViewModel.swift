@@ -42,6 +42,11 @@ enum NewConversationMode {
     /// machine uses `.useExisting` (no create, no addMembers), and the
     /// conversation publisher emits `.ready` against the existing row.
     case existingConversation(conversationId: String)
+    /// Same instant-placeholder flow as `.newConversation`; once the
+    /// conversation reaches `.ready`, a fresh instance of the given
+    /// agent template is requested into it. Used by the agent-template
+    /// deeplink (`convos://template/<id>`).
+    case newConversationWithTemplate(templateId: String)
     case scanner
     case joinInvite(code: String)
 }
@@ -114,6 +119,14 @@ class NewConversationViewModel: Identifiable {
 
     private var conversationStateManager: (any ConversationStateManagerProtocol)?
     private var acquiredMessagingService: AnyMessagingService?
+    /// Agent template id to provision into the conversation once it
+    /// reaches `.ready`. Set only for `.newConversationWithTemplate`.
+    @ObservationIgnored
+    private var pendingAgentTemplateId: String?
+    /// One-shot guard so a re-emitted `.ready` state doesn't request the
+    /// agent join twice.
+    @ObservationIgnored
+    private var didTriggerAgentJoin: Bool = false
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
     @ObservationIgnored
@@ -146,8 +159,12 @@ class NewConversationViewModel: Identifiable {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
 
+        if case .newConversationWithTemplate(let templateId) = mode {
+            self.pendingAgentTemplateId = templateId
+        }
+
         switch mode {
-        case .newConversation, .newConversationWithMembers:
+        case .newConversation, .newConversationWithMembers, .newConversationWithTemplate:
             self.autoCreateConversation = true
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
@@ -239,7 +256,7 @@ class NewConversationViewModel: Identifiable {
             guard let self else { return }
 
             switch mode {
-            case .newConversation:
+            case .newConversation, .newConversationWithTemplate:
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -670,6 +687,14 @@ class NewConversationViewModel: Identifiable {
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
 
+            // Agent-template deeplink: the conversation now exists with a
+            // shareable invite, so request a fresh instance of the
+            // template into it. One-shot - `.ready` may re-emit.
+            if let pendingAgentTemplateId, !didTriggerAgentJoin {
+                didTriggerAgentJoin = true
+                conversationViewModel?.requestAgentJoin(templateId: pendingAgentTemplateId)
+            }
+
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
             handleJoinFailedState(error)
@@ -839,7 +864,7 @@ class NewConversationViewModel: Identifiable {
 private extension NewConversationMode {
     var isNewConversation: Bool {
         switch self {
-        case .newConversation, .newConversationWithMembers:
+        case .newConversation, .newConversationWithMembers, .newConversationWithTemplate:
             return true
         case .existingConversation, .scanner, .joinInvite:
             return false

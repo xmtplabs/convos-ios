@@ -162,14 +162,18 @@ public enum ConvosAPI {
 
     // MARK: - v2/agents/join
     // POST /v2/agents/join
+    // The body is validated strictly server-side: unknown keys are rejected.
+    // `templateId` is optional - omitting it requests a bare join (the
+    // backend provisions a default agent). A nil `templateId` is omitted
+    // from the encoded JSON by Codable's synthesized encoder.
 
     public struct AgentJoinRequest: Codable {
         public let slug: String
-        public let instructions: String
+        public let templateId: String?
 
-        public init(slug: String, instructions: String) {
+        public init(slug: String, templateId: String?) {
             self.slug = slug
-            self.instructions = instructions
+            self.templateId = templateId
         }
     }
 

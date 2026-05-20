@@ -83,7 +83,7 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 
     // Agents
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
 
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
@@ -93,8 +93,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 }
 
 extension ConvosAPIClientProtocol {
-    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: nil)
+    func requestAgentJoin(slug: String, templateId: String?) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: nil)
     }
 }
 
@@ -666,7 +666,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Agents
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Backend pool timeout is 30s; give 5s buffer so backend returns a proper 504 before iOS times out
@@ -679,7 +679,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
                 slug: slug,
-                instructions: instructions
+                templateId: templateId
             )
         )
 
@@ -701,6 +701,10 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.forbidden
         case 404:
             throw APIError.notFound
+        case 410:
+            // Template resolved but is archived - the backend won't
+            // provision an instance from it.
+            throw APIError.templateArchived
         default:
             throw APIError.serverError(parseErrorMessage(from: data))
         }
@@ -778,6 +782,7 @@ public enum APIError: Error {
     case noAgentsAvailable
     case agentPoolTimeout
     case agentProvisionFailed
+    case templateArchived
 }
 
 extension APIError: DisplayError {
@@ -811,6 +816,8 @@ extension APIError: DisplayError {
             return "Assistant timed out"
         case .agentProvisionFailed:
             return "Couldn't add assistant"
+        case .templateArchived:
+            return "Agent unavailable"
         }
     }
 
@@ -844,6 +851,8 @@ extension APIError: DisplayError {
             return "Assistant setup took too long. Please try again."
         case .agentProvisionFailed:
             return "Something went wrong while adding an assistant. Please try again."
+        case .templateArchived:
+            return "This agent has been archived and can't be added to a conversation."
         }
     }
 }
