@@ -339,16 +339,35 @@ final class AssistantBuilderViewModel: Identifiable {
         composerText = ""
 
         if let innerVM = newConversationViewModel.conversationViewModel {
-            // Snapshot the prompt + attachments into a summary BEFORE we send
-            // anything, so the messages list's cutoff catches the user's own
-            // sends and the summary card renders chips identical to what was
-            // staged in the draft composer.
+            // Allocate the bundle's `clientMessageId`s synchronously so they
+            // can land in `AssistantBuilderSummary.bundledMessageIds` BEFORE
+            // the writer ever touches the DB. `MessagesListProcessor` then
+            // filters by id, not by timestamp — a slow multi-remote upload
+            // can no longer leak a bare bundle bubble past the summary card.
+            let textMessageId: String? = textToSend.isEmpty ? nil : UUID().uuidString
+            let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
+            if let recorded = recordedVoiceMemo {
+                voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
+                    url: recorded.url,
+                    duration: recorded.duration,
+                    levels: voiceMemoAudioLevels
+                )
+            } else {
+                voiceMemoSnapshot = nil
+            }
+            let willSendBundle: Bool = voiceMemoSnapshot != nil || !innerVM.pendingMediaAttachments.isEmpty
+            let bundleMessageId: String? = willSendBundle ? UUID().uuidString : nil
+            var bundledMessageIds: Set<String> = []
+            if let textMessageId { bundledMessageIds.insert(textMessageId) }
+            if let bundleMessageId { bundledMessageIds.insert(bundleMessageId) }
+
             let summary: AssistantBuilderSummary = buildSummary(
                 prompt: textToSend,
                 voiceMemo: recordedVoiceMemo,
                 voiceMemoLevels: voiceMemoAudioLevels,
                 mediaAttachments: innerVM.pendingMediaAttachments,
-                connections: enabledConnections
+                connections: enabledConnections,
+                bundledMessageIds: bundledMessageIds
             )
             innerVM.assistantBuilderSummary = summary
             // Hide the staged-chip strip on the chat composer for the
@@ -377,17 +396,7 @@ final class AssistantBuilderViewModel: Identifiable {
             // the user-facing loading indicator. The normal conversation
             // send path stays per-attachment so per-item reactions / replies
             // keep working there; the bundle path is builder-only.
-            let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
-            if let recorded = recordedVoiceMemo {
-                voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
-                    url: recorded.url,
-                    duration: recorded.duration,
-                    levels: voiceMemoAudioLevels
-                )
-            } else {
-                voiceMemoSnapshot = nil
-            }
-            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot] in
+            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot, textMessageId, bundleMessageId] in
                 guard let innerVM else { return }
                 do {
                     try await innerVM.awaitPendingMediaUploads()
@@ -398,7 +407,12 @@ final class AssistantBuilderViewModel: Identifiable {
                     // rather try to deliver than leave the user with a
                     // stuck pulsing card.
                 }
-                await innerVM.sendBuilderBundle(text: textToSend, voiceMemo: voiceMemoSnapshot)
+                await innerVM.sendBuilderBundle(
+                    text: textToSend,
+                    voiceMemo: voiceMemoSnapshot,
+                    textMessageId: textMessageId,
+                    bundleMessageId: bundleMessageId
+                )
             }
         }
 
@@ -451,7 +465,8 @@ final class AssistantBuilderViewModel: Identifiable {
         voiceMemo: (url: URL, duration: TimeInterval)?,
         voiceMemoLevels: [Float],
         mediaAttachments: [PendingMediaAttachment],
-        connections: Set<AssistantBuilderConnection>
+        connections: Set<AssistantBuilderConnection>,
+        bundledMessageIds: Set<String>
     ) -> AssistantBuilderSummary {
         var attachments: [AssistantBuilderSummaryAttachment] = []
         if let voiceMemo {
@@ -475,14 +490,16 @@ final class AssistantBuilderViewModel: Identifiable {
         for connection in connections.sorted(by: { $0.id < $1.id }) {
             attachments.append(.connection(id: UUID(), identifier: connection.rawValue))
         }
-        // `cutoffDate` is the exact Make-tap moment. The messages-list filter
-        // pads it (only for current-user-sent groups) so it still catches the
-        // user's prompt sends after the writer assigns their slightly-later
-        // `sentAt` — see `MessagesViewController.userPromptCutoffPad`.
+        // `cutoffDate` still gates assistant-side groups (pre-Make hello
+        // messages from the agent) — we don't control the agent's send
+        // timing so timestamps are the only signal there. User-side filtering
+        // is by-id via `bundledMessageIds`, which doesn't suffer the
+        // upload-stretch race that the old user-side cutoff pad did.
         return AssistantBuilderSummary(
             prompt: prompt,
             attachments: attachments,
-            cutoffDate: Date()
+            cutoffDate: Date(),
+            bundledMessageIds: bundledMessageIds
         )
     }
 

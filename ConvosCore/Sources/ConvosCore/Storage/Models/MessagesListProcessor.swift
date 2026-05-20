@@ -2,18 +2,6 @@ import Foundation
 
 public final class MessagesListProcessor: Sendable {
     private static let hourInSeconds: TimeInterval = 3600
-    /// Pad applied to `AssistantBuilderSummary.cutoffDate` when deciding
-    /// whether a single current-user message is one of the Make-time prompt
-    /// sends. The writer assigns `sentAt` shortly after commit (text/voice
-    /// memo land within ~1s, photo uploads can stretch a few seconds). 5s
-    /// catches the typical persistence window without filtering legitimate
-    /// post-Make messages the user types into the chat. The filter is applied
-    /// per-message (not per-group), so a user who sends a new message right
-    /// after the card appears keeps the new message even though their prompt
-    /// sends share the same `MessagesGroup`. Assistant responses don't need a
-    /// pad — they ride the wire later than 0s post-commit, so the unpadded
-    /// `cutoffDate` already excludes pre-Make hello messages.
-    private static let userPromptCutoffPad: TimeInterval = 5
 
     public static func process(
         _ messages: [AnyMessage],
@@ -60,17 +48,18 @@ public final class MessagesListProcessor: Sendable {
                 switch item {
                 case .messages(let group):
                     if group.sender.isCurrentUser {
-                        // Filter the group's individual messages against the
-                        // padded cutoff. A group can contain both the
-                        // Make-time prompt sends *and* messages the user
-                        // typed afterwards, since consecutive same-sender
-                        // messages stay in one group regardless of the gap.
-                        // Pre-pad messages are dropped, post-pad messages
-                        // are kept, and the group is rebuilt around what
-                        // remains (or dropped entirely if everything was
-                        // pre-pad).
-                        let cutoff: Date = summary.cutoffDate.addingTimeInterval(userPromptCutoffPad)
-                        let kept: [AnyMessage] = group.messages.filter { $0.date >= cutoff }
+                        // User-side: filter by `bundledMessageIds`. The set
+                        // is populated synchronously in
+                        // `AssistantBuilderViewModel.commit()` before the
+                        // writer is called, so the prompt text + multi-remote
+                        // bundle are caught the instant they appear in the
+                        // DB. Messages the user types after Make (not in the
+                        // set) flow through normally. A group can contain
+                        // both — consecutive same-sender messages stay in
+                        // one group regardless of the gap.
+                        let kept: [AnyMessage] = group.messages.filter {
+                            !summary.bundledMessageIds.contains($0.messageId)
+                        }
                         if kept.isEmpty { return [] }
                         if kept.count == group.messages.count { return [item] }
                         var rebuilt: MessagesGroup = MessagesGroup(
@@ -106,6 +95,13 @@ public final class MessagesListProcessor: Sendable {
                     return [item]
                 }
             }
+            // Drop date separators that no longer precede a visible message
+            // group. The base processor emits a `.date(...)` row before the
+            // first message of a new calendar window, but if every message
+            // in that window was a builder-bundle send (just filtered
+            // above), the separator is now orphaned and flashes briefly
+            // post-Make while the agent provisions.
+            items = dropOrphanDateSeparators(in: items)
         }
 
         if let assistant = verifiedAssistant {
@@ -138,6 +134,31 @@ public final class MessagesListProcessor: Sendable {
         }
 
         return items
+    }
+
+    /// Strip date separators that no longer precede a message group. A
+    /// `.date(...)` row is kept iff there is at least one `.messages(...)`
+    /// row before the next `.date(...)` (or end of list). All other item
+    /// kinds (typing indicator, system updates, etc.) don't anchor a date
+    /// — they share the most recent group's bucket.
+    private static func dropOrphanDateSeparators(in items: [MessagesListItemType]) -> [MessagesListItemType] {
+        var result: [MessagesListItemType] = []
+        result.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            if case .date = item {
+                var hasFollowingGroup: Bool = false
+                for later in items[(index + 1)...] {
+                    if case .date = later { break }
+                    if case .messages = later {
+                        hasFollowingGroup = true
+                        break
+                    }
+                }
+                if !hasFollowingGroup { continue }
+            }
+            result.append(item)
+        }
+        return result
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length

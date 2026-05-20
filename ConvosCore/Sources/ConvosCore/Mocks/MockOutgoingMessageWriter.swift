@@ -23,6 +23,11 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         try await send(text: text)
     }
 
+    public func send(text: String, clientMessageId: String) async throws {
+        sentMessages.append(text)
+        sentMessageSubject.send(clientMessageId)
+    }
+
     public func send(image: ImageType) async throws {
         sentImageCount += 1
         let mockURL = "https://example.com/photos/mock_photo_\(sentImageCount).jpg"
@@ -60,6 +65,11 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
     public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
         sentImageCount += items.count
         return UUID().uuidString
+    }
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
+        sentImageCount += items.count
+        return clientMessageId
     }
 
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {

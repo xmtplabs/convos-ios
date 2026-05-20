@@ -149,6 +149,8 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAssistantBuilderSummary)
 
+        migrator.registerMigration("addAssistantBuilderSummaryBundledMessageIds", migrate: Self.addAssistantBuilderSummaryBundledMessageIds)
+
         migrator.registerMigration("createThinkingSession", migrate: Self.createThinkingSession)
 
         migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
@@ -199,6 +201,19 @@ extension SharedDatabaseMigrator {
             t.column("attachmentsJSON", .text).notNull()
             t.column("createdAt", .datetime).notNull()
             t.column("cutoffDate", .datetime).notNull()
+        }
+    }
+
+    /// JSON-encoded `[String]` of the `clientMessageId`s that the Assistant
+    /// Builder issued on the user's behalf at commit. Replaces the
+    /// timestamp-padded filter that used to swallow user-side bundle sends —
+    /// uploads could stretch the multi-remote `sentAt` past the pad, leaking
+    /// a bare bundle bubble underneath the summary card. Defaults to `"[]"`
+    /// for rows written before this column existed; the hydrate path treats
+    /// an empty / malformed JSON the same as "no ids tracked".
+    private static func addAssistantBuilderSummaryBundledMessageIds(_ db: Database) throws {
+        try db.alter(table: "assistantBuilderSummary") { t in
+            t.add(column: "bundledMessageIdsJSON", .text).notNull().defaults(to: "[]")
         }
     }
 

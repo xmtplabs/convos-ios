@@ -342,6 +342,32 @@ struct AssistantDraftComposer: View {
     }
 }
 
+/// Insertion / removal modifier used by `PendingMediaAttachmentChip`.
+/// `active` is the "poofed out" pose — scaled up, blurred, fully
+/// transparent. Identity is the settled pose. The chip's existing
+/// state-driven remove flow keeps using this pose directly; the
+/// `AnyTransition.chipPoof` below pairs it with `.identity` so insertions
+/// animate in by reversing the same modifier.
+private struct ChipPoofModifier: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(active ? 1.3 : 1.0)
+            .blur(radius: active ? 12.0 : 0.0)
+            .opacity(active ? 0.0 : 1.0)
+    }
+}
+
+extension AnyTransition {
+    static var chipPoof: AnyTransition {
+        .modifier(
+            active: ChipPoofModifier(active: true),
+            identity: ChipPoofModifier(active: false)
+        )
+    }
+}
+
 struct PendingMediaAttachmentChip: View {
     let attachment: PendingMediaAttachment
     let onClear: (UUID) -> Void
@@ -357,6 +383,10 @@ struct PendingMediaAttachmentChip: View {
         .scaleEffect(isPoofing ? 1.3 : 1.0)
         .blur(radius: isPoofing ? 12.0 : 0.0)
         .opacity(isPoofing ? 0.0 : 1.0)
+        // Insertion only — the existing `isPoofing` state drives the
+        // removal animation manually (so the chip can dwell at the
+        // poofed-out pose for 200ms before being removed from the array).
+        .transition(.asymmetric(insertion: .chipPoof, removal: .identity))
     }
 
     private func triggerRemoval() {

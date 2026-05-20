@@ -16,6 +16,7 @@ public struct DBAssistantBuilderSummary: Codable, FetchableRecord, PersistableRe
         public static let attachmentsJSON: Column = Column(CodingKeys.attachmentsJSON)
         public static let createdAt: Column = Column(CodingKeys.createdAt)
         public static let cutoffDate: Column = Column(CodingKeys.cutoffDate)
+        public static let bundledMessageIdsJSON: Column = Column(CodingKeys.bundledMessageIdsJSON)
     }
 
     public let conversationId: String
@@ -28,6 +29,13 @@ public struct DBAssistantBuilderSummary: Codable, FetchableRecord, PersistableRe
     public let attachmentsJSON: String
     public let createdAt: Date
     public let cutoffDate: Date
+    /// JSON-encoded `[String]` of the `clientMessageId`s of every send the
+    /// builder issued on the user's behalf (prompt text, multi-remote
+    /// attachment bundle, …). The processor filters these out of the chat
+    /// feed by id so they don't render beside the summary card. Stored as a
+    /// JSON array (not a Set) for portability; the model layer rehydrates
+    /// into a Set for O(1) lookups.
+    public let bundledMessageIdsJSON: String
 
     public init(
         conversationId: String,
@@ -35,7 +43,8 @@ public struct DBAssistantBuilderSummary: Codable, FetchableRecord, PersistableRe
         prompt: String,
         attachmentsJSON: String,
         createdAt: Date,
-        cutoffDate: Date
+        cutoffDate: Date,
+        bundledMessageIdsJSON: String
     ) {
         self.conversationId = conversationId
         self.summaryId = summaryId
@@ -43,5 +52,6 @@ public struct DBAssistantBuilderSummary: Codable, FetchableRecord, PersistableRe
         self.attachmentsJSON = attachmentsJSON
         self.createdAt = createdAt
         self.cutoffDate = cutoffDate
+        self.bundledMessageIdsJSON = bundledMessageIdsJSON
     }
 }

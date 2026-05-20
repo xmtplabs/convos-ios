@@ -245,6 +245,13 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         }
     }
 
+    public func send(text: String, clientMessageId: String) async throws {
+        await stateMachine.sendMessage(text: text, clientMessageId: clientMessageId)
+        await MainActor.run {
+            sentMessageSubject.send(text)
+        }
+    }
+
     public func send(image: ImageType) async throws {
         try await stateMachine.sendPhoto(image: image)
     }
@@ -279,6 +286,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
         try await stateMachine.sendMultiRemoteAttachment(items: items)
+    }
+
+    public func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
+        try await stateMachine.sendMultiRemoteAttachment(items: items, clientMessageId: clientMessageId)
     }
 
     public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {

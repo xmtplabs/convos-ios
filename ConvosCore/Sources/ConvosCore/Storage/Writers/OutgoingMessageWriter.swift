@@ -22,6 +22,12 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     var sentMessage: AnyPublisher<String, Never> { get }
     func send(text: String) async throws
     func send(text: String, afterPhoto trackingKey: String?) async throws
+    /// Variant that accepts a caller-supplied `clientMessageId`. The
+    /// Assistant Builder uses this so it can persist a summary whose
+    /// `bundledMessageIds` references the row before the writer ever
+    /// touches the network — the filter then catches the row the instant
+    /// it lands in the DB, with no `sentAt` race.
+    func send(text: String, clientMessageId: String) async throws
     func send(image: ImageType) async throws
     func insertPendingInvite(text: String) async throws -> String
     func finalizeInvite(clientMessageId: String, finalText: String) async throws
@@ -75,6 +81,11 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// the receive path. The assistant builder uses this so the whole media
     /// bundle lands at the agent in a single delivery.
     func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String
+
+    /// Variant that accepts a caller-supplied `clientMessageId`. See the
+    /// matching `send(text:clientMessageId:)` overload — same motivation
+    /// for the Assistant Builder commit path.
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String
 
     // MARK: - Replies
 
@@ -283,6 +294,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         try await sendText(text, afterPhoto: trackingKey, replyContext: nil)
     }
 
+    func send(text: String, clientMessageId: String) async throws {
+        try await sendText(text, afterPhoto: nil, replyContext: nil, clientMessageId: clientMessageId)
+    }
+
     func insertPendingInvite(text: String) async throws -> String {
         let clientMessageId = UUID().uuidString
         try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: nil)
@@ -316,8 +331,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         startProcessingIfNeeded()
     }
 
-    private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?) async throws {
-        let clientMessageId = UUID().uuidString
+    private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?, clientMessageId: String? = nil) async throws {
+        let clientMessageId: String = clientMessageId ?? UUID().uuidString
         try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: replyContext)
 
         let queued = QueuedTextMessage(
@@ -661,12 +676,15 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        try await sendMultiRemoteAttachment(items: items, clientMessageId: UUID().uuidString)
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
         guard !items.isEmpty else {
             throw OutgoingMessageWriterError.eagerUploadNotFound
         }
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let conversationIdLocal = self.conversationId
-        let clientMessageId = UUID().uuidString
         let perfStart = CFAbsoluteTimeGetCurrent()
 
         let entries = try await resolveBundleEntries(items: items, inboxReady: inboxReady)

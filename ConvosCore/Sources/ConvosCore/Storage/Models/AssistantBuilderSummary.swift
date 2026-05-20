@@ -14,22 +14,36 @@ public struct AssistantBuilderSummary: Sendable, Equatable, Codable, Identifiabl
     public let prompt: String
     public let attachments: [AssistantBuilderSummaryAttachment]
     public let createdAt: Date
-    /// Messages with `sentAt < cutoffDate` are filtered out of the post-commit
-    /// list — the summary card stands in for them.
+    /// Assistant-side cutoff: messages sent by *other* members with
+    /// `sentAt < cutoffDate` are filtered out of the post-commit list (pre-Make
+    /// hello chatter from the agent). User-side filtering goes through
+    /// `bundledMessageIds` instead — timestamps proved unreliable there
+    /// because uploads can stretch a multi-remote bundle's `sentAt` well past
+    /// the moment the user tapped Make.
     public let cutoffDate: Date
+    /// `clientMessageId`s of the sends the builder issued on the user's behalf
+    /// (prompt text + multi-remote attachment bundle today; voice memo etc.
+    /// when added). `MessagesListProcessor` filters these out of the chat
+    /// feed so they don't render as bare bubbles alongside the summary card.
+    /// Populated synchronously by `AssistantBuilderViewModel.commit()` before
+    /// any writer call returns, so the messages are filtered the moment they
+    /// land in the DB — no `sentAt` race.
+    public let bundledMessageIds: Set<String>
 
     public init(
         id: UUID = UUID(),
         prompt: String,
         attachments: [AssistantBuilderSummaryAttachment],
         createdAt: Date = Date(),
-        cutoffDate: Date
+        cutoffDate: Date,
+        bundledMessageIds: Set<String> = []
     ) {
         self.id = id
         self.prompt = prompt
         self.attachments = attachments
         self.createdAt = createdAt
         self.cutoffDate = cutoffDate
+        self.bundledMessageIds = bundledMessageIds
     }
 }
 

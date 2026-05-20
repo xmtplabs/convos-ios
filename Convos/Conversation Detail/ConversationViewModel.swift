@@ -1662,7 +1662,9 @@ extension ConversationViewModel {
             return
         }
         let attachment = PendingFileAttachment(url: url, filename: filename, mimeType: mimeType, fileSize: fileSize)
-        pendingMediaAttachments.append(.file(attachment))
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            pendingMediaAttachments.append(.file(attachment))
+        }
     }
 
     func addVideoAttachment(url: URL) {
@@ -1672,7 +1674,9 @@ extension ConversationViewModel {
         }
         let attachment = PendingVideoAttachment(url: url)
         let attachmentId = attachment.id
-        pendingMediaAttachments.append(.video(attachment))
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            pendingMediaAttachments.append(.video(attachment))
+        }
 
         videoThumbnailTasks[attachmentId] = Task { [weak self] in
             do {
@@ -1725,7 +1729,9 @@ extension ConversationViewModel {
         guard canStageMoreMedia else { return }
         let attachment = PendingPhotoAttachment(image: image)
         let attachmentId = attachment.id
-        pendingMediaAttachments.append(.photo(attachment))
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            pendingMediaAttachments.append(.photo(attachment))
+        }
 
         let messageWriter = cachedMessageWriter
         eagerUploadStartTasks[attachmentId] = Task { [weak self] in
@@ -1902,7 +1908,9 @@ extension ConversationViewModel {
     /// reactions and replies continue to work.
     func sendBuilderBundle(
         text: String,
-        voiceMemo: BuilderVoiceMemoSnapshot?
+        voiceMemo: BuilderVoiceMemoSnapshot?,
+        textMessageId: String? = nil,
+        bundleMessageId: String? = nil
     ) async {
         defer { isAwaitingBuilderBundleSend = false }
         let writer = cachedMessageWriter
@@ -1936,7 +1944,11 @@ extension ConversationViewModel {
 
         if !text.isEmpty {
             do {
-                try await writer.send(text: text)
+                if let textMessageId {
+                    try await writer.send(text: text, clientMessageId: textMessageId)
+                } else {
+                    try await writer.send(text: text)
+                }
             } catch {
                 Log.error("AssistantBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
             }
@@ -1944,7 +1956,11 @@ extension ConversationViewModel {
 
         if !bundleItems.isEmpty {
             do {
-                _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
+                if let bundleMessageId {
+                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems, clientMessageId: bundleMessageId)
+                } else {
+                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
+                }
             } catch {
                 Log.error("AssistantBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
                 // Restore pending attachments so the user can retry from the
