@@ -53,7 +53,11 @@ final class PaywallViewModel {
     }
 
     func loadProducts() async {
-        guard products.isEmpty else { return }
+        // PaywallViewModel is @MainActor, but actors are re-entrant at await
+        // suspension points. Without the !isLoadingProducts check, a second
+        // loadProducts() call entering during the availableProducts() await
+        // would see products still empty and fire a duplicate fetch.
+        guard products.isEmpty, !isLoadingProducts else { return }
         isLoadingProducts = true
         defer { isLoadingProducts = false }
         do {
