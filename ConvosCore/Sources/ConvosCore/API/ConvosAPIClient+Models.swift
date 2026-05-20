@@ -165,11 +165,9 @@ public enum ConvosAPI {
 
     public struct AgentJoinRequest: Codable {
         public let slug: String
-        public let instructions: String
 
-        public init(slug: String, instructions: String) {
+        public init(slug: String) {
             self.slug = slug
-            self.instructions = instructions
         }
     }
 

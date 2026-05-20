@@ -2445,6 +2445,7 @@ extension ConversationViewModel {
                 await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
                 return
             } catch let error as APIError {
+                Log.error("requestAssistantJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
                 let status: AssistantJoinStatus
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
                 await Self.broadcastAssistantJoinRequest(
@@ -2457,6 +2458,7 @@ extension ConversationViewModel {
                 }
                 return
             } catch {
+                Log.error("requestAssistantJoin: agents/join unknown error: \(error.localizedDescription)")
                 await Self.broadcastAssistantJoinRequest(
                     status: .failed, requestId: requestId,
                     conversationId: conversationId, session: session

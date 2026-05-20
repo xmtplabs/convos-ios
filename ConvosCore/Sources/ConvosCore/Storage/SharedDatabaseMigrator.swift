@@ -296,7 +296,6 @@ extension SharedDatabaseMigrator {
         }
     }
 
-
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
     /// is bound to a specific agent's inboxId instead of being conversation-wide. Two
     /// agents in the same conversation now have independent rows; one's grant doesn't

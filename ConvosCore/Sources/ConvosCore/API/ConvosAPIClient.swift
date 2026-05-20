@@ -677,10 +677,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
 
         request.httpBody = try JSONEncoder().encode(
-            ConvosAPI.AgentJoinRequest(
-                slug: slug,
-                instructions: instructions
-            )
+            ConvosAPI.AgentJoinRequest(slug: slug)
         )
 
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
