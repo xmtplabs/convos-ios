@@ -8,7 +8,10 @@ final class PaywallViewModel {
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored var onPurchaseSucceeded: (() -> Void)?
 
-    var selectedPeriod: SubscriptionPeriod = .monthly
+    /// Optional so a non-subscriber sees neither Monthly nor Annual preselected
+    /// — the picker stays neutral until the user picks. Set in init to the
+    /// subscriber's current period for subscribers.
+    var selectedPeriod: SubscriptionPeriod?
     var purchasingProductId: String?
     var isShowingAlert: Bool = false
     var alertTitle: String = ""
@@ -23,9 +26,10 @@ final class PaywallViewModel {
         self.currentSubscription = initial
         // Default the picker to the period the user is currently subscribed to,
         // so the paywall opens on their plan (with "Current plan" visible on the
-        // right card). Falls back to monthly for non-subscribers. Once the user
-        // interacts with the picker, we don't reset it on subscription updates.
-        self.selectedPeriod = initial?.period ?? .monthly
+        // right card). Non-subscribers see neither tab preselected. Once the
+        // user interacts with the picker, we don't reset it on subscription
+        // updates.
+        self.selectedPeriod = initial?.period
         subscriptionService.subscriptionPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sub in

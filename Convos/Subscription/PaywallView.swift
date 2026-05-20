@@ -85,8 +85,8 @@ struct PaywallView: View {
     @ViewBuilder
     private var periodPicker: some View {
         Picker("Period", selection: $viewModel.selectedPeriod) {
-            Text("Monthly").tag(SubscriptionPeriod.monthly)
-            Text("Annual").tag(SubscriptionPeriod.annual)
+            Text("Monthly").tag(SubscriptionPeriod?.some(.monthly))
+            Text("Annual").tag(SubscriptionPeriod?.some(.annual))
         }
         .pickerStyle(.segmented)
     }
@@ -94,27 +94,31 @@ struct PaywallView: View {
     @ViewBuilder
     private var tierStack: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            ForEach(SubscriptionTier.allCases, id: \.self) { tier in
-                // Hide tier cards that have no product for the currently-
-                // selected period (e.g. Pro on Annual — Apple's price-tier
-                // ceiling for non-large-merchant accounts kept us from
-                // shipping Pro Annual at launch).
-                if viewModel.product(for: tier, period: viewModel.selectedPeriod) != nil {
-                    tierCard(for: tier)
+            // No period chosen yet (typical for non-subscribers) → no cards.
+            // The picker stays neutral until the user picks Monthly or Annual.
+            if let period = viewModel.selectedPeriod {
+                ForEach(SubscriptionTier.allCases, id: \.self) { tier in
+                    // Hide tier cards that have no product for the selected
+                    // period (e.g. Pro on Annual — Apple's price-tier ceiling
+                    // for non-large-merchant accounts kept us from shipping
+                    // Pro Annual at launch).
+                    if viewModel.product(for: tier, period: period) != nil {
+                        tierCard(for: tier, period: period)
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func tierCard(for tier: SubscriptionTier) -> some View {
-        let product: PaywallProduct? = viewModel.product(for: tier, period: viewModel.selectedPeriod)
+    private func tierCard(for tier: SubscriptionTier, period: SubscriptionPeriod) -> some View {
+        let product: PaywallProduct? = viewModel.product(for: tier, period: period)
         // "Current plan" only highlights when both the tier AND the period
         // match the user's actual subscription — otherwise Builder Annual
         // subscribers would see "Current plan" on the Builder Monthly card
         // while the picker happens to be on Monthly.
         let isCurrent: Bool = viewModel.currentSubscription?.tier == tier
-            && viewModel.currentSubscription?.period == viewModel.selectedPeriod
+            && viewModel.currentSubscription?.period == period
         let isPurchasing: Bool = product != nil && viewModel.purchasingProductId == product?.id
         let purchaseHandler: (PaywallProduct) -> Void = { product in
             Task { await viewModel.purchase(product: product) }
