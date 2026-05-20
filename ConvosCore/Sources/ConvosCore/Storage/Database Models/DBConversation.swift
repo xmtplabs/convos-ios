@@ -50,6 +50,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAssistant: Column = Column(CodingKeys.hasHadVerifiedAssistant)
+        static let quarantinedAt: Column = Column(CodingKeys.quarantinedAt)
+        static let quarantineReleasedAt: Column = Column(CodingKeys.quarantineReleasedAt)
     }
 
     let id: String
@@ -74,6 +76,66 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageLastRenewed: Date?
     let isUnused: Bool
     let hasHadVerifiedAssistant: Bool
+    /// Non-nil when the inbound filter quarantined this conversation —
+    /// persisted but hidden from the main feed until either promoted (sender
+    /// becomes a contact) or swept past the TTL.
+    let quarantinedAt: Date?
+    /// Non-nil when a quarantined conversation has been promoted back to the
+    /// main feed (sender became a contact). Once non-nil the row participates
+    /// in the main feed query again.
+    let quarantineReleasedAt: Date?
+
+    init(
+        id: String,
+        clientConversationId: String,
+        inviteTag: String,
+        creatorId: String,
+        kind: ConversationKind,
+        consent: Consent,
+        createdAt: Date,
+        name: String?,
+        description: String?,
+        imageURLString: String?,
+        publicImageURLString: String?,
+        includeInfoInPublicPreview: Bool,
+        expiresAt: Date?,
+        debugInfo: ConversationDebugInfo,
+        isLocked: Bool,
+        imageSalt: Data?,
+        imageNonce: Data?,
+        imageEncryptionKey: Data?,
+        conversationEmoji: String?,
+        imageLastRenewed: Date?,
+        isUnused: Bool,
+        hasHadVerifiedAssistant: Bool,
+        quarantinedAt: Date? = nil,
+        quarantineReleasedAt: Date? = nil
+    ) {
+        self.id = id
+        self.clientConversationId = clientConversationId
+        self.inviteTag = inviteTag
+        self.creatorId = creatorId
+        self.kind = kind
+        self.consent = consent
+        self.createdAt = createdAt
+        self.name = name
+        self.description = description
+        self.imageURLString = imageURLString
+        self.publicImageURLString = publicImageURLString
+        self.includeInfoInPublicPreview = includeInfoInPublicPreview
+        self.expiresAt = expiresAt
+        self.debugInfo = debugInfo
+        self.isLocked = isLocked
+        self.imageSalt = imageSalt
+        self.imageNonce = imageNonce
+        self.imageEncryptionKey = imageEncryptionKey
+        self.conversationEmoji = conversationEmoji
+        self.imageLastRenewed = imageLastRenewed
+        self.isUnused = isUnused
+        self.hasHadVerifiedAssistant = hasHadVerifiedAssistant
+        self.quarantinedAt = quarantinedAt
+        self.quarantineReleasedAt = quarantineReleasedAt
+    }
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -259,7 +321,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -286,7 +350,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -313,7 +379,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -340,7 +408,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -367,7 +437,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -396,7 +468,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -423,7 +497,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -450,7 +526,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -477,7 +555,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -504,7 +584,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -531,7 +613,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -558,7 +642,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -585,7 +671,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -612,7 +700,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -639,7 +729,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -666,7 +758,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -693,7 +787,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
@@ -720,7 +816,38 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
+        )
+    }
+
+    func with(quarantinedAt: Date?, quarantineReleasedAt: Date?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            quarantinedAt: quarantinedAt,
+            quarantineReleasedAt: quarantineReleasedAt
         )
     }
 

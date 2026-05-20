@@ -264,6 +264,7 @@ final class MessagesViewController: UIViewController {
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
+    var memberNameOverride: ((String) -> String?)?
 
     var headerMode: MessagesHeaderMode = .standard {
         didSet { dataSource.headerMode = headerMode }
@@ -491,6 +492,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onRetryTranscript = { [weak self] item in
             self?.onRetryTranscript?(item)
+        }
+        dataSource.memberNameOverride = { [weak self] inboxId in
+            self?.memberNameOverride?(inboxId)
         }
 
         setupImmediateTouchGesture()

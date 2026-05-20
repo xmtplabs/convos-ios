@@ -9,5 +9,8 @@
     "dev.convos.org",
     "app-dev.convos.org"
   ],
-  "appUrlScheme": "convos-dev"
+  "appUrlScheme": "convos-dev",
+  "siweDomain": "dev.convos.org",
+  "siweUri": "https://dev.convos.org",
+  "siweChainId": 1
 }

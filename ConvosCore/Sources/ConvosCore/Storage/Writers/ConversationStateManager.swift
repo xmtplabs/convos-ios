@@ -72,6 +72,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     private let sessionStateManager: any SessionStateManagerProtocol
     private let stateMachine: ConversationStateMachine
+    /// Inbox IDs to add to the conversation as part of the initial create
+    /// / resume sequence. The contacts picker flow supplies these when
+    /// constructing the state manager so they're folded into the same
+    /// state-machine action as the conversation creation. Downstream
+    /// consumers can then treat `.ready` as the strong guarantee
+    /// "conversation exists and these members are in it". Empty preserves
+    /// existing "+" button / invite-resume behavior.
+    private let initialMemberInboxIds: [String]
 
     private var stateObservationTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
@@ -85,19 +93,30 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
         conversationId: String? = nil,
+        initialMemberInboxIds: [String] = [],
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
         self.sessionStateManager = sessionStateManager
+        self.initialMemberInboxIds = initialMemberInboxIds
 
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
 
         let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
-        self.conversationMetadataWriter = ConversationMetadataWriter(
+        // Pass the contact-sync coordinator so `addMembers(_:to:)` triggers
+        // the membership-change hook and pulls newly added members into
+        // the contacts table, matching `MessagingService.conversationMetadataWriter()`.
+        let contactSyncCoordinator = ContactSyncCoordinator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader
+        )
+        let metadataWriter = ConversationMetadataWriter(
             sessionStateManager: sessionStateManager,
             inviteWriter: inviteWriter,
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            contactSyncCoordinator: contactSyncCoordinator
         )
+        self.conversationMetadataWriter = metadataWriter
 
         self.myProfileWriter = MyProfileWriter(
             sessionStateManager: sessionStateManager,
@@ -120,6 +139,16 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             sessionStateManager: sessionStateManager
         )
 
+        // Bridge `ConversationMetadataWriter.addMembers(_:to:)` into the
+        // state machine via the hook so the create / useExisting
+        // sequences can run it before emitting `.ready`. The metadata
+        // writer's full pipeline (XMTP group op, local member rows,
+        // contact sync, ProfileSnapshot) is unchanged; it just gets
+        // composed into the create sequence atomically.
+        let addMembersHook: ConversationStateMachineAddMembersHook = { inboxIds, conversationId in
+            try await metadataWriter.addMembers(inboxIds, to: conversationId)
+        }
+
         self.stateMachine = ConversationStateMachine(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
@@ -127,14 +156,19 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             databaseWriter: databaseWriter,
             environment: environment,
             clientConversationId: initialConversationId,
-            backgroundUploadManager: backgroundUploadManager
+            backgroundUploadManager: backgroundUploadManager,
+            addMembersHook: addMembersHook
         )
 
         setupStateObservation()
 
         if let conversationId {
+            let memberInboxIds = initialMemberInboxIds
             initializationTask = Task { [stateMachine] in
-                await stateMachine.useExisting(conversationId: conversationId)
+                await stateMachine.useExisting(
+                    conversationId: conversationId,
+                    initialMemberInboxIds: memberInboxIds
+                )
             }
         }
     }
@@ -190,7 +224,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     // MARK: - DraftConversationWriterProtocol Methods
 
     public func createConversation() async throws {
-        await stateMachine.create()
+        await stateMachine.create(initialMemberInboxIds: initialMemberInboxIds)
     }
 
     public func joinConversation(inviteCode: String) async throws {

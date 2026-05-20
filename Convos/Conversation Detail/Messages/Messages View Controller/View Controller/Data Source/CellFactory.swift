@@ -39,6 +39,11 @@ struct CellConfig {
     /// glassEffectTransition(.matchedGeometry)`. Nil when the messages list
     /// isn't part of a builder commit (regular chats).
     let assistantBuilderTransitionNamespace: Namespace.ID?
+    /// Maps an inbox to a contact-list display name when the
+    /// per-conversation profile name is empty. Cells thread this into
+    /// `update.summary(memberNameOverride:)` for system-message rendering.
+    /// Returns nil for non-contacts (the renderer falls back to "Somebody").
+    let memberNameOverride: (String) -> String?
 }
 
 // swiftlint:disable force_cast

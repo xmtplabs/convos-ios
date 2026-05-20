@@ -74,7 +74,12 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var isAvatarEncrypted: Bool {
-        avatarSalt?.count == 32 && avatarNonce?.count == 12
+        // All three of salt (32), nonce (12), and key (32) must be present
+        // for the cache's encrypted-fetch branch to actually decrypt the
+        // avatar. `ImageCache.fetchEncryptedImageInline` silently returns
+        // `nil` when the key is missing, so a partial state here would
+        // surface as a vanished avatar.
+        avatarSalt?.count == 32 && avatarNonce?.count == 12 && avatarKey?.count == 32
     }
 
     public var displayName: String {
@@ -220,11 +225,31 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
 public extension Array where Element == Profile {
     var formattedNamesString: String {
-        let namedProfiles = filter { $0.name != nil && $0.name?.isEmpty == false }
-            .map { $0.displayName }
-            .sorted()
-        let anonymousCount = filter { $0.name == nil || $0.name?.isEmpty == true }.count
-        let totalCount = namedProfiles.count + anonymousCount
+        formattedNamesString(memberNameOverride: { _ in nil })
+    }
+
+    /// `formattedNamesString` with an inbox → contact-name override that
+    /// **wins** over the per-conversation profile name when present. The
+    /// contact name is the user's deliberate choice from the contacts list
+    /// and should appear consistently across every surface that renders a
+    /// member, regardless of what the per-conversation profile snapshot
+    /// happens to say. The per-conversation profile name is the next
+    /// fallback, and the "Somebody / Somebodies" bucketing remains the
+    /// final fallback for nameless members. Pass `{ _ in nil }` for the
+    /// legacy behavior (no override).
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        let resolved: [String?] = map { profile -> String? in
+            if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+                return overridden
+            }
+            if let name = profile.name, !name.isEmpty { return name }
+            return nil
+        }
+        let namedProfiles: [String] = resolved.compactMap { $0 }.sorted()
+        let anonymousCount: Int = resolved.filter { $0 == nil }.count
+        let totalCount: Int = namedProfiles.count + anonymousCount
 
         if namedProfiles.isEmpty {
             if anonymousCount == 0 {

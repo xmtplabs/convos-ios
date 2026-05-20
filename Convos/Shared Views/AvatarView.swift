@@ -82,6 +82,7 @@ struct ConversationAvatarView: View {
 
     @Environment(\.forcedAgentVerification) private var forcedVerification: AgentVerification?
     @State private var cachedImage: UIImage?
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
     private var hasForcedAssistantStyle: Bool {
         forcedVerification?.isVerified == true
@@ -112,7 +113,7 @@ struct ConversationAvatarView: View {
     private var fallbackContent: some View {
         switch conversation.avatarType {
         case .customImage:
-            MonogramView(name: conversation.computedDisplayName)
+            MonogramView(name: conversation.computedDisplayName(memberNameOverride: memberNameOverride))
         case let .profile(profile, verification):
             if let emoji = profile.profileEmoji, !emoji.isEmpty {
                 EmojiAvatarView(emoji: emoji, agentVerification: verification)

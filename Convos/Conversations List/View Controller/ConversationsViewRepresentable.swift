@@ -10,6 +10,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let filterEmptyMessage: String
     let hasCreatedMoreThanOneConvo: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
     // Callbacks
     var onSelectConversation: ((Conversation) -> Void)?
@@ -24,6 +25,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> ConversationsViewController {
         let viewController = ConversationsViewController()
+        viewController.memberNameOverride = memberNameOverride
         configureCallbacks(viewController)
         return viewController
     }
@@ -38,6 +40,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             hasCreatedMoreThanOneConvo: hasCreatedMoreThanOneConvo,
             horizontalSizeClass: horizontalSizeClass
         )
+        viewController.memberNameOverride = memberNameOverride
         viewController.updateState(state)
 
         // Update callbacks in case they changed

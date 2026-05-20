@@ -40,7 +40,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Start in idle state
@@ -99,7 +100,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         await stateMachine.register()
@@ -165,7 +167,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Authorize with the existing inbox
@@ -213,7 +216,8 @@ struct SessionStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Try to authorize with wrong clientId. The state machine was
@@ -263,7 +267,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -331,7 +336,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -401,7 +407,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Try to authorize with non-existent inboxId to trigger error
@@ -455,7 +462,8 @@ struct SessionStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         actor StateCollector {
@@ -540,7 +548,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Queue register and then stop
@@ -595,7 +604,8 @@ struct SessionStateMachineTests {
             networkMonitor: mockNetworkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: testAppLifecycle,
+            xmtpClientFactory: .inMemory
         )
 
         // Register and wait for ready
@@ -664,6 +674,13 @@ struct SessionStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
+        // Uses `.onDisk` because `dropLocalDatabaseConnection` and
+        // `reconnectLocalDatabase` early-return as no-ops on in-memory
+        // clients. Backgrounding is the production code path this test
+        // exercises, so the on-disk SQLCipher pool is the right backing.
+        // A dedicated lifecycle provider isolates this test's notifications
+        // from the suite-shared `testAppLifecycle`.
+        let appLifecycle = MockAppLifecycleProvider()
         let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
@@ -673,7 +690,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: appLifecycle,
+            xmtpClientFactory: .onDisk
         )
 
         // Register and wait for ready
@@ -703,7 +721,7 @@ struct SessionStateMachineTests {
         try await Task.sleep(for: .milliseconds(100))
 
         // Simulate app entering background
-        NotificationCenter.default.post(name: testAppLifecycle.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: appLifecycle.didEnterBackgroundNotification, object: nil)
 
         // Wait for backgrounded state
         let backgroundedState = try await waitForState(stateMachine, timeout: 5) { state in
@@ -725,7 +743,7 @@ struct SessionStateMachineTests {
         Log.info("App backgrounded, sync paused. Simulating app returning to foreground...")
 
         // Simulate app entering foreground
-        NotificationCenter.default.post(name: testAppLifecycle.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: appLifecycle.willEnterForegroundNotification, object: nil)
 
         // Wait for ready state again
         let foregroundState = try await waitForState(stateMachine, timeout: 5) { state in
@@ -760,6 +778,12 @@ struct SessionStateMachineTests {
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
 
+        // Uses `.onDisk` so the backgrounded → ready transition actually
+        // drops and reconnects libxmtp's SQLCipher pool, the production
+        // path. In-memory clients no-op those calls. Dedicated lifecycle
+        // provider so this test's notifications stay isolated from other
+        // suites' state machines.
+        let appLifecycle = MockAppLifecycleProvider()
         let stateMachine = SessionStateMachine(
             clientId: clientId,
             identityStore: fixtures.identityStore,
@@ -769,7 +793,8 @@ struct SessionStateMachineTests {
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
-            appLifecycle: testAppLifecycle
+            appLifecycle: appLifecycle,
+            xmtpClientFactory: .onDisk
         )
 
         actor StateCollector {
@@ -833,7 +858,7 @@ struct SessionStateMachineTests {
         try await Task.sleep(for: .milliseconds(100))
 
         // Simulate background
-        NotificationCenter.default.post(name: testAppLifecycle.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: appLifecycle.didEnterBackgroundNotification, object: nil)
 
         // Wait for backgrounded
         _ = try await waitForState(stateMachine, timeout: 5) { state in
@@ -842,7 +867,7 @@ struct SessionStateMachineTests {
         }
 
         // Simulate foreground
-        NotificationCenter.default.post(name: testAppLifecycle.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: appLifecycle.willEnterForegroundNotification, object: nil)
 
         // Wait for ready again
         _ = try await waitForState(stateMachine, timeout: 5) { state in

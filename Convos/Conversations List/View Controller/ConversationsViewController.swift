@@ -89,6 +89,16 @@ final class ConversationsViewController: UIViewController {
     private lazy var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item> = makeDataSource()
     private var currentState: State = .empty
 
+    /// Inbox → contact-name override applied to auto-generated cell
+    /// titles (DM names, unnamed-group titles). Set by the SwiftUI parent
+    /// via `ConversationsViewRepresentable`. `@Sendable` to match the
+    /// SwiftUI environment value's contract — the closure ends up stored
+    /// inside `UIHostingConfiguration` blocks where it crosses isolation
+    /// boundaries. Defaults to a no-op so cells render with the per-
+    /// conversation profile name when no resolver is available (e.g.
+    /// previews).
+    var memberNameOverride: @Sendable (String) -> String? = { _ in nil }
+
     // MARK: - Callbacks
 
     var onSelectConversation: ((Conversation) -> Void)?
@@ -347,7 +357,7 @@ final class ConversationsViewController: UIViewController {
             guard let self = self else { return }
             let fresh = self.freshConversation(for: conversation)
             let isSelected = self.currentState.selectedConversationId == fresh.id
-            cell.configure(with: fresh, isSelected: isSelected)
+            cell.configure(with: fresh, isSelected: isSelected, memberNameOverride: self.memberNameOverride)
         }
 
         // Cell registration for pinned items
@@ -355,7 +365,7 @@ final class ConversationsViewController: UIViewController {
             guard let self = self else { return }
             let fresh = self.freshConversation(for: conversation)
             let isSelected = self.currentState.selectedConversationId == fresh.id
-            cell.configure(with: fresh, isSelected: isSelected)
+            cell.configure(with: fresh, isSelected: isSelected, memberNameOverride: self.memberNameOverride)
         }
 
         // Cell registration for empty states

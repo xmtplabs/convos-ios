@@ -9,6 +9,12 @@ struct AddToConversationMenu: View {
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
     let onInviteAssistant: () -> Void
+    /// Opens the contacts picker scoped to the destination conversation.
+    /// Every menu surface (chat header, info view, members list) offers
+    /// this row. Pair the call site with `.addFromContactsPicker(...)` to
+    /// present the picker; the closure typically just sets a `Bool` state
+    /// that's bound to that modifier's `isPresented`.
+    let onAddFromContacts: () -> Void
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
     private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
@@ -42,6 +48,13 @@ struct AddToConversationMenu: View {
             }
             .accessibilityIdentifier("context-menu-convo-code")
 
+            Button(action: onAddFromContacts) {
+                Text("Add from Contacts")
+                Text("Pick from people you've talked to")
+                Image(systemName: "person.crop.circle.badge.plus")
+            }
+            .accessibilityIdentifier("context-menu-add-from-contacts")
+
             if isAssistantEnabled {
                 Button(action: onInviteAssistant) {
                     Text("Instant assistant")
@@ -71,7 +84,8 @@ struct AddToConversationMenu: View {
                         isEnabled: true,
                         onConvoCode: {},
                         onCopyLink: {},
-                        onInviteAssistant: {}
+                        onInviteAssistant: {},
+                        onAddFromContacts: {}
                     )
                 }
             }

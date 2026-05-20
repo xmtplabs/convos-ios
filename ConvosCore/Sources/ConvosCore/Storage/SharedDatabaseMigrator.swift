@@ -145,6 +145,8 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("scopeGrantsToAgentInboxId", migrate: Self.scopeGrantsToAgentInboxId)
 
+        Self.registerContactsMVPMigrations(on: &migrator)
+
         migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAssistantBuilderSummary)
 
         migrator.registerMigration("createThinkingSession", migrate: Self.createThinkingSession)
@@ -256,6 +258,44 @@ extension SharedDatabaseMigrator {
             columns: ["conversationId", "senderInboxId", "targetMessageId", "sentAtNs"]
         )
     }
+
+    private static func registerContactsMVPMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createContactTable") { db in
+            try SharedDatabaseMigrator.createContactSchema(db)
+        }
+
+        migrator.registerMigration("addContactBlockedAt") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "blockedAt", .datetime)
+            }
+        }
+
+        migrator.registerMigration("addConversationQuarantineFields") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "quarantinedAt", .datetime)
+                t.add(column: "quarantineReleasedAt", .datetime)
+            }
+        }
+
+        migrator.registerMigration("addContactAgentVerification") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "agentVerification", .jsonText)
+            }
+        }
+
+        // Avatar encryption fields mirror `memberProfile` so the contact card
+        // and contact list can render the same encrypted image without
+        // re-fetching the per-conversation profile. Nullable: a contact
+        // observed only as a name-only ProfileUpdate has no image yet.
+        migrator.registerMigration("addContactAvatarEncryptionFields") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "avatarSalt", .blob)
+                t.add(column: "avatarNonce", .blob)
+                t.add(column: "avatarKey", .blob)
+            }
+        }
+    }
+
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
     /// is bound to a specific agent's inboxId instead of being conversation-wide. Two
@@ -613,5 +653,40 @@ extension SharedDatabaseMigrator {
             on: "conversation_read_receipts",
             columns: ["conversationId"]
         )
+    }
+
+    /// Contacts table. Stores a denormalized "global default profile" snapshot
+    /// keyed by `inboxId`. Profile fields are updated most-recent-wins as new
+    /// member-profile data arrives. The `addedViaConversationId` foreign key
+    /// uses `setNull` so deleting the source conversation does not delete the
+    /// contact — contacts survive the local user leaving every shared group.
+    /// `blockedAt` is added by the `addContactBlockedAt` migration registered
+    /// alongside this baseline.
+    private static func createContactSchema(_ db: Database) throws {
+        try db.create(table: "contact") { t in
+            t.column("inboxId", .text)
+                .notNull()
+                .primaryKey()
+            t.column("addedAt", .datetime).notNull()
+            t.column("addedViaConversationId", .text)
+                .references("conversation", onDelete: .setNull)
+            t.column("displayName", .text)
+            t.column("avatarURL", .text)
+            t.column("profileUpdatedAt", .datetime)
+        }
+
+        try db.create(
+            index: "idx_contact_displayName",
+            on: "contact",
+            columns: ["displayName"]
+        )
+
+        try db.create(table: "conversation_contacts_sync") { t in
+            t.column("conversationId", .text)
+                .notNull()
+                .primaryKey()
+                .references("conversation", onDelete: .cascade)
+            t.column("contactsSyncedAt", .datetime).notNull()
+        }
     }
 }

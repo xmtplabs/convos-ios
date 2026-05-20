@@ -64,6 +64,7 @@ class ProfileSettingsViewModel {
     }
 
     func save() {
+        markProfileEditorShownIfPopulated()
         Task { try? await saveAndAwait() }
     }
 
@@ -79,14 +80,29 @@ class ProfileSettingsViewModel {
         let resolvedName: String? = trimmedName.isEmpty ? nil : trimmedName
         let imageData = profileImage?.jpegData(compressionQuality: 1.0)
         let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
-        let isDefault = profileSettings.isDefault
         try await writer.save(
             name: resolvedName,
             imageData: imageData,
             imageAssetIdentifier: assetIdentifier,
             metadata: nil
         )
-        if !isDefault {
+        markProfileEditorShownIfPopulated()
+    }
+
+    /// Record that the user has actually set a non-default profile.
+    /// `ConversationOnboardingCoordinator.startProfileSetupFlow` reads this flag to decide
+    /// whether to prompt for "Add your name and pic" on the first chat; without it set, a
+    /// user who configures their profile up front in Settings still gets the onboarding
+    /// prompt and sees "Chat as Somebody" in the input bar.
+    ///
+    /// Called synchronously from `save()` so the flag lands before the user can navigate
+    /// to a new conversation. If we only set it inside `saveAndAwait()`, the async write
+    /// races against the join flow: the user dismisses My info, immediately joins a group,
+    /// and `hasShownProfileEditor` is still false when the onboarding coordinator checks.
+    private func markProfileEditorShownIfPopulated() {
+        let trimmedName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let didSetSomething = !trimmedName.isEmpty || profileImage != nil
+        if didSetSomething {
             ConversationOnboardingCoordinator.markProfileEditorShown()
         }
     }

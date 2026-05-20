@@ -11,9 +11,9 @@ import GRDB
 /// provides factory methods for creating writers and repositories scoped to this inbox.
 /// The service handles authorization, streaming, and push notification registration.
 ///
-/// @unchecked Sendable: All stored properties are immutable references (`let`) to Sendable
-/// protocol types. The `cancellables` Set is only modified during init and deinit.
-/// Methods create new instances rather than sharing mutable state.
+/// @unchecked Sendable: All stored properties are immutable references (`let`) to
+/// Sendable protocol types, except `cancellables` (only modified during init and
+/// deinit). Methods create new instances rather than sharing mutable state.
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
     let sessionStateManager: any SessionStateManagerProtocol
@@ -42,7 +42,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         overrideJWTToken: String? = nil,
         platformProviders: PlatformProviders,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        xmtpClientFactory: XMTPClientFactory = .onDisk
     ) -> MessagingService {
         let authorizationOperation = AuthorizeInboxOperation.authorize(
             inboxId: inboxId,
@@ -55,7 +56,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             overrideJWTToken: overrideJWTToken,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            xmtpClientFactory: xmtpClientFactory
         )
         return MessagingService(
             authorizationOperation: authorizationOperation,
@@ -154,12 +156,19 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: New Conversation
 
     func conversationStateManager() -> any ConversationStateManagerProtocol {
-        return ConversationStateManager(
+        conversationStateManager(initialMemberInboxIds: [])
+    }
+
+    func conversationStateManager(
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
+            initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager
         )
     }
@@ -167,13 +176,21 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     // MARK: Existing Conversation
 
     func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
-        return ConversationStateManager(
+        conversationStateManager(for: conversationId, initialMemberInboxIds: [])
+    }
+
+    func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol {
+        ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
             conversationId: conversationId,
+            initialMemberInboxIds: initialMemberInboxIds,
             backgroundUploadManager: backgroundUploadManager
         )
     }
@@ -204,7 +221,25 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             photoService: PhotoAttachmentService(),
             pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
             backgroundUploadManager: backgroundUploadManager,
-            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter),
+            contactSyncCoordinator: contactSyncCoordinator()
+        )
+    }
+
+    // MARK: Contacts
+
+    func contactsRepository() -> any ContactsRepositoryProtocol {
+        ContactsRepository(databaseReader: databaseReader)
+    }
+
+    func contactsWriter() -> any ContactsWriterProtocol {
+        ContactsWriter(databaseWriter: databaseWriter)
+    }
+
+    func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
+        ContactSyncCoordinator(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader
         )
     }
 
@@ -229,7 +264,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         ConversationMetadataWriter(
             sessionStateManager: sessionStateManager,
             inviteWriter: InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter),
-            databaseWriter: databaseWriter
+            databaseWriter: databaseWriter,
+            contactSyncCoordinator: contactSyncCoordinator()
         )
     }
 

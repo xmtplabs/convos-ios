@@ -141,6 +141,20 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockCapabilityRequestResultWriter()
     }
 
+    // MARK: - Contacts
+
+    public func contactsRepository() -> any ContactsRepositoryProtocol {
+        MockContactsRepository()
+    }
+
+    public func contactsWriter() -> any ContactsWriterProtocol {
+        MockContactsWriter()
+    }
+
+    public func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
+        MockContactSyncCoordinator()
+    }
+
     public func uploadImage(data: Data, filename: String) async throws -> String {
         "https://example.com/uploads/\(filename)"
     }

@@ -4,15 +4,28 @@ import SwiftUI
 struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
+    @State private var presentingAddFromContactsPicker: Bool = false
+
+    /// Same pattern as `ConversationView`. Substitutes contact-list
+    /// display names for members whose per-conversation profile name is
+    /// empty.
+    private var contactNameOverride: @Sendable (String) -> String? {
+        viewModel.messagingService.contactsRepository().contactName(for:)
+    }
+
     var body: some View {
+        membersList
+            .addFromContactsPicker(
+                viewModel: viewModel,
+                isPresented: $presentingAddFromContactsPicker
+            )
+    }
+
+    private var membersList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(viewModel.conversation.members.sortedByRole(), id: \.id) { member in
-                    NavigationLink {
-                        ConversationMemberView(viewModel: viewModel, member: member)
-                    } label: {
-                        MemberRow(member: member)
-                    }
+                    memberRowDestination(for: member)
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step6x)
@@ -44,15 +57,73 @@ struct ConversationMembersListView: View {
                     },
                     onInviteAssistant: {
                         viewModel.requestAssistantJoin()
+                    },
+                    onAddFromContacts: {
+                        presentingAddFromContactsPicker = true
                     }
                 )
             }
         }
     }
+
+    /// Routes a member-row tap based on whether the row is for the local
+    /// user. Tapping your own row opens "My info" via
+    /// `viewModel.onProfileSettings()`; tapping someone else's pushes the
+    /// contact card. Wrapping each branch as a separate view keeps the
+    /// `ForEach` body small enough to stay clear of the type-checker
+    /// timeout, and centralises the "no contact card for self" rule.
+    @ViewBuilder
+    private func memberRowDestination(for member: ConversationMember) -> some View {
+        let row = MemberRow(
+            member: member,
+            displayName: member.displayName(memberNameOverride: contactNameOverride)
+        )
+        if member.isCurrentUser {
+            Button(action: viewModel.onProfileSettings) {
+                row
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink {
+                memberContactCardDestination(for: member)
+            } label: {
+                row
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func memberContactCardDestination(for member: ConversationMember) -> some View {
+        let messagingService = viewModel.messagingService
+        let contactsRepository = messagingService.contactsRepository()
+        let contactsWriter = messagingService.contactsWriter()
+        let resolvedContact = Contact.resolved(
+            member: member,
+            in: viewModel.conversation.id,
+            contactsRepository: contactsRepository
+        )
+        let onRemove: () -> Void = { viewModel.remove(member: member) }
+        ContactCardView(
+            contact: resolvedContact,
+            mode: .scopedToConversation(
+                conversationId: viewModel.conversation.id,
+                canRemoveMembers: viewModel.canRemoveMembers,
+                isCurrentUser: member.isCurrentUser
+            ),
+            contactsWriter: contactsWriter,
+            contactsRepository: contactsRepository,
+            session: viewModel.session,
+            onRemove: onRemove
+        )
+    }
 }
 
 private struct MemberRow: View {
     let member: ConversationMember
+    /// Pre-resolved name (per-conversation profile → contact-list override
+    /// → "Somebody"). Computed by the parent so the row stays a pure
+    /// presentation view.
+    let displayName: String
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
@@ -61,7 +132,7 @@ private struct MemberRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(member.displayName)
+                Text(displayName)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                 if member.isCurrentUser {

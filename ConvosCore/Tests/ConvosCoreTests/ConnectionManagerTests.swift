@@ -586,6 +586,16 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         "stub-jwt"
     }
 
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String {
+        "stub-siwe-jwt"
+    }
+
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse {
+        .init(success: jwt != nil)
+    }
+
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String {
         "https://example.com/\(filename)"
     }

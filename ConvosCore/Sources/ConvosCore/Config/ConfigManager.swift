@@ -122,6 +122,8 @@ public final class ConfigManager: @unchecked Sendable {
             ? nil
             : overrides.gatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let siweConfiguration = self.siweConfiguration
+
         switch envString {
         case "local":
             let url = resolveAndValidateURL(
@@ -133,6 +135,7 @@ public final class ConfigManager: @unchecked Sendable {
                 apiBaseURL: url,
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
+                siweConfiguration: siweConfiguration,
                 xmtpEndpoint: xmtpEndpoint,
                 xmtpNetwork: xmtpNetwork,
                 gatewayUrl: gatewayUrl
@@ -149,6 +152,7 @@ public final class ConfigManager: @unchecked Sendable {
                 apiBaseURL: url,
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
+                siweConfiguration: siweConfiguration,
                 xmtpEndpoint: xmtpEndpoint,
                 xmtpNetwork: xmtpNetwork
             )
@@ -164,6 +168,7 @@ public final class ConfigManager: @unchecked Sendable {
                 apiBaseURL: url,
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
+                siweConfiguration: siweConfiguration,
                 xmtpNetwork: xmtpNetwork
             )
             return .production(config: config)
@@ -171,6 +176,23 @@ public final class ConfigManager: @unchecked Sendable {
         default:
             fatalError("Invalid environment '\(envString)' in config.json")
         }
+    }
+
+    /// SIWE values from config.json (`siweDomain`, `siweUri`, `siweChainId`).
+    /// All three must be present and match the backend env.
+    public var siweConfiguration: SIWEConfiguration {
+        guard let domain = config["siweDomain"] as? String,
+              !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            fatalError("Missing or empty 'siweDomain' in config.json")
+        }
+        guard let uri = config["siweUri"] as? String,
+              !uri.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            fatalError("Missing or empty 'siweUri' in config.json")
+        }
+        guard let chainId = config["siweChainId"] as? Int else {
+            fatalError("Missing or non-Int 'siweChainId' in config.json")
+        }
+        return SIWEConfiguration(domain: domain, uri: uri, chainId: chainId)
     }
 
     /// API base URL from config.json (used as default/fallback when Secrets not provided)

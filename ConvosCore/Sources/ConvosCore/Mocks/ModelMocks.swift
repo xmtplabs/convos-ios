@@ -228,10 +228,82 @@ public extension ConversationUpdate {
     }
 }
 
+/// Resolves a member's rendered display name with the precedence:
+/// contact-list override, then per-conversation profile name, then
+/// "Somebody". `isCurrentUser` always renders as "You" for system messages.
+///
+/// Hoisted to file scope so its branches don't count against
+/// `ConversationUpdate.summary(memberNameOverride:)`'s cyclomatic
+/// complexity score.
+private func resolvedMemberDisplayName(
+    _ member: ConversationMember,
+    memberNameOverride: (String) -> String?
+) -> String {
+    if member.isCurrentUser { return "You" }
+    // Contact-name override wins over per-conversation profile name.
+    // Contact list is the user's deliberate naming choice and should
+    // appear consistently across every member-name surface.
+    if let overridden = memberNameOverride(member.profile.inboxId), !overridden.isEmpty {
+        return overridden
+    }
+    if let name = member.profile.name, !name.isEmpty { return name }
+    return "Somebody"
+}
+
+private func summaryFromFirstMetadataChange(
+    metadataChanges: [ConversationUpdate.MetadataChange],
+    creatorDisplayName: String
+) -> String? {
+    guard let metadataChange = metadataChanges.first else { return nil }
+    switch metadataChange.field {
+    case .name:
+        guard let updatedName = metadataChange.newValue else { return nil }
+        if updatedName.isEmpty {
+            return "\(creatorDisplayName) removed the convo name"
+        }
+        return "\(creatorDisplayName) changed the convo name to \"\(updatedName)\""
+    case .image:
+        guard metadataChange.newValue != nil else { return nil }
+        return "\(creatorDisplayName) changed the convo photo"
+    case .description:
+        guard let newValue = metadataChange.newValue else { return nil }
+        if newValue.isEmpty {
+            return "\(creatorDisplayName) removed the convo description"
+        }
+        return "\(creatorDisplayName) changed the convo description to \"\(newValue)\""
+    case .expiresAt:
+        guard metadataChange.newValue != nil else { return nil }
+        if let duration = metadataChange.oldValue {
+            return "\(creatorDisplayName) set this convo to explode in \(duration)"
+        }
+        return "\(creatorDisplayName) set this convo to explode"
+    case .metadata, .unknown:
+        return nil
+    }
+}
+
 // Extension moved from MessagesListItemType.swift to keep summary here
 public extension ConversationUpdate {
     var summary: String {
-        let creatorDisplayName = creator.isCurrentUser ? "You" : creator.profile.displayName
+        summary(memberNameOverride: { _ in nil })
+    }
+
+    /// `summary` with an inbox → contact-name override applied to every
+    /// member name in the rendered string. The override **wins** over the
+    /// per-conversation profile name when present — contact-list names
+    /// are the user's deliberate naming choice and should appear
+    /// consistently across every surface. Pass `{ _ in nil }` (or use the
+    /// default `summary` getter) for legacy behavior with no override.
+    func summary(memberNameOverride: (String) -> String?) -> String {
+        // Creator label is rendered as "You" for self per the original
+        // logic; for non-self callers the same precedence applies. The
+        // member-name resolution is hoisted to the free file-scope
+        // `resolvedMemberDisplayName` so its branches don't inflate this
+        // function's cyclomatic complexity score.
+        let creatorDisplayName: String = creator.isCurrentUser
+            ? "You"
+            : resolvedMemberDisplayName(creator, memberNameOverride: memberNameOverride)
+
         if !addedMembers.isEmpty && !removedMembers.isEmpty {
             return "\(creatorDisplayName) added and removed members from the convo"
         } else if !addedMembers.isEmpty {
@@ -241,45 +313,27 @@ public extension ConversationUpdate {
                 return "You joined \(asString)"
             }
             if addedMembers.count == 1, let member = addedMembers.first {
-                return "\(member.profile.displayName) joined · Invited by \(creatorDisplayName)"
+                return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) joined · Invited by \(creatorDisplayName)"
             }
-            return "\(addedMembers.formattedNamesString) joined · Invited by \(creatorDisplayName)"
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .name,
-                  let updatedName = metadataChange.newValue {
-            if updatedName.isEmpty {
-                return "\(creatorDisplayName) removed the convo name"
-            }
-            return "\(creatorDisplayName) changed the convo name to \"\(updatedName)\""
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .image,
-                  metadataChange.newValue != nil {
-            return "\(creatorDisplayName) changed the convo photo"
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .description,
-                  let newValue = metadataChange.newValue {
-            if newValue.isEmpty {
-                return "\(creatorDisplayName) removed the convo description"
-            }
-            return "\(creatorDisplayName) changed the convo description to \"\(newValue)\""
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .expiresAt,
-                  metadataChange.newValue != nil {
-            if let duration = metadataChange.oldValue {
-                return "\(creatorDisplayName) set this convo to explode in \(duration)"
-            }
-            return "\(creatorDisplayName) set this convo to explode"
+            let added = addedMembers.formattedNamesString(memberNameOverride: memberNameOverride)
+            return "\(added) joined · Invited by \(creatorDisplayName)"
+        } else if let metaSummary = summaryFromFirstMetadataChange(
+            metadataChanges: metadataChanges,
+            creatorDisplayName: creatorDisplayName
+        ) {
+            return metaSummary
         } else if !removedMembers.isEmpty {
             if removedMembers.count == 1, let member = removedMembers.first {
                 if member.isCurrentUser {
                     return "You left the convo"
                 }
                 if member.isAgent {
-                    return "\(member.profile.displayName) left · Removed by \(creatorDisplayName)"
+                    return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) left · Removed by \(creatorDisplayName)"
                 }
-                return "\(member.profile.displayName) left"
+                return "\(resolvedMemberDisplayName(member, memberNameOverride: memberNameOverride)) left"
             }
-            return "\(removedMembers.formattedNamesString) left"
+            let removed = removedMembers.formattedNamesString(memberNameOverride: memberNameOverride)
+            return "\(removed) left"
         } else {
             return ""
         }

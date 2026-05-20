@@ -30,6 +30,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var assetRenewalTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
+    private var contactBlockingObserver: NSObjectProtocol?
+    private var quarantineSweeperTask: Task<Void, Never>?
+    private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
 
     /// Tracks the user's current screen context. Used by
     /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
@@ -159,10 +162,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     deinit {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
+        quarantineSweeperTask?.cancel()
         assetRenewalTask?.cancel()
         cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
+        }
+        if let contactBlockingObserver {
+            NotificationCenter.default.removeObserver(contactBlockingObserver)
         }
     }
 
@@ -177,6 +184,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
+                self.runQuarantineSweep(reason: "foreground")
             }
         }
 
@@ -187,6 +195,68 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ) { [weak self] notification in
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
+        }
+
+        // Trigger an immediate quarantine sweep when a contact gets
+        // unblocked (or blocked — though only unblocking has a UX-visible
+        // effect on existing held conversations). Without this, the user
+        // would have to wait for the next hourly sweep or app-foreground
+        // entry before quarantined-by-block conversations reappear in
+        // the main feed.
+        contactBlockingObserver = NotificationCenter.default.addObserver(
+            forName: .contactBlockingDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.runQuarantineSweep(reason: "contactBlockingDidChange")
+        }
+
+        scheduleQuarantineSweeper()
+    }
+
+    /// Periodic sweeper that promotes quarantined conversations whose
+    /// senders have become contacts and deletes those past the TTL. Runs
+    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
+    /// while the process is alive. The foreground observer above also
+    /// triggers an extra sweep on every foreground entry.
+    private func scheduleQuarantineSweeper() {
+        let sweeper = QuarantineSweeper(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            contactsRepository: ContactsRepository(databaseReader: databaseReader)
+        )
+        cachedQuarantineSweeper = sweeper
+
+        quarantineSweeperTask?.cancel()
+        quarantineSweeperTask = Task { [weak self] in
+            // Initial sweep at launch.
+            await Self.invokeSweep(sweeper, reason: "launch")
+            // Hourly sweep while the process lives. Foreground entries also
+            // trigger an extra sweep via the foreground observer.
+            while !Task.isCancelled {
+                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
+                guard self != nil, !Task.isCancelled else { return }
+                await Self.invokeSweep(sweeper, reason: "interval")
+            }
+        }
+    }
+
+    private func runQuarantineSweep(reason: String) {
+        guard let sweeper = cachedQuarantineSweeper else { return }
+        Task.detached {
+            await Self.invokeSweep(sweeper, reason: reason)
+        }
+    }
+
+    private static func invokeSweep(
+        _ sweeper: any QuarantineSweeperProtocol,
+        reason: String
+    ) async {
+        do {
+            try await sweeper.sweep()
+        } catch {
+            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
         }
     }
 
@@ -425,27 +495,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wipeResidualInboxRows() async throws {
         try await databaseWriter.write { db in
-            // A prior process may have left `isUnused == true` rows from an
-            // interrupted prewarm. Under a nil cached service the MLS-side
-            // `cleanupInboxData` never runs, so those rows would otherwise
-            // survive into the next session and hand out unusable conversation
-            // ids via `consumeUnusedConversationId`.
-            try DBConversation
-                .filter(DBConversation.Columns.isUnused == true)
-                .deleteAll(db)
-            try DBInbox.deleteAll(db)
-
-            // DBCloudConnection has no FK to DBInbox or DBConversation, so the MLS
-            // cleanup path and the deletes above both miss it. Wipe it here so
-            // "Delete All Data" doesn't leave the next identity holding stale
-            // Composio entity/connection ids from the previous user. The FK
-            // cascade from DBCloudConnection removes DBCloudConnectionGrant as well.
-            //
-            // Server-side revoke is intentionally skipped: by the time this
-            // runs, identityStore.delete() has already nuked the JWT signer
-            // so apiClient.revokeCloudConnection would fail auth, and the abandoned
-            // entity ids aren't reachable from any new identity anyway.
+            // Reached only from "Delete All Data" / delete-all-inboxes, which
+            // is a full local account reset rather than a per-conversation
+            // cleanup. Some tables intentionally survive conversation deletion
+            // during normal app use (for example `contact` uses `setNull` on
+            // `addedViaConversationId` so a contact can outlive a single
+            // source conversation), so we must explicitly clear those account-
+            // scoped tables here as well.
+            try DBCloudConnectionGrant.deleteAll(db)
             try DBCloudConnection.deleteAll(db)
+            try DBCapabilityResolution.deleteAll(db)
+            try DBConversationReadReceipt.deleteAll(db)
+            try DBPendingPhotoUpload.deleteAll(db)
+            try DBVoiceMemoTranscript.deleteAll(db)
+            try AttachmentLocalState.deleteAll(db)
+            try DBPhotoPreferences.deleteAll(db)
+            try ConversationLocalState.deleteAll(db)
+            try DBInvite.deleteAll(db)
+            try DBConversationContactsSync.deleteAll(db)
+            try DBMessage.deleteAll(db)
+            try DBMemberProfile.deleteAll(db)
+            try DBConversationMember.deleteAll(db)
+            try DBContact.deleteAll(db)
+            try DBMember.deleteAll(db)
+            try DBConversation.deleteAll(db)
+            try DBInbox.deleteAll(db)
+            try DBMyProfile.deleteAll(db)
         }
     }
 

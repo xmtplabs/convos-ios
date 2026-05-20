@@ -18,6 +18,16 @@ struct ConversationsView: View {
         viewModel.focusCoordinator
     }
 
+    /// Inbox-to-contact-name override applied across the whole
+    /// conversation list view tree (cells, pinned tiles, accessibility
+    /// labels). Built once per `ConversationsView` body recompute so
+    /// cells share the same closure. Reads through the messaging
+    /// service's contacts repository; uses `messagingServiceSync()`
+    /// because cell rendering is synchronous.
+    private var contactNameOverride: @Sendable (String) -> String? {
+        viewModel.session.messagingServiceSync().contactsRepository().contactName(for:)
+    }
+
     var emptyConversationsViewScrollable: some View {
         ScrollView {
             LazyVStack(spacing: 0.0) {
@@ -184,7 +194,8 @@ struct ConversationsView: View {
     }
 
     var body: some View {
-        ConversationPresenter(
+        let nameOverride = contactNameOverride
+        return ConversationPresenter(
             viewModel: viewModel.selectedConversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: true,
@@ -246,6 +257,7 @@ struct ConversationsView: View {
         }
         .focusable(false)
         .focusEffectDisabled()
+        .memberNameOverride(nameOverride)
         .modifier(ConversationsSheetModifier(
             presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
@@ -260,6 +272,12 @@ struct ConversationsView: View {
         }
         .onOpenURL { url in
             viewModel.handleURL(url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .contactsRequestedNewConversation)) { _ in
+            // Dismiss the contacts settings sheet stack so the user lands on
+            // the newly-routed conversation. ConversationsViewModel handles
+            // the actual conversation selection on the same notification.
+            presentingAppSettings = false
         }
     }
 }

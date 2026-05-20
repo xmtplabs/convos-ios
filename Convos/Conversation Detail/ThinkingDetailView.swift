@@ -184,6 +184,7 @@ struct ThinkingDetailView: View {
             onInviteAssistant: {},
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
+            memberNameOverride: { _ in nil },
             hasAssistant: conversation.hasAgent,
             isAssistantJoinPending: false,
             isAssistantEnabled: false,

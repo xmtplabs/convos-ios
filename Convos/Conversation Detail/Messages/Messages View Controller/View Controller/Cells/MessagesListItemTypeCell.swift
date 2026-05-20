@@ -67,7 +67,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .update(_, let update, _):
                     VStack(spacing: 0) {
                         TextTitleContentView(
-                            title: update.summary,
+                            title: update.summary(memberNameOverride: config.memberNameOverride),
                             profile: update.profile,
                             agentVerification: update.profileMember?.agentVerification ?? .unverified,
                             onTap: update.profileMember.map { member in

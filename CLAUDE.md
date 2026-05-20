@@ -129,6 +129,42 @@ Use `@Previewable` for preview state variables:
 @Previewable @State var text: String = "Preview"
 ```
 
+### View Modes for Multi-Entry-Point Surfaces
+
+When the same screen is shown from multiple entry points with subtly
+different behavior (e.g., a card with extra actions in some contexts), prefer
+parameterizing the view with a mode enum over duplicating the view per
+surface:
+
+```swift
+enum ContactCardMode {
+    case standalone
+    case scopedToConversation(...)
+}
+
+ContactCardView(mode: .standalone)
+ContactCardView(mode: .scopedToConversation(...))
+```
+
+Conventions:
+
+- Define the mode enum in its own file alongside the view (e.g.
+  `ContactCardMode.swift` next to `ContactCardView.swift`).
+- Add a module-overview comment block at the top of the view file
+  enumerating every entry point and the mode it uses. New engineers grep
+  for the view, find the file, and the first thing they see is the entry-
+  point map.
+- Cross-reference sibling mode enums in their doc comments (e.g.
+  `ContactCardMode` notes that it mirrors `ContactsPickerMode`'s pattern).
+- Keep view structure shared — only branch behavior on the mode where
+  necessary. If the structural difference is large enough to feel like two
+  views, that's a signal you may want a wrapper composition instead.
+
+Existing examples in the codebase:
+
+- `ContactCardMode` — `Convos/Contacts/ContactCardMode.swift`
+- `ContactsPickerMode` — `Convos/Contacts/ContactsPickerViewModel.swift`
+
 ## Code Style & Formatting
 
 ### SwiftFormat Configuration
@@ -222,6 +258,8 @@ return nil
 - **Only add comments when necessary** to explain something confusing or not apparent from the code
 - **Never use step counts** in comments (e.g., "Step 1:", "Step 2:") - they get out of date when code changes
 - **Never use all caps for emphasis** in comments (e.g., "BEFORE", "IMPORTANT") - use normal sentence case
+- **Never reference temporary planning artifacts in comments** - phase numbers (e.g., "Phase 2.5", "Phase 2.10"), ticket IDs, or PR numbers go stale once shipped. Comments should describe current behavior only. If historical context matters, put it in commit history or an ADR.
+- **Use ASCII characters in comments.** Avoid the section sign (`§`), em dashes (`—`), arrows (`→`), smart quotes, and other non-ASCII punctuation - they are inconsistent with the rest of the codebase and harder to grep. Use plain text equivalents (`-` for dashes, `->` for arrows, `"..."` for quotes, plain references like "see contacts PRD" instead of `§`).
 - Prefer self-documenting code with clear variable and function names over comments
 - If you find yourself writing many comments, consider refactoring the code to be clearer
 

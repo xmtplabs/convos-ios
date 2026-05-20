@@ -193,7 +193,10 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                     memberKind: memberKind,
                     metadata: profileMetadata
                 )
-                try dbProfile.save(db)
+                // Note: `Date()` here rather than the message's `sentAtNs`
+                // because `JoinResult` doesn't carry the original timestamp.
+                // Tracked as a follow-up — see the contacts MVP plan.
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: dbProfile, receivedAt: Date())
 
                 if dbProfile.agentVerification.isConvosAssistant,
                    let conversation = try DBConversation.fetchOne(db, id: result.conversationId),

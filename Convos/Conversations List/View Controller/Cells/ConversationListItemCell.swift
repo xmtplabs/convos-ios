@@ -15,7 +15,11 @@ final class ConversationListItemCell: UICollectionViewListCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(with conversation: Conversation, isSelected: Bool) {
+    func configure(
+        with conversation: Conversation,
+        isSelected: Bool,
+        memberNameOverride: @escaping @Sendable (String) -> String? = { _ in nil }
+    ) {
         if let wrapper = hostingWrapper {
             wrapper.update(conversation: conversation, isSelected: isSelected)
         } else {
@@ -26,6 +30,7 @@ final class ConversationListItemCell: UICollectionViewListCell {
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 ConversationListItemWrapperView(wrapper: wrapper)
+                    .memberNameOverride(memberNameOverride)
             }
             .margins(.all, 0)
             .background(.clear)

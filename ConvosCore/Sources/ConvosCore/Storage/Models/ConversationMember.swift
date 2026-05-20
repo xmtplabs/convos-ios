@@ -62,11 +62,41 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         }
         return profile.displayName
     }
+
+    /// Same shape as `displayName`, but the inbox → contact-name override
+    /// **wins** when present. The contact-list name is the user's
+    /// deliberate choice and should render consistently across every
+    /// surface that shows this member (system messages, member rows,
+    /// chat header, conversation list). Per-conversation profile name is
+    /// the next fallback, then the "Agent" fallback for unverified agents,
+    /// then `profile.displayName`. Pass `{ _ in nil }` for the legacy
+    /// behavior (no override).
+    public func displayName(memberNameOverride: (String) -> String?) -> String {
+        if let overridden = memberNameOverride(profile.inboxId), !overridden.isEmpty {
+            return overridden
+        }
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if isAgent && !agentVerification.isVerified {
+            return "Agent"
+        }
+        return profile.displayName
+    }
 }
 
 public extension Array where Element == ConversationMember {
     var formattedNamesString: String {
         map { $0.profile }.formattedNamesString
+    }
+
+    /// Variant that takes a contact-name override. See
+    /// `Array<Profile>.formattedNamesString(memberNameOverride:)` for the
+    /// precedence rules.
+    func formattedNamesString(
+        memberNameOverride: (String) -> String?
+    ) -> String {
+        map { $0.profile }.formattedNamesString(memberNameOverride: memberNameOverride)
     }
 
     func sortedByRole() -> [ConversationMember] {

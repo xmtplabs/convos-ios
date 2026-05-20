@@ -744,6 +744,7 @@ extension MessagingService {
         group: XMTPiOS.Group
     ) async {
         guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
+        let receivedAt = message.sentAt
         let senderInboxId = message.senderInboxId
         guard !senderInboxId.isEmpty else { return }
 
@@ -796,7 +797,7 @@ extension MessagingService {
                     profile = profile.with(memberKind: priorMemberKind)
                 }
 
-                try profile.save(db)
+                try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
                 try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
@@ -811,6 +812,9 @@ extension MessagingService {
         group: XMTPiOS.Group
     ) async {
         guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
+        // Use the message's authored timestamp, not wall-clock `Date()`.
+        // Mirrors the foreground `processProfileSnapshot` and the NSE update path.
+        let receivedAt = message.sentAt
 
         do {
             try await databaseWriter.write { db in
@@ -866,7 +870,7 @@ extension MessagingService {
                         profile = profile.with(memberKind: priorMemberKind)
                     }
 
-                    try profile.save(db)
+                    try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
                     try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
@@ -899,7 +903,11 @@ extension MessagingService {
         let conversationWriter = ConversationWriter(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            messageWriter: messageWriter
+            messageWriter: messageWriter,
+            contactSyncCoordinator: ContactSyncCoordinator(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader
+            )
         )
         return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
     }

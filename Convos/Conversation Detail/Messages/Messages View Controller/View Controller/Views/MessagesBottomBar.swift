@@ -534,6 +534,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onInviteAssistant: {},
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
+            memberNameOverride: { _ in nil },
             hasAssistant: false,
             isAssistantJoinPending: false,
             isAssistantEnabled: true,

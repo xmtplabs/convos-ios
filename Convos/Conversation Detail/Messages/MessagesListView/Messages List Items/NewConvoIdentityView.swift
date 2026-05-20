@@ -36,6 +36,23 @@ struct NewConvoIdentityView: View {
                         Image(systemName: "qrcode")
                     }
 
+                    let addFromContactsAction: () -> Void = {
+                        // Routed via notification rather than a callback to
+                        // avoid plumbing through ~9 layers of Messages / cell
+                        // scaffolding. The containing `ConversationView`
+                        // observes and presents its existing picker sheet.
+                        NotificationCenter.default.post(
+                            name: .requestAddFromContactsInCurrentConversation,
+                            object: nil
+                        )
+                    }
+                    Button(action: addFromContactsAction) {
+                        Text("Add from Contacts")
+                        Text("Pick from people you've talked to")
+                        Image(systemName: "person.crop.circle.badge.plus")
+                    }
+                    .accessibilityIdentifier("new-convo-add-from-contacts")
+
                     if isAssistantEnabled {
                         let assistantAction: () -> Void = { onInviteAssistant?() }
                         Button(action: assistantAction) {
