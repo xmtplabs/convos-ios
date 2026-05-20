@@ -697,7 +697,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: jsonList)
         await migrateBundleAttachmentKeys(entries: entries, jsonList: jsonList)
 
-        try await sender.publish()
+        do {
+            try await sender.publish()
+        } catch {
+            try? await markMessageFailed(messageId: messageId)
+            throw error
+        }
         try? await markMessagePublished(messageId: messageId)
         await finalizeBundleLocalState(entries: entries, jsonList: jsonList)
 

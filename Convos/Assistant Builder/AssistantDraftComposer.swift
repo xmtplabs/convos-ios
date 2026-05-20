@@ -36,7 +36,11 @@ struct AssistantDraftComposer: View {
     }
 
     private var photoPickerMaxSelectionCount: Int {
-        max(1, maxPendingMediaAttachments - viewModel.pendingMediaAttachments.count)
+        max(0, maxPendingMediaAttachments - viewModel.pendingMediaAttachments.count)
+    }
+
+    private var isMediaCapacityFull: Bool {
+        viewModel.pendingMediaAttachments.count >= maxPendingMediaAttachments
     }
 
     var body: some View {
@@ -286,6 +290,7 @@ struct AssistantDraftComposer: View {
                     isFilePickerPresented = true
                 },
                 onConvosAction: {},
+                isMediaCapacityFull: isMediaCapacityFull,
                 isVoiceMemoDisabled: viewModel.recordedVoiceMemo != nil,
                 showsSideConvoButton: false,
                 buttonSpacing: DesignConstants.Spacing.step4x,

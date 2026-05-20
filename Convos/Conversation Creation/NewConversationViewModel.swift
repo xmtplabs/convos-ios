@@ -385,7 +385,9 @@ class NewConversationViewModel: Identifiable {
     /// `.ready` yet, the existing message-stream queue inside
     /// `ConversationStateMachine.sendMessage` holds the send until it does.
     func send(text: String) async throws {
-        guard let conversationStateManager else { return }
+        guard let conversationStateManager else {
+            throw ConversationStateMachineError.noConversationStateManager
+        }
         try await conversationStateManager.send(text: text)
     }
 

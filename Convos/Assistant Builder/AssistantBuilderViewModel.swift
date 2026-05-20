@@ -351,6 +351,13 @@ final class AssistantBuilderViewModel: Identifiable {
                 connections: enabledConnections
             )
             innerVM.assistantBuilderSummary = summary
+            // Hide the staged-chip strip on the chat composer for the
+            // duration of the post-commit upload + publish window. Without
+            // this the chat view emerges (under the fading-out builder)
+            // still showing the pre-Make staging chips until
+            // `sendBuilderBundle` clears `pendingMediaAttachments`. The
+            // flag is reset inside `sendBuilderBundle`'s defer.
+            innerVM.isAwaitingBuilderBundleSend = true
             persistSummary(summary, for: innerVM.conversation.id)
             // Note: `innerVM.allowsContactCard` was already set to `false`
             // when this builder VM was constructed. The scheduled task below
@@ -661,10 +668,7 @@ final class AssistantBuilderViewModel: Identifiable {
         assistantJoinTask?.cancel()
         assistantJoinTask = Task { [session] in
             do {
-                _ = try await session.requestAgentJoin(
-                    slug: slug,
-                    instructions: "You're a Convos Assistant"
-                )
+                _ = try await session.requestAgentJoin(slug: slug)
             } catch is CancellationError {
                 return
             } catch let urlError as URLError where urlError.code == .cancelled {

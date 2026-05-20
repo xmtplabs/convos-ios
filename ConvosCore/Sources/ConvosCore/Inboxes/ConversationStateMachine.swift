@@ -1068,6 +1068,12 @@ public enum ConversationStateMachineError: Error {
     /// `.ready` could be emitted. Surfaces in `NewConversationView`'s
     /// standard error UI with a retry affordance via `.createConversation`.
     case addMembersFailed(underlying: Error)
+    /// Caller invoked `send(text:)` before the new-conversation flow had
+    /// configured a `ConversationStateManager`. Surfaces in wrapping flows
+    /// (e.g. Assistant Builder) that send through the unwrapped
+    /// `NewConversationViewModel`; without this, a `try await send` would
+    /// look like a successful no-op and the prompt would silently vanish.
+    case noConversationStateManager
 
     public enum NetworkErrorKind {
         case serviceUnavailable
@@ -1144,6 +1150,8 @@ extension ConversationStateMachineError: DisplayError {
             return "Connection timed out"
         case .addMembersFailed:
             return "Couldn't add members"
+        case .noConversationStateManager:
+            return "Conversation isn't ready yet"
         }
     }
 
@@ -1168,6 +1176,8 @@ extension ConversationStateMachineError: DisplayError {
             return "The server took too long to respond. Try again in a moment."
         case .addMembersFailed:
             return "We couldn't add those contacts to the conversation. Please try again."
+        case .noConversationStateManager:
+            return "The conversation hasn't finished setting up. Wait a moment and try again."
         }
     }
 }

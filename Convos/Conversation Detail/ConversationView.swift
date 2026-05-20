@@ -70,7 +70,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationImage: $viewModel.conversationImage,
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
-            pendingMediaAttachments: viewModel.pendingMediaAttachments,
+            pendingMediaAttachments: viewModel.isAwaitingBuilderBundleSend ? [] : viewModel.pendingMediaAttachments,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
             pendingInviteEmoji: viewModel.conversation.conversationEmoji,

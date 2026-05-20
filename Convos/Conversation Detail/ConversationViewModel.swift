@@ -218,6 +218,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     private var observedCapabilityRequestsConversationId: String?
     @ObservationIgnored
+    private var thinkingSessionsCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var observedThinkingSessionsConversationId: String?
+    @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
     private var locallyHandledCapabilityRequestIds: Set<String> = []
@@ -397,8 +401,24 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var typingThrottleDate: Date?
 
     var pendingMediaAttachments: [PendingMediaAttachment] = []
+    /// True while the Assistant Builder commit is mid-flight — i.e. between
+    /// `Make` being tapped and `sendBuilderBundle` finishing. The composer
+    /// hides staged chips while this is set so the user doesn't see the
+    /// pre-Make staging state lingering during the upload/publish window.
+    /// `pendingMediaAttachments` is intentionally left alive across this
+    /// window so the per-attachment eager-upload start tasks can still
+    /// write back their `eagerUploadKey` instead of cancelling.
+    var isAwaitingBuilderBundleSend: Bool = false
     @ObservationIgnored
     private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
+    /// Background tasks that assign `eagerUploadKey` to a freshly-added
+    /// photo / video attachment. The assignment runs asynchronously after
+    /// `startEagerUpload` returns, so `awaitPendingMediaUploads` must wait
+    /// for these tasks first — otherwise a caller can race ahead and find
+    /// `eagerUploadKey == nil`, silently dropping the attachment from a
+    /// `MultiRemoteAttachment` bundle.
+    @ObservationIgnored
+    private var eagerUploadStartTasks: [UUID: Task<Void, Never>] = [:]
     var voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
@@ -791,6 +811,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
+        observeAssistantBuilderSummary()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         self.editingConversationName = conversation.name ?? ""
@@ -835,13 +856,20 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// closes a row, which propagates into `messagesWithThinkingIndicators`
     /// via the `thinkingSessions` property the extension reads.
     func observeThinkingSessions() {
-        session.thinkingSessionRepository()
-            .activeSessionsPublisher(for: conversation.id)
+        observeThinkingSessions(for: conversation.id)
+    }
+
+    private func observeThinkingSessions(for conversationId: String) {
+        guard conversationId != observedThinkingSessionsConversationId else { return }
+        observedThinkingSessionsConversationId = conversationId
+        thinkingSessions = []
+        thinkingSessionsCancellable?.cancel()
+        thinkingSessionsCancellable = session.thinkingSessionRepository()
+            .activeSessionsPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sessions in
                 self?.thinkingSessions = sessions
             }
-            .store(in: &cancellables)
     }
 
     private func observe() {
@@ -880,6 +908,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
+                    self.observeThinkingSessions(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
                         self.sendReadReceiptIfNeeded()
@@ -1665,7 +1694,12 @@ extension ConversationViewModel {
         }
 
         let messageWriter = cachedMessageWriter
-        Task { [weak self] in
+        eagerUploadStartTasks[attachmentId] = Task { [weak self] in
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.eagerUploadStartTasks.removeValue(forKey: attachmentId)
+                }
+            }
             do {
                 let trackingKey = try await messageWriter.startEagerVideoUpload(at: url)
                 await MainActor.run {
@@ -1694,7 +1728,12 @@ extension ConversationViewModel {
         pendingMediaAttachments.append(.photo(attachment))
 
         let messageWriter = cachedMessageWriter
-        Task { [weak self] in
+        eagerUploadStartTasks[attachmentId] = Task { [weak self] in
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.eagerUploadStartTasks.removeValue(forKey: attachmentId)
+                }
+            }
             do {
                 let trackingKey = try await messageWriter.startEagerUpload(image: image)
                 await MainActor.run {
@@ -1737,6 +1776,8 @@ extension ConversationViewModel {
     private func cleanupAttachment(_ attachment: PendingMediaAttachment) {
         switch attachment {
         case .photo(let photo):
+            eagerUploadStartTasks[photo.id]?.cancel()
+            eagerUploadStartTasks.removeValue(forKey: photo.id)
             if let trackingKey = photo.eagerUploadKey {
                 let messageWriter = cachedMessageWriter
                 Task { await messageWriter.cancelEagerUpload(trackingKey: trackingKey) }
@@ -1744,6 +1785,8 @@ extension ConversationViewModel {
         case .video(let video):
             videoThumbnailTasks[video.id]?.cancel()
             videoThumbnailTasks.removeValue(forKey: video.id)
+            eagerUploadStartTasks[video.id]?.cancel()
+            eagerUploadStartTasks.removeValue(forKey: video.id)
             if let trackingKey = video.eagerUploadKey {
                 let messageWriter = cachedMessageWriter
                 Task { await messageWriter.cancelEagerUpload(trackingKey: trackingKey) }
@@ -1821,6 +1864,15 @@ extension ConversationViewModel {
     /// stalling on per-message upload waits. Throws if any upload fails or
     /// is cancelled while waiting.
     func awaitPendingMediaUploads() async throws {
+        // First, wait for every in-flight `eagerUploadStartTasks` to complete
+        // so each pending photo/video has had a chance to write back its
+        // `eagerUploadKey`. Skipping this lets a fast tap-to-send race past
+        // key assignment, after which the bundle path silently drops the
+        // affected attachments (their `eagerUploadKey` is still nil at
+        // collect time).
+        let startTasks = Array(eagerUploadStartTasks.values)
+        for task in startTasks { _ = await task.value }
+
         let trackingKeys: [String] = pendingMediaAttachments.compactMap { attachment in
             switch attachment {
             case .photo(let photo): return photo.eagerUploadKey
@@ -1852,6 +1904,7 @@ extension ConversationViewModel {
         text: String,
         voiceMemo: BuilderVoiceMemoSnapshot?
     ) async {
+        defer { isAwaitingBuilderBundleSend = false }
         let writer = cachedMessageWriter
 
         var bundleItems: [MultiAttachmentBundleItem] = []
@@ -1895,11 +1948,11 @@ extension ConversationViewModel {
             } catch {
                 Log.error("AssistantBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
                 // Restore pending attachments so the user can retry from the
-                // chat composer if they want. The eager-upload state inside
-                // the writer may already be partially consumed; in practice
-                // this only fires on a network-level failure, and the
-                // failed-send UI surfaces individual item retries.
-                _ = attachmentsSnapshot
+                // chat composer. The eager-upload state inside the writer may
+                // already be partially consumed; in practice this only fires
+                // on a network-level failure, and the failed-send UI surfaces
+                // individual item retries.
+                pendingMediaAttachments = attachmentsSnapshot
             }
         }
     }
@@ -2438,7 +2491,6 @@ extension ConversationViewModel {
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
-                    instructions: "You're a Convos Assistant",
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
