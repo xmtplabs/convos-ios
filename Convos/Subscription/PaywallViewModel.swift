@@ -8,10 +8,7 @@ final class PaywallViewModel {
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored var onPurchaseSucceeded: (() -> Void)?
 
-    /// Optional so a non-subscriber sees neither Monthly nor Annual preselected
-    /// — the picker stays neutral until the user picks. Set in init to the
-    /// subscriber's current period for subscribers.
-    var selectedPeriod: SubscriptionPeriod?
+    var selectedPeriod: SubscriptionPeriod = .monthly
     var purchasingProductId: String?
     var isShowingAlert: Bool = false
     var alertTitle: String = ""
@@ -25,11 +22,10 @@ final class PaywallViewModel {
         let initial: UserSubscription? = subscriptionService.currentSubscription
         self.currentSubscription = initial
         // Default the picker to the period the user is currently subscribed to,
-        // so the paywall opens on their plan (with "Current plan" visible on the
-        // right card). Non-subscribers see neither tab preselected. Once the
-        // user interacts with the picker, we don't reset it on subscription
-        // updates.
-        self.selectedPeriod = initial?.period
+        // so the paywall opens on their plan (with "Current plan" visible on
+        // the right card). Falls back to Monthly for non-subscribers — a
+        // sensible default that keeps tier cards visible.
+        self.selectedPeriod = initial?.period ?? .monthly
         subscriptionService.subscriptionPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sub in
@@ -79,7 +75,8 @@ final class PaywallViewModel {
                     message: "We couldn't load subscription plans right now. Please try again later."
                 )
             } else {
-                Log.info("Paywall loaded \(loaded.count) product(s)")
+                let ids: String = loaded.map(\.id).joined(separator: ", ")
+                Log.info("Paywall loaded \(loaded.count) product(s): \(ids)")
             }
         } catch {
             Log.error("Paywall failed to load products: \(error)")
