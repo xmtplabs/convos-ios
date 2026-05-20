@@ -210,10 +210,12 @@ class NewConversationViewModel: Identifiable {
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false
         self.seededMemberInboxIds = []
-        // This internal init is used by tests / warm-cache paths that
-        // construct against a draft id, not a user-existing 1:1.
-        // Leave the existing-conversation guard off so the cleanup
-        // semantics match the historical behavior.
+        // This internal init is tests-only - the warm-cache path goes
+        // through the public init + `prepareNewConversation` +
+        // `configureWithMessagingService(_:existingConversationId:)`,
+        // not here. Tests construct against a draft id, not a
+        // user-existing 1:1, so the existing-conversation cleanup
+        // guard stays off.
         self.isExistingConversation = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
@@ -235,11 +237,15 @@ class NewConversationViewModel: Identifiable {
 
     func cleanUpIfNeeded() {
         guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
-        // `deleteConversation` is currently a no-op (only cancels
-        // in-flight tasks), but never call it when the sheet was just
-        // *opening* an existing 1:1 - if that contract ever changes,
-        // dismissing the sheet before the state machine emits `.ready`
-        // would silently destroy the real conversation behind it.
+        // Belt-and-braces guard for the `.existingConversation` flow.
+        // `ConversationStateMachine.useExisting` reliably transitions
+        // to `.ready` against a real conversation, so the first guard
+        // above would normally short-circuit before we got here.
+        // Independently, `deleteConversation` is currently a no-op
+        // that only cancels in-flight tasks. This guard exists so
+        // that if either contract ever drifts, dismissing the sheet
+        // before `.ready` lands can't silently destroy the real
+        // conversation behind it.
         guard !isExistingConversation else { return }
         _cleanedUp = true
         deleteConversation()
