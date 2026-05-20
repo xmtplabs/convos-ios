@@ -393,11 +393,17 @@ class NewConversationViewModel: Identifiable {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
-        // Old per-conversation `session.deleteInbox` path is a no-op post-hotfix
-        // (it would destroy the user's account if it weren't). Canceling the
-        // outstanding creation tasks above is the correct single-inbox cleanup;
-        // the draft conversation row is handled by the draft repository when
-        // the ViewModel tears down.
+        // Drop the conversation row claimed via `prepareNewConversation()`
+        // when the user backs out without engaging. The single-inbox refactor
+        // turned the old per-conversation `session.deleteInbox` cleanup into
+        // a no-op (it would destroy the user's account), so without this the
+        // warm-cached group would persist in the conversations list. Drafts
+        // skip — they don't have a visible row.
+        if let conversationId = conversationViewModel?.conversation.id {
+            Task { [session] in
+                await session.discardClaimedConversation(id: conversationId)
+            }
+        }
     }
 
     func setDismissAction(_ action: DismissAction) {

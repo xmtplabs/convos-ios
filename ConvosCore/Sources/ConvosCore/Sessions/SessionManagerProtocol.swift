@@ -19,6 +19,19 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// if no prepared group was available and the caller should create one
     /// on demand.
     func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
+
+    /// Drops a conversation that was claimed via `prepareNewConversation()` but
+    /// never engaged with by the user — typically called from the new-
+    /// conversation / Assistant Builder X-cancel path when no messages have
+    /// been sent. Deletes the local `DBConversation` row and its dependent
+    /// rows (members, profiles, local state) so the conversation disappears
+    /// from the conversations list. The single-inbox refactor turned the
+    /// older `session.deleteInbox` cleanup into a no-op (it would destroy the
+    /// user's account); this is the replacement scoped to a single
+    /// conversation. Draft ids are a no-op — drafts don't have on-disk rows
+    /// the user can see.
+    func discardClaimedConversation(id conversationId: String) async
+
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 

@@ -423,6 +423,27 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return (service, conversationId)
     }
 
+    public func discardClaimedConversation(id conversationId: String) async {
+        guard !DBConversation.isDraft(id: conversationId) else { return }
+        do {
+            try await databaseWriter.write { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBConversation.deleteOne(db, key: conversationId)
+            }
+            Log.info("Discarded claimed conversation \(conversationId)")
+        } catch {
+            Log.error("Failed to discard claimed conversation \(conversationId): \(error)")
+        }
+    }
+
     public func deleteAllInboxes() async throws {
         for try await _ in deleteAllInboxesWithProgress() {}
     }
