@@ -68,23 +68,32 @@ struct ContactsPickerView: View {
         }
     }
 
+    /// The list takes the full sheet and scrolls behind the toolbar
+    /// pill, the search bar / selected pills (top), and the continue
+    /// button (bottom). `safeAreaBar` is the same modifier
+    /// `MessagesView` uses for the chat composer - it floats the bar
+    /// view at the edge with glass blur and auto-adjusts the
+    /// scrollable child's content inset so rows still scroll past it.
     @ViewBuilder
     private var content: some View {
-        VStack(spacing: 0.0) {
-            ContactsSearchBar(
-                query: $viewModel.searchQuery,
-                placeholder: "Contacts",
-                accessibilityIdentifier: "contacts-picker-search-field"
-            )
-            .zIndex(1)
-            ContactsPickerSelectedPills(
-                contacts: viewModel.selectedContacts,
-                onRemove: handleRemove
-            )
-            ContactsPickerList(
-                viewModel: viewModel,
-                onToggle: handleToggle
-            )
+        ContactsPickerList(
+            viewModel: viewModel,
+            onToggle: handleToggle
+        )
+        .safeAreaBar(edge: .top) {
+            VStack(spacing: 0.0) {
+                ContactsSearchBar(
+                    query: $viewModel.searchQuery,
+                    placeholder: "Contacts",
+                    accessibilityIdentifier: "contacts-picker-search-field"
+                )
+                ContactsPickerSelectedPills(
+                    contacts: viewModel.selectedContacts,
+                    onRemove: handleRemove
+                )
+            }
+        }
+        .safeAreaBar(edge: .bottom) {
             ContactsPickerConfirmButton(
                 title: viewModel.confirmButtonTitle,
                 isEnabled: viewModel.canConfirm,
