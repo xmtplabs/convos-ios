@@ -54,6 +54,28 @@ A second round of design mediation with @borja during backend PR #215 produced f
 
 Plus smaller deltas absorbed inline: `payments-repoint` landed inside PR #191 (no longer a prereq); `willRenew` + `isInTrial` columns added to `Subscription`; `idempotencyKey` + `notificationUUID` columns added to `AppleReceipt`; pricing prose corrected (`markupRate=2.0` is a 2× multiplier, not "+$2 markup"); real launch prices folded into §5 and §9.5.3.
 
+### Round 3 — daily refill cron landed (2026-05-20)
+
+PR #219 ("daily refill cron + free-tier `/me/credits` surface") merged into `otr-dev`. Resolves the open daily-cron question (team Q B2) and the free-tier balance surface. Deltas absorbed inline; this entry captures the shape.
+
+1. **Daily refill is shipped, top-up-to-cap (not additive).** A new cron-only `POST /v2/credits/daily` (auth: `X-Cron-API-Key` header, env `PAYMENTS_CRON_API_KEY`, ≥32-char SHA256 constant-time compare; 503 if missing, 401 if invalid) tops eligible accounts up to `PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS` once per UTC day. **Semantics are "fill the gap to cap", not "add N credits"** — `delta = cap - max(0, currentBalance)`, skipped when ≥ cap.
+2. **Eligibility (SQL-level):** account has a SIWE `AuthMethod` AND has **no** `Subscription` with status in (`trial`, `active`, `grace`, `billingRetry`). Expired / revoked / no-sub accounts qualify.
+3. **Self-rate-limit + idempotency.** Job-level: `MAX(CreditLedger.createdAt WHERE grantKindId='daily_refill') ≥ startOfTodayUtc(now)` → entire run skipped with `already_ran_today`. Per-account: `idempotencyKey = "daily_refill:<accountId>:YYYY-MM-DD"` (UTC). Per-account try/catch so one bad row never aborts the batch.
+4. **`GET /v2/accounts/me/credits` extended for free-tier.** When the caller has no entitled subscription, the response now returns: `balance = max(0, getBalance())`, `monthlyGrant = PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS`, `monthlyGrantUsed = max(0, cap - balance)`, `nextRefreshAt = startOfNextUtcDay(now)`, `periodLabel = "Daily"`. The fields **reuse the existing `monthlyGrant`/`monthlyGrantUsed` keys** so iOS ships without a client-side change; proper `dailyCap`/`dailyUsed` field names are a follow-up requiring iOS coordination.
+5. **Latent bug fixed:** `/me/credits` now gates the subscription-derived branch on `isEntitledSubscription()` (status in trial/active/grace/billingRetry). Expired or revoked subs no longer surface stale `tierGrant` numbers; they fall through to the free-tier daily semantics.
+6. **Silent push fan-out on successful refill.** New `CreditsRefilled` `NotificationType` + payload `{ creditsAdded, newBalance: string, refilledAt: ISO, nextRefreshAt: ISO }`. Fired fire-and-forget via existing APNS/FCM services to every non-disabled `DeviceRegistration` matching `accountId`. iOS uses this as a refresh signal (no UI change required; the existing `/me/credits` poll on push receipt picks up the new balance).
+7. **Service-layer result shape change.** `ConsumeResult` / `GrantResult` / `AdjustResult` now include `newBalance: bigint` returned directly from the transaction (replaces post-commit `getBalance()` reads). All call sites updated.
+
+Follow-ups Borja documented in PR #219 (none block v1):
+- Push-payload test seam (`__setApnsServiceForTests` / `__setFcmServiceForTests`) for exact-shape assertions.
+- Proper `dailyCap` / `dailyUsed` field names on `/me/credits` (requires iOS coordination).
+- Per-instance cron API key rotation.
+- `pg_advisory_xact_lock` on the MAX-query if multi-pod cron becomes operationally relevant.
+- Partial-batch crash semantics — the MAX-query anchor blocks remaining accounts from refilling until tomorrow's tick (per-account date-scoped keys guarantee exactly-once when they do refill, so no double-grant). Revisit if scale demands.
+- `recordPushFailure` shared helper.
+
+External scheduler (Cloud Scheduler / k8s CronJob / equivalent) must be configured to hit `POST /v2/credits/daily` once per UTC day with `X-Cron-API-Key`. The terraform PR ships the env vars; ops owns the scheduler.
+
 ---
 
 ## 1. Goals (v1)
@@ -160,6 +182,8 @@ PR #191's payment-side knobs are joined by per-tier grant amounts owned by the s
 | `PAYMENTS_MIN_BALANCE_CREDITS` | **0** | PR 191 | Hard floor; `consume()` throws `InsufficientBalanceError` below this. There is no slow-mode below 0. |
 | `PAYMENTS_GRANT_BUILDER_MONTHLY` | **2500** (placeholder — final TBD by product) | PR 215 | Per-tier credit allotment for `monthlyGrant` in iOS `CreditBalance`. Annual = 12× this. |
 | `PAYMENTS_GRANT_PRO_MONTHLY` | **10000** (placeholder — final TBD by product) | PR 215 | Same, Pro tier. |
+| `PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS` | TBD (placeholder — final by product / Saul) | PR 219 | Daily top-up-to-cap for SIWE-verified free-tier accounts. Surfaced as `monthlyGrant` on `/me/credits` for non-subscribers (semantic overload — see Round 3 note). |
+| `PAYMENTS_CRON_API_KEY` | **(secret)**, ≥32 chars | PR 219 | Header `X-Cron-API-Key` for `POST /v2/credits/daily`. Compared via SHA256 + constant-time. **AWS Secrets Manager**, not env_vars. |
 
 **Sanity check at the placeholder numbers.** A Builder user has 2,500 credits/period = $2.50 of OpenRouter spend at `markupRate=2.0` and `creditsPerDollar=1000` (2500 credits ÷ 2.0 ÷ 1000). At Claude Sonnet 4.6 pricing, that's roughly 60–120 typical agent turns/month. The Pro tier (10,000 credits = $10 of spend at the same rates) covers ~250–500 turns. Both numbers are placeholders and product will retune before launch.
 
@@ -196,12 +220,14 @@ The `GrantKind` rows shipped in PR #191's migration:
 | GrantKind id | Source | When | Amount | Notes |
 |---|---|---|---|---|
 | `signup_bonus` | Server-issued | Once per account on first agent creation | TBD (deferred — not yet wired) | One-time additive grant. Lives in the ledger; rolls over. |
-| `daily_refill` | Cron job | Daily, to eligible accounts | TBD — see team Q B2 | Future cron-driven additive top-up. Idempotency key shape `account:<accountId>:date:YYYY-MM-DD`. |
+| `daily_refill` | Cron — `POST /v2/credits/daily` | Once per UTC day, eligible free-tier accounts only | Top up to `PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS` (delta = cap − max(0, balance); skipped when balance ≥ cap) | **Shipped in PR #219.** Eligibility: SIWE `AuthMethod` AND no active subscription (status not in trial/active/grace/billingRetry). Idempotency: `daily_refill:<accountId>:YYYY-MM-DD` (UTC). Job-level self-rate-limit via `MAX(CreditLedger.createdAt WHERE grantKindId='daily_refill')` ≥ start-of-today-UTC. Cron-auth `X-Cron-API-Key`. Silent push `CreditsRefilled` on success. |
 | `manual` | Admin action | Operator-initiated | Per-grant | Refunds, comps, promo escalations. |
 
 **Not in v1**: `subscription_*`, `trial_nux_*` (NUX trial is deferred per the brief). When the NUX trial ships in a follow-up, it will use a new `GrantKind` row like `trial_nux` or `signup_trial` and flow through `grant()` — additive, not subscription-derived.
 
-**iOS-visible behavior** (no functional change vs the earlier draft): `monthlyGrant` = tier env config, `monthlyGrantUsed` = Σ |consume deltas| since `Subscription.currentPeriodStart`. Period rollover happens at `DID_RENEW` because the webhook updates `currentPeriodStart`, naturally resetting `monthlyGrantUsed` to 0 on the next read. No ledger write needed.
+**iOS-visible behavior for entitled subscribers** (no functional change vs the earlier draft): `monthlyGrant` = tier env config, `monthlyGrantUsed` = Σ |consume deltas| since `Subscription.currentPeriodStart`. Period rollover happens at `DID_RENEW` because the webhook updates `currentPeriodStart`, naturally resetting `monthlyGrantUsed` to 0 on the next read. No ledger write needed.
+
+**iOS-visible behavior for free-tier accounts** (post PR #219): `monthlyGrant` = `PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS` (semantic overload — same JSON key), `monthlyGrantUsed` = `max(0, cap − balance)`, `balance` = `max(0, getBalance())`, `nextRefreshAt` = start-of-next-UTC-day, `periodLabel = "Daily"`. The free-tier branch is gated by `isEntitledSubscription()` (status in `trial`/`active`/`grace`/`billingRetry`); expired or revoked subs fall through to free-tier semantics.
 
 ### 5.6 Out-of-credits policy
 
@@ -298,10 +324,10 @@ This section captures the load-bearing copy/UX rule for every user-facing credit
 PR #191 ("Payments API foundations") is merged into `otr-dev`. The module lives at `convos-backend/src/payments/` (no nested `services/` dir). It is **HTTP-bound for agents only** today (`POST /v2/credits/{check,consume,grant}` with `X-Agent-API-Key`); user-facing reads/writes live under `/v2/accounts/me/*` per §6.2. The `payments-repoint` work (re-keying `UserCredits`/`CreditLedger` from `inboxId` to `accountId`) landed inside PR #191 itself — no longer a separate prereq.
 
 **Service-layer methods** (`src/payments/index.ts`, accountId-keyed):
-- `grant({ accountId, credits, kind, idempotencyKey, note?, requestId? })` → ledger entry + new balance
-- `consume({ accountId, usdCostMicros, idempotencyKey, requestId, model? })` → ledger entry + new balance. **Throws `InsufficientBalanceError`** if balance would drop below `PAYMENTS_MIN_BALANCE_CREDITS`. No `mode` return value — there is no slow-mode (§5.6).
-- `adjust({ accountId, delta, idempotencyKey, note })` → signed adjustment (operator refunds / corrections)
-- `getBalance(accountId)` → current `UserCredits.balance` as `bigint`
+- `grant({ accountId, credits, kind, idempotencyKey, note?, requestId? })` → `{ granted, replayed, newBalance }` (newBalance from the transaction, no post-commit read — PR #219).
+- `consume({ accountId, usdCostMicros, idempotencyKey, requestId, model? })` → `{ spent, replayed, newBalance }`. **Throws `InsufficientBalanceError`** if balance would drop below `PAYMENTS_MIN_BALANCE_CREDITS`. No `mode` return value — there is no slow-mode (§5.6).
+- `adjust({ accountId, delta, idempotencyKey, note })` → `{ applied, replayed, newBalance }` (operator refunds / corrections).
+- `getBalance(accountId)` → current `UserCredits.balance` as `bigint`. Still available for read-only callers; mutation paths above prefer the embedded `newBalance` to avoid race windows.
 - `isAllowed(accountId)` → advisory boolean (`balance >= PAYMENTS_RESERVED_MAX_TURN_CREDITS`); not an authorization gate
 - `getHistory(accountId, limit?, cursor?)` → keyset-paginated ledger entries
 
@@ -394,13 +420,13 @@ NUX trial, promo, and any subscription-related grant kinds are deferred. They'll
 
 ### 6.2 HTTP API surface
 
-Routing follows the **audience-namespace cut** agreed during PR #215: user-facing reads/writes live under `/v2/accounts/me/*` (credits and subscriptions are properties of an account); agent-facing endpoints stay under `/v2/credits/*` with `X-Agent-API-Key`. The webhook is Apple-bound and lives under `/v2/webhooks/apple/*`. The same handler is mounted at both `/ssn` (iOS brief naming) and `/server-notifications` (PRD / App Store Connect naming) for compatibility.
+Routing follows the **audience-namespace cut** agreed during PR #215: user-facing reads/writes live under `/v2/accounts/me/*` (credits and subscriptions are properties of an account); agent-facing endpoints stay under `/v2/credits/*` with `X-Agent-API-Key`; cron-only operator endpoints share the `/v2/credits/*` prefix but gate on `X-Cron-API-Key` instead (PR #219). The webhook is Apple-bound and lives under `/v2/webhooks/apple/*`. The same handler is mounted at both `/ssn` (iOS brief naming) and `/server-notifications` (PRD / App Store Connect naming) for compatibility.
 
 **User-facing** (JWT + `requireAccount`):
 
 | Method | Path | Body | Returns | Notes |
 |---|---|---|---|---|
-| `GET` | `/v2/accounts/me/credits` | – | `{ balance, monthlyGrant, monthlyGrantUsed, nextRefreshAt, periodLabel }` | Feeds iOS `CreditBalance`. **Derived** at read time from Subscription row + per-tier env config + Σ consume deltas since `currentPeriodStart`. With no subscription: all credit fields = 0, `nextRefreshAt` = start of next calendar month. |
+| `GET` | `/v2/accounts/me/credits` | – | `{ balance, monthlyGrant, monthlyGrantUsed, nextRefreshAt, periodLabel }` | Feeds iOS `CreditBalance`. Branches by entitlement: **entitled subscriber** (status in trial/active/grace/billingRetry) → derived from tier config + Σ consume deltas since `currentPeriodStart`. **Free-tier** (no sub, or expired/revoked) → `balance = max(0, getBalance())`, `monthlyGrant = PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS`, `monthlyGrantUsed = max(0, cap − balance)`, `nextRefreshAt = startOfNextUtcDay`, `periodLabel = "Daily"`. The `monthlyGrant`/`monthlyGrantUsed` keys are intentionally reused for the daily-cap semantics so iOS ships without a client-side rename (follow-up: proper `dailyCap`/`dailyUsed` fields). |
 | `GET` | `/v2/accounts/me/subscription` | – | `{ tier, period, status, productId, currentPeriodEnd, willRenew, isInTrial }` or `204 No Content` | Feeds iOS `UserSubscription`. 204 when caller has no sub. |
 | `POST` | `/v2/accounts/me/subscription/verify` | `{ jwsRepresentation: string }` | `{ subscription }` | iOS posts the StoreKit JWS only. `appAccountToken` is extracted from the verified payload, not trusted from the body (§6.4). Idempotent on `transactionId`. Returns `409 subscription_account_mismatch` if a different account already owns this `originalTransactionId`. |
 
@@ -409,8 +435,14 @@ Routing follows the **audience-namespace cut** agreed during PR #215: user-facin
 | Method | Path | Body | Returns | Notes |
 |---|---|---|---|---|
 | `POST` | `/v2/credits/check` | `{ accountId }` | `{ allowed, balance }` | Advisory gate. Returns `allowed=true` iff `balance >= PAYMENTS_RESERVED_MAX_TURN_CREDITS`. |
-| `POST` | `/v2/credits/consume` | `{ accountId, usdCostMicros, idempotencyKey, requestId, model? }` | `{ spent, balance, replayed }` | Atomic ledger write. `402 insufficient_balance` when below floor. Idempotent on `(accountId, idempotencyKey)`. |
-| `POST` | `/v2/credits/grant` | `{ accountId, credits, grantKindId, idempotencyKey, note? }` | `{ granted, balance, replayed }` | Additive credits only (see §5.5). Today's allowed kinds: `signup_bonus`, `manual`. `daily_refill` is reserved for the future cron path and intentionally not API-callable. |
+| `POST` | `/v2/credits/consume` | `{ accountId, usdCostMicros, idempotencyKey, requestId, model? }` | `{ spent, newBalance, replayed }` | Atomic ledger write. `402 insufficient_balance` when below floor. Idempotent on `(accountId, idempotencyKey)`. `newBalance` comes directly from the transaction (PR #219). |
+| `POST` | `/v2/credits/grant` | `{ accountId, credits, grantKindId, idempotencyKey, note? }` | `{ granted, newBalance, replayed }` | Additive credits only (see §5.5). Today's API-allowed kinds: `signup_bonus`, `manual`. `daily_refill` is **NOT** API-callable from agent path — it's reserved for the cron endpoint below. |
+
+**Cron-only** (PR #219, `X-Cron-API-Key`):
+
+| Method | Path | Body | Returns | Notes |
+|---|---|---|---|---|
+| `POST` | `/v2/credits/daily` | – | `{ skipped?, refilled[], noOp, errors[] }` summary | External scheduler (Cloud Scheduler / k8s CronJob) hits once per UTC day. Top-up-to-cap for SIWE-verified free-tier accounts. `503` if `PAYMENTS_CRON_API_KEY` not configured. `401` on invalid key (constant-time SHA256 compare). Self-rate-limited: if any `daily_refill` ledger entry exists with `createdAt >= startOfTodayUtc`, the whole run is skipped (`reason: "already_ran_today"`). |
 
 **Apple-bound** (JWS signature is the auth):
 
@@ -502,11 +534,15 @@ Flow per turn:
 
 **Long-term enforcement** moves into Nick's Cloudflare Durable Object wrapping the runtime; ledger model stays the same.
 
-### 6.6 Push notifications for subscription state (deferred — Phase 2)
+### 6.6 Push notifications for credit / subscription state
 
-**Not shipped in PR #215.** Captured here as the planned surface; wiring will land after the IAP flow is dogfooded.
+**`CreditsRefilled` is shipped** in PR #219 — first push variant actually wired in the system. The rest below remain deferred.
 
-Planned: extend `PushNotificationPayload` (in iOS `ConvosCore/Sources/ConvosCore/Notifications/PushNotificationPayload.swift`) with a new `notificationData.type` value:
+**Shipped** (PR #219, fire-and-forget after a successful `runDailyRefill()`):
+
+- **`CreditsRefilled`** — silent push fanned out to every non-disabled `DeviceRegistration` matching a refilled `accountId`. Payload `{ creditsAdded, newBalance (bigint serialized as string), refilledAt (ISO UTC), nextRefreshAt (ISO UTC = start of next UTC day) }`. iOS treats this as a "refresh credits" trigger — no UI surface change needed; the existing `/me/credits` re-fetch on push receipt picks up the new balance.
+
+**Deferred (Phase 2)** — planned `notificationData.type` values when the wiring continues:
 
 - `"credits_low"` — fires at 20% remaining. Body: *"Your credits are running low."*
 - `"credits_depleted"` — fires at 0. Body: *"Out of credits — upgrade to keep your agents running."* (No "slow mode" copy — there is no slow mode; see §5.6 and the framing rule in §5.9.)
@@ -1225,7 +1261,7 @@ These don't block iOS implementation start — mock services, StoreKit Configura
 | # | Question | Owner |
 |---|---|---|
 | B1 | Confirm launch values: `PAYMENTS_MARKUP_RATE` (currently 2.0), `PAYMENTS_CREDITS_PER_USD` (currently 1000), `PAYMENTS_RESERVED_MAX_TURN_CREDITS` (currently 1), `PAYMENTS_MIN_BALANCE_CREDITS` (currently 0, hard floor — no slow-mode). Plus `PAYMENTS_GRANT_BUILDER_MONTHLY` (placeholder 2500) and `PAYMENTS_GRANT_PRO_MONTHLY` (placeholder 10000). Final per-tier numbers TBD by product. Use Borja's `credit-pricing-calculator.html`. | Saul + Borja |
-| B2 | Daily cron free-tier grant — amount + cadence + eligibility. Options: (a) every account, N credits/day forever; (b) only "active in last 7d"; (c) only "no active sub"; (d) something else. Will flow through `grant({ kind: "daily_refill" })`. | PM + Borja |
+| B2 | ~~Daily cron free-tier grant~~ — **resolved (PR #219)**: cadence = once per UTC day (cron-driven, `POST /v2/credits/daily`), eligibility = SIWE-verified accounts with no active subscription, amount = top-up-to-cap (`PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS`). Final cap value still TBD by product (see §5.3). | (resolved) |
 | B3 | ~~Subscription grant cadence~~ — **resolved**: subscription credits are derived, not granted (§5.5). Period rollover = move `currentPeriodStart` on `DID_RENEW`, used = Σ consumes since that boundary. | (resolved) |
 | B4 | Cross-grade Builder↔Pro mid-cycle — Apple sends `DID_CHANGE_RENEWAL_PREF`; backend updates `tier`/`period`/`productId` in the row. `monthlyGrant` reads the new tier on the next API call. No proration write. Confirm UX expectation matches. | PM |
 | B5 | ~~Slow-mode cost~~ — **resolved**: there is no slow-mode (§5.6). Consume hard-fails at 0; iOS shows paywall. | (resolved) |
@@ -1382,6 +1418,11 @@ PAYMENTS_MIN_BALANCE_CREDITS=0             # hard floor; consume() throws below 
 PAYMENTS_GRANT_BUILDER_MONTHLY=2500
 PAYMENTS_GRANT_PRO_MONTHLY=10000
 
+# Daily refill cron (PR #219). Free-tier accounts top up to this cap once per UTC day
+# via POST /v2/credits/daily.
+PAYMENTS_FREE_TIER_DAILY_CAP_CREDITS=<TBD>  # final value TBD by product
+PAYMENTS_CRON_API_KEY=<secret, >=32 chars>  # SECRET — AWS Secrets Manager. SHA256 + constant-time compared.
+
 # Apple integration (PR #215)
 APPLE_BUNDLE_ID=org.convos.ios             # required at runtime
 APPLE_ENV=production                       # one of: production | sandbox | local-testing (local-testing rejected in prod)
@@ -1389,7 +1430,6 @@ APPLE_APP_APPLE_ID=<numeric app id>        # required in production (numeric, fr
 APPLE_API_ISSUER_ID=<uuid>                 # In-App Purchase Key issuer ID
 APPLE_API_KEY_ID=<10 chars>                # In-App Purchase Key ID
 APPLE_API_SIGNING_KEY=<.p8 PEM contents>   # SECRET — goes in AWS Secrets Manager, not env_vars
-APPLE_ENV=production                      # or `sandbox` for non-prod backends
 
 # Backend gating
 PAYMENTS_REQUIRE_ACCOUNT=false            # flip to true after iOS SIWE flow ships
