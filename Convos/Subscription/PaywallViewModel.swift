@@ -14,8 +14,16 @@ final class PaywallViewModel {
     var alertTitle: String = ""
     var alertMessage: String?
     private(set) var products: [PaywallProduct] = []
-    private(set) var isLoadingProducts: Bool = false
     private(set) var currentSubscription: UserSubscription?
+
+    /// In-flight `loadProducts()` task, if any. A concurrent caller awaits this
+    /// same task instead of bailing out early — otherwise a re-entrant call
+    /// during the `availableProducts()` await would see `products` still empty
+    /// and the caller's view would render without products even though the
+    /// first fetch was about to complete.
+    @ObservationIgnored private var loadProductsTask: Task<Void, Never>?
+
+    var isLoadingProducts: Bool { loadProductsTask != nil }
 
     init(subscriptionService: any SubscriptionServiceProtocol) {
         self.subscriptionService = subscriptionService
@@ -53,13 +61,24 @@ final class PaywallViewModel {
     }
 
     func loadProducts() async {
-        // PaywallViewModel is @MainActor, but actors are re-entrant at await
-        // suspension points. Without the !isLoadingProducts check, a second
-        // loadProducts() call entering during the availableProducts() await
-        // would see products still empty and fire a duplicate fetch.
-        guard products.isEmpty, !isLoadingProducts else { return }
-        isLoadingProducts = true
-        defer { isLoadingProducts = false }
+        if products.isEmpty == false { return }
+        // Memoize the in-flight Task so concurrent callers await the same
+        // fetch instead of returning early without products. PaywallViewModel
+        // is @MainActor but actors are re-entrant at await suspension points,
+        // so a Bool guard alone would let a second caller pass the
+        // `products.isEmpty` check and silently exit while the first call
+        // was mid-fetch.
+        if let existing = loadProductsTask {
+            await existing.value
+            return
+        }
+        let task: Task<Void, Never> = Task { await performLoadProducts() }
+        loadProductsTask = task
+        defer { loadProductsTask = nil }
+        await task.value
+    }
+
+    private func performLoadProducts() async {
         do {
             let loaded = try await subscriptionService.availableProducts()
             products = loaded

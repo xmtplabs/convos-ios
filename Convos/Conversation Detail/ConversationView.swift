@@ -351,9 +351,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // LowBalanceBanner above reflects current backend state. TTL-
             // debounced; safe to fire on every nav.
             await CreditsServices.shared.refresh()
-            // NOTE(hermes-burn-loop): once Hermes calls /v2/credits/consume
-            // per-turn (convos-assistants follow-up), hook into the XMTP
-            // message-arrival publisher here to refresh credits
+            // Future: once the agent runtime burns credits per turn via
+            // /v2/credits/consume (convos-assistants follow-up), hook into
+            // the XMTP message-arrival publisher here to refresh credits
             // immediately after an agent reply lands — the highest-value
             // freshness trigger we have without push notifications.
         }

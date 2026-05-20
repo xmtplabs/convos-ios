@@ -7,7 +7,7 @@ import XCTest
 final class PaywallViewModelTests: XCTestCase {
     // MARK: - loadProducts re-entrancy guard
 
-    func testLoadProducts_concurrentCalls_onlyFetchOnce() async {
+    func testLoadProducts_concurrentCalls_onlyFetchOnce_bothCallersSeeProducts() async {
         let service: SlowAvailableProductsService = SlowAvailableProductsService(
             sleepNanoseconds: 50_000_000  // 50ms — long enough for both calls to overlap
         )
@@ -20,9 +20,16 @@ final class PaywallViewModelTests: XCTestCase {
         XCTAssertEqual(
             service.availableProductsCallCount,
             1,
-            "PaywallViewModel must guard against re-entry — actors are re-entrant at await suspension points"
+            "Concurrent loadProducts calls must share the same fetch — actors are re-entrant at await suspension points"
         )
-        XCTAssertFalse(viewModel.products.isEmpty, "Products should land after the single fetch")
+        // Both callers must observe the loaded products on return — the bug
+        // we're guarding against is the second caller silently bailing
+        // out while the first fetch is in flight, leaving its view to
+        // render without products.
+        XCTAssertFalse(
+            viewModel.products.isEmpty,
+            "Both concurrent callers must see populated products when they return"
+        )
     }
 
     func testLoadProducts_secondCallAfterSuccess_isNoOp() async {
