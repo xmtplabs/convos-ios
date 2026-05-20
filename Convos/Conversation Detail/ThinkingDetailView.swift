@@ -145,7 +145,7 @@ struct ThinkingDetailView: View {
                 .font(.body.weight(.semibold))
                 .foregroundStyle(iconColor)
                 .frame(width: Constant.stopButtonSize, height: Constant.stopButtonSize)
-                .glassEffect(.regular, in: .circle)
+                .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
