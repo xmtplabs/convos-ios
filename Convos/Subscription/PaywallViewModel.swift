@@ -64,10 +64,19 @@ final class PaywallViewModel {
             let loaded = try await subscriptionService.availableProducts()
             products = loaded
             if loaded.isEmpty {
-                Log.error("Paywall loaded 0 products — check the StoreKit configuration is wired in the scheme and that Convos.storekit is a member of the project")
+                // StoreKit returned zero products. The cause depends on the
+                // build path:
+                //   - Sim with .storekit selected: file missing/misconfigured
+                //   - Sim without .storekit / device on sandbox: ASC products
+                //     not in a fetchable state yet (Missing Metadata → Ready
+                //     to Submit / Approved unlocks fetching)
+                //   - Device on prod: App Review hasn't approved the products
+                // Keep the user-facing copy generic; the log line carries the
+                // diagnostic detail.
+                Log.error("Paywall loaded 0 products — check StoreKit configuration in scheme OR App Store Connect product status (Missing Metadata → Ready to Submit unblocks sandbox fetches)")
                 showAlert(
-                    title: "No plans available",
-                    message: "Couldn't load subscription plans. Check the StoreKit configuration."
+                    title: "Plans unavailable",
+                    message: "We couldn't load subscription plans right now. Please try again later."
                 )
             } else {
                 Log.info("Paywall loaded \(loaded.count) product(s)")
