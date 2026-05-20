@@ -63,14 +63,9 @@ class NewConversationViewModel: Identifiable {
     /// `ConversationViewModel.hidesInviteCard` so the QR header isn't
     /// rendered on top of a chat that already has members.
     private let startedWithSeededMembers: Bool
-    /// True when this VM was created with `.existingConversation` -
-    /// i.e. the sheet is *opening* an existing 1:1, not creating one.
-    /// `cleanUpIfNeeded` checks this so a sheet dismissed before the
-    /// state machine emits `.ready` can never delete the real
-    /// conversation behind it. Today `deleteConversation()` happens to
-    /// be a no-op (it only cancels in-flight tasks), but the guard
-    /// here is the contract that anchors that safety regardless of
-    /// what `deleteConversation()` does in the future.
+    /// True when this VM was constructed with `.existingConversation`.
+    /// Belt-and-braces guard against `cleanUpIfNeeded` ever destroying
+    /// the real conversation behind the sheet - see comment there.
     private let isExistingConversation: Bool
     /// Captured initial-member inbox ids for the seeded-members flow.
     /// Used to seed each draft `Conversation` with contact-derived
@@ -158,19 +153,16 @@ class NewConversationViewModel: Identifiable {
             self.showingFullScreenScanner = false
             self.allowsDismissingScanner = true
 
-        case .existingConversation:
-            self.autoCreateConversation = false
-            self.startedWithFullscreenScanner = false
-            self.showingFullScreenScanner = false
-            self.allowsDismissingScanner = true
-
         case .scanner:
             self.autoCreateConversation = false
             self.startedWithFullscreenScanner = true
             self.showingFullScreenScanner = true
             self.allowsDismissingScanner = true
 
-        case .joinInvite:
+        // `.existingConversation` and `.joinInvite` both open / join
+        // an existing chat without creating one - same scanner-off
+        // configuration.
+        case .existingConversation, .joinInvite:
             self.autoCreateConversation = false
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
@@ -185,11 +177,7 @@ class NewConversationViewModel: Identifiable {
             self.seededMemberInboxIds = []
         }
 
-        if case .existingConversation = mode {
-            self.isExistingConversation = true
-        } else {
-            self.isExistingConversation = false
-        }
+        self.isExistingConversation = if case .existingConversation = mode { true } else { false }
 
         self.isCreatingConversation = mode.isNewConversation
         createPlaceholderConversationViewModel()
@@ -210,12 +198,8 @@ class NewConversationViewModel: Identifiable {
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.startedWithSeededMembers = false
         self.seededMemberInboxIds = []
-        // This internal init is tests-only - the warm-cache path goes
-        // through the public init + `prepareNewConversation` +
-        // `configureWithMessagingService(_:existingConversationId:)`,
-        // not here. Tests construct against a draft id, not a
-        // user-existing 1:1, so the existing-conversation cleanup
-        // guard stays off.
+        // Tests-only init - the warm-cache flow goes through the
+        // public init. Existing-conversation cleanup guard stays off.
         self.isExistingConversation = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
@@ -237,15 +221,11 @@ class NewConversationViewModel: Identifiable {
 
     func cleanUpIfNeeded() {
         guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
-        // Belt-and-braces guard for the `.existingConversation` flow.
-        // `ConversationStateMachine.useExisting` reliably transitions
-        // to `.ready` against a real conversation, so the first guard
-        // above would normally short-circuit before we got here.
-        // Independently, `deleteConversation` is currently a no-op
-        // that only cancels in-flight tasks. This guard exists so
-        // that if either contract ever drifts, dismissing the sheet
-        // before `.ready` lands can't silently destroy the real
-        // conversation behind it.
+        // Defensive: `.existingConversation` flows should already exit
+        // via `_reachedReadyState` (useExisting emits .ready). If that
+        // ever drifts and `deleteConversation` stops being a no-op,
+        // this prevents destroying the real conversation behind the
+        // sheet on dismiss-before-ready.
         guard !isExistingConversation else { return }
         _cleanedUp = true
         deleteConversation()
@@ -281,12 +261,8 @@ class NewConversationViewModel: Identifiable {
                 )
 
             case .existingConversation(let conversationId):
-                let messagingService = session.messagingService()
-                guard !Task.isCancelled else { return }
-                let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
-                Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 configureWithMessagingService(
-                    messagingService,
+                    session.messagingService(),
                     existingConversationId: conversationId
                 )
 
