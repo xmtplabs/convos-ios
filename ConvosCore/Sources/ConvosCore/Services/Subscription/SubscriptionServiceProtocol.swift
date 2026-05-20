@@ -8,6 +8,17 @@ public protocol SubscriptionServiceProtocol: AnyObject, Sendable {
     func availableProducts() async throws -> [PaywallProduct]
     func purchase(productId: String) async throws
     func restorePurchases() async throws
+
+    /// Re-read subscription state. `force: false` is TTL-debounced (see the
+    /// concrete service); pass `force: true` for explicit user-initiated
+    /// freshness (pull-to-refresh) and post-purchase confirmation.
+    func refresh(force: Bool) async
+}
+
+public extension SubscriptionServiceProtocol {
+    func refresh() async {
+        await refresh(force: false)
+    }
 }
 
 public enum SubscriptionServiceError: Error, Equatable, Sendable {

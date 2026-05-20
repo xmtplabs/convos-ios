@@ -29,7 +29,10 @@ public final class MockCreditsService: CreditsServiceProtocol, @unchecked Sendab
         queue.sync { currentPreset }
     }
 
-    public func refresh() async {
+    public func refresh(force: Bool) async {
+        // Mock service has no real network roundtrip; the TTL contract is
+        // moot here. Always re-publish the current preset so debug-menu
+        // changes propagate immediately regardless of `force`.
         let snapshot = queue.sync { currentPreset.balance() }
         balanceSubject.send(snapshot)
     }

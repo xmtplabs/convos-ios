@@ -16,14 +16,22 @@ public final class BackendCreditsService: CreditsServiceProtocol, @unchecked Sen
         apiClient: ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)
     )
 
+    /// Refresh debounce window. View-appear + scene-becomes-active triggers
+    /// fire freely; this TTL collapses bursts so we don't hammer the API
+    /// when the user navigates between views in quick succession. Forced
+    /// refreshes (pull-to-refresh, post-purchase) bypass it.
+    private static let refreshTTL: TimeInterval = 15
+
     private let apiClient: any ConvosAPIClientProtocol
     private let balanceSubject: CurrentValueSubject<CreditBalance?, Never>
+    private let lock: NSLock = NSLock()
+    private var lastFetchedAt: Date?
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
         self.balanceSubject = CurrentValueSubject(nil)
         Task { [weak self] in
-            await self?.refresh()
+            await self?.refresh(force: true)
         }
     }
 
@@ -35,12 +43,29 @@ public final class BackendCreditsService: CreditsServiceProtocol, @unchecked Sen
         balanceSubject.value
     }
 
-    public func refresh() async {
+    public func refresh(force: Bool) async {
+        if !force, let last = readLastFetchedAt(),
+           Date().timeIntervalSince(last) < Self.refreshTTL {
+            return
+        }
         do {
             let balance = try await apiClient.getCreditBalance()
             balanceSubject.send(balance)
+            writeLastFetchedAt(Date())
         } catch {
             Log.error("Failed to refresh credit balance from backend: \(error)")
         }
+    }
+
+    private func readLastFetchedAt() -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastFetchedAt
+    }
+
+    private func writeLastFetchedAt(_ date: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        lastFetchedAt = date
     }
 }

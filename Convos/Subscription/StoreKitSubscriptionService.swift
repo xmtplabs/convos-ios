@@ -8,9 +8,16 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         apiClient: ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)
     )
 
+    /// TTL for `refresh(force: false)`. `Transaction.currentEntitlements` is
+    /// cheap but not free; debouncing collapses bursts when the user
+    /// navigates between subscription-displaying surfaces.
+    private static let refreshTTL: TimeInterval = 15
+
     private let apiClient: any ConvosAPIClientProtocol
     private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
     private var updateListenerTask: Task<Void, Never>?
+    private let lock: NSLock = NSLock()
+    private var lastFetchedAt: Date?
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -54,6 +61,11 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
             let transaction = try verifiedTransaction(verification)
             await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transactionId: transaction.id)
             await refreshFromEntitlements()
+            // Force a credits refresh: the tier just changed (or was set for
+            // the first time), so `monthlyGrant` derived from
+            // PAYMENTS_GRANT_<TIER>_MONTHLY changed too. Skip the TTL so
+            // the HOME pill + paywall reflect the new bucket immediately.
+            await CreditsServices.shared.refresh(force: true)
             await transaction.finish()
         case .userCancelled:
             throw SubscriptionServiceError.purchaseCancelled
@@ -93,6 +105,10 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
             guard let transaction = try? verifiedTransaction(result) else { continue }
             await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
             await refreshFromEntitlements()
+            // Apple-side transition (renew, refund, tier change) → tier or
+            // status may have changed → credits need to re-derive from the
+            // new Subscription row. Force-refresh to bypass TTL.
+            await CreditsServices.shared.refresh(force: true)
             await transaction.finish()
         }
     }
@@ -113,6 +129,15 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         }
     }
 
+    public func refresh(force: Bool) async {
+        if !force, let last = readLastFetchedAt(),
+           Date().timeIntervalSince(last) < Self.refreshTTL {
+            return
+        }
+        await refreshFromEntitlements()
+        writeLastFetchedAt(Date())
+    }
+
     private func refreshFromEntitlements() async {
         var latest: UserSubscription?
         for await result in Transaction.currentEntitlements {
@@ -121,6 +146,18 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
             latest = sub
         }
         subscriptionSubject.send(latest)
+    }
+
+    private func readLastFetchedAt() -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastFetchedAt
+    }
+
+    private func writeLastFetchedAt(_ date: Date) {
+        lock.lock()
+        defer { lock.unlock() }
+        lastFetchedAt = date
     }
 
     private func verifiedTransaction<T>(_ result: VerificationResult<T>) throws -> T {

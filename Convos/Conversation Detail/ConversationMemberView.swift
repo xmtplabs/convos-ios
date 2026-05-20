@@ -27,6 +27,12 @@ struct ConversationMemberView: View {
         .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
             creditsBalance = newBalance
         }
+        .task {
+            // Refresh credits when the contact sheet appears so the
+            // "out of credits" section + upgrade CTA reflect current
+            // backend state. TTL-debounced inside the service.
+            await CreditsServices.shared.refresh()
+        }
         .sheet(isPresented: $presentingPaywall) {
             let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: paywallViewModel)

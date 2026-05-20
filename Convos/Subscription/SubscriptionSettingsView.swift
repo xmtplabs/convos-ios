@@ -26,6 +26,17 @@ struct SubscriptionSettingsView: View {
         .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
             subscription = newSubscription
         }
+        .task {
+            // Refresh on appear (TTL-debounced) so the screen reflects
+            // current backend state without waiting for foreground.
+            await CreditsServices.shared.refresh()
+            await SubscriptionServices.shared.refresh()
+        }
+        .refreshable {
+            // Explicit user-initiated freshness — bypass TTL.
+            await CreditsServices.shared.refresh(force: true)
+            await SubscriptionServices.shared.refresh(force: true)
+        }
         .sheet(isPresented: $presentingPaywall) {
             let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
             PaywallView(viewModel: viewModel)

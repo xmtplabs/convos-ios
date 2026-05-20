@@ -346,6 +346,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear { viewModel.onConversationAppeared() }
+        .task {
+            // Refresh credits on conversation appearance so the
+            // LowBalanceBanner above reflects current backend state. TTL-
+            // debounced; safe to fire on every nav.
+            await CreditsServices.shared.refresh()
+            // NOTE(hermes-burn-loop): once Hermes calls /v2/credits/consume
+            // per-turn (convos-assistants follow-up), hook into the XMTP
+            // message-arrival publisher here to refresh credits
+            // immediately after an agent reply lands — the highest-value
+            // freshness trigger we have without push notifications.
+        }
         .onDisappear {
             focusCoordinator.dismissStuffSearchIfNeeded()
             viewModel.onConversationDisappeared()

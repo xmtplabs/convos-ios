@@ -53,6 +53,13 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
         try await Task.sleep(for: .milliseconds(300))
     }
 
+    public func refresh(force: Bool) async {
+        // Mock has no real backend to talk to; re-publish the current preset
+        // so debug-menu changes propagate immediately regardless of `force`.
+        let snapshot = queue.sync { currentPreset.subscription() }
+        subscriptionSubject.send(snapshot)
+    }
+
     public func setPreset(_ preset: CreditsStatePreset) {
         queue.sync { currentPreset = preset }
         subscriptionSubject.send(preset.subscription())

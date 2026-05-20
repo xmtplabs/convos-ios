@@ -459,6 +459,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         case 404:
             throw APIError.notFound
         default:
+            // 409 (subscription_account_mismatch) falls through deliberately.
+            // The backend still returns it (PR #215 strict-ownership invariant),
+            // but iOS treats it as a generic retryable server fault instead
+            // of a typed dead-end — purchase + restore flows already surface
+            // .serverError with a "try again" affordance, and refresh logic
+            // (foreground + view-appear) will reconcile any transient state.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
     }
