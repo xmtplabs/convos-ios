@@ -97,9 +97,15 @@ class NewConversationViewModel: Identifiable {
     private var conversationStateManager: (any ConversationStateManagerProtocol)?
     private var acquiredMessagingService: AnyMessagingService?
     /// Agent template id to provision into the conversation once it
-    /// reaches `.ready`. Set only for `.newConversationWithTemplate`.
+    /// reaches `.ready`. Set for the `.newConversationWithTemplate`
+    /// deeplink mode and when a `convos://template/<id>` QR is scanned.
     @ObservationIgnored
     private var pendingAgentTemplateId: String?
+    /// Set when a template QR is scanned before the messaging service
+    /// (and `conversationStateManager`) has been acquired; the create is
+    /// kicked off once configuration completes. Mirrors `pendingInviteCode`.
+    @ObservationIgnored
+    private var pendingAgentTemplateCreate: Bool = false
     /// One-shot guard so a re-emitted `.ready` state doesn't request the
     /// agent join twice.
     @ObservationIgnored
@@ -313,6 +319,11 @@ class NewConversationViewModel: Identifiable {
             joinConversation(inviteCode: pendingCode)
         }
 
+        if pendingAgentTemplateCreate {
+            pendingAgentTemplateCreate = false
+            createConversationForAgentTemplate()
+        }
+
         if autoCreateConversation && existingConversationId == nil {
             newConversationTask = Task { [weak self, stateManager] in
                 guard self != nil else { return }
@@ -335,6 +346,53 @@ class NewConversationViewModel: Identifiable {
 
     func onScanInviteCode() {
         presentingJoinConversationSheet = true
+    }
+
+    /// Routes a scanned QR payload. A `convos://template/<id>` code
+    /// pivots the scanner into the agent-template spawn flow; anything
+    /// else is treated as a conversation invite, exactly as before.
+    func handleScannedCode(_ code: String) {
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            startAgentTemplateConversation(templateId: templateId)
+        } else {
+            joinConversation(inviteCode: code)
+        }
+    }
+
+    /// Pivots a scanner-mode flow into the agent-template spawn path when
+    /// the user scans a template QR. Mirrors the
+    /// `.newConversationWithTemplate` deeplink mode: create a fresh
+    /// conversation, then request an instance of the template into it
+    /// once it reaches `.ready` (handled in `handleStateChange`).
+    private func startAgentTemplateConversation(templateId: String) {
+        pendingAgentTemplateId = templateId
+        showingFullScreenScanner = false
+        isCreatingConversation = true
+
+        guard conversationStateManager != nil else {
+            pendingAgentTemplateCreate = true
+            return
+        }
+        createConversationForAgentTemplate()
+    }
+
+    private func createConversationForAgentTemplate() {
+        guard let conversationStateManager else { return }
+        newConversationTask?.cancel()
+        newConversationTask = Task { [weak self, conversationStateManager] in
+            guard self != nil else { return }
+            guard !Task.isCancelled else { return }
+            do {
+                try await conversationStateManager.createConversation()
+                await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
+            } catch {
+                Log.error("Error creating conversation for agent template: \(error.localizedDescription)")
+                guard !Task.isCancelled else { return }
+                await MainActor.run { [weak self] in
+                    self?.handleCreationError(error)
+                }
+            }
+        }
     }
 
     func joinConversation(inviteCode: String) {
@@ -591,7 +649,11 @@ class NewConversationViewModel: Identifiable {
             Log.error("Error applying global auto reveal preference: \(error)")
         }
 
-        guard autoCreateConversation else { return }
+        // The include-info default applies to every conversation this VM
+        // creates - the auto-create modes and the scanned-template path
+        // (which sets `pendingAgentTemplateId` but is not an auto-create
+        // mode). It does not apply when joining an existing invite.
+        guard autoCreateConversation || pendingAgentTemplateId != nil else { return }
 
         do {
             try await stateManager.conversationMetadataWriter.updateIncludeInfoInPublicPreview(

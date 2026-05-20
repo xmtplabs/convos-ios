@@ -90,6 +90,19 @@ final class DeepLinkHandler {
 
     // MARK: - Agent template deep links
 
+    /// Narrow agent-template check for callers (e.g. the QR scanner) that
+    /// already have a candidate URL and want only the template id.
+    /// Unlike `destination(for:)`, this does not fall through to invite
+    /// parsing and logs nothing when `url` is not a template link, so a
+    /// scanned conversation invite does not produce spurious warnings.
+    @MainActor
+    static func agentTemplateId(from url: URL) -> String? {
+        guard case .agentTemplate(let templateId)? = parseAgentTemplate(from: url) else {
+            return nil
+        }
+        return templateId
+    }
+
     /// Parses agent-template deep links of the form
     /// `convos[-{env}]://template/<templateId>`, where `<templateId>` is
     /// the backend's `AgentTemplate.id` (a UUID).
