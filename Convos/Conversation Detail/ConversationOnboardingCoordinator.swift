@@ -221,6 +221,7 @@ final class ConversationOnboardingCoordinator {
         hasSeenAddAsProfile = false
         hasCompletedOnboarding = false
         hasShownProfileEditor = false
+        hasShownNUXPaywall = false
     }
 
     // MARK: - Dependencies
@@ -557,6 +558,7 @@ final class ConversationOnboardingCoordinator {
     func reset(conversationId: String? = nil) {
         hasCompletedOnboarding = false
         hasShownProfileEditor = false
+        hasShownNUXPaywall = false
         state = .idle
 
         // If conversationId provided, clear that specific conversation's profile flag
