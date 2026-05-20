@@ -16,6 +16,9 @@ import SwiftUI
 //   - Header (avatar / name) - always
 //   - Agent rows (Get skills / Learn about assistants) - both modes, when
 //     `contact.agentVerification?.isVerified == true`
+//   - Share - both modes, when the contact is a template-backed agent
+//     (`contact.agentTemplatePublishedURL != nil`); presents the system
+//     share sheet seeded with the template's web link
 //   - Pop up a convo - both modes; calls `contactsWriter.upsertContact(...)`
 //     before opening the picker so a synthetic / non-yet-stored contact is
 //     promoted to a real one (the narrow per-person upsert documented in
@@ -99,6 +102,7 @@ struct ContactCardView: View {
                 // assistants" rows above remain the right way to interact.
                 canSendMessage: session != nil && !isVerifiedAgent,
                 contactDisplayName: contact.resolvedDisplayName,
+                agentTemplateShareURL: agentTemplateShareURL,
                 onSendMessage: handleSendMessage,
                 onToggleBlock: handleBlockTap
             )
@@ -116,6 +120,13 @@ struct ContactCardView: View {
 
     private var isVerifiedAgent: Bool {
         contact.isVerifiedAgent
+    }
+
+    /// The template share link for a template-backed agent, ready for the
+    /// Share row's `ShareLink`. `nil` for human contacts and for agents
+    /// without a published template, which hides the row.
+    private var agentTemplateShareURL: URL? {
+        contact.agentTemplatePublishedURL.flatMap { URL(string: $0) }
     }
 
     // MARK: - Picker sheet
@@ -395,11 +406,19 @@ private struct ContactCardActions: View {
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
     let contactDisplayName: String
+    /// Non-nil only for template-backed agents; drives the Share row.
+    let agentTemplateShareURL: URL?
     let onSendMessage: () -> Void
     let onToggleBlock: () -> Void
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
+            if let agentTemplateShareURL {
+                ContactCardShareRow(
+                    url: agentTemplateShareURL,
+                    contactDisplayName: contactDisplayName
+                )
+            }
             popUpConvoRow
             blockRow
         }
@@ -504,6 +523,41 @@ private struct ContactCardActionRow: View {
     }
 }
 
+// MARK: - Share row (template-backed agents)
+
+/// Share row for a template-backed agent. Mirrors `ContactCardActionRow`'s
+/// pill-plus-footer shape, but wraps a SwiftUI `ShareLink` (which presents
+/// the system share sheet) rather than a plain action button, since the
+/// share intent is fully handled by the system. Rendered only when the
+/// agent carries a template `publishedUrl`.
+private struct ContactCardShareRow: View {
+    let url: URL
+    let contactDisplayName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            ShareLink(item: url) {
+                Text("Share")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share \(contactDisplayName)")
+            .accessibilityIdentifier("contact-card-share-agent-template")
+            Text("Share a link to add \(contactDisplayName) to a convo")
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+        }
+    }
+}
+
 // MARK: - Modals modifier
 
 private struct ContactCardModalsModifier<
@@ -557,7 +611,8 @@ extension Contact {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         addedViaConversationId: String?,
-        agentVerification: AgentVerification?
+        agentVerification: AgentVerification?,
+        agentTemplatePublishedURL: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -569,7 +624,8 @@ extension Contact {
             addedAt: Date(),
             addedViaConversationId: addedViaConversationId,
             isBlocked: false,
-            agentVerification: agentVerification
+            agentVerification: agentVerification,
+            agentTemplatePublishedURL: agentTemplatePublishedURL
         )
     }
 
@@ -581,13 +637,19 @@ extension Contact {
     /// tap, members list) so the card renders uniformly for contact
     /// members and non-contact members. The synthetic fallback is
     /// promoted to a real contact when the user taps "Send a message".
+    ///
+    /// The agent-template `publishedUrl` lives only in the per-conversation
+    /// member profile metadata (`DBContact` has no template column), so it
+    /// is overlaid here onto whichever contact is returned - stored or
+    /// synthetic - from the freshest source.
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
         contactsRepository: any ContactsRepositoryProtocol
     ) -> Contact {
+        let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
-            return stored
+            return stored.with(agentTemplatePublishedURL: templatePublishedURL)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -597,7 +659,8 @@ extension Contact {
             avatarNonce: member.profile.avatarNonce,
             avatarKey: member.profile.avatarKey,
             addedViaConversationId: conversationId,
-            agentVerification: member.agentVerification
+            agentVerification: member.agentVerification,
+            agentTemplatePublishedURL: templatePublishedURL
         )
     }
 }
@@ -628,6 +691,20 @@ extension Contact {
             contact: .mock(
                 displayName: "Convos Assistant",
                 agentVerification: .verified(.convos)
+            ),
+            contactsWriter: MockContactsWriter(),
+            contactsRepository: MockContactsRepository()
+        )
+    }
+}
+
+#Preview("Agent template") {
+    NavigationStack {
+        ContactCardView(
+            contact: .mock(
+                displayName: "Tifoso",
+                agentVerification: .verified(.convos),
+                agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o"
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()
