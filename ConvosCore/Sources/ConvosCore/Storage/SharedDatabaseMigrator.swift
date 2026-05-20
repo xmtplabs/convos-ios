@@ -235,6 +235,24 @@ extension SharedDatabaseMigrator {
                 t.add(column: "hidesInviteCard", .boolean).notNull().defaults(to: false)
             }
         }
+
+        // Single-row credit_balance cache. The backend remains the source of
+        // truth (`GET /v2/accounts/me/credits`); this table just gives us a
+        // GRDB-observable read surface so the HOME pill, conversation banner,
+        // settings detail, and paywall stay in lockstep via the same
+        // observation channel the rest of the app uses. `id` is a fixed
+        // sentinel so the table holds at most one row per install.
+        migrator.registerMigration("createCreditBalance") { db in
+            try db.create(table: "credit_balance") { t in
+                t.column("id", .text).notNull().primaryKey()
+                t.column("balance", .integer).notNull()
+                t.column("monthlyGrant", .integer).notNull()
+                t.column("monthlyGrantUsed", .integer).notNull()
+                t.column("nextRefreshAt", .datetime).notNull()
+                t.column("periodLabel", .text).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant

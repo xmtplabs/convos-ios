@@ -77,6 +77,16 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
+        // Wire the real backend credits service to the local database now
+        // that `ConvosClient` is constructed. `BackendCreditsService` upserts
+        // refresh results into `credit_balance`; views observe the table via
+        // `CreditsRepository`. The mock fallback handles the non-production
+        // debug toggle.
+        CreditsServices.configure(
+            client: convos,
+            apiClient: ConvosAPIClientFactory.client(environment: environment)
+        )
+
         // Sync the mock credits/subscription state from the persisted picker
         // preset so HOME pill + paywall reflect the operator's last selection.
         // Non-production only; production builds will swap in real services.

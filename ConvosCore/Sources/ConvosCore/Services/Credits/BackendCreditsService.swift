@@ -1,71 +1,42 @@
 import Combine
 import Foundation
+import GRDB
 
 /// Real `CreditsServiceProtocol` backed by the Convos backend's
-/// `GET /v2/accounts/me/credits` endpoint. Used in production and in
-/// non-production builds whenever the "use real backend" toggle is on.
+/// `GET /v2/accounts/me/credits` endpoint. The HTTP refresh is delegated to
+/// `CreditBalanceWriter`, which upserts the result into the local
+/// `credit_balance` table. Reads (`balancePublisher`, `currentBalance`) are
+/// delegated to `CreditsRepository`, which observes the same table via GRDB.
 ///
-/// Mirrors `MockCreditsService` in shape: a process-wide singleton publishes
-/// `CreditBalance?` updates so the HOME pill, conversation low-balance banner,
-/// agent contact section, and settings detail screen all stay in lockstep.
+/// View sites consume the protocol surface; the writer/repository split is
+/// internal. The repo-based observation lets the HOME pill, conversation
+/// banner, settings detail, and paywall stay in lockstep through the same
+/// GRDB observation channel the rest of the app uses.
 public final class BackendCreditsService: CreditsServiceProtocol, @unchecked Sendable {
-    /// Process-wide singleton. Lazily constructed on first access — by then
-    /// `ConfigManager.shared.currentEnvironment` is configured (it's set in
-    /// `ConvosApp.init` before any UI surface is rendered).
-    public static let shared: BackendCreditsService = BackendCreditsService(
-        apiClient: ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)
-    )
+    private let writer: CreditBalanceWriter
+    private let repository: CreditsRepository
 
-    /// Refresh debounce window. View-appear + scene-becomes-active triggers
-    /// fire freely; this TTL collapses bursts so we don't hammer the API
-    /// when the user navigates between views in quick succession. Forced
-    /// refreshes (pull-to-refresh, post-purchase) bypass it.
-    private static let refreshTTL: TimeInterval = 15
-
-    private let apiClient: any ConvosAPIClientProtocol
-    private let balanceSubject: CurrentValueSubject<CreditBalance?, Never>
-    private let lock: NSLock = NSLock()
-    private var lastFetchedAt: Date?
-
-    public init(apiClient: any ConvosAPIClientProtocol) {
-        self.apiClient = apiClient
-        self.balanceSubject = CurrentValueSubject(nil)
+    public init(
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        apiClient: any ConvosAPIClientProtocol
+    ) {
+        self.writer = CreditBalanceWriter(databaseWriter: databaseWriter, apiClient: apiClient)
+        self.repository = CreditsRepository(databaseReader: databaseReader)
         Task { [weak self] in
             await self?.refresh(force: true)
         }
     }
 
     public var balancePublisher: AnyPublisher<CreditBalance?, Never> {
-        balanceSubject.eraseToAnyPublisher()
+        repository.balancePublisher
     }
 
     public var currentBalance: CreditBalance? {
-        balanceSubject.value
+        try? repository.currentBalance()
     }
 
     public func refresh(force: Bool) async {
-        if !force, let last = readLastFetchedAt(),
-           Date().timeIntervalSince(last) < Self.refreshTTL {
-            return
-        }
-        do {
-            let balance = try await apiClient.getCreditBalance()
-            balanceSubject.send(balance)
-            writeLastFetchedAt(Date())
-        } catch {
-            Log.error("Failed to refresh credit balance from backend: \(error)")
-        }
-    }
-
-    private func readLastFetchedAt() -> Date? {
-        lock.lock()
-        defer { lock.unlock() }
-        return lastFetchedAt
-    }
-
-    private func writeLastFetchedAt(_ date: Date) {
-        lock.lock()
-        defer { lock.unlock() }
-        lastFetchedAt = date
+        await writer.refresh(force: force)
     }
 }
