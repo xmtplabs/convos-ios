@@ -14,6 +14,7 @@ final class PaywallViewModel {
     var alertTitle: String = ""
     var alertMessage: String?
     private(set) var products: [PaywallProduct] = []
+    private(set) var isLoadingProducts: Bool = false
     private(set) var currentSubscription: UserSubscription?
 
     /// In-flight `loadProducts()` task, if any. A concurrent caller awaits this
@@ -22,8 +23,6 @@ final class PaywallViewModel {
     /// and the caller's view would render without products even though the
     /// first fetch was about to complete.
     @ObservationIgnored private var loadProductsTask: Task<Void, Never>?
-
-    var isLoadingProducts: Bool { loadProductsTask != nil }
 
     init(subscriptionService: any SubscriptionServiceProtocol) {
         self.subscriptionService = subscriptionService
@@ -74,7 +73,11 @@ final class PaywallViewModel {
         }
         let task: Task<Void, Never> = Task { await performLoadProducts() }
         loadProductsTask = task
-        defer { loadProductsTask = nil }
+        isLoadingProducts = true
+        defer {
+            loadProductsTask = nil
+            isLoadingProducts = false
+        }
         await task.value
     }
 
