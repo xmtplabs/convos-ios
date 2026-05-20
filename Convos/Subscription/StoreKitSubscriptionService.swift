@@ -3,8 +3,8 @@ import ConvosCore
 import Foundation
 import StoreKit
 
-public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @unchecked Sendable {
-    public static let shared: StoreKitSubscriptionService = StoreKitSubscriptionService(
+public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
+    nonisolated public static let shared: StoreKitSubscriptionService = StoreKitSubscriptionService(
         apiClient: ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)
     )
 
@@ -14,9 +14,15 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
     private static let refreshTTL: TimeInterval = 15
 
     private let apiClient: any ConvosAPIClientProtocol
-    private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
-    private var updateListenerTask: Task<Void, Never>?
-    private let lock: NSLock = NSLock()
+    /// `CurrentValueSubject` is internally synchronized but not declared
+    /// `Sendable`. `nonisolated(unsafe)` lets the actor expose the
+    /// publisher + current value synchronously without bridging through
+    /// `@preconcurrency import Combine`.
+    nonisolated(unsafe) private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
+    /// Set once during init, cancelled in deinit. `nonisolated(unsafe)`
+    /// keeps deinit able to reach it under Swift 6 actor-deinit isolation
+    /// rules; no concurrent mutation happens past init.
+    nonisolated(unsafe) private var updateListenerTask: Task<Void, Never>?
     private var lastFetchedAt: Date?
 
     public init(apiClient: any ConvosAPIClientProtocol) {
@@ -34,11 +40,11 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
         updateListenerTask?.cancel()
     }
 
-    public var subscriptionPublisher: AnyPublisher<UserSubscription?, Never> {
+    nonisolated public var subscriptionPublisher: AnyPublisher<UserSubscription?, Never> {
         subscriptionSubject.eraseToAnyPublisher()
     }
 
-    public var currentSubscription: UserSubscription? {
+    nonisolated public var currentSubscription: UserSubscription? {
         subscriptionSubject.value
     }
 
@@ -126,12 +132,12 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
     }
 
     public func refresh(force: Bool) async {
-        if !force, let last = readLastFetchedAt(),
+        if !force, let last = lastFetchedAt,
            Date().timeIntervalSince(last) < Self.refreshTTL {
             return
         }
         await refreshFromEntitlements()
-        writeLastFetchedAt(Date())
+        lastFetchedAt = Date()
     }
 
     private func refreshFromEntitlements() async {
@@ -142,18 +148,6 @@ public final class StoreKitSubscriptionService: SubscriptionServiceProtocol, @un
             latest = sub
         }
         subscriptionSubject.send(latest)
-    }
-
-    private func readLastFetchedAt() -> Date? {
-        lock.lock()
-        defer { lock.unlock() }
-        return lastFetchedAt
-    }
-
-    private func writeLastFetchedAt(_ date: Date) {
-        lock.lock()
-        defer { lock.unlock() }
-        lastFetchedAt = date
     }
 
     private func verifiedTransaction<T>(_ result: VerificationResult<T>) throws -> T {
