@@ -186,6 +186,29 @@ final class DeepLinkHandlerTests: XCTestCase {
         }
     }
 
+    // MARK: - DeepLinkHandler.agentTemplateId(from:)
+
+    func testAgentTemplateId_ReturnsTemplateIdForTemplateURL() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/\(sampleTemplateId)"))
+        XCTAssertEqual(DeepLinkHandler.agentTemplateId(from: url), sampleTemplateId)
+    }
+
+    func testAgentTemplateId_ReturnsNilForNonTemplateDeepLink() throws {
+        // A non-template deep link (here a connection grant) must not
+        // resolve to a template id - the QR scanner relies on this so a
+        // scanned conversation invite keeps routing through the invite
+        // path unchanged.
+        let url = try XCTUnwrap(
+            URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc123")
+        )
+        XCTAssertNil(DeepLinkHandler.agentTemplateId(from: url))
+    }
+
+    func testAgentTemplateId_ReturnsNilForMalformedId() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/not-a-uuid"))
+        XCTAssertNil(DeepLinkHandler.agentTemplateId(from: url))
+    }
+
     // MARK: - ConversationsViewModel.handleURL validation
 
     @MainActor
