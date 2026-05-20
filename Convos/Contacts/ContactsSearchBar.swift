@@ -44,7 +44,7 @@ struct ContactsSearchBar: View {
         .padding(.trailing, DesignConstants.Spacing.step2x)
         .frame(height: 48.0)
         .glassEffect(.regular.interactive(), in: .capsule)
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
     }
 

@@ -46,9 +46,8 @@ struct ContactRowView: View {
 ///
 /// When the contact has no avatar URL yet (name-only profile event seen so
 /// far, or a synthetic contact built from a chat member-tap with no image)
-/// the view falls through to the deterministic colored monogram placeholder
-/// rather than the standard grey monogram, giving nameless contacts a
-/// stable visual identity keyed by `inboxId`.
+/// the view falls through to `MonogramView` so the placeholder matches
+/// the standard avatar treatment used everywhere else in the app.
 struct ContactAvatarView: View {
     let contact: Contact
 
@@ -62,39 +61,11 @@ struct ContactAvatarView: View {
                 agentVerification: contact.agentVerification ?? .unverified
             )
         } else {
-            ContactAvatarPlaceholder(seed: contact.inboxId, initial: monogram)
+            MonogramView(
+                name: contact.resolvedDisplayName,
+                agentVerification: contact.agentVerification ?? .unverified
+            )
         }
-    }
-
-    private var monogram: String {
-        let trimmed = contact.resolvedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first else { return "?" }
-        return String(first).uppercased()
-    }
-}
-
-struct ContactAvatarPlaceholder: View {
-    let seed: String
-    let initial: String
-
-    var body: some View {
-        Circle()
-            .fill(backgroundColor)
-            .overlay {
-                Text(initial)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-    }
-
-    private var backgroundColor: Color {
-        // SHA256 over the UTF-8 bytes is the same
-        // deterministic-hash pattern `EmojiSelector` already uses for
-        // identifier-derived UI placeholders.
-        let hash = SHA256.hash(data: Data(seed.utf8))
-        let firstByte = Array(hash)[0]
-        let hue = Double(firstByte) / 256.0
-        return Color(hue: hue, saturation: 0.55, brightness: 0.7)
     }
 }
 

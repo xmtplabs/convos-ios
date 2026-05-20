@@ -117,7 +117,6 @@ struct ContactDetailView: View {
     private var bodyContent: some View {
         VStack(spacing: 0.0) {
             ContactDetailHeader(contact: contact)
-                .padding(.top, 60.0)
             ContactDetailSubtitle(
                 contact: contact,
                 invitedBy: mode.invitedBy,

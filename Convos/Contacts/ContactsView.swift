@@ -37,10 +37,16 @@ struct ContactsView: View {
             Color.colorBackgroundRaisedSecondary
                 .ignoresSafeArea()
         }
-        .navigationTitle("Contacts")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(Color.colorBackgroundRaisedSecondary, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        // The system `.largeTitle` doesn't transition cleanly during the
+        // navigation pop / search keyboard appearance, so render the
+        // header as an inline `Text` above the search bar instead. The
+        // nav bar is forced to inline mode so only the back / compose
+        // toolbar items remain visible at the top. The bar background
+        // is hidden so the list scrolls behind it with the iOS 26 glass
+        // blur, matching the `safeAreaBar` treatment we apply to the
+        // title + search bar below.
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar { toolbarContent }
         .sheet(isPresented: $presentingPicker) { pickerSheet }
         .sheet(item: $presentingNewConvo) { vm in
@@ -54,18 +60,39 @@ struct ContactsView: View {
 
     // MARK: - List
 
+    /// Same `safeAreaBar` treatment the contacts picker and chat
+    /// composer use. The title + search bar float at the top with iOS 26
+    /// glass blur, and the underlying list's scroll inset is
+    /// auto-adjusted so rows scroll cleanly under the bar.
     @ViewBuilder
     private var contactsContent: some View {
-        VStack(spacing: 0.0) {
-            ContactsSearchBar(
-                query: $viewModel.searchQuery,
-                placeholder: "Search",
-                accessibilityIdentifier: "contacts-search-field"
-            )
-            .zIndex(1)
-            contactList
-        }
-        .background(.colorBackgroundRaisedSecondary)
+        contactList
+            .background(.colorBackgroundRaisedSecondary)
+            .safeAreaBar(edge: .top) {
+                VStack(spacing: 0.0) {
+                    titleLabel
+                    ContactsSearchBar(
+                        query: $viewModel.searchQuery,
+                        placeholder: "Search",
+                        accessibilityIdentifier: "contacts-search-field"
+                    )
+                }
+            }
+    }
+
+    /// Custom large-title replacement (see comment on `body`). Sized
+    /// per the figma `large/ios` style: SF Pro Bold 40pt with -1pt
+    /// tracking, anchored at 25pt from the leading edge so it lines up
+    /// with the contacts rows below.
+    private var titleLabel: some View {
+        Text("Contacts")
+            .font(.system(size: 40.0, weight: .bold))
+            .tracking(-1.0)
+            .foregroundStyle(.colorTextPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 25.0)
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
