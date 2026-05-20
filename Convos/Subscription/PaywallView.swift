@@ -109,7 +109,12 @@ struct PaywallView: View {
     @ViewBuilder
     private func tierCard(for tier: SubscriptionTier) -> some View {
         let product: PaywallProduct? = viewModel.product(for: tier, period: viewModel.selectedPeriod)
-        let isCurrent: Bool = viewModel.currentTier == tier
+        // "Current plan" only highlights when both the tier AND the period
+        // match the user's actual subscription — otherwise Builder Annual
+        // subscribers would see "Current plan" on the Builder Monthly card
+        // while the picker happens to be on Monthly.
+        let isCurrent: Bool = viewModel.currentSubscription?.tier == tier
+            && viewModel.currentSubscription?.period == viewModel.selectedPeriod
         let isPurchasing: Bool = product != nil && viewModel.purchasingProductId == product?.id
         let purchaseHandler: (PaywallProduct) -> Void = { product in
             Task { await viewModel.purchase(product: product) }

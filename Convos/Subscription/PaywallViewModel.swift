@@ -19,7 +19,13 @@ final class PaywallViewModel {
 
     init(subscriptionService: any SubscriptionServiceProtocol) {
         self.subscriptionService = subscriptionService
-        self.currentSubscription = subscriptionService.currentSubscription
+        let initial: UserSubscription? = subscriptionService.currentSubscription
+        self.currentSubscription = initial
+        // Default the picker to the period the user is currently subscribed to,
+        // so the paywall opens on their plan (with "Current plan" visible on the
+        // right card). Falls back to monthly for non-subscribers. Once the user
+        // interacts with the picker, we don't reset it on subscription updates.
+        self.selectedPeriod = initial?.period ?? .monthly
         subscriptionService.subscriptionPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sub in
