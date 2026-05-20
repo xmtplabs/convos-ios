@@ -2218,7 +2218,11 @@ extension ConversationViewModel {
         try await metadataWriter.addMembers(inboxIds, to: conversation.id)
     }
 
-    func requestAssistantJoin() {
+    /// Requests an agent join into this conversation. `templateId == nil`
+    /// is a bare join (the backend provisions its default agent); a
+    /// non-nil id provisions a fresh instance of that template. The
+    /// caller-facing `agents/join` body no longer accepts `instructions`.
+    func requestAgentJoin(templateId: String?) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
@@ -2237,7 +2241,7 @@ extension ConversationViewModel {
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
-                    instructions: "You're a Convos Assistant",
+                    templateId: templateId,
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
@@ -2269,6 +2273,12 @@ extension ConversationViewModel {
             await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
         }
         assistantJoinTaskId = taskId
+    }
+
+    /// Bare-join convenience for the in-conversation "add an assistant"
+    /// affordances. Kept so their call sites don't change.
+    func requestAssistantJoin() {
+        requestAgentJoin(templateId: nil)
     }
 
     private static func broadcastAssistantJoinRequest(

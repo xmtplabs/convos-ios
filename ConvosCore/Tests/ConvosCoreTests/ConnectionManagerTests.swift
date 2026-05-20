@@ -622,7 +622,7 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 

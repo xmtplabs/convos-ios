@@ -550,8 +550,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        try await apiClient.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
+    public func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+        try await apiClient.requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: forceErrorCode)
     }
 
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
