@@ -176,16 +176,17 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     let voiceMemoTranscriptionService: any VoiceMemoTranscriptionServicing
     private let applyGlobalDefaultsForNewConversation: Bool
-    /// Count of non-self members in the conversation passed to init.
-    /// When the contacts picker constructs this VM through
-    /// `NewConversationViewModel`, the synthetic draft is seeded with
-    /// the picked contacts so the chat header renders immediately. The
-    /// publisher subscription uses this together with
-    /// `hasMetSeededExpectation` to ignore early DB emissions that
-    /// haven't yet folded in those members - otherwise the indicator
-    /// briefly flips back to the empty-conversation placeholder.
-    private let initialSeededMemberCount: Int
-    private var hasMetSeededExpectation: Bool
+    /// Armed by `NewConversationViewModel.markSeeded(expectingMemberCount:)`
+    /// for VMs whose initial `conversation` was synthesized from picker
+    /// contacts. The publisher subscription uses these to ignore early
+    /// DB emissions whose member count has not yet caught up to the
+    /// synthetic - otherwise the chat indicator briefly flips back to
+    /// the empty-conversation placeholder while the state machine's
+    /// addMembers hook is still in flight. Default state is "gate
+    /// open", so VMs constructed via any other path (DB hydration,
+    /// regular conversation open, etc.) are unaffected.
+    private var expectedSeededMemberCount: Int = 0
+    private var hasMetSeededExpectation: Bool = true
     let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
@@ -597,8 +598,6 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
-        self.initialSeededMemberCount = conversation.membersWithoutCurrent.count
-        self.hasMetSeededExpectation = false
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -684,8 +683,6 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
-        self.initialSeededMemberCount = conversation.membersWithoutCurrent.count
-        self.hasMetSeededExpectation = false
 
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
@@ -798,23 +795,23 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                 // so we don't flicker back to "New Convo" before the real
                 // members land.
                 // When this VM was seeded via the contacts picker
-                // (`initialSeededMemberCount > 0`), the DB-backed publisher
-                // can emit a Conversation that hasn't yet folded in the
-                // picked members - first as an `isDraft = true` cache row
-                // with no members, then briefly as `isDraft = false` with
-                // no members before the state machine's addMembers hook
-                // lands. Either case would flip the chat indicator back
-                // to the empty placeholder for a frame. Skip incoming
-                // emissions with fewer non-self members than the seed
-                // until we've seen one that meets or exceeds the seed -
-                // after that, the gate stays open so later member
-                // additions/removals propagate normally.
-                if !hasMetSeededExpectation,
-                   initialSeededMemberCount > 0,
-                   conversation.membersWithoutCurrent.count < initialSeededMemberCount {
-                    return
-                }
-                if conversation.membersWithoutCurrent.count >= initialSeededMemberCount {
+                // (armed through `markSeeded(expectingMemberCount:)`),
+                // the DB-backed publisher can emit a Conversation that
+                // hasn't yet folded in the picked members - first as an
+                // `isDraft = true` cache row with no members, then
+                // briefly as `isDraft = false` with no members before
+                // the state machine's addMembers hook lands. Either
+                // case would flip the chat indicator back to the empty
+                // placeholder for a frame. Skip incoming emissions with
+                // fewer non-self members than the seed until we've seen
+                // one that meets or exceeds it - after that, the gate
+                // stays open so later member additions / removals
+                // propagate normally. Non-seeded VMs default to "gate
+                // open", so this is a no-op for them.
+                if !hasMetSeededExpectation {
+                    if conversation.membersWithoutCurrent.count < expectedSeededMemberCount {
+                        return
+                    }
                     hasMetSeededExpectation = true
                 }
                 let previousId = self.conversation.id
@@ -967,6 +964,20 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     // MARK: - Public
+
+    /// Arms the publisher-emission gate so the chat indicator doesn't
+    /// flip back to the empty-conversation placeholder while the DB
+    /// row catches up to the synthetic seed. Called by
+    /// `NewConversationViewModel` after constructing this VM with a
+    /// `Conversation.draft(id:seededMembers:)` whose member list
+    /// already reflects the picked contacts. Other code paths must
+    /// not call this - the default state is "gate open" so DB
+    /// emissions flow through normally.
+    func markSeeded(expectingMemberCount count: Int) {
+        guard count > 0 else { return }
+        expectedSeededMemberCount = count
+        hasMetSeededExpectation = false
+    }
 
     func startOnboarding() {
         // Draft ids are ephemeral placeholders (e.g. "draft-<UUID>"). Running the

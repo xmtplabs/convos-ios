@@ -134,4 +134,86 @@ struct ContactsRepositoryTests {
         // "Mid" sorts before "zzzzzzzz" by case-insensitive compare
         #expect(names == ["Mid", "zzzzzzzz"])
     }
+
+    @Test("sourceConversations returns the convo name + kind for each id, drops missing ids")
+    func testSourceConversationsBatched() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let now = Date()
+
+        try dbManager.dbWriter.write { db in
+            try DBMember(inboxId: "current").save(db, onConflict: .ignore)
+            try DBConversation(
+                id: "convo-dm",
+                clientConversationId: "client-convo-dm",
+                inviteTag: "tag-convo-dm",
+                creatorId: "current",
+                kind: .dm,
+                consent: .allowed,
+                createdAt: now,
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAssistant: false
+            ).insert(db)
+            try DBConversation(
+                id: "convo-group",
+                clientConversationId: "client-convo-group",
+                inviteTag: "tag-convo-group",
+                creatorId: "current",
+                kind: .group,
+                consent: .allowed,
+                createdAt: now,
+                name: "Trip Planning",
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAssistant: false
+            ).insert(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let sources = try repo.sourceConversations(forIds: [
+            "convo-dm",
+            "convo-group",
+            "missing-convo"
+        ])
+
+        #expect(sources.count == 2)
+        #expect(sources["convo-dm"]?.kind == .dm)
+        #expect(sources["convo-dm"]?.name == nil)
+        #expect(sources["convo-group"]?.kind == .group)
+        #expect(sources["convo-group"]?.name == "Trip Planning")
+        #expect(sources["missing-convo"] == nil)
+    }
+
+    @Test("sourceConversations is a no-op for an empty input set")
+    func testSourceConversationsEmpty() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+
+        let sources = try repo.sourceConversations(forIds: [])
+
+        #expect(sources.isEmpty)
+    }
 }

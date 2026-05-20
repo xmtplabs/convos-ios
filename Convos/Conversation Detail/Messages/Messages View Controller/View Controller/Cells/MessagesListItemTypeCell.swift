@@ -65,36 +65,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .update(_, let update, _):
-                    // Substitute the user's contact (name + avatar) for the
-                    // per-conversation profile when the inbox is a known
-                    // contact. Without this, a system row reads "Alice
-                    // joined" (text resolves via the name override) but
-                    // shows an "S" monogram (the raw profile fell back to
-                    // "Somebody" because the joiner has not published a
-                    // per-conversation profile yet).
-                    let nameResolver: (String) -> String? = { config.memberContactOverride($0)?.displayName }
-                    let resolvedProfile: Profile? = update.profile.map { profile in
-                        config.memberContactOverride(profile.inboxId)
-                            .map { profile.overlaying(contact: $0) } ?? profile
-                    }
-                    VStack(spacing: 0) {
-                        TextTitleContentView(
-                            title: update.summary(memberNameOverride: nameResolver),
-                            profile: resolvedProfile,
-                            agentVerification: update.profileMember?.agentVerification ?? .unverified,
-                            onTap: update.profileMember.map { member in
-                                { config.onTapUpdateMember(member) }
-                            }
-                        )
-                            .id(update.differenceIdentifier)
-                            .padding(.top, DesignConstants.Spacing.step4x)
-                            .padding(.bottom, update.addedVerifiedAssistant ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
-                            .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        if update.addedVerifiedAssistant {
-                            AssistantJoinedInfoView()
-                                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        }
-                    }
+                    UpdateCellContent(update: update, config: config)
 
                 case .messages(let group):
                     MessagesGroupView(
@@ -202,5 +173,43 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         layoutAttributesForHorizontalFittingRequired(layoutAttributes)
+    }
+}
+
+/// Renders a single `.update` cell (system row + optional assistant-joined
+/// footer). Extracted from `MessagesListItemTypeCell.setup`'s switch so
+/// the function body stays under the 125-line SwiftLint cap; the body
+/// here also substitutes the contact's profile for the per-conversation
+/// profile when the inbox is a known contact, so a row like "Alice
+/// joined" renders Alice's actual avatar instead of an "S" monogram
+/// derived from the placeholder per-conversation profile.
+private struct UpdateCellContent: View {
+    let update: ConversationUpdate
+    let config: CellConfig
+
+    var body: some View {
+        let nameResolver: (String) -> String? = { config.memberContactOverride($0)?.displayName }
+        let resolvedProfile: Profile? = update.profile.map { profile in
+            config.memberContactOverride(profile.inboxId)
+                .map { profile.overlaying(contact: $0) } ?? profile
+        }
+        VStack(spacing: 0) {
+            TextTitleContentView(
+                title: update.summary(memberNameOverride: nameResolver),
+                profile: resolvedProfile,
+                agentVerification: update.profileMember?.agentVerification ?? .unverified,
+                onTap: update.profileMember.map { member in
+                    { config.onTapUpdateMember(member) }
+                }
+            )
+                .id(update.differenceIdentifier)
+                .padding(.top, DesignConstants.Spacing.step4x)
+                .padding(.bottom, update.addedVerifiedAssistant ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+            if update.addedVerifiedAssistant {
+                AssistantJoinedInfoView()
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+            }
+        }
     }
 }

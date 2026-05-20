@@ -302,10 +302,14 @@ struct ContactDetailView: View {
     }
 
     private func syncBlockedState() async {
-        guard let updated = try? contactsRepository.fetchContact(inboxId: contact.inboxId) else {
-            return
+        do {
+            guard let updated = try contactsRepository.fetchContact(inboxId: contact.inboxId) else {
+                return
+            }
+            isBlocked = updated.isBlocked
+        } catch {
+            Log.error("Failed to sync blocked state for \(contact.inboxId): \(error.localizedDescription)")
         }
-        isBlocked = updated.isBlocked
     }
 }
 

@@ -267,6 +267,7 @@ class NewConversationViewModel: Identifiable {
             applyGlobalDefaultsForNewConversation: false
         )
         convoVM.showsInfoView = !startedWithFullscreenScanner
+        armSeededExpectationIfNeeded(on: convoVM, for: draftConversation)
         self.conversationViewModel = convoVM
     }
 
@@ -279,6 +280,21 @@ class NewConversationViewModel: Identifiable {
     /// conversation publisher's `.ready` emission later replaces the
     /// synthetic members with the real ones keyed by the same `inboxId`,
     /// so the transition is a no-op re-render rather than a flicker.
+    /// Arms the `ConversationViewModel` publisher-emission gate for
+    /// picker-seeded VMs only. The default state on
+    /// `ConversationViewModel` is "gate open"; arming here matches
+    /// the synthetic draft we just constructed so DB emissions with
+    /// fewer non-self members are dropped until the state machine's
+    /// addMembers hook catches up. No-op when the draft has no seeded
+    /// members (e.g. `.newConversation`, scanner, joinInvite).
+    private func armSeededExpectationIfNeeded(
+        on convoVM: ConversationViewModel,
+        for draftConversation: Conversation
+    ) {
+        guard startedWithSeededMembers else { return }
+        convoVM.markSeeded(expectingMemberCount: draftConversation.membersWithoutCurrent.count)
+    }
+
     private func makeDraftConversation(id: String) -> Conversation {
         guard startedWithSeededMembers, !seededMemberInboxIds.isEmpty else {
             return .empty(id: id)
@@ -343,6 +359,7 @@ class NewConversationViewModel: Identifiable {
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false
         }
+        armSeededExpectationIfNeeded(on: convoVM, for: draftConversation)
         self.conversationViewModel = convoVM
         setupObservations()
         setupStateObservation()

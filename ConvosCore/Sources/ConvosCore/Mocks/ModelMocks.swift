@@ -107,26 +107,24 @@ public extension Conversation {
     /// picker flow so the chat header renders the contact's name and
     /// avatar from the moment the new-convo sheet opens, instead of
     /// flickering through "New Convo" while the state machine creates
-    /// the real conversation. `kind` is inferred from the count of
-    /// non-self members (1 -> `.dm`, otherwise `.group`).
+    /// the real conversation. `kind` is always `.group` because the
+    /// state machine's `handleCreate` calls `client.prepareConversation()`
+    /// which always returns a `Group` - synthesizing `.dm` here would
+    /// mean the synthetic briefly renders DM-styled before flipping
+    /// to group when the publisher emits the real conversation.
     static func draft(id: String, seededMembers: [ConversationMember]) -> Conversation {
-        let nonSelfCount = seededMembers.lazy.filter { !$0.isCurrentUser }.count
-        let resolvedKind: ConversationKind = nonSelfCount == 1 ? .dm : .group
         let creator: ConversationMember = seededMembers.first(where: { $0.isCurrentUser }) ?? .empty(isCurrentUser: true)
-        let otherMember: ConversationMember? = resolvedKind == .dm
-            ? seededMembers.first(where: { !$0.isCurrentUser })
-            : nil
         return Conversation(
             id: id,
             clientConversationId: id,
             creator: creator,
             createdAt: .distantFuture,
             consent: .allowed,
-            kind: resolvedKind,
+            kind: .group,
             name: nil,
             description: nil,
             members: seededMembers,
-            otherMember: otherMember,
+            otherMember: nil,
             messages: [],
             isPinned: false,
             isUnread: false,
