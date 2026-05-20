@@ -2491,6 +2491,7 @@ extension ConversationViewModel {
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
+                    options: nil,
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {

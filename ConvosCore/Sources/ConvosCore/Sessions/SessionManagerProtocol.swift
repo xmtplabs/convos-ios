@@ -43,7 +43,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
-    func requestAgentJoin(slug: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+    func requestAgentJoin(slug: String, options: ConvosAPI.AgentJoinOptions?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
 
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
@@ -133,6 +133,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
 extension SessionManagerProtocol {
     public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, forceErrorCode: nil)
+        try await requestAgentJoin(slug: slug, options: nil, forceErrorCode: nil)
+    }
+
+    public func requestAgentJoin(slug: String, options: ConvosAPI.AgentJoinOptions?) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, options: options, forceErrorCode: nil)
     }
 }

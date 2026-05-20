@@ -668,7 +668,7 @@ final class AssistantBuilderViewModel: Identifiable {
         assistantJoinTask?.cancel()
         assistantJoinTask = Task { [session] in
             do {
-                _ = try await session.requestAgentJoin(slug: slug)
+                _ = try await session.requestAgentJoin(slug: slug, options: .assistantBuilder)
             } catch is CancellationError {
                 return
             } catch let urlError as URLError where urlError.code == .cancelled {
