@@ -263,6 +263,20 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    // Short-circuit row-independent events so a catch-up burst of
+                    // typing indicators or read receipts doesn't re-save the conversation
+                    // row N times for no state change. Read receipts persist to
+                    // DBConversationReadReceipt independently; typing indicators don't
+                    // write at all. Explode/profile/real-message paths below still
+                    // depend on a fresh row, so they stay downstream of store().
+                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
+                        return
+                    }
+
+                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
+                        return
+                    }
+
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId
@@ -281,14 +295,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                     guard explodeSettings == nil else { return }
 
                     if await processProfileMessage(message, conversationId: conversation.id) {
-                        return
-                    }
-
-                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
-                        return
-                    }
-
-                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
 
