@@ -137,7 +137,10 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
-                        ConversationInfoPreview(conversation: conversation)
+                        ConversationInfoPreview(
+                            conversation: conversation,
+                            memberContactOverride: config.memberContactOverride
+                        )
                     }
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
