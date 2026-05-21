@@ -222,6 +222,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     private var observedThinkingSessionsConversationId: String?
     @ObservationIgnored
+    private var assistantBuilderSummaryCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var observedAssistantBuilderSummaryConversationId: String?
+    @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
     private var locallyHandledCapabilityRequestIds: Set<String> = []
@@ -409,6 +413,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// window so the per-attachment eager-upload start tasks can still
     /// write back their `eagerUploadKey` instead of cancelling.
     var isAwaitingBuilderBundleSend: Bool = false
+    /// True while the user is interacting with the Assistant Builder for
+    /// this conversation — set on builder appear, cleared on disappear (or
+    /// when the agent actually joins). Used by
+    /// `ConversationViewModel+ThinkingIndicators` to route assistant
+    /// thinking sessions under the contact card instead of the inline
+    /// footer. Independent of whether the conversation was created via the
+    /// builder — the same flow will run when adding an agent to an
+    /// existing conversation.
+    var isInAssistantBuilderFlow: Bool = false
     @ObservationIgnored
     private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
     /// Background tasks that assign `eagerUploadKey` to a freshly-added
@@ -842,13 +855,19 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// conversation later would show the raw pre-Make message history
     /// instead of the polished summary card.
     private func observeAssistantBuilderSummary() {
-        session.assistantBuilderSummaryRepository()
-            .summaryPublisher(for: conversation.id)
+        observeAssistantBuilderSummary(for: conversation.id)
+    }
+
+    private func observeAssistantBuilderSummary(for conversationId: String) {
+        guard conversationId != observedAssistantBuilderSummaryConversationId else { return }
+        observedAssistantBuilderSummaryConversationId = conversationId
+        assistantBuilderSummaryCancellable?.cancel()
+        assistantBuilderSummaryCancellable = session.assistantBuilderSummaryRepository()
+            .summaryPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] summary in
                 self?.assistantBuilderSummary = summary
             }
-            .store(in: &cancellables)
     }
 
     /// Subscribe to the GRDB-backed thinking session feed for this
@@ -909,6 +928,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
+                    self.observeAssistantBuilderSummary(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
                         self.sendReadReceiptIfNeeded()

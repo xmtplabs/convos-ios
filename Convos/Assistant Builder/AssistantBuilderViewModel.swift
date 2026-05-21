@@ -377,7 +377,6 @@ final class AssistantBuilderViewModel: Identifiable {
             // `sendBuilderBundle` clears `pendingMediaAttachments`. The
             // flag is reset inside `sendBuilderBundle`'s defer.
             innerVM.isAwaitingBuilderBundleSend = true
-            persistSummary(summary, for: innerVM.conversation.id)
             // Note: `innerVM.allowsContactCard` was already set to `false`
             // when this builder VM was constructed. The scheduled task below
             // flips it back to `true` once the chat has had time to settle
@@ -388,16 +387,33 @@ final class AssistantBuilderViewModel: Identifiable {
             // assistant as a synchronized burst: the prompt text as one
             // XMTP message and every media item — voice memo + photos +
             // videos + files — bundled into a single `MultiRemoteAttachment`
-            // message. The state-machine FIFO queue preserves ordering, so
-            // the assistant sees the text immediately followed by the
-            // bundle the moment the agent reaches `.ready`. The UI commit
-            // (composer fade, contact-card reveal timer) runs synchronously
-            // below regardless — the contact card's pulsing subtitle is
-            // the user-facing loading indicator. The normal conversation
-            // send path stays per-attachment so per-item reactions / replies
-            // keep working there; the bundle path is builder-only.
-            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot, textMessageId, bundleMessageId] in
+            // message. `sendBuilderBundle` `await`s the text send before
+            // the bundle send, so the assistant sees them in that order.
+            // The UI commit (composer fade, contact-card reveal timer)
+            // runs synchronously below regardless — the contact card's
+            // pulsing subtitle is the user-facing loading indicator. The
+            // normal conversation send path stays per-attachment so
+            // per-item reactions / replies keep working there; the bundle
+            // path is builder-only.
+            let summaryToPersist: AssistantBuilderSummary = summary
+            let conversationIdForPersist: String = innerVM.conversation.id
+            let sessionForPersist = session
+            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
                 guard let innerVM else { return }
+                // Persist the summary (with its `bundledMessageIds`) BEFORE
+                // any writer call. If the app dies between Make and the
+                // bundle landing, the filter set is already on disk — the
+                // next launch's `summaryPublisher` rehydrates the summary
+                // and the bundle messages are caught the moment GRDB
+                // emits them. Without this ordering, a force-quit in the
+                // window would leave bundle bubbles rendering bare under
+                // no summary card.
+                do {
+                    try await sessionForPersist.assistantBuilderSummaryWriter()
+                        .save(summaryToPersist, for: conversationIdForPersist)
+                } catch {
+                    Log.error("AssistantBuilder: failed to persist summary for \(conversationIdForPersist): \(error.localizedDescription)")
+                }
                 do {
                     try await innerVM.awaitPendingMediaUploads()
                 } catch {
@@ -434,25 +450,6 @@ final class AssistantBuilderViewModel: Identifiable {
         }
 
         scheduleConnectionGrants()
-    }
-
-    /// Fires the toggled connections once the assistant has joined. Polls
-    /// `conversation.hasAgent` because the agent join is async (the join
-    /// request goes out on `.ready`; the actual member event arrives later
-    /// via XMTP). The polling task is cancelled by `discard()` and `deinit`.
-    /// Persist the summary so it survives navigating away or quitting the
-    /// app. The in-memory `innerVM.assistantBuilderSummary` is set
-    /// synchronously for the immediate post-Make render; this write lands
-    /// asynchronously and the `summaryPublisher` keeps the ViewModel in sync
-    /// on subsequent loads.
-    private func persistSummary(_ summary: AssistantBuilderSummary, for conversationId: String) {
-        Task { [session] in
-            do {
-                try await session.assistantBuilderSummaryWriter().save(summary, for: conversationId)
-            } catch {
-                Log.error("AssistantBuilder: failed to persist summary for \(conversationId): \(error.localizedDescription)")
-            }
-        }
     }
 
     /// Build the AssistantBuilderSummary that renders as the first cell of the

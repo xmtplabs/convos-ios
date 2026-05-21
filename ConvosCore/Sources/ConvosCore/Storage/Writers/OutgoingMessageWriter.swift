@@ -2296,6 +2296,19 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         if message.contentType == .attachments {
+            // Multi-remote bundles (Assistant Builder) store every item as
+            // its own entry in `attachmentUrls`; `retryFailedPhoto` only
+            // knows how to re-queue a single attachment, so retrying a
+            // bundle would silently re-send just the first item. Bail out
+            // — the UI keeps the failed-message button's delete affordance,
+            // and the user can re-create the bundle by going back through
+            // the builder. Fixing retry properly means rebuilding the
+            // `[MultiAttachmentBundleItem]` array from the row + the
+            // eager-upload trail, which the current schema doesn't carry.
+            if message.attachmentUrls.count > 1 {
+                Log.warning("Refusing to retry multi-remote bundle \(message.clientMessageId); delete and re-send from the builder.")
+                return
+            }
             try await retryFailedPhoto(message: message, replyContext: replyContext)
         } else {
             try await retryFailedText(message: message, replyContext: replyContext)

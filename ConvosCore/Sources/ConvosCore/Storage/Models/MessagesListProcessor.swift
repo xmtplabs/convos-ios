@@ -137,24 +137,28 @@ public final class MessagesListProcessor: Sendable {
     }
 
     /// Strip date separators that no longer precede a message group. A
-    /// `.date(...)` row is kept iff there is at least one `.messages(...)`
-    /// row before the next `.date(...)` (or end of list). All other item
-    /// kinds (typing indicator, system updates, etc.) don't anchor a date
-    /// — they share the most recent group's bucket.
+    /// `.date(...)` row is kept iff there is at least one anchorable row
+    /// (`.messages`, `.update`, or `.connectionEvent`) before the next
+    /// `.date(...)` (or end of list). Typing indicators, info rows, and
+    /// other purely ephemeral items don't anchor — a stretch with only
+    /// those leaves the date separator orphaned and it is dropped.
     private static func dropOrphanDateSeparators(in items: [MessagesListItemType]) -> [MessagesListItemType] {
         var result: [MessagesListItemType] = []
         result.reserveCapacity(items.count)
         for (index, item) in items.enumerated() {
             if case .date = item {
-                var hasFollowingGroup: Bool = false
+                var hasFollowingAnchor: Bool = false
                 for later in items[(index + 1)...] {
                     if case .date = later { break }
-                    if case .messages = later {
-                        hasFollowingGroup = true
+                    switch later {
+                    case .messages, .update, .connectionEvent:
+                        hasFollowingAnchor = true
+                    default:
                         break
                     }
+                    if hasFollowingAnchor { break }
                 }
-                if !hasFollowingGroup { continue }
+                if !hasFollowingAnchor { continue }
             }
             result.append(item)
         }

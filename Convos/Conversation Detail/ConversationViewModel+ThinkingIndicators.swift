@@ -18,9 +18,11 @@ extension ConversationViewModel {
     /// whose target is a user prompt sent during the build flow, the
     /// descriptor is routed to the contact card group's
     /// `contactCardThinkingDescriptor` instead of an inline footer. That
-    /// happens both pre-Make (no summary yet — all user messages are
-    /// build-flow) and post-Make (target is no longer visible because the
-    /// builder summary's cutoff filtered it out).
+    /// happens both pre-Make (target prompt still visible but the card is
+    /// the canonical anchor) and post-Make (target was filtered out by
+    /// `bundledMessageIds`). Gated on `isInAssistantBuilderFlow` —
+    /// ordinary assistant conversations (no builder involvement) skip
+    /// this routing and use inline footers exclusively.
     var messagesWithThinkingIndicators: [MessagesListItemType] {
         let base = messagesWithTypingIndicator
         guard !thinkingSessions.isEmpty else { return base }
@@ -31,7 +33,6 @@ extension ConversationViewModel {
                 return group.allMessages.map(\.messageId)
             }
         )
-        let isInBuildFlow: Bool = assistantBuilderSummary == nil
 
         var descriptorsByMessageId: [String: ThinkingSessionDescriptor] = [:]
         var contactCardDescriptorsBySender: [String: ThinkingSessionDescriptor] = [:]
@@ -59,12 +60,15 @@ extension ConversationViewModel {
 
             let targetVisible: Bool = visibleMessageIds.contains(session.targetMessageId)
             let resultVisible: Bool = session.resultMessageId.map { visibleMessageIds.contains($0) } ?? false
-            // During the build flow the card is the canonical anchor for
-            // any assistant thinking — even though the user's prompt is
-            // still visible. Once Make is tapped and the summary's cutoff
-            // hides those prompts, the same routing kicks in when the
-            // target/result is no longer in the visible set.
-            let shouldRouteToCard: Bool = isInBuildFlow || (!targetVisible && !resultVisible)
+            // Builder-flow conversations route to the contact card when
+            // the target/result aren't visible (filtered out by
+            // `bundledMessageIds`) OR while the builder UI is up
+            // (pre-Make — the card is the canonical anchor even though
+            // the user's prompt is still visible). Ordinary assistant
+            // conversations skip the card path entirely and use inline
+            // footers exclusively, so the indicator surfaces on the
+            // actual message bubble the agent is thinking about.
+            let shouldRouteToCard: Bool = isInAssistantBuilderFlow || (!targetVisible && !resultVisible)
             if shouldRouteToCard {
                 contactCardDescriptorsBySender[session.senderInboxId] = descriptor
                 continue

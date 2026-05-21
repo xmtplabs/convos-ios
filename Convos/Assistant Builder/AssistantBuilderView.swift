@@ -61,8 +61,16 @@ struct AssistantBuilderView: View {
         .interactiveDismissDisabled(!viewModel.hasCommitted && viewModel.hasContent)
         .onAppear {
             focusCoordinator.horizontalSizeClass = horizontalSizeClass
+            // Flag the inner conversation VM as "in builder flow" so its
+            // thinking-indicator routing pushes assistant sessions under
+            // the contact card instead of the inline footer. Cleared
+            // when the builder dismisses (whether via Make morph or X
+            // cancel), since ordinary post-Make assistant chatter
+            // should anchor inline like a normal assistant convo.
+            viewModel.newConversationViewModel.conversationViewModel?.isInAssistantBuilderFlow = true
         }
         .onDisappear {
+            viewModel.newConversationViewModel.conversationViewModel?.isInAssistantBuilderFlow = false
             if !viewModel.hasCommitted && !viewModel.isCommitting {
                 viewModel.discard()
             }
