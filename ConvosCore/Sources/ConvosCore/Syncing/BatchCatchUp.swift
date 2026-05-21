@@ -55,12 +55,12 @@ struct BatchCatchUpResult: Sendable {
 /// - `saveConversation`'s no-op diff short-circuit (#857)
 /// - `DBMessage` primary-key INSERT OR REPLACE semantics
 /// - Reaction handler existence checks
-/// Not an actor: `XMTPClientProvider` is not Sendable, so wrapping the
-/// coordinator in actor isolation would require Sendable-wrapping every
-/// client parameter. Concurrency safety isn't needed here because `run`
-/// is invoked exactly once per foreground from the SyncingManager hook;
-/// all internal state is stack-local within `run` itself.
-final class BatchCatchUp: @unchecked Sendable {
+/// Value type: stored properties are reference-typed but each conforms
+/// to Sendable (`ConversationWriter` and `IncomingMessageWriter` are
+/// `@unchecked Sendable`, GRDB's `DatabaseWriter` is Sendable), so
+/// `BatchCatchUp` itself is implicitly Sendable with no annotation.
+/// All transient state lives stack-local within `run`.
+struct BatchCatchUp {
     private let conversationWriter: ConversationWriter
     private let messageWriter: IncomingMessageWriter
     private let databaseWriter: any DatabaseWriter
