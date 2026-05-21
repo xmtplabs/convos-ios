@@ -586,57 +586,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
         } else if let existingConversation {
-            let preferredClientConversationId: String
-            if dbConversation.clientConversationId != existingConversation.clientConversationId {
-                if DBConversation.isDraft(id: dbConversation.clientConversationId) {
-                    preferredClientConversationId = dbConversation.clientConversationId
-                } else {
-                    preferredClientConversationId = existingConversation.clientConversationId
-                }
-            } else {
-                preferredClientConversationId = dbConversation.clientConversationId
-            }
-
-            var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
-            if existingConversation.isUnused {
-                updatedConversation = updatedConversation.with(isUnused: true)
-            }
-            if !existingConversation.isUnused {
-                updatedConversation = updatedConversation.with(createdAt: existingConversation.createdAt)
-            }
-            if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
-                updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
-            }
-            if let conflictingConversation = try existingConversationMatchingInviteTag(
-                inviteTag: updatedConversation.inviteTag,
-                excludingConversationId: updatedConversation.id,
+            let updateOutcome = try updateExistingConversation(
+                incoming: conversationToSave,
+                existing: existingConversation,
+                originalIncomingId: dbConversation.clientConversationId,
                 in: db
-            ) {
-                Log.error(
-                    "Invite tag collision before save. " +
-                        "incomingId=\(updatedConversation.id) " +
-                        "incomingClientConversationId=\(updatedConversation.clientConversationId) " +
-                        "incomingInviteTag=\(updatedConversation.inviteTag) " +
-                        "existingId=\(existingConversation.id) " +
-                        "existingClientConversationId=\(existingConversation.clientConversationId) " +
-                        "conflictingId=\(conflictingConversation.id) " +
-                        "conflictingClientConversationId=\(conflictingConversation.clientConversationId) " +
-                        "conflictingIsUnused=\(conflictingConversation.isUnused)"
-                )
-            }
-            if updatedConversation == existingConversation {
-                // Row would be byte-identical — skip the write so GRDB observers
-                // don't fire and re-render the conversations list for no state
-                // change. Common during catch-up bursts where the same row is
-                // re-saved across many consecutive stream events. The
-                // existing-by-tag and brand-new branches still write because
-                // they're either replacing a different row or creating one.
-                Log.debug("Skipped no-op conversation save for id=\(dbConversation.id)")
-            } else {
-                try updatedConversation.save(db)
-            }
-            firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt
-            actualClientConversationId = preferredClientConversationId
+            )
+            firstTimeSeeingConversationExpired = updateOutcome.firstTimeSeeingConversationExpired
+            actualClientConversationId = updateOutcome.actualClientConversationId
         } else {
             try conversationToSave.save(db)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired
@@ -651,6 +608,73 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             clientConversationId: actualClientConversationId,
             oldImageURL: oldImageURL,
             preservedInviteTag: preservedInviteTag
+        )
+    }
+
+    private struct ExistingConversationUpdateOutcome {
+        let firstTimeSeeingConversationExpired: Bool
+        let actualClientConversationId: String
+    }
+
+    private func updateExistingConversation(
+        incoming conversationToSave: DBConversation,
+        existing existingConversation: DBConversation,
+        originalIncomingId: String,
+        in db: Database
+    ) throws -> ExistingConversationUpdateOutcome {
+        let preferredClientConversationId: String
+        if originalIncomingId != existingConversation.clientConversationId {
+            if DBConversation.isDraft(id: originalIncomingId) {
+                preferredClientConversationId = originalIncomingId
+            } else {
+                preferredClientConversationId = existingConversation.clientConversationId
+            }
+        } else {
+            preferredClientConversationId = originalIncomingId
+        }
+
+        var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
+        if existingConversation.isUnused {
+            updatedConversation = updatedConversation.with(isUnused: true)
+        }
+        if !existingConversation.isUnused {
+            updatedConversation = updatedConversation.with(createdAt: existingConversation.createdAt)
+        }
+        if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
+            updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
+        }
+        if let conflictingConversation = try existingConversationMatchingInviteTag(
+            inviteTag: updatedConversation.inviteTag,
+            excludingConversationId: updatedConversation.id,
+            in: db
+        ) {
+            Log.error(
+                "Invite tag collision before save. " +
+                    "incomingId=\(updatedConversation.id) " +
+                    "incomingClientConversationId=\(updatedConversation.clientConversationId) " +
+                    "incomingInviteTag=\(updatedConversation.inviteTag) " +
+                    "existingId=\(existingConversation.id) " +
+                    "existingClientConversationId=\(existingConversation.clientConversationId) " +
+                    "conflictingId=\(conflictingConversation.id) " +
+                    "conflictingClientConversationId=\(conflictingConversation.clientConversationId) " +
+                    "conflictingIsUnused=\(conflictingConversation.isUnused)"
+            )
+        }
+        if updatedConversation == existingConversation {
+            // Row would be byte-identical — skip the write so GRDB observers
+            // don't fire and re-render the conversations list for no state
+            // change. Common during catch-up bursts where the same row is
+            // re-saved across many consecutive stream events. The
+            // existing-by-tag and brand-new branches still write because
+            // they're either replacing a different row or creating one.
+            Log.debug("Skipped no-op conversation save for id=\(updatedConversation.id)")
+        } else {
+            try updatedConversation.save(db)
+        }
+        return ExistingConversationUpdateOutcome(
+            firstTimeSeeingConversationExpired: updatedConversation.isExpired
+                && updatedConversation.expiresAt != existingConversation.expiresAt,
+            actualClientConversationId: preferredClientConversationId
         )
     }
 
