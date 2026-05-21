@@ -61,7 +61,9 @@ public enum AssistantAttestationVerifier {
             return .unverified
         }
         guard let resolved = keyset.cachedResolveKey(for: kid) else {
-            negativeCache.withLock { _ = $0.insert(cacheKey) }
+            // Cache miss, not a verification failure. Don't poison the
+            // negative cache — a later `resolveKey()` may populate the
+            // keyset, and we want the next call to retry verification.
             return .unverified
         }
         let valid = verifySignature(
