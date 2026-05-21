@@ -624,7 +624,17 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                         "conflictingIsUnused=\(conflictingConversation.isUnused)"
                 )
             }
-            try updatedConversation.save(db)
+            if updatedConversation == existingConversation {
+                // Row would be byte-identical — skip the write so GRDB observers
+                // don't fire and re-render the conversations list for no state
+                // change. Common during catch-up bursts where the same row is
+                // re-saved across many consecutive stream events. The
+                // existing-by-tag and brand-new branches still write because
+                // they're either replacing a different row or creating one.
+                Log.debug("Skipped no-op conversation save for id=\(dbConversation.id)")
+            } else {
+                try updatedConversation.save(db)
+            }
             firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
         } else {
