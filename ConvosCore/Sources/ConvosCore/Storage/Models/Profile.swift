@@ -97,8 +97,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     /// Free-form description an assistant agent writes into its own profile
     /// metadata to describe what it's set up to do — surfaced on the
     /// `AssistantContactCard` once the agent has decided.
-    public var jobSummary: String? {
-        metadata?[Constant.jobSummaryMetadataKey]?.stringValue.flatMap { value in
+    public var assistantDescription: String? {
+        metadata?[Constant.assistantDescriptionMetadataKey]?.stringValue.flatMap { value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
@@ -217,7 +217,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     private enum Constant {
         static let emojiMetadataKey: String = "emoji"
-        static let jobSummaryMetadataKey: String = "job_summary"
+        static let assistantDescriptionMetadataKey: String = "description"
     }
 }
 

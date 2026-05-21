@@ -1962,18 +1962,9 @@ extension ConversationViewModel {
             voiceMemoRecorder.resetState()
         }
 
-        if !text.isEmpty {
-            do {
-                if let textMessageId {
-                    try await writer.send(text: text, clientMessageId: textMessageId)
-                } else {
-                    try await writer.send(text: text)
-                }
-            } catch {
-                Log.error("AssistantBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
-            }
-        }
-
+        // Send the multi-remote attachment bundle first, then the prompt
+        // text. The backend agent expects this ordering so it can resolve
+        // attachment references before processing the textual prompt.
         if !bundleItems.isEmpty {
             do {
                 if let bundleMessageId {
@@ -1989,6 +1980,18 @@ extension ConversationViewModel {
                 // on a network-level failure, and the failed-send UI surfaces
                 // individual item retries.
                 pendingMediaAttachments = attachmentsSnapshot
+            }
+        }
+
+        if !text.isEmpty {
+            do {
+                if let textMessageId {
+                    try await writer.send(text: text, clientMessageId: textMessageId)
+                } else {
+                    try await writer.send(text: text)
+                }
+            } catch {
+                Log.error("AssistantBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
             }
         }
     }

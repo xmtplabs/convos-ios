@@ -107,7 +107,7 @@ public final class MessagesListProcessor: Sendable {
         if let assistant = verifiedAssistant {
             let cardInfo = AssistantContactCardInfo(
                 profile: assistant.profile,
-                jobSummary: assistant.profile.jobSummary
+                assistantDescription: assistant.profile.assistantDescription
             )
             let firstAssistantGroupIndex: Int? = items.firstIndex { item in
                 guard case .messages(let group) = item else { return false }

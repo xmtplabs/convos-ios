@@ -259,7 +259,7 @@ struct MessagesGroupView: View {
                     .frame(width: avatarSize, height: avatarSize)
             }
 
-            AssistantContactCardView(profile: card.profile, jobSummary: card.jobSummary)
+            AssistantContactCardView(profile: card.profile, assistantDescription: card.assistantDescription)
                 .overlay(alignment: .bottomLeading) {
                     if cardIsLast && !group.sender.isCurrentUser {
                         avatarOverlay()

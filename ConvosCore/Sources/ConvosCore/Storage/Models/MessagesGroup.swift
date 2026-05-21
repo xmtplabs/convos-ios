@@ -18,7 +18,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// transcript state propagate through the existing diffing reload pipeline.
     public var voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
     /// When non-nil, renders the assistant "contact card" (avatar + display
-    /// name + `job_summary` subtitle) as the first item of this group. The
+    /// name + `description` subtitle) as the first item of this group. The
     /// surrounding `MessagesGroupView` reuses its existing sender-label and
     /// leading-avatar slots so the card doesn't have to duplicate them.
     public var assistantContactCard: AssistantContactCardInfo?
@@ -225,15 +225,15 @@ public struct ThinkingSessionDescriptor: Equatable, Hashable, Sendable, Identifi
 /// to render an assistant contact card as the leading item of the group. The
 /// `profile` reuses the group's sender profile (so the avatar + display name
 /// stay consistent with what the surrounding `MessagesGroupView` already
-/// shows); `jobSummary` mirrors the latest `job_summary` metadata published
-/// by the assistant, or `nil` while it's still being learned.
+/// shows); `assistantDescription` mirrors the latest `description` metadata
+/// published by the assistant, or `nil` while it's still being learned.
 public struct AssistantContactCardInfo: Equatable, Hashable, Sendable {
     public let profile: Profile
-    public let jobSummary: String?
+    public let assistantDescription: String?
 
-    public init(profile: Profile, jobSummary: String?) {
+    public init(profile: Profile, assistantDescription: String?) {
         self.profile = profile
-        self.jobSummary = jobSummary
+        self.assistantDescription = assistantDescription
     }
 }
 

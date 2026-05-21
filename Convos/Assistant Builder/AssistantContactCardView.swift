@@ -5,27 +5,27 @@ import SwiftUI
 /// the body of the assistant's first message group — the surrounding
 /// `MessagesGroupView` already provides the sender label and avatar, so this
 /// view only owns the rounded-rect card itself: the assistant's avatar,
-/// display name, and `job_summary` subtitle. While the assistant hasn't yet
-/// written a `job_summary` into its profile metadata, the subtitle reads
+/// display name, and `description` subtitle. While the assistant hasn't yet
+/// written a `description` into its profile metadata, the subtitle reads
 /// "Learning more about my job" with a pulse highlight matching
 /// `AssistantJoinStatusView`. Once the value arrives, the subtitle
 /// blur-replaces to the real text.
 struct AssistantContactCardView: View {
     let profile: Profile
-    let jobSummary: String?
+    let assistantDescription: String?
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
     private var displayedSubtitle: String {
-        if let jobSummary, !jobSummary.isEmpty {
-            return jobSummary
+        if let assistantDescription, !assistantDescription.isEmpty {
+            return assistantDescription
         }
         return AssistantContactCardView.placeholderSubtitle
     }
 
-    private var hasJobSummary: Bool {
-        jobSummary?.isEmpty == false
+    private var hasAssistantDescription: Bool {
+        assistantDescription?.isEmpty == false
     }
 
     var body: some View {
@@ -72,7 +72,7 @@ struct AssistantContactCardView: View {
 
     @ViewBuilder
     private var subtitleText: some View {
-        if hasJobSummary {
+        if hasAssistantDescription {
             Text(displayedSubtitle)
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
@@ -115,7 +115,7 @@ private struct PulsingSubtitle: View {
     }
 }
 
-#Preview("Placeholder (no job_summary)") {
+#Preview("Placeholder (no description)") {
     AssistantContactCardView(
         profile: Profile(
             inboxId: "preview-inbox-1",
@@ -125,13 +125,13 @@ private struct PulsingSubtitle: View {
             isAgent: true,
             metadata: ["emoji": .string("🚴")]
         ),
-        jobSummary: nil
+        assistantDescription: nil
     )
     .padding()
     .background(Color.colorBackgroundSurfaceless)
 }
 
-#Preview("Loaded job_summary") {
+#Preview("Loaded description") {
     AssistantContactCardView(
         profile: Profile(
             inboxId: "preview-inbox-2",
@@ -141,7 +141,7 @@ private struct PulsingSubtitle: View {
             isAgent: true,
             metadata: ["emoji": .string("🚴")]
         ),
-        jobSummary: "I'll help you plan your next ride, log mileage, and remember your favorite routes."
+        assistantDescription: "I'll help you plan your next ride, log mileage, and remember your favorite routes."
     )
     .padding()
     .background(Color.colorBackgroundSurfaceless)

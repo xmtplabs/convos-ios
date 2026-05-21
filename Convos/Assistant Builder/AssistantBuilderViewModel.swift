@@ -384,17 +384,18 @@ final class AssistantBuilderViewModel: Identifiable {
             //
             // Defer the sends until every pending eager photo/video upload
             // has finished, then ship the whole builder payload to the
-            // assistant as a synchronized burst: the prompt text as one
-            // XMTP message and every media item — voice memo + photos +
-            // videos + files — bundled into a single `MultiRemoteAttachment`
-            // message. `sendBuilderBundle` `await`s the text send before
-            // the bundle send, so the assistant sees them in that order.
-            // The UI commit (composer fade, contact-card reveal timer)
-            // runs synchronously below regardless — the contact card's
-            // pulsing subtitle is the user-facing loading indicator. The
-            // normal conversation send path stays per-attachment so
-            // per-item reactions / replies keep working there; the bundle
-            // path is builder-only.
+            // assistant as a synchronized burst: every media item — voice
+            // memo + photos + videos + files — bundled into a single
+            // `MultiRemoteAttachment` message, followed by the prompt text
+            // as one XMTP message. `sendBuilderBundle` `await`s the bundle
+            // send before the text send, so the assistant resolves
+            // attachment references before processing the prompt. The UI
+            // commit (composer fade, contact-card reveal timer) runs
+            // synchronously below regardless — the contact card's pulsing
+            // subtitle is the user-facing loading indicator. The normal
+            // conversation send path stays per-attachment so per-item
+            // reactions / replies keep working there; the bundle path is
+            // builder-only.
             let summaryToPersist: AssistantBuilderSummary = summary
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
