@@ -89,8 +89,8 @@ struct ConvosApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ConversationsView(
-                viewModel: conversationsViewModel,
+            MainTabView(
+                conversationsViewModel: conversationsViewModel,
                 profileSettingsViewModel: profileSettingsViewModel
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)

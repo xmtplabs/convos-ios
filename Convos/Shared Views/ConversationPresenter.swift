@@ -25,11 +25,28 @@ struct ConversationPresenter<Content: View>: View {
     /// Assistant Builder pin focus on their composer field even after the
     /// underlying conversation flips from `draft-...` to a real XMTP id.
     var defaultFocusOverride: MessagesViewInputFocus?
+    /// Context for the leading app-mode indicator. When non-nil and there
+    /// is no conversation `viewModel` in focus, the presenter renders an
+    /// [[AppIndicatorPill]] at the top-leading edge in place of the
+    /// centered conversation pill. Pass nil to suppress the leading pill
+    /// (used by surfaces that don't want any app-level chrome, e.g. the
+    /// share overlay).
+    var appIndicatorContext: AppIndicatorContext?
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
     @FocusState private var focusState: MessagesViewInputFocus?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
+    /// Pairs the leading [[AppIndicatorPill]] with the centered conversation
+    /// indicator so that when `viewModel` flips from nil to non-nil, the
+    /// outer capsule animates its frame from top-leading to top-center
+    /// instead of cross-fading in place. Inner content (avatar / title /
+    /// subtitle) uses `.blurReplace` for the swap, which combines a soft
+    /// blur with opacity for a smooth crossfade against the morphing
+    /// capsule. The `.bouncy(duration: 0.4, extraBounce: 0.15)` animation
+    /// the surrounding VStack carries on `viewModel != nil` drives both
+    /// the matched-geometry interpolation and the blur transition.
+    @Namespace private var indicatorNamespace
 
     private var isShowingShareOverlay: Bool {
         guard let viewModel else { return false }
@@ -42,28 +59,7 @@ struct ConversationPresenter<Content: View>: View {
                 .toolbar(isShowingShareOverlay ? .hidden : .automatic, for: .navigationBar)
 
             VStack {
-                if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
-                    let pendingAssistantOverride: AgentVerification? = viewModel.shouldRenderAsPendingAssistant
-                        ? .verified(.convos)
-                        : nil
-                    ConversationIndicatorWrapper(
-                        viewModel: viewModel,
-                        placeholderOverride: indicatorPlaceholderOverride,
-                        subtitleOverride: indicatorSubtitleOverride,
-                        allowsEditing: allowsIndicatorEditing,
-                        focusState: $focusState,
-                        focusCoordinator: focusCoordinator
-                    )
-                    .environment(\.forcedAgentVerification, pendingAssistantOverride)
-                    .hoverEffect(.lift)
-                    .padding(.top, insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x)
-                    .padding(.leading, horizontalSizeClass != .compact ? sidebarColumnWidth : 0.0)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .identity
-                    ))
-                }
-
+                indicatorOverlay
                 Spacer()
             }
             .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: viewModel != nil)
@@ -109,6 +105,88 @@ struct ConversationPresenter<Content: View>: View {
             focusState = defaultFocusOverride ?? focusCoordinator.defaultFocus
         }
     }
+
+    private var indicatorTopInset: CGFloat {
+        if insetsTopSafeArea && horizontalSizeClass == .compact {
+            return safeAreaInsets.top
+        }
+        return DesignConstants.Spacing.step3x
+    }
+
+    private var indicatorLeadingInset: CGFloat {
+        horizontalSizeClass != .compact ? sidebarColumnWidth : 0.0
+    }
+
+    @ViewBuilder
+    private var indicatorOverlay: some View {
+        if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
+            conversationIndicatorView(for: viewModel)
+        } else if viewModel == nil, !isShowingShareOverlay, let appContext = appIndicatorContext {
+            appIndicatorView(for: appContext)
+        }
+    }
+
+    @ViewBuilder
+    private func conversationIndicatorView(for viewModel: ConversationViewModel) -> some View {
+        let pendingAssistantOverride: AgentVerification? = viewModel.shouldRenderAsPendingAssistant
+            ? .verified(.convos)
+            : nil
+        ConversationIndicatorWrapper(
+            viewModel: viewModel,
+            placeholderOverride: indicatorPlaceholderOverride,
+            subtitleOverride: indicatorSubtitleOverride,
+            allowsEditing: allowsIndicatorEditing,
+            focusState: $focusState,
+            focusCoordinator: focusCoordinator
+        )
+        .environment(\.forcedAgentVerification, pendingAssistantOverride)
+        .hoverEffect(.lift)
+        .matchedGeometryEffect(
+            id: AdaptiveAppIndicatorConstant.indicatorShellId,
+            in: indicatorNamespace,
+            properties: .position
+        )
+        .padding(.top, indicatorTopInset)
+        .padding(.leading, indicatorLeadingInset)
+        .transition(.blurReplace)
+    }
+
+    @ViewBuilder
+    private func appIndicatorView(for context: AppIndicatorContext) -> some View {
+        HStack {
+            appIndicatorPill(for: context)
+                .hoverEffect(.lift)
+                .matchedGeometryEffect(
+            id: AdaptiveAppIndicatorConstant.indicatorShellId,
+            in: indicatorNamespace,
+            properties: .position
+        )
+            Spacer(minLength: 0)
+        }
+        .padding(.top, indicatorTopInset)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.leading, indicatorLeadingInset)
+        .transition(.blurReplace)
+    }
+
+    @ViewBuilder
+    private func appIndicatorPill(for context: AppIndicatorContext) -> some View {
+        let pill = AppIndicatorPill(
+            profileImage: context.profileImage,
+            title: context.title,
+            subtitle: context.subtitle,
+            action: context.onTap
+        )
+        if let namespace = context.transitionNamespace, let id = context.transitionId {
+            pill.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            pill
+        }
+    }
+}
+
+private enum AdaptiveAppIndicatorConstant {
+    static let indicatorShellId: String = "adaptive-app-indicator-shell"
 }
 
 private struct ConversationIndicatorWrapper: View {

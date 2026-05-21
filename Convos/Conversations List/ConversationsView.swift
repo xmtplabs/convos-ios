@@ -86,52 +86,6 @@ struct ConversationsView: View {
         .ignoresSafeArea(edges: [.top, .bottom])
     }
 
-    private var filterMenu: some View {
-        let isFiltered: Bool = viewModel.activeFilter != .all
-        return Menu {
-            let allAction = { viewModel.activeFilter = .all }
-            Button(action: allAction) {
-                if viewModel.activeFilter == .all {
-                    Label("All", systemImage: "checkmark")
-                } else {
-                    Text("All")
-                }
-            }
-
-            let unreadAction = {
-                viewModel.activeFilter = viewModel.activeFilter == .unread ? .all : .unread
-            }
-            Button(action: unreadAction) {
-                if viewModel.activeFilter == .unread {
-                    Label("Unread", systemImage: "checkmark")
-                } else {
-                    Text("Unread")
-                }
-            }
-
-            let explodingAction = {
-                viewModel.activeFilter = viewModel.activeFilter == .exploding ? .all : .exploding
-            }
-            Button(action: explodingAction) {
-                if viewModel.activeFilter == .exploding {
-                    Label("Exploding", systemImage: "checkmark")
-                } else {
-                    Text("Exploding")
-                }
-            }
-        } label: {
-            Image(systemName: "line.3.horizontal.decrease")
-                .foregroundStyle(isFiltered ? .colorTextPrimaryInverted : .colorFillPrimary)
-                .frame(width: 32, height: 32)
-                .background(isFiltered ? .colorFillPrimary : .clear)
-                .mask(Circle())
-                .overlay(Circle().stroke(isFiltered ? .colorFillPrimary : .clear, lineWidth: 2))
-                .accessibilityLabel(isFiltered ? "Filter active" : "Filter conversations")
-                .accessibilityIdentifier("filter-button")
-        }
-        .disabled(!viewModel.hasUnpinnedConversations)
-    }
-
     @ViewBuilder
     private var sidebarContent: some View {
         if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
@@ -147,43 +101,13 @@ struct ConversationsView: View {
 
     @ToolbarContentBuilder
     private var sidebarToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            ConvosToolbarButton(padding: false) {
-                presentingAppSettings = true
-            }
-            .accessibilityLabel("Convos settings")
-            .accessibilityIdentifier("app-settings-button")
-        }
-        .matchedTransitionSource(id: "app-settings-transition-source", in: namespace)
-
+        // The top-leading slot used to hold a settings button; that surface
+        // is now owned by `AppIndicatorPill`, which renders as an overlay
+        // from `ConversationPresenter` and routes its tap to the same
+        // settings sheet via `onAppInfoTap`. Keeping the toolbar slot empty
+        // preserves the navigation-bar height the indicator overlay sits
+        // on top of.
         ToolbarItem(placement: .topBarTrailing) {
-            filterMenu
-        }
-        .matchedTransitionSource(id: "filter-view-transition-source", in: namespace)
-
-        ToolbarItem(placement: .bottomBar) {
-            Button("Make assistant", systemImage: "hammer") {
-                viewModel.onStartAssistant()
-            }
-            .accessibilityLabel("Make a new assistant")
-            .accessibilityIdentifier("assistant-builder-button")
-        }
-        .matchedTransitionSource(id: "assistant-builder-transition-source", in: namespace)
-
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-
-        ToolbarItem(placement: .bottomBar) {
-            Button("Scan", systemImage: "viewfinder") {
-                viewModel.onJoinConvo()
-            }
-            .accessibilityLabel("Scan to join a conversation")
-            .accessibilityIdentifier("scan-button")
-        }
-        .matchedTransitionSource(id: "composer-transition-source", in: namespace)
-
-        ToolbarItem(placement: .bottomBar) {
             Button("Compose", systemImage: "square.and.pencil") {
                 viewModel.onStartConvo()
             }
@@ -195,11 +119,18 @@ struct ConversationsView: View {
 
     var body: some View {
         let nameOverride = contactNameOverride
+        let appContext = AppIndicatorContext(
+            profileImage: profileSettingsViewModel.profileImage,
+            transitionNamespace: namespace,
+            transitionId: "app-settings-transition-source",
+            onTap: { presentingAppSettings = true }
+        )
         return ConversationPresenter(
             viewModel: viewModel.selectedConversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: true,
-            sidebarColumnWidth: $sidebarWidth
+            sidebarColumnWidth: $sidebarWidth,
+            appIndicatorContext: appContext
         ) { focusState, coordinator in
             NavigationSplitView(preferredCompactColumn: $preferredColumn) {
                 sidebarContent
