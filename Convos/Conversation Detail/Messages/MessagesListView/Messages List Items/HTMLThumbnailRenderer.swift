@@ -33,7 +33,18 @@ final class HTMLThumbnailRenderer {
     /// because the scene held onto each window across the lifetime of
     /// the app; reusing one window means the scene sees the single
     /// reservation forever and never accumulates new ones.
-    private lazy var offscreenWindow: UIWindow? = Self.makeOffscreenWindow()
+    ///
+    /// Not `lazy` - a first access during early launch or a background
+    /// context would resolve to `nil` and that `nil` would get cached
+    /// permanently, sinking every subsequent render. Retry on each
+    /// access until a `UIWindowScene` is actually available, then cache.
+    private var offscreenWindow: UIWindow? {
+        if let existing = _offscreenWindow { return existing }
+        let created = Self.makeOffscreenWindow()
+        _offscreenWindow = created
+        return created
+    }
+    private var _offscreenWindow: UIWindow?
 
     private static func makeOffscreenWindow() -> UIWindow? {
         let scene = UIApplication.shared.connectedScenes
