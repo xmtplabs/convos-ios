@@ -409,4 +409,172 @@ struct ContactSyncCoordinatorTests {
         }
         #expect(inboxIds == Set(["alice"]))
     }
+
+    // MARK: - Agent template capture
+
+    /// Saves a template-backed verified-agent member profile: `memberKind`
+    /// is `.verifiedConvos` and the metadata carries the `templateId` plus
+    /// the published-template fields the agent runtime stamps.
+    private static func saveAgentProfile(
+        db: Database,
+        conversationId: String,
+        inboxId: String,
+        templateId: String,
+        name: String = "Tifoso",
+        emoji: String = "🚴",
+        descriptionText: String = "Pro cycling expert",
+        publishedUrl: String = "https://agents-dev.convos.org/tifoso.pnw1o"
+    ) throws {
+        try DBMemberProfile(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            name: name,
+            avatar: nil,
+            memberKind: .verifiedConvos,
+            metadata: [
+                "templateId": .string(templateId),
+                "emoji": .string(emoji),
+                "description": .string(descriptionText),
+                "publishedUrl": .string(publishedUrl)
+            ]
+        ).save(db)
+    }
+
+    @Test("A conversation with a template-backed agent captures the template as a contact")
+    func testTemplateBackedAgentCapturedAsContact() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-1"
+        let templateId = "200e27dc-badc-429f-a431-b01b0281ec95"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "agent-instance-a"]
+            )
+            try Self.saveAgentProfile(
+                db: db,
+                conversationId: conversationId,
+                inboxId: "agent-instance-a",
+                templateId: templateId
+            )
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+
+        let templateContacts = try await dbManager.dbReader.read { db in
+            try DBAgentTemplateContact.fetchAll(db)
+        }
+        #expect(templateContacts.count == 1)
+        let stored = templateContacts.first
+        #expect(stored?.templateId == templateId)
+        #expect(stored?.displayName == "Tifoso")
+        #expect(stored?.emoji == "🚴")
+        #expect(stored?.publishedURL == "https://agents-dev.convos.org/tifoso.pnw1o")
+        #expect(stored?.addedViaConversationId == conversationId)
+    }
+
+    @Test("The same template across two conversations yields exactly one contact row")
+    func testSameTemplateAcrossConversationsYieldsOneRow() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let templateId = "200e27dc-badc-429f-a431-b01b0281ec95"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            // Two conversations, two different agent instances (distinct
+            // inboxIds), both provisioned from the same template.
+            try Self.seedConversation(
+                db: db,
+                conversationId: "conv-1",
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "agent-a"]
+            )
+            try Self.saveAgentProfile(
+                db: db,
+                conversationId: "conv-1",
+                inboxId: "agent-a",
+                templateId: templateId
+            )
+            try Self.seedConversation(
+                db: db,
+                conversationId: "conv-2",
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "agent-b"]
+            )
+            try Self.saveAgentProfile(
+                db: db,
+                conversationId: "conv-2",
+                inboxId: "agent-b",
+                templateId: templateId
+            )
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: "conv-1")
+        try await coordinator.syncContactsOnFirstMessage(for: "conv-2")
+
+        let templateContacts = try await dbManager.dbReader.read { db in
+            try DBAgentTemplateContact.fetchAll(db)
+        }
+        #expect(templateContacts.count == 1)
+        #expect(templateContacts.first?.templateId == templateId)
+    }
+
+    @Test("A conversation with only humans and legacy verified agents yields no template contacts")
+    func testNoTemplateContactsForHumansAndLegacyAgents() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-1"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "alice", "legacy-agent"],
+                memberProfiles: ["alice": (name: "Alice", avatar: nil)]
+            )
+            // A legacy verified agent: verified, but carries no templateId
+            // in its profile metadata.
+            try DBMemberProfile(
+                conversationId: conversationId,
+                inboxId: "legacy-agent",
+                name: "Convos Assistant",
+                avatar: nil,
+                memberKind: .verifiedConvos,
+                metadata: nil
+            ).save(db)
+        }
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+
+        let templateCount = try await dbManager.dbReader.read { db in
+            try DBAgentTemplateContact.fetchCount(db)
+        }
+        #expect(templateCount == 0)
+
+        // The inboxId-keyed contact table is unaffected: both non-self
+        // members still land there (the legacy agent is hidden from the
+        // browse list separately, by the `!isVerifiedAgent` filter).
+        let contactIds: Set<String> = try await dbManager.dbReader.read { db in
+            Set(try DBContact.fetchAll(db).map(\.inboxId))
+        }
+        #expect(contactIds == Set(["alice", "legacy-agent"]))
+    }
 }

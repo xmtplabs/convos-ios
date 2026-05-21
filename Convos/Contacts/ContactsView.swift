@@ -8,6 +8,7 @@ struct ContactsView: View {
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
+    private let agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol
     private let session: (any SessionManagerProtocol)?
     private let profileSettingsViewModel: ProfileSettingsViewModel
 
@@ -16,10 +17,16 @@ struct ContactsView: View {
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         session: (any SessionManagerProtocol)? = nil,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared
+        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol = MockAgentTemplateContactsRepository(),
+        agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol = MockAgentTemplateContactsWriter()
     ) {
-        _viewModel = State(initialValue: ContactsViewModel(contactsRepository: contactsRepository))
+        _viewModel = State(initialValue: ContactsViewModel(
+            contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository
+        ))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
+        self.agentTemplateContactsWriter = agentTemplateContactsWriter
         self.session = session
         self.profileSettingsViewModel = profileSettingsViewModel
     }
@@ -123,6 +130,38 @@ struct ContactsView: View {
         )
     }
 
+    /// Renders one browse row. A human contact pushes `ContactCardView`; an
+    /// agent-template contact pushes the sibling `AgentTemplateContactCardView`.
+    @ViewBuilder
+    private func contactRow(for item: ContactsViewModel.ListItem) -> some View {
+        switch item {
+        case .human(let contact):
+            NavigationLink {
+                ContactCardView(
+                    contact: contact,
+                    contactsWriter: contactsWriter,
+                    contactsRepository: contactsRepository,
+                    session: session
+                )
+            } label: {
+                ContactRowView(contact: contact)
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        case .agentTemplate(let agentContact):
+            NavigationLink {
+                AgentTemplateContactCardView(
+                    agentTemplateContact: agentContact,
+                    agentTemplateContactsWriter: agentTemplateContactsWriter
+                )
+            } label: {
+                AgentTemplateContactRowView(agentTemplateContact: agentContact)
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: "person.2.fill")
@@ -200,6 +239,9 @@ struct ContactsView: View {
 
 #Preview("Empty") {
     NavigationStack {
-        ContactsView(contactsRepository: MockContactsRepository(contacts: []))
+        ContactsView(
+            contactsRepository: MockContactsRepository(contacts: []),
+            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [])
+        )
     }
 }

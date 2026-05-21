@@ -243,6 +243,14 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    func agentTemplateContactsRepository() -> any AgentTemplateContactsRepositoryProtocol {
+        AgentTemplateContactsRepository(databaseReader: databaseReader)
+    }
+
+    func agentTemplateContactsWriter() -> any AgentTemplateContactsWriterProtocol {
+        AgentTemplateContactsWriter(databaseWriter: databaseWriter)
+    }
+
     func reactionWriter() -> any ReactionWriterProtocol {
         ReactionWriter(sessionStateManager: sessionStateManager,
                        databaseWriter: databaseWriter)

@@ -60,6 +60,18 @@ public struct AgentTemplateContact: Hashable, Identifiable, Sendable {
         guard templateId.count > 8 else { return templateId }
         return String(templateId.prefix(8))
     }
+
+    /// Alphabetical sectioning key for the contacts list. Returns "#" for
+    /// names that do not begin with a letter. Mirrors
+    /// `Contact.alphabeticalSectionKey` so humans and agent-template
+    /// contacts bucket into the same sections.
+    public var alphabeticalSectionKey: String {
+        guard let first = resolvedDisplayName.first else { return "#" }
+        guard let firstUpper = String(first).uppercased().first, firstUpper.isLetter else {
+            return "#"
+        }
+        return String(firstUpper)
+    }
 }
 
 extension AgentTemplateContact {
