@@ -773,11 +773,36 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await result.client.reconnectLocalDatabase()
 
+        // Drain the backlog in one batched transaction before streams resume.
+        // Replaces N per-event writes / observer fires / SwiftUI re-renders
+        // with one each. The cursor is the same `lastWelcomeProcessed`
+        // UserDefaults value the NSE writes after each push-driven catch-up,
+        // so foreground and NSE share the catch-up frontier without
+        // double-processing. The stream resume that follows is the
+        // correctness safety net for anything the batch missed.
+        let inboxId = result.client.inboxId
+        let cursor = Self.readLastCatchUpCursor(for: inboxId)
+        await syncingManager?.runBatchCatchUp(client: result.client, since: cursor)
+        Self.writeLastCatchUpCursor(Date(), for: inboxId)
+
         await startNetworkMonitoring()
         await syncingManager?.resume()
 
         emitStateChange(.ready(result))
         Log.info("Inbox returned to ready state")
+    }
+
+    /// Persisted catch-up cursor shared with `MessagingService+PushNotifications`.
+    /// Same UserDefaults key — both foreground and NSE update it as they
+    /// drain backlog, so the two paths converge on the same frontier.
+    private static let catchUpCursorKeyPrefix: String = "convos.pushNotifications.lastWelcomeProcessed"
+
+    private static func readLastCatchUpCursor(for inboxId: String) -> Date? {
+        UserDefaults.standard.object(forKey: "\(catchUpCursorKeyPrefix).\(inboxId)") as? Date
+    }
+
+    private static func writeLastCatchUpCursor(_ date: Date?, for inboxId: String) {
+        UserDefaults.standard.set(date, forKey: "\(catchUpCursorKeyPrefix).\(inboxId)")
     }
 
     private func handleRetryFromError() async throws {
