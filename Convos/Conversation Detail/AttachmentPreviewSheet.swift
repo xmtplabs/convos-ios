@@ -13,6 +13,7 @@ struct AttachmentPreviewSheet: View {
     var profileSheetContent: ((ConversationMember) -> AnyView)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var resolvedHTMLTitle: String?
     @State private var htmlBodyBackgroundColor: Color?
     @State private var presentingProfileForMember: ConversationMember?
@@ -126,10 +127,15 @@ struct AttachmentPreviewSheet: View {
     }
 
     private func resolveHTMLShareImage() async -> UIImage? {
-        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key) {
+        let appearance = colorScheme.uiUserInterfaceStyle
+        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(for: attachment.key, appearance: appearance) {
             return cached
         }
-        return await HTMLThumbnailRenderer.shared.thumbnail(for: attachment.key, fileURL: fileURL)
+        return await HTMLThumbnailRenderer.shared.thumbnail(
+            for: attachment.key,
+            fileURL: fileURL,
+            appearance: appearance
+        )
     }
 
     private func resolveMarkdownShareImage() async -> UIImage? {
