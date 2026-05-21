@@ -910,8 +910,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 return
             }
 
-            let prefetcher = EncryptedImagePrefetcher()
-            await prefetcher.prefetchProfileImages(
+            await EncryptedImagePrefetcher.shared.prefetchProfileImages(
                 profiles: encryptedProfiles,
                 groupKey: groupKey
             )
