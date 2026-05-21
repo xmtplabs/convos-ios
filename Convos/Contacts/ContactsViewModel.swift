@@ -3,16 +3,66 @@ import ConvosCore
 import Foundation
 import Observation
 
-/// View model backing the Contacts list browse screen. Subscribes to the
-/// repository's reactive publisher and groups the contacts into alphabetical
-/// sections for rendering.
+/// View model backing the Contacts list browse screen. Subscribes to both
+/// the human-contacts repository and the agent-template-contacts repository
+/// and merges the two into shared alphabetical sections for rendering.
 @Observable
 @MainActor
 final class ContactsViewModel {
+    /// A single browsable row: either a human `Contact` or an
+    /// `AgentTemplateContact`. The two live in separate tables - one keyed
+    /// by `inboxId`, the other by `templateId` - and are merged here for
+    /// the unified alphabetical list.
+    enum ListItem: Identifiable, Hashable {
+        case human(Contact)
+        case agentTemplate(AgentTemplateContact)
+
+        var id: String {
+            switch self {
+            case .human(let contact):
+                return "human:\(contact.inboxId)"
+            case .agentTemplate(let agent):
+                return "agent:\(agent.templateId)"
+            }
+        }
+
+        var resolvedDisplayName: String {
+            switch self {
+            case .human(let contact):
+                return contact.resolvedDisplayName
+            case .agentTemplate(let agent):
+                return agent.resolvedDisplayName
+            }
+        }
+
+        var alphabeticalSectionKey: String {
+            switch self {
+            case .human(let contact):
+                return contact.alphabeticalSectionKey
+            case .agentTemplate(let agent):
+                return agent.alphabeticalSectionKey
+            }
+        }
+
+        var addedViaConversationId: String? {
+            switch self {
+            case .human(let contact):
+                return contact.addedViaConversationId
+            case .agentTemplate(let agent):
+                return agent.addedViaConversationId
+            }
+        }
+    }
+
+    /// Dual-shape section so two consumers can read the same data the way
+    /// each expects: `rows` is humans-only (`Row` carries a `Contact`) for
+    /// callers that pre-date the agent-template merge, and `items` is the
+    /// merged list (`ListItem` sum) for agent-aware callers.
     struct Section: Identifiable, Hashable {
         let id: String
         let title: String
         let rows: [Row]
+        let items: [ListItem]
     }
 
     struct Row: Identifiable, Hashable {
@@ -31,33 +81,62 @@ final class ContactsViewModel {
     }
 
     private let contactsRepository: any ContactsRepositoryProtocol
-    private var cancellable: AnyCancellable?
+    private let agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
+    private var cancellables: Set<AnyCancellable> = []
     private var allContacts: [Contact] = []
+    private var allAgentContacts: [AgentTemplateContact] = []
 
-    init(contactsRepository: any ContactsRepositoryProtocol) {
+    init(
+        contactsRepository: any ContactsRepositoryProtocol,
+        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
+            = MockAgentTemplateContactsRepository(contacts: [])
+    ) {
         self.contactsRepository = contactsRepository
+        self.agentTemplateContactsRepository = agentTemplateContactsRepository
 
-        cancellable = contactsRepository.contactsPublisher
+        contactsRepository.contactsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] contacts in
                 self?.applyContacts(contacts)
             }
+            .store(in: &cancellables)
 
-        // Best-effort initial fetch for the first paint while the publisher
-        // wires up its observation.
-        if let initial = try? contactsRepository.fetchAll() {
-            applyContacts(initial)
+        agentTemplateContactsRepository.agentTemplateContactsPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] agentContacts in
+                self?.applyAgentContacts(agentContacts)
+            }
+            .store(in: &cancellables)
+
+        // Best-effort initial fetch for the first paint while the
+        // publishers wire up their observations.
+        if let initialContacts = try? contactsRepository.fetchAll() {
+            allContacts = initialContacts
         }
+        if let initialAgentContacts = try? agentTemplateContactsRepository.fetchAll() {
+            allAgentContacts = initialAgentContacts
+        }
+        recompute()
     }
 
     private func applyContacts(_ contacts: [Contact]) {
         allContacts = contacts
-        // `contactCount` drives the empty-state vs list-state branch and
-        // the compose button's enabled flag. Count what's actually visible
-        // in the list -- verified agents are hidden from this view, and
-        // unnamed contacts are filtered out below in `rebuildSections`,
-        // so include both predicates here too.
-        contactCount = contacts.filter(Self.isVisibleInList).count
+        recompute()
+    }
+
+    private func applyAgentContacts(_ agentContacts: [AgentTemplateContact]) {
+        allAgentContacts = agentContacts
+        recompute()
+    }
+
+    /// Shared recompute path triggered whenever either repository emits.
+    /// `contactCount` drives the empty-state vs list-state branch and the
+    /// compose button's enabled flag, so it counts everything the list
+    /// renders: humans that pass `isVisibleInList` (named, non-verified)
+    /// plus every agent-template contact.
+    private func recompute() {
+        let visibleHumanCount: Int = allContacts.filter(Self.isVisibleInList).count
+        contactCount = visibleHumanCount + allAgentContacts.count
         rebuildSections()
         isLoading = false
     }
@@ -76,14 +155,19 @@ final class ContactsViewModel {
         return true
     }
 
-    /// Recomputes `sections` from `allContacts` honoring the current
-    /// `searchQuery`. Mirrors the picker's filter/group pipeline so both
-    /// surfaces sort and bucket identically.
+    /// Recomputes `sections` from `allContacts` + `allAgentContacts`
+    /// honoring the current `searchQuery`. Humans (filtered through
+    /// `isVisibleInList`) and agent-template contacts are merged and
+    /// bucketed into shared alphabetical sections.
     private func rebuildSections() {
-        let visibleContacts = allContacts.filter(Self.isVisibleInList)
-        let filtered = filterByQuery(visibleContacts)
-        let grouped: [String: [Contact]] = Dictionary(grouping: filtered) { $0.alphabeticalSectionKey }
-        let sortedKeys = grouped.keys.sorted { lhs, rhs in
+        let humanItems: [ListItem] = allContacts
+            .filter(Self.isVisibleInList)
+            .map { ListItem.human($0) }
+        let agentItems: [ListItem] = allAgentContacts.map { ListItem.agentTemplate($0) }
+        let filtered: [ListItem] = filterByQuery(humanItems + agentItems)
+
+        let grouped: [String: [ListItem]] = Dictionary(grouping: filtered) { $0.alphabeticalSectionKey }
+        let sortedKeys: [String] = grouped.keys.sorted { lhs, rhs in
             // "#" sorts last so non-alpha names land after Z.
             switch (lhs, rhs) {
             case ("#", "#"): return false
@@ -95,18 +179,23 @@ final class ContactsViewModel {
         let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
         let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
         sections = sortedKeys.map { key in
-            let rows = (grouped[key] ?? []).map { contact in
+            let itemsInGroup: [ListItem] = grouped[key] ?? []
+            let humansInGroup: [Contact] = itemsInGroup.compactMap { item in
+                if case .human(let contact) = item { return contact }
+                return nil
+            }
+            let rowsInGroup: [Row] = humansInGroup.map { contact in
                 Row(id: contact.inboxId, contact: contact, subtitle: contact.listSubtitle(sources: sources))
             }
-            return Section(id: key, title: key, rows: rows)
+            return Section(id: key, title: key, rows: rowsInGroup, items: itemsInGroup)
         }
     }
 
-    private func filterByQuery(_ contacts: [Contact]) -> [Contact] {
+    private func filterByQuery(_ items: [ListItem]) -> [ListItem] {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return contacts }
-        return contacts.filter { contact in
-            contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
+        guard !trimmed.isEmpty else { return items }
+        return items.filter { item in
+            item.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
         }
     }
 }

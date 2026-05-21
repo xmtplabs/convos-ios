@@ -157,6 +157,12 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                     insertedIds.append(member.inboxId)
                 }
                 upsertedCount += 1
+
+                try Self.upsertAgentTemplateContactIfNeeded(
+                    db: db,
+                    profile: profile,
+                    conversationId: conversationId
+                )
             }
 
             // Only mark the conversation synced if we actually upserted at
@@ -189,6 +195,45 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
         ContactsWriter.postContactsWereAdded(
             inboxIds: insertedInboxIds,
             notificationCenter: notificationCenter
+        )
+    }
+
+    /// A member that published a `templateId` in its per-conversation
+    /// profile metadata is a template-backed agent.
+    /// Captures the *template* as a contact (keyed by `templateId`),
+    /// alongside the inboxId-keyed `DBContact` upsert the caller does for
+    /// every member. The same template encountered in another conversation
+    /// - a different agent instance, a different `inboxId` - resolves to
+    /// this same row, so a user ends up with one contact per template
+    /// rather than one per instance.
+    ///
+    /// The snapshot is untimestamped, so it seeds a new row on first
+    /// encounter and no-ops on re-encounter - the same seed-only behavior
+    /// the coordinator uses for `DBContact`. Refreshing a template
+    /// contact's fields as fresher instance profiles arrive is a follow-up
+    /// (the parallel of `ContactsWriter.mirrorMemberProfileToContactInTransaction`).
+    private static func upsertAgentTemplateContactIfNeeded(
+        db: Database,
+        profile: DBMemberProfile?,
+        conversationId: String
+    ) throws {
+        guard profile?.isAgentTemplate == true,
+              let templateId = profile?.agentTemplateId else {
+            return
+        }
+        try AgentTemplateContactsWriter.upsertInTransaction(
+            db: db,
+            templateId: templateId,
+            addedViaConversationId: conversationId,
+            profile: AgentTemplateContactSnapshot(
+                displayName: profile?.name,
+                emoji: profile?.agentTemplateEmoji,
+                descriptionText: profile?.agentTemplateDescription,
+                publishedURL: profile?.agentTemplatePublishedURL,
+                avatarURL: profile?.avatar,
+                agentVerification: profile?.memberKind?.agentVerification,
+                profileUpdatedAt: nil
+            )
         )
     }
 }

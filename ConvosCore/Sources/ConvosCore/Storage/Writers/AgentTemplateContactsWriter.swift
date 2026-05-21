@@ -134,8 +134,8 @@ final class AgentTemplateContactsWriter: AgentTemplateContactsWriterProtocol, @u
     }
 }
 
-/// In-transaction upsert helper for `ContactSyncCoordinator` (Phase 2.2),
-/// which captures agent-template contacts inside the membership-sync
+/// In-transaction upsert helper for `ContactSyncCoordinator`, which
+/// captures agent-template contacts inside the membership-sync
 /// transaction. Mirrors `ContactsWriter.upsertContactInTransaction`.
 extension AgentTemplateContactsWriter {
     static func upsertInTransaction(
