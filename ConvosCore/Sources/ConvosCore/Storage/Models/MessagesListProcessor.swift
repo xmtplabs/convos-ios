@@ -91,6 +91,14 @@ public final class MessagesListProcessor: Sendable {
                     // arrival; suppress the transient "Assistant is joining…"
                     // pending row so they don't compete.
                     return []
+                case .update(_, let update, _):
+                    // Builder flow: the summary + contact card already
+                    // announce the assistant's arrival, so the legacy
+                    // "Assistant joined · see its skills" update bubble
+                    // would just compete with them. Drop it here, but only
+                    // for the verified-assistant case — regular member
+                    // adds / removes still surface as normal.
+                    return update.addedVerifiedAssistant ? [] : [item]
                 default:
                     return [item]
                 }
@@ -125,7 +133,19 @@ public final class MessagesListProcessor: Sendable {
                     isLastGroupSentByCurrentUser: false
                 )
                 cardGroup.assistantContactCard = cardInfo
-                items.insert(.messages(cardGroup), at: 0)
+                // Anchor the synthesized card group right after the
+                // "Assistant joined" update row (if any). In builder flow
+                // that row was just filtered out above, so we fall back to
+                // index 0; in every other conversation the join row sits
+                // where the assistant actually arrived, so the card lands
+                // immediately beneath it. Without a join row to anchor on
+                // we also fall back to index 0.
+                let joinUpdateIndex: Int? = items.firstIndex { item in
+                    guard case .update(_, let update, _) = item else { return false }
+                    return update.addedVerifiedAssistant
+                }
+                let insertionIndex: Int = joinUpdateIndex.map { $0 + 1 } ?? 0
+                items.insert(.messages(cardGroup), at: insertionIndex)
             }
         }
 
@@ -237,12 +257,13 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
-                // The "Assistant joined · see its skills" affordance has been
-                // replaced by the assistant contact card; suppress the legacy
-                // update bubble so the two don't compete in the list.
-                if !update.addedVerifiedAssistant {
-                    items.append(.update(id: msg.messageId, update: update, origin: msg.origin))
-                }
+                // Always emit verified-assistant join updates; the post-process
+                // step in `applyAssistantContactCardAndSummary` suppresses them
+                // for builder-flow conversations (where the summary card and
+                // contact card both already announce arrival) and uses them
+                // as the anchor for the synthesized contact-card row in
+                // every other conversation.
+                items.append(.update(id: msg.messageId, update: update, origin: msg.origin))
 
                 var added = 0
                 var removed = 0
