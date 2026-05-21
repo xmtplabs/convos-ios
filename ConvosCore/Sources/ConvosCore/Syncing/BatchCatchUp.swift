@@ -111,21 +111,50 @@ final class BatchCatchUp: @unchecked Sendable {
         // post-transaction because `saveConversation` may resolve a
         // different clientConversationId than the input (sticky-draft
         // logic), which the image-cache key downstream depends on.
-        let saveResults: [ConversationWriter.ConversationSaveResult] = try await databaseWriter.write { [conversationWriter, messageWriter] db in
+        //
+        // We also capture conversations where a backlog message removed
+        // the local inbox — the stream path in
+        // `IncomingMessageWriter.store` posts
+        // `postLeftConversationNotification` for these; the batch path
+        // must too or users removed while backgrounded never get notified.
+        // Collected inside the transaction (only `persist` knows) but
+        // dispatched after commit (notification posts are not a DB
+        // operation).
+        struct PersistOutcomes {
+            let saveResults: [ConversationWriter.ConversationSaveResult]
+            let conversationsRemovingLocalInbox: [DBConversation]
+        }
+        let outcomes: PersistOutcomes = try await databaseWriter.write { [conversationWriter, messageWriter] db in
             var results: [ConversationWriter.ConversationSaveResult] = []
+            var removals: [DBConversation] = []
             results.reserveCapacity(prepared.count)
             for entry in prepared {
                 let result = try conversationWriter.persist(entry.conversation, in: db)
                 results.append(result)
                 for preparedMessage in entry.regularMessages {
-                    _ = try messageWriter.persist(
+                    let messageResult = try messageWriter.persist(
                         preparedMessage,
                         conversation: entry.conversation.dbConversation,
                         in: db
                     )
+                    if let messageResult,
+                       messageResult.wasRemovedFromConversation,
+                       !messageResult.messageAlreadyExists {
+                        removals.append(entry.conversation.dbConversation)
+                    }
                 }
             }
-            return results
+            return PersistOutcomes(
+                saveResults: results,
+                conversationsRemovingLocalInbox: removals
+            )
+        }
+        let saveResults = outcomes.saveResults
+
+        // Post-commit notifications, matching the stream path's tail in
+        // `IncomingMessageWriter.store`.
+        for conversation in outcomes.conversationsRemovingLocalInbox {
+            conversation.postLeftConversationNotification()
         }
 
         // Phase 3: apply supplementals (reactions + read receipts) via the
