@@ -52,11 +52,16 @@ public final class MessagesListProcessor: Sendable {
         // arrival, so the update row would only briefly flash through the
         // overlay fade-out. Done outside the `assistantBuilderSummary`
         // block because the flag is set on builder appearance, before the
-        // summary exists.
+        // summary exists. Gates on `addedAgent` (not
+        // `addedVerifiedAssistant`) because the attestation result lands
+        // after the member-added event: filtering on verification would
+        // miss the brief window where the agent is in the convo but its
+        // Convos verification hasn't been validated yet, and that window
+        // is exactly when the user sees the flash.
         if isInAssistantBuilderFlow {
             items = items.filter { item in
                 guard case .update(_, let update, _) = item else { return true }
-                return !update.addedVerifiedAssistant
+                return !update.addedAgent
             }
         }
 
@@ -103,19 +108,17 @@ public final class MessagesListProcessor: Sendable {
                         let date: Date = group.messages.last?.date ?? group.messages.first?.date ?? .distantPast
                         return date >= summary.cutoffDate ? [item] : []
                     }
-                case .assistantJoinStatus:
-                    // The summary card already announces the assistant's
-                    // arrival; suppress the transient "Assistant is joining…"
-                    // pending row so they don't compete.
-                    return []
                 case .update(_, let update, _):
                     // Builder flow: the summary + contact card already
                     // announce the assistant's arrival, so the legacy
                     // "Assistant joined · see its skills" update bubble
-                    // would just compete with them. Drop it here, but only
-                    // for the verified-assistant case — regular member
-                    // adds / removes still surface as normal.
-                    return update.addedVerifiedAssistant ? [] : [item]
+                    // would just compete with them. Drop the row for any
+                    // agent add (not just `addedVerifiedAssistant`)
+                    // because verification lands after the member-added
+                    // event — filtering on verification would miss the
+                    // brief pre-attestation window. Regular non-agent
+                    // member adds / removes still surface as normal.
+                    return update.addedAgent ? [] : [item]
                 default:
                     return [item]
                 }

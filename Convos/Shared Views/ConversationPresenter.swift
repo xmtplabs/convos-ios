@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 
 struct ConversationPresenter<Content: View>: View {
@@ -42,6 +43,9 @@ struct ConversationPresenter<Content: View>: View {
 
             VStack {
                 if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
+                    let pendingAssistantOverride: AgentVerification? = viewModel.shouldRenderAsPendingAssistant
+                        ? .verified(.convos)
+                        : nil
                     ConversationIndicatorWrapper(
                         viewModel: viewModel,
                         placeholderOverride: indicatorPlaceholderOverride,
@@ -50,6 +54,7 @@ struct ConversationPresenter<Content: View>: View {
                         focusState: $focusState,
                         focusCoordinator: focusCoordinator
                     )
+                    .environment(\.forcedAgentVerification, pendingAssistantOverride)
                     .hoverEffect(.lift)
                     .padding(.top, insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x)
                     .padding(.leading, horizontalSizeClass != .compact ? sidebarColumnWidth : 0.0)

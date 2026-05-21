@@ -307,7 +307,24 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
     var untitledConversationPlaceholder: String {
-        conversation.computedDisplayName(memberNameOverride: contactNameLookup)
+        if shouldRenderAsPendingAssistant {
+            return "Assistant"
+        }
+        return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
+    }
+
+    /// `true` while the conversation is in (or was created via) the assistant
+    /// builder UX and no verified assistant has joined yet. Surfaces a
+    /// stand-in identity for the indicator — "Assistant" placeholder name
+    /// and the Convos-verified monogram avatar via `forcedAgentVerification`
+    /// — so the chat header doesn't fall back to the generic "New Convo"
+    /// label + emoji circle while the agent is still provisioning. Flips
+    /// false the moment the verified assistant actually appears in
+    /// `conversation.members`, at which point the regular member-driven
+    /// avatar / display name path takes over naturally.
+    var shouldRenderAsPendingAssistant: Bool {
+        guard isInAssistantBuilderFlow || assistantBuilderSummary != nil else { return false }
+        return !conversation.members.contains(where: \.isVerifiedAssistant)
     }
 
     /// Inbox-to-contact-name lookup used for auto-generated unnamed-group
@@ -327,6 +344,9 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var conversationInfoSubtitle: String {
         if let expiresAt = scheduledExplosionDate {
             return ExplosionDurationFormatter.countdown(until: expiresAt)
+        }
+        if shouldRenderAsPendingAssistant {
+            return "Joining..."
         }
         if isWaitingForInviteAcceptance {
             return conversation.membersCountString
