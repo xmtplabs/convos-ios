@@ -147,12 +147,13 @@ struct ContactDetailView: View {
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
-                    // Verified agents (Convos / OAuth-verified) don't accept
-                    // 1:1 DMs today, so the Chat CTA would open a conversation
-                    // that goes nowhere. Disable until DM support for agents
-                    // lands; the agent rows that follow the Chat button
-                    // remain the right way to interact.
-                    canSendMessage: session != nil && !isVerifiedAgent,
+                    // A non-template verified agent (Convos / OAuth-verified)
+                    // doesn't accept 1:1 DMs today, so its Chat CTA stays
+                    // disabled - the agent rows below it remain the way to
+                    // interact. A template-backed agent overrides this: Chat
+                    // spawns a fresh instance into a new conversation (see
+                    // `handleChatWithAgentTemplate`).
+                    canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate),
                     showChat: !mode.isCurrentUser,
                     showAgentLinks: isVerifiedAgent,
                     showRemove: mode.isScopedToConversation
@@ -160,7 +161,8 @@ struct ContactDetailView: View {
                         && mode.canRemoveMembers,
                     showBlock: !mode.isCurrentUser,
                     contactDisplayName: contact.resolvedDisplayName,
-                    onSendMessage: handleSendMessage,
+                    agentTemplateShareURL: agentTemplateShareURL,
+                    onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
                 )
@@ -180,6 +182,20 @@ struct ContactDetailView: View {
 
     private var isVerifiedAgent: Bool {
         contact.isVerifiedAgent
+    }
+
+    /// True when this contact is a template-backed agent - it carries the
+    /// `templateId` needed to spawn a fresh instance. Drives the Chat
+    /// button's behavior: spawn a new conversation vs. the human DM path.
+    private var isAgentTemplate: Bool {
+        contact.agentTemplateId != nil
+    }
+
+    /// The template share link for a template-backed agent, ready for the
+    /// Share row's `ShareLink`. `nil` for human contacts and for agents
+    /// without a published template, which hides the row.
+    private var agentTemplateShareURL: URL? {
+        contact.agentTemplatePublishedURL.flatMap { URL(string: $0) }
     }
 
     /// Pill rendered below the subtitle. "You" for the current user's
@@ -392,6 +408,19 @@ struct ContactDetailView: View {
         )
     }
 
+    /// Chat action for a template-backed agent: spawn a fresh instance of
+    /// the template into a new conversation. Presented locally via
+    /// `presentingNewConvo`, the same sheet anchor `handlePickerConfirm`
+    /// uses; the `.newConversationWithTemplate` mode creates the
+    /// conversation and joins the agent once it reaches `.ready`.
+    private func handleChatWithAgentTemplate() {
+        guard let session, let templateId = contact.agentTemplateId else { return }
+        presentingNewConvo = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: templateId)
+        )
+    }
+
     private func syncBlockedState() async {
         do {
             guard let updated = try contactsRepository.fetchContact(inboxId: contact.inboxId) else {
@@ -507,6 +536,8 @@ private struct ContactDetailActions: View {
     let showRemove: Bool
     let showBlock: Bool
     let contactDisplayName: String
+    /// Non-nil only for template-backed agents; drives the Share row.
+    let agentTemplateShareURL: URL?
     let onSendMessage: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
@@ -517,6 +548,12 @@ private struct ContactDetailActions: View {
         VStack(spacing: DesignConstants.Spacing.step6x) {
             if showChat {
                 chatButton
+            }
+            if let agentTemplateShareURL {
+                ContactDetailShareRow(
+                    url: agentTemplateShareURL,
+                    contactDisplayName: contactDisplayName
+                )
             }
             if showAgentLinks {
                 agentLinkRows
@@ -639,6 +676,41 @@ private struct ContactDetailActionRow: View {
     }
 }
 
+// MARK: - Share row (template-backed agents)
+
+/// Share row for a template-backed agent. Mirrors `ContactCardActionRow`'s
+/// pill-plus-footer shape, but wraps a SwiftUI `ShareLink` (which presents
+/// the system share sheet) rather than a plain action button, since the
+/// share intent is fully handled by the system. Rendered only when the
+/// agent carries a template `publishedUrl`.
+private struct ContactDetailShareRow: View {
+    let url: URL
+    let contactDisplayName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            ShareLink(item: url) {
+                Text("Share")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share \(contactDisplayName)")
+            .accessibilityIdentifier("contact-card-share-agent-template")
+            Text("Share a link to add \(contactDisplayName) to a convo")
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+        }
+    }
+}
+
 // MARK: - Modals modifier
 
 private struct ContactDetailModalsModifier<
@@ -691,7 +763,9 @@ extension Contact {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         addedViaConversationId: String?,
-        agentVerification: AgentVerification?
+        agentVerification: AgentVerification?,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -703,7 +777,9 @@ extension Contact {
             addedAt: Date(),
             addedViaConversationId: addedViaConversationId,
             isBlocked: false,
-            agentVerification: agentVerification
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL
         )
     }
 
@@ -715,13 +791,24 @@ extension Contact {
     /// tap, members list) so the view renders uniformly for contact members
     /// and non-contact members. The synthetic fallback is promoted to a
     /// real contact when the user taps "Chat".
+    ///
+    /// The agent-template `templateId` and `publishedUrl` live only in the
+    /// per-conversation member profile metadata (`DBContact` has no
+    /// template columns), so they are overlaid here onto whichever contact
+    /// is returned - stored or synthetic - from the freshest source. The
+    /// `templateId` is what enables the Chat button to spawn a fresh
+    /// instance; without this overlay `isAgentTemplate` is always false.
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
         contactsRepository: any ContactsRepositoryProtocol
     ) -> Contact {
+        let templateId: String? = member.profile.agentTemplateId
+        let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             return stored
+                .with(agentTemplateId: templateId)
+                .with(agentTemplatePublishedURL: templatePublishedURL)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -731,7 +818,9 @@ extension Contact {
             avatarNonce: member.profile.avatarNonce,
             avatarKey: member.profile.avatarKey,
             addedViaConversationId: conversationId,
-            agentVerification: member.agentVerification
+            agentVerification: member.agentVerification,
+            agentTemplateId: templateId,
+            agentTemplatePublishedURL: templatePublishedURL
         )
     }
 }
@@ -762,6 +851,20 @@ extension Contact {
             contact: .mock(
                 displayName: "Convos Assistant",
                 agentVerification: .verified(.convos)
+            ),
+            contactsWriter: MockContactsWriter(),
+            contactsRepository: MockContactsRepository()
+        )
+    }
+}
+
+#Preview("Agent template") {
+    NavigationStack {
+        ContactDetailView(
+            contact: .mock(
+                displayName: "Tifoso",
+                agentVerification: .verified(.convos),
+                agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o"
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()

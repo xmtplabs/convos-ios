@@ -285,6 +285,8 @@ final class ConversationsViewModel {
                 serviceId: serviceId,
                 conversationId: conversationId
             )
+        case .agentTemplate(templateId: let templateId):
+            startConversation(withAgentTemplateId: templateId)
         }
     }
 
@@ -306,6 +308,16 @@ final class ConversationsViewModel {
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
+        )
+    }
+
+    /// Opens a new conversation and, once it is ready, requests a fresh
+    /// instance of the given agent template into it. Entry point for the
+    /// `convos://template/<id>` deeplink.
+    private func startConversation(withAgentTemplateId templateId: String) {
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: templateId)
         )
     }
 

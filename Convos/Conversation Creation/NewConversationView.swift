@@ -25,8 +25,8 @@ struct NewConversationView: View {
                         JoinConversationView(
                             viewModel: viewModel.qrScannerViewModel,
                             allowsDismissal: viewModel.allowsDismissingScanner,
-                            onScannedCode: { inviteCode in
-                                viewModel.joinConversation(inviteCode: inviteCode)
+                            onScannedCode: { scannedCode in
+                                viewModel.handleScannedCode(scannedCode)
                             }
                         )
                     } else if let conversationViewModel = viewModel.conversationViewModel {
@@ -59,8 +59,8 @@ struct NewConversationView: View {
                 }
                 .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
-                    JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { inviteCode in
-                        viewModel.joinConversation(inviteCode: inviteCode)
+                    JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { scannedCode in
+                        viewModel.handleScannedCode(scannedCode)
                     }
                 }
                 .selfSizingSheet(item: $viewModel.displayError) { error in

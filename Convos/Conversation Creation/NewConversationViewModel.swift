@@ -42,6 +42,11 @@ enum NewConversationMode {
     /// machine uses `.useExisting` (no create, no addMembers), and the
     /// conversation publisher emits `.ready` against the existing row.
     case existingConversation(conversationId: String)
+    /// Same instant-placeholder flow as `.newConversation`; once the
+    /// conversation reaches `.ready`, a fresh instance of the given
+    /// agent template is requested into it. Used by the agent-template
+    /// deeplink (`convos://template/<id>`).
+    case newConversationWithTemplate(templateId: String)
     case scanner
     case joinInvite(code: String)
 }
@@ -114,6 +119,20 @@ class NewConversationViewModel: Identifiable {
 
     private var conversationStateManager: (any ConversationStateManagerProtocol)?
     private var acquiredMessagingService: AnyMessagingService?
+    /// Agent template id to provision into the conversation once it
+    /// reaches `.ready`. Set for the `.newConversationWithTemplate`
+    /// deeplink mode and when a `convos://template/<id>` QR is scanned.
+    @ObservationIgnored
+    private var pendingAgentTemplateId: String?
+    /// Set when a template QR is scanned before the messaging service
+    /// (and `conversationStateManager`) has been acquired; the create is
+    /// kicked off once configuration completes. Mirrors `pendingInviteCode`.
+    @ObservationIgnored
+    private var pendingAgentTemplateCreate: Bool = false
+    /// One-shot guard so a re-emitted `.ready` state doesn't request the
+    /// agent join twice.
+    @ObservationIgnored
+    private var didTriggerAgentJoin: Bool = false
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
     @ObservationIgnored
@@ -146,8 +165,12 @@ class NewConversationViewModel: Identifiable {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
 
+        if case .newConversationWithTemplate(let templateId) = mode {
+            self.pendingAgentTemplateId = templateId
+        }
+
         switch mode {
-        case .newConversation, .newConversationWithMembers:
+        case .newConversation, .newConversationWithMembers, .newConversationWithTemplate:
             self.autoCreateConversation = true
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
@@ -239,7 +262,7 @@ class NewConversationViewModel: Identifiable {
             guard let self else { return }
 
             switch mode {
-            case .newConversation:
+            case .newConversation, .newConversationWithTemplate:
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -397,6 +420,11 @@ class NewConversationViewModel: Identifiable {
             joinConversation(inviteCode: pendingCode)
         }
 
+        if pendingAgentTemplateCreate {
+            pendingAgentTemplateCreate = false
+            createConversationForAgentTemplate()
+        }
+
         if autoCreateConversation && existingConversationId == nil {
             newConversationTask = Task { [weak self, stateManager] in
                 guard self != nil else { return }
@@ -442,6 +470,53 @@ class NewConversationViewModel: Identifiable {
 
     func onScanInviteCode() {
         presentingJoinConversationSheet = true
+    }
+
+    /// Routes a scanned QR payload. A `convos://template/<id>` code
+    /// pivots the scanner into the agent-template spawn flow; anything
+    /// else is treated as a conversation invite, exactly as before.
+    func handleScannedCode(_ code: String) {
+        if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
+            startAgentTemplateConversation(templateId: templateId)
+        } else {
+            joinConversation(inviteCode: code)
+        }
+    }
+
+    /// Pivots a scanner-mode flow into the agent-template spawn path when
+    /// the user scans a template QR. Mirrors the
+    /// `.newConversationWithTemplate` deeplink mode: create a fresh
+    /// conversation, then request an instance of the template into it
+    /// once it reaches `.ready` (handled in `handleStateChange`).
+    private func startAgentTemplateConversation(templateId: String) {
+        pendingAgentTemplateId = templateId
+        showingFullScreenScanner = false
+        isCreatingConversation = true
+
+        guard conversationStateManager != nil else {
+            pendingAgentTemplateCreate = true
+            return
+        }
+        createConversationForAgentTemplate()
+    }
+
+    private func createConversationForAgentTemplate() {
+        guard let conversationStateManager else { return }
+        newConversationTask?.cancel()
+        newConversationTask = Task { [weak self, conversationStateManager] in
+            guard self != nil else { return }
+            guard !Task.isCancelled else { return }
+            do {
+                try await conversationStateManager.createConversation()
+                await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
+            } catch {
+                Log.error("Error creating conversation for agent template: \(error.localizedDescription)")
+                guard !Task.isCancelled else { return }
+                await MainActor.run { [weak self] in
+                    self?.handleCreationError(error)
+                }
+            }
+        }
     }
 
     func joinConversation(inviteCode: String) {
@@ -595,6 +670,55 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
+    private func setupObservations() {
+        cancellables.removeAll()
+
+        guard let conversationStateManager else { return }
+
+        conversationStateManager.conversationIdPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { conversationId in
+                Log.info("Active conversation changed: \(conversationId)")
+                NotificationCenter.default.post(
+                    name: .activeConversationChanged,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId as Any]
+                )
+            }
+            .store(in: &cancellables)
+
+        Publishers.Merge(
+            conversationStateManager.sentMessage.map { _ in () },
+            conversationStateManager.draftConversationRepository.messagesRepository
+                .messagesPublisher
+                .filter { $0.contains { $0.content.showsInMessagesList } }
+                .map { _ in () }
+        )
+        .eraseToAnyPublisher()
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] in
+            guard let self else { return }
+            guard conversationState.isReadyOrJoining else { return }
+            messagesTopBarTrailingItem = .share
+        }
+        .store(in: &cancellables)
+    }
+
+    private enum Constant {
+        static let retryDelayShort: TimeInterval = 2
+        static let retryDelayMedium: TimeInterval = 4
+        static let retryDelayMax: TimeInterval = 8
+    }
+}
+
+// MARK: - State observation and error handling
+
+/// `ConversationStateMachine` observation, the per-state UI handling, and
+/// the join / create error paths. Split into an extension purely to keep
+/// the type body within SwiftLint's `type_body_length` budget; every
+/// member stays file-private and `@MainActor`-isolated (inherited from
+/// the type), so behavior is identical to when these lived inline.
+extension NewConversationViewModel {
     @MainActor
     private func setupStateObservation() {
         guard let conversationStateManager else { return }
@@ -670,6 +794,14 @@ class NewConversationViewModel: Identifiable {
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
 
+            // Agent-template deeplink: the conversation now exists with a
+            // shareable invite, so request a fresh instance of the
+            // template into it. One-shot - `.ready` may re-emit.
+            if let pendingAgentTemplateId, !didTriggerAgentJoin {
+                didTriggerAgentJoin = true
+                conversationViewModel?.requestAgentJoin(templateId: pendingAgentTemplateId)
+            }
+
         case .joinFailed(_, let error):
             consecutiveFailureCount += 1
             handleJoinFailedState(error)
@@ -690,7 +822,11 @@ class NewConversationViewModel: Identifiable {
             Log.error("Error applying global auto reveal preference: \(error)")
         }
 
-        guard autoCreateConversation else { return }
+        // The include-info default applies to every conversation this VM
+        // creates - the auto-create modes and the scanned-template path
+        // (which sets `pendingAgentTemplateId` but is not an auto-create
+        // mode). It does not apply when joining an existing invite.
+        guard autoCreateConversation || pendingAgentTemplateId != nil else { return }
 
         do {
             try await stateManager.conversationMetadataWriter.updateIncludeInfoInPublicPreview(
@@ -794,52 +930,12 @@ class NewConversationViewModel: Identifiable {
             return nil
         }
     }
-
-    private func setupObservations() {
-        cancellables.removeAll()
-
-        guard let conversationStateManager else { return }
-
-        conversationStateManager.conversationIdPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { conversationId in
-                Log.info("Active conversation changed: \(conversationId)")
-                NotificationCenter.default.post(
-                    name: .activeConversationChanged,
-                    object: nil,
-                    userInfo: ["conversationId": conversationId as Any]
-                )
-            }
-            .store(in: &cancellables)
-
-        Publishers.Merge(
-            conversationStateManager.sentMessage.map { _ in () },
-            conversationStateManager.draftConversationRepository.messagesRepository
-                .messagesPublisher
-                .filter { $0.contains { $0.content.showsInMessagesList } }
-                .map { _ in () }
-        )
-        .eraseToAnyPublisher()
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] in
-            guard let self else { return }
-            guard conversationState.isReadyOrJoining else { return }
-            messagesTopBarTrailingItem = .share
-        }
-        .store(in: &cancellables)
-    }
-
-    private enum Constant {
-        static let retryDelayShort: TimeInterval = 2
-        static let retryDelayMedium: TimeInterval = 4
-        static let retryDelayMax: TimeInterval = 8
-    }
 }
 
 private extension NewConversationMode {
     var isNewConversation: Bool {
         switch self {
-        case .newConversation, .newConversationWithMembers:
+        case .newConversation, .newConversationWithMembers, .newConversationWithTemplate:
             return true
         case .existingConversation, .scanner, .joinInvite:
             return false

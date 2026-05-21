@@ -305,7 +305,7 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
@@ -380,7 +380,7 @@ private final class ThrowingPushAPIClient: ConvosAPIClientProtocol, @unchecked S
         ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 

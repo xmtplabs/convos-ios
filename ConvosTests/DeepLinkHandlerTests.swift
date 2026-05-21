@@ -12,6 +12,8 @@ final class DeepLinkHandlerTests: XCTestCase {
         ConfigManager.shared.associatedDomain
     }
 
+    private let sampleTemplateId: String = "200e27dc-badc-429f-a431-b01b0281ec95"
+
     // MARK: - Connection Grant Deep Links (custom scheme)
 
     func testCustomSchemeConnectionGrant_ParsesServiceAndConversationId() throws {
@@ -123,6 +125,88 @@ final class DeepLinkHandlerTests: XCTestCase {
         let longId = String(repeating: "a", count: 600)
         let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=\(longId)"))
         XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    // MARK: - Agent template deep links (custom scheme)
+
+    func testCustomSchemeAgentTemplate_ParsesTemplateId() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/\(sampleTemplateId)"))
+        let destination = DeepLinkHandler.destination(for: url)
+
+        guard case let .agentTemplate(templateId) = destination else {
+            XCTFail("Expected .agentTemplate, got \(String(describing: destination))")
+            return
+        }
+        XCTAssertEqual(templateId, sampleTemplateId)
+    }
+
+    func testCustomSchemeAgentTemplate_UppercaseTemplateIdAccepted() throws {
+        // The backend treats UUIDs case-insensitively per its uuidPattern regex;
+        // mirror that on the client so a recipient on a slightly-quirky email
+        // client that uppercased the URL doesn't get a 404.
+        let uppercased = sampleTemplateId.uppercased()
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/\(uppercased)"))
+        guard case let .agentTemplate(templateId) = DeepLinkHandler.destination(for: url) else {
+            XCTFail("Expected .agentTemplate for uppercase UUID")
+            return
+        }
+        XCTAssertEqual(templateId, uppercased)
+    }
+
+    func testCustomSchemeAgentTemplate_MissingIdReturnsNil() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testCustomSchemeAgentTemplate_MalformedIdReturnsNil() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/not-a-uuid"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testCustomSchemeAgentTemplate_HashedSlugRejected() throws {
+        // V1 handles UUID template ids only. The pretty `<base>.<hash>`
+        // slug form the backend resolver also accepts is a follow-up;
+        // reject it for now rather than route to a destination we can't
+        // yet resolve client-side.
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/anchor.pnw1o"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testCustomSchemeAgentTemplate_ExtraPathSegmentsRejected() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/\(sampleTemplateId)/extra"))
+        XCTAssertNil(DeepLinkHandler.destination(for: url))
+    }
+
+    func testCustomSchemeAgentTemplate_WrongHostReturnsNil() throws {
+        // `convos://templates/<id>` (plural) is not a route we recognise.
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://templates/\(sampleTemplateId)"))
+        let destination = DeepLinkHandler.destination(for: url)
+        if case .agentTemplate = destination {
+            XCTFail("Unknown host should not produce an .agentTemplate destination")
+        }
+    }
+
+    // MARK: - DeepLinkHandler.agentTemplateId(from:)
+
+    func testAgentTemplateId_ReturnsTemplateIdForTemplateURL() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/\(sampleTemplateId)"))
+        XCTAssertEqual(DeepLinkHandler.agentTemplateId(from: url), sampleTemplateId)
+    }
+
+    func testAgentTemplateId_ReturnsNilForNonTemplateDeepLink() throws {
+        // A non-template deep link (here a connection grant) must not
+        // resolve to a template id - the QR scanner relies on this so a
+        // scanned conversation invite keeps routing through the invite
+        // path unchanged.
+        let url = try XCTUnwrap(
+            URL(string: "\(appUrlScheme)://connections/grant?service=google_calendar&conversationId=abc123")
+        )
+        XCTAssertNil(DeepLinkHandler.agentTemplateId(from: url))
+    }
+
+    func testAgentTemplateId_ReturnsNilForMalformedId() throws {
+        let url = try XCTUnwrap(URL(string: "\(appUrlScheme)://template/not-a-uuid"))
+        XCTAssertNil(DeepLinkHandler.agentTemplateId(from: url))
     }
 
     // MARK: - ConversationsViewModel.handleURL validation

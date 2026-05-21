@@ -207,6 +207,33 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     private enum Constant {
         static let emojiMetadataKey: String = "emoji"
+        static let templateIdKey: String = "templateId"
+        static let publishedURLKey: String = "publishedUrl"
+    }
+}
+
+// MARK: - Agent template metadata
+
+extension Profile {
+    /// The backend `AgentTemplate.id` a template-backed agent was
+    /// provisioned from, read from the agent's per-conversation profile
+    /// `metadata`. Drives the contact card's Chat action (spawn a fresh
+    /// instance of the same template). nil for human members and for
+    /// legacy agents that do not carry a template. The metadata key must
+    /// match the agent runtime's profile builder; see the matching
+    /// accessor on `DBMemberProfile`.
+    public var agentTemplateId: String? {
+        metadata?[Constant.templateIdKey]?.stringValue
+    }
+
+    /// The shareable web URL for a template-backed agent (the backend's
+    /// `publishedUrl`), read from the agent's per-conversation profile
+    /// `metadata`. Drives the contact card's Share button. nil for human
+    /// members and for legacy agents that do not carry a template. The
+    /// metadata key must match the agent runtime's profile builder; see
+    /// the matching accessor on `DBMemberProfile`.
+    public var agentTemplatePublishedURL: String? {
+        metadata?[Constant.publishedURLKey]?.stringValue
     }
 }
 
