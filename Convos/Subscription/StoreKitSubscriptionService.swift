@@ -66,21 +66,22 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         case .success(let verification):
             let transaction = try verifiedTransaction(verification)
             await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transactionId: transaction.id)
-            // Emit immediately from the verified transaction so the paywall's
-            // "Current plan" badge (and any other subscription-derived UI)
-            // flips without waiting for `Transaction.currentEntitlements` to
-            // repopulate. In sandbox that cache can lag by seconds after a
-            // successful purchase — for a first-time buyer it returns 0
-            // entries and the subject would emit `nil`; for an upgrade it
-            // returns the old entitlement and the subject would emit the old
-            // tier. Either way the paywall shows the wrong state until the
-            // next `Transaction.updates` cycle arrives.
-            // `refreshFromEntitlements` below reconciles a moment later — no-op
-            // if it agrees, corrects if Apple's view differs.
+            // The verified transaction from `.success` IS the authoritative
+            // new entitlement. Publish it directly and skip the
+            // `refreshFromEntitlements()` reconciliation that used to follow.
+            // Apple's local `Transaction.currentEntitlements` cache lags by
+            // seconds after a successful purchase, and for an upgrade
+            // (e.g. Monthly -> Annual) the cache still holds the
+            // just-superseded old entitlement. Iterating it would emit the
+            // stale tier and overwrite the fresh one we just published —
+            // surfacing as a brief "Current plan" flash on the new tier card
+            // before reverting to the old. `Transaction.updates` (the listener
+            // in `listenForTransactionUpdates()`) re-emits when Apple's view
+            // catches up; periodic foreground `refresh()` calls reconcile
+            // beyond that.
             if let sub = await userSubscription(from: transaction) {
                 subscriptionSubject.send(sub)
             }
-            await refreshFromEntitlements()
             // Force a credits refresh: the tier just changed (or was set for
             // the first time), so `monthlyGrant` derived from
             // PAYMENTS_GRANT_<TIER>_MONTHLY changed too. Skip the TTL so
@@ -120,7 +121,19 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         for await result in Transaction.updates {
             guard let transaction = try? verifiedTransaction(result) else { continue }
             await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
-            await refreshFromEntitlements()
+            // Publish from the verified transaction directly, for the same
+            // reason as in `purchase()`: re-querying
+            // `Transaction.currentEntitlements` here races with Apple's
+            // local cache update for plan changes initiated through the
+            // system "Manage Subscriptions" sheet. The cache may still hold
+            // the just-superseded entitlement when the listener fires,
+            // overwriting the new one. The verified transaction in hand
+            // is authoritative for this update — including refunds /
+            // revocations, where `userSubscription(from:)` returns a
+            // non-nil snapshot with status `.revoked` or `.expired`.
+            if let sub = await userSubscription(from: transaction) {
+                subscriptionSubject.send(sub)
+            }
             // Apple-side transition (renew, refund, tier change) → tier or
             // status may have changed → credits need to re-derive from the
             // new Subscription row. Force-refresh to bypass TTL.

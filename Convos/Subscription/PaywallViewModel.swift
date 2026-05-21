@@ -116,6 +116,13 @@ final class PaywallViewModel {
         defer { purchasingProductId = nil }
         do {
             try await subscriptionService.purchase(productId: product.id)
+            // Snap the period picker to the purchased product's period so the
+            // "Current plan" badge is visible on the right card without the
+            // user having to manually toggle the segmented control. Without
+            // this, a Monthly -> Annual upgrade leaves the picker on Monthly
+            // and the Annual card the user just bought stays hidden behind
+            // the picker.
+            selectedPeriod = product.period
             onPurchaseSucceeded?()
         } catch SubscriptionServiceError.purchaseCancelled {
             // user cancelled — no-op, silently dismiss CTA spinner
