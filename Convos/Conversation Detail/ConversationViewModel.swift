@@ -2287,7 +2287,6 @@ extension ConversationViewModel {
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
-                    instructions: "You're a Convos Assistant",
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {

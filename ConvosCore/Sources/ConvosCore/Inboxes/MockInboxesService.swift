@@ -67,7 +67,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         MockInviteRepository()
     }
 
-    public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    public func requestAgentJoin(slug: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         if let forceErrorCode {
             switch forceErrorCode {
             case 502: throw APIError.agentProvisionFailed

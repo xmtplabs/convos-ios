@@ -184,7 +184,7 @@ private final class ThrowawayPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
