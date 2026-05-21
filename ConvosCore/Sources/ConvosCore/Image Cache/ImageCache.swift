@@ -105,45 +105,113 @@ private struct CacheConfiguration {
 
 // MARK: - URL Tracker
 
-/// Thread-safe tracker for identifier → URL mapping
-/// Used to detect when an object's image URL changes
+/// Thread-safe tracker for identifier → URL mapping.
+///
+/// State is durable across launches via per-entry sidecar files
+/// (`<sha256(identifier)>.url`) co-located with the disk-cached image.
+/// In-memory `trackedURLs` is a hot-path cache populated lazily on first
+/// access for an identifier — peek/track/url consult disk only when the
+/// in-memory map misses, so steady-state operations stay pure-memory.
+///
+/// The previous in-memory-only implementation treated a missing entry as
+/// `(changed: true)` on cold launch and forced a network round trip even
+/// when the disk cache had a perfectly valid image — that's the source
+/// of the "avatars missing for a second on launch" regression. With
+/// sidecars restored on demand, cold launch knows what URL each cached
+/// image came from and can answer truthfully.
 private actor URLTracker {
     private var trackedURLs: [String: URL] = [:]
+    private let sidecarDirectory: URL?
+    private let fileManager: FileManager
 
-    /// Track a URL for an identifier, returning whether it changed
+    init(sidecarDirectory: URL?, fileManager: FileManager = .default) {
+        self.sidecarDirectory = sidecarDirectory
+        self.fileManager = fileManager
+    }
+
+    /// Track a URL for an identifier, returning whether it changed.
     func track(_ url: URL?, for identifier: String) -> (changed: Bool, oldURL: URL?) {
-        let oldURL = trackedURLs[identifier]
-        if url != oldURL {
-            if let url {
-                trackedURLs[identifier] = url
-            } else {
-                trackedURLs.removeValue(forKey: identifier)
-            }
-            return (changed: true, oldURL: oldURL)
+        let oldURL = loadIntoMemoryIfNeeded(for: identifier)
+        guard url != oldURL else {
+            return (changed: false, oldURL: oldURL)
         }
-        return (changed: false, oldURL: oldURL)
+        if let url {
+            trackedURLs[identifier] = url
+            writeSidecar(url: url, for: identifier)
+        } else {
+            trackedURLs.removeValue(forKey: identifier)
+            deleteSidecar(for: identifier)
+        }
+        return (changed: true, oldURL: oldURL)
     }
 
-    /// Get the currently tracked URL for an identifier
+    /// Get the currently tracked URL for an identifier.
     func url(for identifier: String) -> URL? {
-        trackedURLs[identifier]
+        loadIntoMemoryIfNeeded(for: identifier)
     }
 
-    /// Check if a URL would be considered changed without updating the tracker
-    /// Used for encrypted images where we want to detect changes but let the prefetcher update
-    /// Returns changed: true if URL differs from tracked OR if no entry exists (cold start)
-    /// Cold start is treated as "changed" since disk cache might have stale image from previous session
+    /// Check whether a URL would be considered changed without committing
+    /// the new URL to the tracker.
+    ///
+    /// Returns `(changed: true, oldURL: nil)` only when the identifier is
+    /// genuinely unknown — i.e. no in-memory entry *and* no sidecar on
+    /// disk. With sidecars, cold launches for previously-cached entries
+    /// hit `(changed: false)` and callers can serve the disk image
+    /// without a network round trip.
     func peek(_ url: URL?, for identifier: String) -> (changed: Bool, oldURL: URL?) {
-        guard let oldURL = trackedURLs[identifier] else {
-            // Cold start - treat as changed since we need to verify via network
+        guard let oldURL = loadIntoMemoryIfNeeded(for: identifier) else {
             return (changed: true, oldURL: nil)
         }
         return (changed: url != oldURL, oldURL: oldURL)
     }
 
-    /// Remove tracking for an identifier
+    /// Remove tracking for an identifier (in-memory and on-disk sidecar).
     func remove(for identifier: String) {
         trackedURLs.removeValue(forKey: identifier)
+        deleteSidecar(for: identifier)
+    }
+
+    // MARK: - Sidecar Persistence
+
+    /// Returns the in-memory URL for `identifier`, restoring it from the
+    /// on-disk sidecar lazily if necessary. Returns `nil` only when
+    /// neither memory nor disk knows the URL.
+    private func loadIntoMemoryIfNeeded(for identifier: String) -> URL? {
+        if let cached = trackedURLs[identifier] {
+            return cached
+        }
+        guard let restored = readSidecar(for: identifier) else {
+            return nil
+        }
+        trackedURLs[identifier] = restored
+        return restored
+    }
+
+    private func sidecarFileURL(for identifier: String) -> URL? {
+        guard let sidecarDirectory else { return nil }
+        let data = Data(identifier.utf8)
+        let hashData = data.sha256Hash()
+        let hashString = hashData.map { String(format: "%02x", $0) }.joined()
+        return sidecarDirectory.appendingPathComponent(hashString + ".url")
+    }
+
+    private func readSidecar(for identifier: String) -> URL? {
+        guard let sidecarURL = sidecarFileURL(for: identifier),
+              let data = try? Data(contentsOf: sidecarURL),
+              let urlString = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func writeSidecar(url: URL, for identifier: String) {
+        guard let sidecarURL = sidecarFileURL(for: identifier) else { return }
+        try? url.absoluteString.write(to: sidecarURL, atomically: true, encoding: .utf8)
+    }
+
+    private func deleteSidecar(for identifier: String) {
+        guard let sidecarURL = sidecarFileURL(for: identifier) else { return }
+        try? fileManager.removeItem(at: sidecarURL)
     }
 }
 
@@ -177,8 +245,9 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     // Cleanup coordination
     private let cleanupLock: OSAllocatedUnfairLock<Task<Void, Never>?> = OSAllocatedUnfairLock(initialState: nil)
 
-    // URL tracking for detecting URL changes
-    private let urlTracker: URLTracker = URLTracker()
+    // URL tracking for detecting URL changes. Sidecar directory is wired
+    // in init() once diskCacheURL has been computed.
+    private let urlTracker: URLTracker
 
     // Network request deduplication: tracks in-flight loading tasks by URL
     private let loadingTasksLock: OSAllocatedUnfairLock<[URL: Task<UIImage?, Never>]> = OSAllocatedUnfairLock(initialState: [:])
@@ -241,6 +310,10 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 Log.error("Failed to create directory \(dir.lastPathComponent): \(error)")
             }
         }
+
+        // Co-locate URL sidecars in the same directory as the cached images
+        // so eviction and removal stay in lockstep.
+        urlTracker = URLTracker(sidecarDirectory: diskCacheURL, fileManager: fileManager)
 
         // Clean up disk cache on init if needed
         scheduleCleanupIfNeeded()
@@ -901,15 +974,18 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         }
     }
 
-    /// Remove image from both disk cache and persistent store
+    /// Remove image from both disk cache and persistent store, plus the
+    /// `.url` sidecar that the URL tracker writes alongside cached images.
     private func removeImageFromDisk(identifier: String) async {
         let filename = sanitizedFilename(for: identifier, fileExtension: ".jpg")
         let pngFilename = sanitizedFilename(for: identifier, fileExtension: ".png")
+        let sidecarFilename = sanitizedFilename(for: identifier, fileExtension: ".url")
 
         await performDiskOperation { cache in
             let urls = [
                 cache.diskCacheURL.appendingPathComponent(filename),
                 cache.diskCacheURL.appendingPathComponent(pngFilename),
+                cache.diskCacheURL.appendingPathComponent(sidecarFilename),
                 cache.persistentCacheURL.appendingPathComponent(filename),
                 cache.persistentCacheURL.appendingPathComponent(pngFilename),
             ]
