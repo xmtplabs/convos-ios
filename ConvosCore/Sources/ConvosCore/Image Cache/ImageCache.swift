@@ -153,15 +153,15 @@ private actor URLTracker {
     /// Check whether a URL would be considered changed without committing
     /// the new URL to the tracker.
     ///
-    /// Returns `(changed: true, oldURL: nil)` only when the identifier is
-    /// genuinely unknown — i.e. no in-memory entry *and* no sidecar on
-    /// disk. With sidecars, cold launches for previously-cached entries
-    /// hit `(changed: false)` and callers can serve the disk image
-    /// without a network round trip.
+    /// Returns `(changed: false, oldURL: nil)` when both the requested url
+    /// and the tracked oldURL are nil — same nil-equals-nil semantic as
+    /// `track`'s `guard url != oldURL` short-circuit. With sidecars, cold
+    /// launches for previously-cached entries hit `(changed: false, oldURL: <url>)`
+    /// and callers can serve the disk image without a network round trip.
+    /// Genuinely-unknown identifiers asked about a non-nil url return
+    /// `(changed: true, oldURL: nil)` — caller should fetch.
     func peek(_ url: URL?, for identifier: String) -> (changed: Bool, oldURL: URL?) {
-        guard let oldURL = loadIntoMemoryIfNeeded(for: identifier) else {
-            return (changed: true, oldURL: nil)
-        }
+        let oldURL = loadIntoMemoryIfNeeded(for: identifier)
         return (changed: url != oldURL, oldURL: oldURL)
     }
 
@@ -1013,17 +1013,27 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     options: .skipsHiddenFiles
                 )
 
+                // Skip .url sidecars (URLTracker metadata) from the LRU
+                // accounting and eviction list. They share their hash
+                // basename with an image file; pairing is enforced below by
+                // co-deleting the matching .url when we evict an image, so
+                // image and sidecar lifetimes stay in lockstep. Sidecars
+                // are ~50 bytes and accessed less frequently than their
+                // image, so including them in the LRU sort would falsely
+                // mark them as oldest and split pairs.
+                let evictableURLs = fileURLs.filter { $0.pathExtension != "url" }
+
                 let batchSize = 100
                 var totalSize = 0
                 var batch: [CachedFileInfo] = []
                 batch.reserveCapacity(batchSize)
 
-                for i in stride(from: 0, to: fileURLs.count, by: batchSize) {
-                    let endIndex = min(i + batchSize, fileURLs.count)
+                for i in stride(from: 0, to: evictableURLs.count, by: batchSize) {
+                    let endIndex = min(i + batchSize, evictableURLs.count)
                     batch.removeAll(keepingCapacity: true)
 
                     for j in i..<endIndex {
-                        let fileURL = fileURLs[j]
+                        let fileURL = evictableURLs[j]
                         let resourceValues = try fileURL.resourceValues(forKeys: Set(resourceKeys))
                         totalSize += resourceValues.fileSize ?? 0
                     }
@@ -1032,12 +1042,12 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 if totalSize > cache.maxDiskCacheSize {
                     var oldestFiles: [CachedFileInfo] = []
 
-                    for i in stride(from: 0, to: fileURLs.count, by: batchSize) {
-                        let endIndex = min(i + batchSize, fileURLs.count)
+                    for i in stride(from: 0, to: evictableURLs.count, by: batchSize) {
+                        let endIndex = min(i + batchSize, evictableURLs.count)
                         batch.removeAll(keepingCapacity: true)
 
                         for j in i..<endIndex {
-                            let fileURL = fileURLs[j]
+                            let fileURL = evictableURLs[j]
                             let resourceValues = try fileURL.resourceValues(forKeys: Set(resourceKeys))
                             batch.append(CachedFileInfo(
                                 url: fileURL,
@@ -1056,6 +1066,13 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
                         do {
                             try cache.fileManager.removeItem(at: file.url)
+                            // Pair: also remove the .url sidecar with the
+                            // same hash basename so URLTracker doesn't
+                            // hold stale URL state for an evicted image.
+                            let sidecarURL = file.url
+                                .deletingPathExtension()
+                                .appendingPathExtension("url")
+                            try? cache.fileManager.removeItem(at: sidecarURL)
                             removedSize += file.size
                             Log.debug("Removed old cached image from disk: \(file.url.lastPathComponent)")
                         } catch {
