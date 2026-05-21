@@ -8,6 +8,23 @@ import XCTest
 /// The picker view model has its own suite in `ContactsPickerViewModelTests`.
 @MainActor
 final class ContactsViewModelTests: XCTestCase {
+    /// Human `inboxId`s across every section, in render order.
+    private func humanInboxIds(_ viewModel: ContactsViewModel) -> [String] {
+        viewModel.sections.flatMap { section in
+            section.items.compactMap { item -> String? in
+                guard case .human(let contact) = item else { return nil }
+                return contact.inboxId
+            }
+        }
+    }
+
+    /// Resolved display names across every section, in render order.
+    private func displayNames(_ viewModel: ContactsViewModel) -> [String] {
+        viewModel.sections.flatMap { section in
+            section.items.map(\.resolvedDisplayName)
+        }
+    }
+
     // MARK: - Verified-agent filter
 
     /// Verified-agent contacts stay in `DBContact` so chat-side surfaces
@@ -34,18 +51,21 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
+<<<<<<< HEAD
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
+=======
+>>>>>>> 2d0d2b7d (feat(agent-templates): capture and browse agent-template contacts)
         // Alice and the unverified agent pass through; both verified agents
         // are filtered out. Unverified agents intentionally remain visible
         // because they're not yet attested.
-        XCTAssertEqual(allIds.sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
+        XCTAssertEqual(humanInboxIds(viewModel).sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
     }
 
     /// `contactCount` drives the empty-state vs list-state branch in the
     /// `ContactsView` body and the compose button's enabled flag. It must
-    /// reflect the human-visible count, not the raw count - otherwise a
-    /// user whose contacts are all agents would see an empty list with a
-    /// non-empty count (no empty-state CTA, enabled compose button).
+    /// reflect the visible count, not the raw `DBContact` count - otherwise
+    /// a user whose only `DBContact` rows are verified agents would see an
+    /// empty list with a non-empty count.
     func testContactCountReflectsVisibleContactsNotRawCount() {
         let assistant = Contact.mock(
             displayName: "Convos Assistant",
@@ -56,7 +76,7 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         XCTAssertEqual(viewModel.contactCount, 0,
-                       "Agent-only contacts should not count toward the visible total")
+                       "Verified-agent DBContact rows should not count toward the visible total")
         XCTAssertTrue(viewModel.sections.isEmpty)
     }
 

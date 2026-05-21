@@ -9,7 +9,7 @@ import GRDB
 /// profile fields observed from encountered instances.
 ///
 /// There is no `blockedAt` column - agent-template contacts support Remove
-/// only (see docs/plans/agent-templates-phase-2-prd.md).
+/// only; see the agent-templates PRD.
 struct DBAgentTemplateContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identifiable {
     static let databaseTableName: String = "agentTemplateContact"
 
