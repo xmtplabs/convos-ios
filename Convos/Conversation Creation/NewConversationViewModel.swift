@@ -670,6 +670,55 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
+    private func setupObservations() {
+        cancellables.removeAll()
+
+        guard let conversationStateManager else { return }
+
+        conversationStateManager.conversationIdPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { conversationId in
+                Log.info("Active conversation changed: \(conversationId)")
+                NotificationCenter.default.post(
+                    name: .activeConversationChanged,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId as Any]
+                )
+            }
+            .store(in: &cancellables)
+
+        Publishers.Merge(
+            conversationStateManager.sentMessage.map { _ in () },
+            conversationStateManager.draftConversationRepository.messagesRepository
+                .messagesPublisher
+                .filter { $0.contains { $0.content.showsInMessagesList } }
+                .map { _ in () }
+        )
+        .eraseToAnyPublisher()
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] in
+            guard let self else { return }
+            guard conversationState.isReadyOrJoining else { return }
+            messagesTopBarTrailingItem = .share
+        }
+        .store(in: &cancellables)
+    }
+
+    private enum Constant {
+        static let retryDelayShort: TimeInterval = 2
+        static let retryDelayMedium: TimeInterval = 4
+        static let retryDelayMax: TimeInterval = 8
+    }
+}
+
+// MARK: - State observation and error handling
+
+/// `ConversationStateMachine` observation, the per-state UI handling, and
+/// the join / create error paths. Split into an extension purely to keep
+/// the type body within SwiftLint's `type_body_length` budget; every
+/// member stays file-private and `@MainActor`-isolated (inherited from
+/// the type), so behavior is identical to when these lived inline.
+extension NewConversationViewModel {
     @MainActor
     private func setupStateObservation() {
         guard let conversationStateManager else { return }
@@ -880,46 +929,6 @@ class NewConversationViewModel: Identifiable {
         default:
             return nil
         }
-    }
-
-    private func setupObservations() {
-        cancellables.removeAll()
-
-        guard let conversationStateManager else { return }
-
-        conversationStateManager.conversationIdPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { conversationId in
-                Log.info("Active conversation changed: \(conversationId)")
-                NotificationCenter.default.post(
-                    name: .activeConversationChanged,
-                    object: nil,
-                    userInfo: ["conversationId": conversationId as Any]
-                )
-            }
-            .store(in: &cancellables)
-
-        Publishers.Merge(
-            conversationStateManager.sentMessage.map { _ in () },
-            conversationStateManager.draftConversationRepository.messagesRepository
-                .messagesPublisher
-                .filter { $0.contains { $0.content.showsInMessagesList } }
-                .map { _ in () }
-        )
-        .eraseToAnyPublisher()
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] in
-            guard let self else { return }
-            guard conversationState.isReadyOrJoining else { return }
-            messagesTopBarTrailingItem = .share
-        }
-        .store(in: &cancellables)
-    }
-
-    private enum Constant {
-        static let retryDelayShort: TimeInterval = 2
-        static let retryDelayMedium: TimeInterval = 4
-        static let retryDelayMax: TimeInterval = 8
     }
 }
 
