@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 010 — Public Preview Image Toggle · Convos Docs</title>
+  <meta name="description" content="A per-conversation toggle that controls whether invite previews carry a visible group photo. Encrypted member image path is unaffected." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 010 · Invites</div>
+      <h1>Public preview image toggle.</h1>
+      <p class="lede">
+        A per-conversation toggle decides whether an invite carries a visible
+        group photo. The encrypted member-image path runs independently in
+        either state — turning the toggle off only removes the unencrypted URL
+        from future invites.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#shape"><span class="n">01</span> Two paths</a>
+        <a href="#row"><span class="n">02</span> Row fields</a>
+        <a href="#default"><span class="n">03</span> Default state</a>
+        <a href="#flow"><span class="n">04</span> Upload flow</a>
+        <a href="#invite"><span class="n">05</span> Invite payload</a>
+        <a href="#tradeoffs"><span class="n">06</span> Tradeoffs</a>
+        <a href="#code"><span class="n">07</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Two paths -->
+    <section class="section" id="shape">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Two paths</h2>
+        <span class="section-meta">Member vs. invite preview</span>
+      </div>
+      <div class="article">
+        <p>
+          Members always see the encrypted group image — that's the path
+          documented in <a href="./009-encrypted-conversation-images.html">ADR 009</a>.
+          The toggle controls a second, parallel upload: an <em>unencrypted</em> JPEG
+          whose URL is included in the invite payload so people seeing the link
+          before they join get a real preview card.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Where each image is used</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">Always</span>
+            <span class="name">Encrypted member image</span>
+            <span class="detail">AES-256-GCM ciphertext on S3, key in MLS metadata. Visible only to members. Independent of the toggle.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Toggle-gated</span>
+            <span class="name">Public preview URL</span>
+            <span class="detail">Unencrypted JPEG on S3. URL is stamped into the invite payload so non-members can see a preview card.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Row fields -->
+    <section class="section" id="row">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Row fields</h2>
+        <span class="section-meta">DBConversation</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">includeInfoInPublicPreview</span></td><td><span class="mono">Bool</span></td><td>The toggle. When <code class="inline">true</code>, the next image update uploads both encrypted and public assets.</td></tr>
+          <tr><td><span class="mono">publicImageURLString</span></td><td><span class="mono">String?</span></td><td>The unencrypted URL stamped at upload time. Set to <code class="inline">nil</code> when the toggle flips off.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 03 — Default -->
+    <section class="section" id="default">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Default state</h2>
+        <span class="section-meta">What new conversations start with</span>
+      </div>
+      <div class="article">
+        <p>
+          New conversations are created with <code class="inline">includeInfoInPublicPreview = true</code>
+          (see <code class="inline">ConversationWriter.swift</code>). The user can disable the toggle
+          from the conversation's settings; doing so clears
+          <code class="inline">publicImageURLString</code> for future invites.
+        </p>
+        <p>
+          The database column itself defaults to <code class="inline">false</code> at the migration
+          level — that default only applies to rows created without going through
+          the writer (currently: mocks). Every conversation created through the
+          normal write path opts into public previews until the user turns the
+          toggle off.
+        </p>
+      </div>
+    </section>
+
+    <!-- 04 — Upload flow -->
+    <section class="section" id="flow">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Upload flow</h2>
+        <span class="section-meta">ConversationMetadataWriter.updateImage()</span>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg">Encrypt the JPEG with AES-256-GCM under the group's <code class="inline">imageEncryptionKey</code>; upload ciphertext to S3.<span class="meta">This step always runs, regardless of toggle state.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg">Read <code class="inline">localConversation.includeInfoInPublicPreview</code>.<span class="meta">If <code class="inline">false</code>, stop here. <code class="inline">publicImageURLString</code> remains <code class="inline">nil</code>.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg">If <code class="inline">true</code>, <code class="inline">generatePublicPreviewUrl()</code> uploads an unencrypted JPEG to S3 and stamps the URL into <code class="inline">publicImageURLString</code>.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor other">Toggle off later</span>
+          <span class="seq-msg"><code class="inline">updateIncludeInfoInPublicPreview(false)</code> sets the bool to <code class="inline">false</code> and nils <code class="inline">publicImageURLString</code>.<span class="meta">The encrypted member image is unaffected; existing S3 objects age out per <a href="./008-asset-lifecycle-and-renewal.html">ADR 008</a>.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 — Invite payload -->
+    <section class="section" id="invite">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Invite payload</h2>
+        <span class="section-meta">SignedInvite+Signing</span>
+      </div>
+      <div class="article">
+        <p>
+          When the slug is generated, the invite payload's <code class="inline">imageURL</code> field is
+          populated from <code class="inline">publicImageURLString</code> — never from any encrypted ref.
+          A conversation with the toggle off ships an invite payload that has
+          no image URL; the receiver renders the deterministic emoji from
+          <a href="./007-default-conversation-display-name.html">ADR 007</a>
+          instead.
+        </p>
+      </div>
+    </section>
+
+    <!-- 06 — Tradeoffs -->
+    <section class="section" id="tradeoffs">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Tradeoffs</h2>
+        <span class="section-meta">What enabling the toggle costs</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Property</th><th>Posture</th></tr></thead>
+        <tbody>
+          <tr><td>Encrypted member-image path</td><td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Unchanged in either state</span></td></tr>
+          <tr><td>Invite preview richness</td><td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Higher with toggle on</span></td></tr>
+          <tr><td>Storage cost</td><td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Doubles for image-bearing conversations with toggle on</span></td></tr>
+          <tr><td>Public exposure of the conversation's photo</td><td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Anyone with the URL can fetch the JPEG</span></td></tr>
+          <tr><td>Old shared invites after toggling off</td><td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Stale URL stays embedded; the S3 object ages out per <a href="./008-asset-lifecycle-and-renewal.html">ADR 008</a></span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 07 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>DB columns</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Database Models/DBConversation.swift</td></tr>
+          <tr><td>New-conversation default</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift</td></tr>
+          <tr><td>Dual-upload + toggle handler</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift</td></tr>
+          <tr><td>Invite payload stamping</td><td class="mono">ConvosCore/Sources/ConvosCore/Invites &amp; Custom Metadata/SignedInvite+Signing.swift</td></tr>
+          <tr><td>Settings UI</td><td class="mono">Convos/Conversation Detail/Settings/GroupSettingsView.swift</td></tr>
+          <tr><td>Migration</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/SharedDatabaseMigrator.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./001-invite-system-architecture.html">ADR 001 — Invites →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

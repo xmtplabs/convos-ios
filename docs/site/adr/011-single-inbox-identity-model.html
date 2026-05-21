@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 011 — Single-Inbox Identity Model · Convos Docs</title>
+  <meta name="description" content="Convos provisions one XMTP inbox per user. This page documents the identity slot, the push-routing indirection, and the session lifecycle that runs on top of it." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 011 · Identity</div>
+      <h1>Single-inbox identity model.</h1>
+      <p class="lede">
+        Every Convos user has exactly one XMTP inbox. Its identity material lives
+        in one keychain slot, shared with the Notification Service Extension and
+        the App Clip via the app group. Push routing keeps a <code class="inline">clientId</code> indirection
+        so the backend never sees the inbox.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#boundary"><span class="n">01</span> Identity boundary</a>
+        <a href="#storage"><span class="n">02</span> Keychain slot</a>
+        <a href="#client"><span class="n">03</span> XMTP client</a>
+        <a href="#push"><span class="n">04</span> Push routing</a>
+        <a href="#session"><span class="n">05</span> Session lifecycle</a>
+        <a href="#clip"><span class="n">06</span> App Clip handoff</a>
+        <a href="#explode"><span class="n">07</span> Explode</a>
+        <a href="#threat"><span class="n">08</span> Threat model</a>
+        <a href="#code"><span class="n">09</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Identity boundary -->
+    <section class="section" id="boundary">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Identity boundary</h2>
+        <span class="section-meta">Who reads the singleton slot</span>
+      </div>
+      <div class="article">
+        <p>
+          Three processes share the user's identity: the main app, the Notification
+          Service Extension (NSE) that decrypts pushes, and the App Clip that handles
+          deep-link invite previews. They all read the same keychain entry, gated by
+          the app-group access group; no other process gains visibility.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">App group · keychain access group</div>
+        <div class="boundary-body">
+          <div class="boundary-cell">
+            <span class="role">Main app</span>
+            <span class="name">Convos.app</span>
+            <span class="detail">Drives onboarding, registers the identity if absent, owns the live <code class="inline">MessagingService</code>.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Extension</span>
+            <span class="name">NotificationService.appex</span>
+            <span class="detail">Reads identity to decrypt MLS payloads. Validates <code class="inline">clientId</code> per delivery.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">App Clip</span>
+            <span class="name">ConvosClip.appex</span>
+            <span class="detail">Registers identity into the slot so the main app can pick it up after install.</span>
+          </div>
+        </div>
+        <div class="boundary-foot">
+          <span class="key"></span>
+          <span>One entry · service <code class="inline">org.convos.ios.KeychainIdentityStore.v3</code> · account <code class="inline">convos-identity</code></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Keychain slot -->
+    <section class="section" id="storage">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Keychain slot</h2>
+        <span class="section-meta">Attributes &amp; API surface</span>
+      </div>
+      <div class="article">
+        <p>
+          <code class="inline">KeychainIdentityStore</code> owns exactly one slot. Its public surface is
+          <code class="inline">save</code>, <code class="inline">load</code>, <code class="inline">loadSync</code>, <code class="inline">delete</code> — no
+          multi-identity API and no <code class="inline">clientId</code>-keyed lookups.
+        </p>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Attribute</th><th>Value</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">kSecAttrService</span></td>
+            <td><span class="mono">org.convos.ios.KeychainIdentityStore.v3</span></td>
+            <td>Versioned so a future identity format can coexist without overwriting.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">kSecAttrAccount</span></td>
+            <td><span class="mono">convos-identity</span></td>
+            <td>Single fixed key — there is only one identity to look up.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">kSecAttrAccessible</span></td>
+            <td><span class="mono">…AfterFirstUnlock</span></td>
+            <td>NSE needs the identity to decrypt pushes after first unlock; <code class="inline">…ThisDeviceOnly</code> would block iCloud sync.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">kSecAttrSynchronizable</span></td>
+            <td><span class="mono">true</span></td>
+            <td>Identity follows the user across Apple ID devices via iCloud Keychain.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">kSecAttrAccessGroup</span></td>
+            <td>App-group identifier</td>
+            <td>Shared with the NSE and the App Clip; no other code reads it.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 16px;">
+        <p>
+          The stored blob is the secp256k1 private key (XMTP identity) plus the
+          256-bit database encryption key used by the XMTP SDK to encrypt the local
+          SQLCipher file. Both rotate together; there is no separate database key
+          lifecycle.
+        </p>
+      </div>
+    </section>
+
+    <!-- 03 — XMTP client -->
+    <section class="section" id="client">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>XMTP client</h2>
+        <span class="section-meta">One client per user, configured by SessionStateMachine</span>
+      </div>
+      <div class="article">
+        <p>
+          <code class="inline">SessionStateMachine.clientOptions</code> constructs one
+          <code class="inline">XMTPiOS.Client</code> per user. <code class="inline">deviceSyncEnabled</code> is on so a second device signed
+          into the same Apple ID replays group memberships and history from the
+          XMTP history server. The local XMTP database lives under the app-group
+          container as <code class="inline">xmtp-&lt;gRPC-host&gt;-&lt;hash&gt;.db3</code>, encrypted with the per-install
+          database key from the keychain.
+        </p>
+        <h3>Registered codecs</h3>
+        <p>The client registers every content type the app handles, including the connections subsystem's:</p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Content-type codecs</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(4, minmax(0,1fr));">
+          <div class="boundary-cell"><span class="role">Messaging</span><span class="name">TextCodec</span><span class="detail">Plain text bodies.</span></div>
+          <div class="boundary-cell"><span class="role">Messaging</span><span class="name">ReplyCodec</span><span class="detail">Threaded replies.</span></div>
+          <div class="boundary-cell"><span class="role">Messaging</span><span class="name">ReactionCodec · ReactionV2Codec</span><span class="detail">Two generations; both registered for backward read.</span></div>
+          <div class="boundary-cell"><span class="role">Messaging</span><span class="name">AttachmentCodec · RemoteAttachmentCodec</span><span class="detail">Inline and remote-blob attachments.</span></div>
+          <div class="boundary-cell"><span class="role">Group</span><span class="name">GroupUpdatedCodec</span><span class="detail">Membership / metadata changes.</span></div>
+          <div class="boundary-cell"><span class="role">Group</span><span class="name">ExplodeSettingsCodec</span><span class="detail">Tells receivers to drop the conversation locally. See <a href="./004-explode-feature.html">ADR 004</a>.</span></div>
+          <div class="boundary-cell"><span class="role">Invites</span><span class="name">JoinRequestCodec</span><span class="detail">DM payload a joiner sends the inviter. See <a href="./001-invite-system-architecture.html">ADR 001</a>.</span></div>
+          <div class="boundary-cell"><span class="role">Invites</span><span class="name">InviteJoinErrorCodec</span><span class="detail">Inviter's feedback when a join can't be honored.</span></div>
+          <div class="boundary-cell"><span class="role">Invites</span><span class="name">AssistantJoinRequestCodec</span><span class="detail">Variant for invites issued by an assistant.</span></div>
+          <div class="boundary-cell"><span class="role">Profile</span><span class="name">ProfileUpdateCodec · ProfileSnapshotCodec</span><span class="detail">Member profile diff and full-state messages. See <a href="./005-member-profile-system.html">ADR 005</a>.</span></div>
+          <div class="boundary-cell"><span class="role">Connections</span><span class="name">CloudConnectionGrantRequestCodec</span><span class="detail">User grants an assistant access to a cloud service.</span></div>
+          <div class="boundary-cell"><span class="role">Connections</span><span class="name">ConnectionEventCodec</span><span class="detail">Lifecycle pings from device or cloud connectors. See <a href="./012-connections-architecture.html">ADR 012</a>.</span></div>
+          <div class="boundary-cell"><span class="role">Connections</span><span class="name">CapabilityRequestCodec · CapabilityRequestResultCodec</span><span class="detail">Assistant capability negotiation.</span></div>
+          <div class="boundary-cell"><span class="role">UX</span><span class="name">TypingIndicatorCodec</span><span class="detail">Live "is typing" pings.</span></div>
+          <div class="boundary-cell"><span class="role">UX</span><span class="name">ReadReceiptCodec</span><span class="detail">Per-conversation read state.</span></div>
+          <div class="boundary-cell"><span class="role">+</span><span class="name">ConvosConnectionsXMTP.codecs()</span><span class="detail">Aggregated codec list contributed by the connections package.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 — Push routing -->
+    <section class="section" id="push">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Push routing</h2>
+        <span class="section-meta">backend ↔ APNs ↔ NSE</span>
+      </div>
+      <div class="article">
+        <p>
+          The backend sees only a random <code class="inline">clientId</code> per user; it never learns the
+          XMTP inbox ID, and ciphertext never leaves the XMTP network. The NSE
+          re-derives the routing target on every delivery, with a short-lived
+          identity-keyed cache that rebuilds the moment the identity changes.
+        </p>
+      </div>
+      <div class="diagram" style="margin-bottom: 16px;">
+        <svg viewBox="0 0 880 96" width="880" height="96" role="img" aria-label="Push routing: XMTP network through backend and APNs to NSE">
+          <defs>
+            <marker id="push-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M220,48 L256,48" marker-end="url(#push-arrow)"/>
+          <path class="edge" d="M460,48 L496,48" marker-end="url(#push-arrow)"/>
+          <path class="edge" d="M680,48 L716,48" marker-end="url(#push-arrow)"/>
+          <g>
+            <rect class="box hot" x="10" y="16" width="210" height="64" rx="10"/>
+            <text class="sub center brand" x="115" y="38">Origin</text>
+            <text class="lbl center" x="115" y="60">XMTP network</text>
+          </g>
+          <g>
+            <rect class="box" x="260" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center" x="360" y="38">Routing</text>
+            <text class="lbl center" x="360" y="60">Backend · clientId only</text>
+          </g>
+          <g>
+            <rect class="box" x="500" y="16" width="180" height="64" rx="10"/>
+            <text class="sub center" x="590" y="38">Wakeup</text>
+            <text class="lbl center" x="590" y="60">APNs · encrypted payload</text>
+          </g>
+          <g>
+            <rect class="box hot" x="720" y="16" width="150" height="64" rx="10"/>
+            <text class="sub center brand" x="795" y="38">Decrypt</text>
+            <text class="lbl center" x="795" y="60">NSE · cached service</text>
+          </g>
+        </svg>
+      </div>
+      <div class="article">
+        <h3>NSE delivery cache</h3>
+        <p>
+          <code class="inline">CachedPushNotificationHandler</code> keeps one <code class="inline">MessagingService</code> at a time, tagged with the
+          <code class="inline">(inboxId, clientId)</code> pair it was built for. A 15-minute stale-by-access TTL bounds idle memory.
+          Every delivery follows the same checklist:
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">NSE</span>
+          <span class="seq-msg">Read singleton identity from keychain.<span class="meta">If missing — best-effort <code class="inline">unregisterInstallation(clientId:)</code> and drop the delivery.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">NSE</span>
+          <span class="seq-msg">Validate payload <code class="inline">clientId</code> against the stored <code class="inline">clientId</code>.<span class="meta">If mismatch — tear down the cached service and rebuild for the new identity.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor other">Cache</span>
+          <span class="seq-msg">On match, the cached <code class="inline">MessagingService</code> decrypts and surfaces the notification.<span class="meta">Cache TTL = 15 minutes from last access; bounded by NSE process lifetime.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 — Session lifecycle -->
+    <section class="section" id="session">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Session lifecycle</h2>
+        <span class="section-meta">SessionManager.loadOrCreateService()</span>
+      </div>
+      <div class="article">
+        <p>
+          <code class="inline">SessionManager</code> is a synchronous one-slot cache guarded by
+          <code class="inline">OSAllocatedUnfairLock&lt;MessagingService?&gt;</code>. The first call loads the keychain
+          identity through <code class="inline">loadSync()</code> and builds a service via <code class="inline">AuthorizeInboxOperation</code>;
+          every subsequent call returns the cached instance.
+        </p>
+      </div>
+      <div class="pipeline">
+        <div class="stage">
+          <span class="stage-num">01 · ENTER</span>
+          <span class="stage-title">loadOrCreateService()</span>
+          <span class="stage-desc">Take the lock, return cache if hot.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">02 · LOAD</span>
+          <span class="stage-title">loadSync()</span>
+          <span class="stage-desc">Read identity from keychain inside the lock.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">03 · BUILD</span>
+          <span class="stage-title">AuthorizeInboxOperation</span>
+          <span class="stage-desc"><code class="inline">.authorize</code> when identity exists, <code class="inline">.register</code> when not.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">04 · CACHE</span>
+          <span class="stage-title">Return + memoize</span>
+          <span class="stage-desc">Store the live service in the slot; release the lock.</span>
+        </div>
+      </div>
+      <div class="article" style="margin-top: 16px;">
+        <h3>When the load fails</h3>
+        <p>
+          If <code class="inline">loadSync()</code> throws — daemon error, corrupt JSON, iCloud sync mid-flight — the lock caches a
+          <code class="inline">FailedIdentityLoadOperation</code>-backed service that surfaces the real error
+          through <code class="inline">sessionStateManager.currentState</code>. Registering on top would overwrite a potentially
+          recoverable identity, so the next call retries <code class="inline">loadSync()</code> inside the lock instead.
+          On success the errored cache is replaced with a real service; on continued failure the same frozen instance is
+          returned with no rebuild thrash.
+        </p>
+        <h3>Account wipe</h3>
+        <p>
+          <code class="inline">deleteAllInboxes()</code> keeps the cached service live through teardown so a concurrent
+          <code class="inline">loadOrCreateService()</code> (a push arriving mid-delete, a SwiftUI sync accessor) observes the
+          being-torn-down service rather than racing a fresh one against the same SQLCipher files. The cache is cleared
+          only after the XMTP client, the keychain entry, and the <code class="inline">DBInbox</code> rows are gone.
+        </p>
+      </div>
+    </section>
+
+    <!-- 06 — App Clip handoff -->
+    <section class="section" id="clip">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>App Clip handoff</h2>
+        <span class="section-meta">Clip writes once, app picks up after install</span>
+      </div>
+      <div class="article">
+        <p>
+          The App Clip target declares the same <code class="inline">keychain-access-groups</code> entitlement as the main app and
+          instantiates <code class="inline">KeychainIdentityStore</code> against the same access group. <code class="inline">ClipIdentityBootstrap</code>
+          builds a <code class="inline">SessionManager</code> in <code class="inline">.clipBootstrap</code> mode — push registration, asset renewal, prewarm,
+          and worker timers are all skipped — then forces one service materialization so the register path writes
+          identity into the shared slot.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Clip</span>
+          <span class="seq-msg">User taps an invite link. <code class="inline">ClipIdentityBootstrap</code> spins up.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Clip</span>
+          <span class="seq-msg">SessionManager in <code class="inline">.clipBootstrap</code> mode materializes a service, taking the <code class="inline">.register</code> path.<span class="meta">Identity is written to the shared keychain slot.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor other">User</span>
+          <span class="seq-msg">User installs the full app from the clip card.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">App</span>
+          <span class="seq-msg">First launch: <code class="inline">loadOrCreateService()</code> finds the identity, takes the <code class="inline">.authorize</code> branch.<span class="meta">Onboarding carousel is skipped; user lands on the conversation the clip joined.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 — Explode -->
+    <section class="section" id="explode">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Conversation explode</h2>
+        <span class="section-meta">Remove-all-then-leave at the protocol layer</span>
+      </div>
+      <div class="article">
+        <p>
+          Since identity is shared across every conversation, destroying the inbox is not a per-conversation primitive.
+          Explode runs at the MLS group layer: the creator sends an <code class="inline">ExplodeSettings</code> message, removes every
+          other member with <code class="inline">group.removeMembers(…)</code>, then calls <code class="inline">group.leaveGroup()</code>.
+        </p>
+        <p>
+          Receivers drop the conversation locally on the <code class="inline">ExplodeSettings</code> message <em>or</em> on the MLS
+          "removed" commit, whichever arrives first. No keychain material is touched. The guarantee is
+          <strong>"messages are gone from the local database of every participant that applied the commit"</strong> —
+          not cryptographic finality. See <a href="./004-explode-feature.html">ADR 004</a> for the receiver-side
+          handling and the consent-fallback path.
+        </p>
+      </div>
+    </section>
+
+    <!-- 08 — Threat model -->
+    <section class="section" id="threat">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Threat model</h2>
+        <span class="section-meta">Current posture per category</span>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Threat</th><th>Posture</th><th>How</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Backend learns user's XMTP identity</td>
+            <td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Protected</span></td>
+            <td>Backend only sees the per-user <code class="inline">clientId</code>; the inbox ID is never sent.</td>
+          </tr>
+          <tr>
+            <td>Backend correlates user across conversations</td>
+            <td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Not protected</span></td>
+            <td>One <code class="inline">clientId</code> per user; correlation across conversations on the backend is intrinsic.</td>
+          </tr>
+          <tr>
+            <td>Peer compromise leaks cross-conversation content</td>
+            <td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Not protected</span></td>
+            <td>One key per user — a compromised inbox decrypts every conversation it participates in.</td>
+          </tr>
+          <tr>
+            <td>Device theft (pre-unlock) reads messages</td>
+            <td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Protected</span></td>
+            <td>Keychain item is <code class="inline">…AfterFirstUnlock</code>; DB is SQLCipher-encrypted with the keychain-stored DB key.</td>
+          </tr>
+          <tr>
+            <td>iCloud account compromise leaks identity</td>
+            <td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Not protected</span></td>
+            <td><code class="inline">kSecAttrSynchronizable</code> is on; an iCloud-account compromise reaches the identity.</td>
+          </tr>
+          <tr>
+            <td>NSE serves stale cached service across identities</td>
+            <td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Protected</span></td>
+            <td><code class="inline">CachedPushNotificationHandler</code> invalidates on <code class="inline">(inboxId, clientId)</code> mismatch and stops the prior service before rebuilding.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>Forward-looking.</strong> A per-conversation override hook is preserved in the schema for a future
+        "nickname / different photo per conversation" feature — the single-inbox layer doesn't preclude that UX,
+        it just doesn't ship it today. See <a href="./005-member-profile-system.html">ADR 005</a> for the profile system the override would live in.
+      </div>
+    </section>
+
+    <!-- 09 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">09</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Concern</th><th>File</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Identity slot</td><td class="mono">ConvosCore/Sources/ConvosCore/Auth/Keychain/KeychainIdentityStore.swift</td></tr>
+          <tr><td>Session cache</td><td class="mono">ConvosCore/Sources/ConvosCore/Sessions/SessionManager.swift</td></tr>
+          <tr><td>App Clip entry</td><td class="mono">ConvosCore/Sources/ConvosCore/Sessions/ClipIdentityBootstrap.swift</td></tr>
+          <tr><td>Client lifecycle</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/SessionStateMachine.swift</td></tr>
+          <tr><td>Authorize bridge</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/AuthorizeInboxOperation.swift</td></tr>
+          <tr><td>Errored-load null-object</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/FailedIdentityLoadOperation.swift</td></tr>
+          <tr><td>NSE cache</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/CachedPushNotificationHandler.swift</td></tr>
+          <tr><td>NSE factory seam</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/PushNotificationServiceFactory.swift</td></tr>
+          <tr><td>Messaging surface</td><td class="mono">ConvosCore/Sources/ConvosCore/Messaging/MessagingService.swift</td></tr>
+          <tr><td>Pre-created convo</td><td class="mono">ConvosCore/Sources/ConvosCore/Messaging/UnusedConversationCache.swift</td></tr>
+          <tr><td>Legacy wipe (tag <code class="inline">convos-v2</code>)</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/LegacyDataWipe.swift</td></tr>
+          <tr><td>DB file <code class="inline">convos-single-inbox.sqlite</code></td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/SharedDatabaseMigrator.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Next · <a href="./001-invite-system-architecture.html">ADR 001 — Invite System →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

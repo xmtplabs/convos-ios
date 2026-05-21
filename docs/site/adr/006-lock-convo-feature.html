@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 006 — Lock Convo · Convos Docs</title>
+  <meta name="description" content="A super-admin toggle that closes a conversation to new joins by rotating the invite tag and setting the MLS addMemberPolicy to deny." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 006 · Conversations</div>
+      <h1>Lock convo.</h1>
+      <p class="lede">
+        A super-admin can close a conversation to new joins. Locking does two
+        things at once: rotate the invite tag so every previously-shared invite
+        becomes unusable, and set the MLS <code class="inline">addMemberPolicy</code> to <code class="inline">.deny</code> so
+        no member — admin or otherwise — can add anyone.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#what"><span class="n">01</span> What lock does</a>
+        <a href="#flow"><span class="n">02</span> Lock flow</a>
+        <a href="#state"><span class="n">03</span> State on the row</a>
+        <a href="#unlock"><span class="n">04</span> Unlock semantics</a>
+        <a href="#permissions"><span class="n">05</span> Who can toggle</a>
+        <a href="#ui"><span class="n">06</span> UI surfaces</a>
+        <a href="#code"><span class="n">07</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — What -->
+    <section class="section" id="what">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>What lock does</h2>
+        <span class="section-meta">Two enforcement layers, one toggle</span>
+      </div>
+      <div class="article">
+        <p>
+          Locking attacks the problem on two layers. The MLS permission policy
+          is the cryptographic backstop — every conforming client refuses to add
+          a member when <code class="inline">addMemberPolicy == .deny</code>. The invite-tag rotation
+          is the defense in depth — any invite slug shared before the lock now
+          references a tag that no longer matches the conversation, so the join
+          request's tag-check fails on the inviter's client before any add is
+          attempted.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 740 96" width="740" height="96" role="img" aria-label="Two enforcement layers combine to prevent new members joining">
+          <defs>
+            <marker id="lock-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <text class="lbl" x="215" y="54" text-anchor="middle">+</text>
+          <path class="edge" d="M490,48 L526,48" marker-end="url(#lock-arrow)"/>
+          <g>
+            <rect class="box" x="10" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center" x="110" y="38">Layer A</text>
+            <text class="lbl center" x="110" y="60">Invite tag rotated</text>
+          </g>
+          <g>
+            <rect class="box hot" x="240" y="16" width="240" height="64" rx="10"/>
+            <text class="sub center brand" x="360" y="38">Layer B</text>
+            <text class="lbl center" x="360" y="60">addMemberPolicy = .deny</text>
+          </g>
+          <g>
+            <rect class="box" x="530" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center" x="630" y="38">Result</text>
+            <text class="lbl center" x="630" y="60">No new members can join</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 02 — Lock flow -->
+    <section class="section" id="flow">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Lock flow</h2>
+        <span class="section-meta">ConversationMetadataWriter.lockConversation</span>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Admin</span>
+          <span class="seq-msg">Confirm the action via the lock-confirmation sheet.<span class="meta">The toggle is gated to <code class="inline">superAdmin</code> by <code class="inline">ConversationViewModel.canToggleLock</code>.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg"><code class="inline">rotateInviteTag()</code> on the group's custom metadata.<span class="meta">Every existing invite for this conversation now references a stale tag.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg"><code class="inline">updateAddMemberPermission(newPermissionOption: .deny)</code>.<span class="meta">MLS permission policy is replicated to every conforming client.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor other">Sync</span>
+          <span class="seq-msg">On the next sync, <code class="inline">ConversationWriter</code> derives <code class="inline">isLocked = (permissionPolicySet().addMemberPolicy == .deny)</code> and writes it to <code class="inline">DBConversation</code>.<span class="meta">UI observes the GRDB change; the lock icon replaces the share icon in the toolbar.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 — State on the row -->
+    <section class="section" id="state">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>State on the row</h2>
+        <span class="section-meta">DBConversation.isLocked</span>
+      </div>
+      <div class="article">
+        <p>
+          <code class="inline">isLocked</code> is a persisted column on <code class="inline">DBConversation</code>, derived
+          from the MLS permission set during sync. It isn't a separate source of
+          truth — it's a denormalized cache so SwiftUI observers can react to lock
+          state without doing async XMTP calls. The MLS policy remains the
+          authority; if a client somehow sees an out-of-date <code class="inline">isLocked</code>, the
+          next sync corrects it.
+        </p>
+      </div>
+    </section>
+
+    <!-- 04 — Unlock semantics -->
+    <section class="section" id="unlock">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Unlock semantics</h2>
+        <span class="section-meta">Old invites stay dead</span>
+      </div>
+      <div class="callout">
+        <strong>Important.</strong> Unlocking flips <code class="inline">addMemberPolicy</code> back from
+        <code class="inline">.deny</code> but <em>does not</em> re-rotate the invite tag. Invites shared
+        before the lock remain invalid. Users must share a new invite after
+        unlocking — this is by design, so that the lock's "invalidate everything
+        shared so far" property cannot be undone by accident.
+      </div>
+    </section>
+
+    <!-- 05 — Permissions -->
+    <section class="section" id="permissions">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Who can toggle</h2>
+        <span class="section-meta">superAdmin only</span>
+      </div>
+      <div class="article">
+        <p>
+          Only members with the <code class="inline">superAdmin</code> XMTP role can lock or unlock,
+          matching the gating used for other irreversible actions (remove
+          members, explode). The check is enforced in
+          <code class="inline">ConversationViewModel.canToggleLock</code>, which reads
+          <code class="inline">isCurrentUserSuperAdmin</code> from the conversation's member roster.
+        </p>
+      </div>
+    </section>
+
+    <!-- 06 — UI surfaces -->
+    <section class="section" id="ui">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>UI surfaces</h2>
+        <span class="section-meta">Where the lock state shows up</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Surface</th><th>Behavior when locked</th></tr></thead>
+        <tbody>
+          <tr><td>Toolbar</td><td>Lock icon replaces the share icon. Tap opens an info sheet.</td></tr>
+          <tr><td>Info sheet</td><td>Super-admin sees "Unlock"; everyone else sees "Got it".</td></tr>
+          <tr><td>Conversation info / settings</td><td>Lock toggle row.</td></tr>
+          <tr><td>Invite card</td><td>Hidden when locked — there's nothing useful to share.</td></tr>
+          <tr><td>Confirmation</td><td>Super-admin sees a confirmation sheet before locking.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 07 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>DB column</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Database Models/DBConversation.swift</td></tr>
+          <tr><td>Lock / unlock writer</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift</td></tr>
+          <tr><td>Sync derivation</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift</td></tr>
+          <tr><td>Invite-tag rotation</td><td class="mono">ConvosCore/Sources/ConvosCore/Invites &amp; Custom Metadata/XMTPGroup+CustomMetadata.swift</td></tr>
+          <tr><td>UI gate &amp; toggle</td><td class="mono">Convos/Conversation Detail/ConversationViewModel.swift</td></tr>
+          <tr><td>Toolbar &amp; sheets</td><td class="mono">Convos/Conversation Detail/ConversationView.swift</td></tr>
+          <tr><td>Locked-state info</td><td class="mono">Convos/Conversation Detail/LockedConvoInfoView.swift</td></tr>
+          <tr><td>Lock confirmation</td><td class="mono">Convos/Conversation Detail/LockConvoConfirmationView.swift</td></tr>
+          <tr><td>Tests</td><td class="mono">ConvosCore/Tests/ConvosCoreTests/LockConversationTests.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./001-invite-system-architecture.html">ADR 001 — Invites →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

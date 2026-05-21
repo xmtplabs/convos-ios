@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 005 — Member Profile System · Convos Docs</title>
+  <meta name="description" content="One global profile per user. Per-conversation profiles on the wire. Activate-sync propagates global changes into each conversation the next time it becomes active." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 005 · Profiles</div>
+      <h1>Member profile system.</h1>
+      <p class="lede">
+        Each user has a single <strong>global profile</strong> on device. It seeds every new
+        conversation, and propagates into existing conversations the next time
+        each one becomes active. On the wire, profiles are still per-conversation
+        XMTP messages — the global profile never leaves the device.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#shape"><span class="n">01</span> Shape</a>
+        <a href="#messages"><span class="n">02</span> Wire messages</a>
+        <a href="#global"><span class="n">03</span> Global profile</a>
+        <a href="#sync"><span class="n">04</span> Activate-sync</a>
+        <a href="#resolution"><span class="n">05</span> Resolution</a>
+        <a href="#snapshots"><span class="n">06</span> Snapshots</a>
+        <a href="#avatars"><span class="n">07</span> Encrypted avatars</a>
+        <a href="#privacy"><span class="n">08</span> Privacy model</a>
+        <a href="#code"><span class="n">09</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Shape -->
+    <section class="section" id="shape">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Shape of the system</h2>
+        <span class="section-meta">Global vs. per-conversation</span>
+      </div>
+      <div class="article">
+        <p>
+          Conceptually, profiles live in two places. The <strong>global profile</strong>
+          (<code class="inline">DBMyProfile</code>) is the user's single source of truth — the name and
+          avatar they expect to show by default. The <strong>per-conversation profile</strong>
+          (<code class="inline">DBMemberProfile</code>, one row per <code class="inline">(conversationId, inboxId)</code>) is what
+          peers actually see, and what the wire formats serialize. The global
+          profile never leaves the device.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Two storage tiers</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">Local only</span>
+            <span class="name">DBMyProfile · global</span>
+            <span class="detail">Raw image bytes, content digest, asset id, metadata, updatedAt. Never transmitted.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">On the wire</span>
+            <span class="name">DBMemberProfile · per (conversationId, inboxId)</span>
+            <span class="detail">Name, encrypted avatar URL + salt + nonce, MemberKind, metadata, imageSourceContentDigest.</span>
+          </div>
+        </div>
+      </div>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>Forward-looking.</strong> The per-conversation row carries an
+        <code class="inline">imageSourceContentDigest</code> field. When that field is <code class="inline">nil</code>, the
+        row is treated as a per-conversation override (the user explicitly picked
+        a different photo just for this conversation) and is not overwritten by
+        activate-sync. The UI doesn't surface that path yet — the field exists so
+        the model can absorb a future "nickname / different photo per
+        conversation" feature without a schema change.
+      </div>
+    </section>
+
+    <!-- 02 — Wire messages -->
+    <section class="section" id="messages">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Wire messages</h2>
+        <span class="section-meta">Two XMTP content types, both silent</span>
+      </div>
+      <div class="article">
+        <p>
+          Profile data travels as XMTP group messages, not via the conversation's
+          shared <code class="inline">appData</code> field. Two codecs do all the work, both with
+          <code class="inline">shouldPush = false</code> so they don't surface a notification.
+        </p>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Codec</th><th>Content type</th><th>Sent when</th><th>Payload</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="mono">ProfileUpdateCodec</span></td>
+            <td><span class="mono">convos.org/profile_update · v1.0</span></td>
+            <td>A member changes their own profile.</td>
+            <td>Optional name, encrypted image ref, MemberKind, metadata. Empty payload clears the profile.</td>
+          </tr>
+          <tr>
+            <td><span class="mono">ProfileSnapshotCodec</span></td>
+            <td><span class="mono">convos.org/profile_snapshot · v1.0</span></td>
+            <td>After group creation, after <code class="inline">addMembers</code>, after accepting a join request.</td>
+            <td>Every current member's profile in one envelope — solves MLS forward-secrecy gaps for new joiners.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          A sender's inbox ID is taken from the XMTP message envelope, never from
+          the payload — impersonation is structurally prevented. The encrypted
+          avatar reference is just <code class="inline">{url, salt, nonce}</code>; the key lives
+          in the group's encrypted metadata (see <a href="./009-encrypted-conversation-images.html">ADR 009</a>).
+        </p>
+      </div>
+    </section>
+
+    <!-- 03 — Global profile -->
+    <section class="section" id="global">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Global profile</h2>
+        <span class="section-meta">DBMyProfile · local-only</span>
+      </div>
+      <div class="article">
+        <p>
+          One row in <code class="inline">DBMyProfile</code>, keyed by <code class="inline">inboxId</code>. The image
+          lives as raw bytes; a SHA-256 over the bytes (<code class="inline">imageContentDigest</code>)
+          is the canonical identity used to detect changes. The
+          <code class="inline">imageAssetIdentifier</code> is the PHAsset id, used only to preselect the
+          system photo picker.
+        </p>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Field</th><th>Type</th><th>Role</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">inboxId</td><td class="mono">String</td><td>Primary key (one row per identity).</td></tr>
+          <tr><td class="mono">name</td><td class="mono">String?</td><td>Display name.</td></tr>
+          <tr><td class="mono">imageData</td><td class="mono">Data?</td><td>Raw avatar bytes (encrypted at rest by SQLCipher).</td></tr>
+          <tr><td class="mono">imageContentDigest</td><td class="mono">String?</td><td>SHA-256 base64 — the sync identity for the avatar.</td></tr>
+          <tr><td class="mono">imageAssetIdentifier</td><td class="mono">String?</td><td>PHAsset id; preselects the picker, not a sync key.</td></tr>
+          <tr><td class="mono">metadata</td><td class="mono">ProfileMetadata?</td><td>JSON map of typed key-value pairs.</td></tr>
+          <tr><td class="mono">updatedAt</td><td class="mono">Date</td><td>Used for ordering and for skipping no-op syncs.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 04 — Activate-sync -->
+    <section class="section" id="sync">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Activate-sync</h2>
+        <span class="section-meta">Propagating the global profile on demand</span>
+      </div>
+      <div class="article">
+        <p>
+          When a conversation transitions to <code class="inline">.ready</code>,
+          <code class="inline">ConversationStateManager.scheduleProfileSync</code> hands the work to
+          <code class="inline">ProfileSyncCoordinator</code> — an actor keyed by <code class="inline">conversationId</code> so
+          two syncs for the same conversation cannot race. The coordinator runs
+          <code class="inline">MyProfileWriter.syncFromGlobalProfile</code>:
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Sync</span>
+          <span class="seq-msg">Compare <code class="inline">global.name</code> to the per-conversation <code class="inline">member.name</code>.<span class="meta">If different, send a <code class="inline">ProfileUpdate</code> with the new name.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Sync</span>
+          <span class="seq-msg">Compare <code class="inline">global.imageContentDigest</code> to <code class="inline">member.imageSourceContentDigest</code>.<span class="meta">If they differ, re-upload the new avatar from the global bytes and stamp the new digest into the row.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Sync</span>
+          <span class="seq-msg">If the global avatar was cleared and the member still has one, propagate the removal.<span class="meta">An override row (<code class="inline">imageSourceContentDigest == nil</code>) is left alone.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor other">Stream</span>
+          <span class="seq-msg">Peers process the <code class="inline">ProfileUpdate</code> via <code class="inline">StreamProcessor</code> and upsert their <code class="inline">DBMemberProfile</code> row.<span class="meta">UI observes the GRDB change and re-renders the member's name and avatar.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 — Resolution -->
+    <section class="section" id="resolution">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Resolution precedence</h2>
+        <span class="section-meta">How a peer's profile is computed locally</span>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Priority</th><th>Source</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Latest <code class="inline">ProfileUpdate</code> from that member</td><td>Self-authored — highest authority.</td></tr>
+          <tr><td>2</td><td>Most recent <code class="inline">ProfileSnapshot</code> containing the member</td><td>Fallback when no individual update has been seen.</td></tr>
+          <tr><td>3</td><td>Legacy <code class="inline">appData</code> profile</td><td>Gap-fill for clients that only wrote the legacy format.</td></tr>
+          <tr><td>4</td><td>No profile</td><td>Member has no name or avatar set.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 06 — Snapshots -->
+    <section class="section" id="snapshots">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Snapshots</h2>
+        <span class="section-meta">Closing the forward-secrecy gap</span>
+      </div>
+      <div class="article">
+        <p>
+          MLS forward secrecy means a fresh joiner may not be able to decrypt
+          older messages, including past <code class="inline">ProfileUpdate</code>s. A
+          <code class="inline">ProfileSnapshot</code> sent <em>after</em> the joiner is added contains every
+          current member's profile in one envelope — they get the full picture
+          without needing to replay history.
+        </p>
+        <p>
+          <code class="inline">ProfileSnapshotBuilder</code> scans up to <strong>500 messages</strong> (descending) to
+          assemble the snapshot, applying the resolution table above for each
+          member. Snapshots are sent at three points: group creation, after
+          <code class="inline">addMembers</code>, and after an invite is accepted.
+        </p>
+      </div>
+    </section>
+
+    <!-- 07 — Encrypted avatars -->
+    <section class="section" id="avatars">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Encrypted avatars</h2>
+        <span class="section-meta">AES-256-GCM, key lives in the group</span>
+      </div>
+      <div class="article">
+        <p>
+          Avatars are resized, JPEG-compressed, then encrypted with AES-256-GCM
+          under a key derived from the group's <code class="inline">imageEncryptionKey</code> via HKDF
+          with a per-image salt. The ciphertext is uploaded to S3; the wire
+          message carries only <code class="inline">{url, salt, nonce}</code>. The key itself never
+          travels in <code class="inline">ProfileUpdate</code> or <code class="inline">ProfileSnapshot</code> — it lives in the
+          conversation's encrypted metadata.
+        </p>
+        <p>
+          Loading is handled by <code class="inline">EncryptedImageLoader</code> with a three-tier cache
+          (memory → disk → network), keyed by SHA-256 of the ciphertext for
+          deduplication. See <a href="./009-encrypted-conversation-images.html">ADR 009</a>
+          for the full encryption story.
+        </p>
+      </div>
+    </section>
+
+    <!-- 08 — Privacy model -->
+    <section class="section" id="privacy">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Privacy model</h2>
+        <span class="section-meta">Current posture</span>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Property</th><th>Guarantee</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Global-profile detection by peers</td>
+            <td>The global profile is local-only. Peers only see the per-conversation <code class="inline">ProfileUpdate</code>; they can't tell it came from a preset rather than typed in.</td>
+          </tr>
+          <tr>
+            <td>Profile scope</td>
+            <td>Visible only to members of that conversation. There is no profile server.</td>
+          </tr>
+          <tr>
+            <td>Anonymity</td>
+            <td>Profiles are optional; users can participate with no name or avatar set.</td>
+          </tr>
+          <tr>
+            <td>Wire-level encryption</td>
+            <td>Both codecs use XMTP message encryption; the avatar ciphertext is independently AES-GCM encrypted.</td>
+          </tr>
+          <tr>
+            <td>Cross-conversation linkability</td>
+            <td>Per-conversation rows are independent, but the underlying <code class="inline">inboxId</code> is shared across the user's conversations (see <a href="./011-single-inbox-identity-model.html">ADR 011</a>). A peer who sees the user in two conversations can correlate via that ID.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 09 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">09</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Where the contract lives</span>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 8px 0 8px; color: var(--color-foreground-tertiary);">Profile package — ConvosCore/Profiles</h3>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Protobuf schema</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/Proto/profile_messages.proto</td></tr>
+          <tr><td>ProfileUpdate codec</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/ProfileMessages/ProfileUpdateCodec.swift</td></tr>
+          <tr><td>ProfileSnapshot codec</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/ProfileMessages/ProfileSnapshotCodec.swift</td></tr>
+          <tr><td>Snapshot builder (500-message scan)</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/ProfileMessages/ProfileSnapshotBuilder.swift</td></tr>
+          <tr><td>Avatar encryption (AES-256-GCM)</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/Crypto/ImageEncryption.swift</td></tr>
+          <tr><td>Encrypted image loader</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/Crypto/EncryptedImageLoader.swift</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="t-eyebrow" style="margin: 24px 0 8px; color: var(--color-foreground-tertiary);">Storage &amp; sync</h3>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>DB · global profile</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Database Models/DBMyProfile.swift</td></tr>
+          <tr><td>DB · per-conversation profile</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Database Models/DBMemberProfile.swift</td></tr>
+          <tr><td>Global profile writes</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/MyGlobalProfileWriter.swift</td></tr>
+          <tr><td>Activate-sync entry</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift</td></tr>
+          <tr><td>Sync serialization (actor)</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ProfileSyncCoordinator.swift</td></tr>
+          <tr><td>Scheduler hook</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationStateManager.swift</td></tr>
+          <tr><td>Stream-side upsert</td><td class="mono">ConvosCore/Sources/ConvosCore/Syncing/StreamProcessor.swift</td></tr>
+          <tr><td>Snapshot send · join accepted</td><td class="mono">ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift</td></tr>
+          <tr><td>Snapshot send · post-addMembers</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="t-eyebrow" style="margin: 24px 0 8px; color: var(--color-foreground-tertiary);">UI</h3>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Global profile editor</td><td class="mono">Convos/Profile/ProfileSettingsViewModel.swift</td></tr>
+          <tr><td>Per-conversation editor</td><td class="mono">Convos/Profile/MyProfileViewModel.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./009-encrypted-conversation-images.html">ADR 009 — Encrypted Conversation Images →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

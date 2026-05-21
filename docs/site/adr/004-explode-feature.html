@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 004 — Explode · Convos Docs</title>
+  <meta name="description" content="Convos explode is remove-all-then-leave at the MLS group layer. The creator broadcasts ExplodeSettings, removes every other member, then leaves. Receivers drop the conversation on either trigger." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 004 · Conversations</div>
+      <h1>Explode.</h1>
+      <p class="lede">
+        A creator can permanently dissolve a group. The mechanism is
+        <strong>remove-all-then-leave</strong> at the MLS group layer: send the
+        <code class="inline">ExplodeSettings</code> message, remove every other member, then leave.
+        Either trigger — the message or the MLS "removed" commit — is enough for a
+        receiver to drop the conversation locally.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#what"><span class="n">01</span> What explode is</a>
+        <a href="#sender"><span class="n">02</span> Sender flow</a>
+        <a href="#message"><span class="n">03</span> ExplodeSettings</a>
+        <a href="#receiver"><span class="n">04</span> Receiver flow</a>
+        <a href="#worker"><span class="n">05</span> Worker</a>
+        <a href="#scope"><span class="n">06</span> What is &amp; isn't touched</a>
+        <a href="#scheduled"><span class="n">07</span> Scheduled explode</a>
+        <a href="#trust"><span class="n">08</span> Trust model</a>
+        <a href="#code"><span class="n">09</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — What explode is -->
+    <section class="section" id="what">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>What explode is</h2>
+        <span class="section-meta">A protocol-layer dissolution, not a key wipe</span>
+      </div>
+      <div class="article">
+        <p>
+          Explode runs entirely at the MLS group layer. The creator broadcasts a
+          custom <code class="inline">ExplodeSettings</code> content type with a push payload, removes
+          every other member from the group, then leaves it. After the leave
+          commit, there is nothing left of the group on the network: no members,
+          no admin, no commit head, nothing to resync against. Locally, every
+          participant's <code class="inline">expiresAt</code> filter hides the conversation from the UI.
+        </p>
+        <p>
+          Keychain material is never touched. The guarantee is
+          <strong>"messages are gone from the local database of every participant
+          that applied the commit"</strong>, not cryptographic finality.
+        </p>
+      </div>
+    </section>
+
+    <!-- 02 — Sender flow -->
+    <section class="section" id="sender">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Sender flow</h2>
+        <span class="section-meta">ConversationExplosionWriter.explodeConversation</span>
+      </div>
+      <div class="article">
+        <p>
+          The call order is pinned by tests and reached through the
+          <code class="inline">ExplodeGroupOperationsProtocol</code> seam so the MLS operations are
+          unit-testable without an XMTP fixture.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Creator</span>
+          <span class="seq-msg">Read <code class="inline">currentInboxId</code> for the gating check (only the creator can explode).</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Creator</span>
+          <span class="seq-msg">Call <code class="inline">sendExplode(expiresAt:)</code> — sends the <code class="inline">ExplodeSettings</code> message with <code class="inline">shouldPush = true</code>.<span class="meta">Sent first so offline members get a push notification even if the subsequent removal fails.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Creator</span>
+          <span class="seq-msg">Update local <code class="inline">DBConversation.expiresAt</code> to now.<span class="meta">The conversation immediately drops out of the UI via <code class="inline">ConversationsRepository</code>'s <code class="inline">expiresAt == nil || expiresAt &gt; Date()</code> filter.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">Creator</span>
+          <span class="seq-msg"><code class="inline">metadataWriter.removeMembers(…)</code> on every other member.<span class="meta">Emits MLS <code class="inline">GroupUpdated</code> events so peers who missed the <code class="inline">ExplodeSettings</code> still see they were removed.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor">Creator</span>
+          <span class="seq-msg"><code class="inline">group.leaveGroup()</code> — the creator exits last.<span class="meta">Fallback: if <code class="inline">leaveGroup()</code> throws, <code class="inline">denyConsent</code> on the conversation so it can't resync.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 — ExplodeSettings -->
+    <section class="section" id="message">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>ExplodeSettings message</h2>
+        <span class="section-meta">Custom XMTP content type</span>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Field</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Authority</td><td class="mono">convos.org</td></tr>
+          <tr><td>Type id</td><td class="mono">explode_settings</td></tr>
+          <tr><td>Version</td><td class="mono">1.0</td></tr>
+          <tr><td>Payload</td><td>JSON <code class="inline">{ expiresAt: ISO-8601 }</code></td></tr>
+          <tr><td>Push</td><td><code class="inline">shouldPush = true</code> — offline devices wake to apply the change.</td></tr>
+          <tr><td>Fallback</td><td>"Conversation expires at &lt;date&gt;" — readable to clients that don't recognize the codec.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 04 — Receiver flow -->
+    <section class="section" id="receiver">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Receiver flow</h2>
+        <span class="section-meta">Two triggers, one outcome</span>
+      </div>
+      <div class="article">
+        <p>
+          A receiver hides the conversation as soon as <em>either</em> signal arrives.
+          The creator fires both precisely so a lost push or an out-of-order
+          delivery still converges via the MLS commit stream.
+        </p>
+      </div>
+      <div class="diagram" style="margin-bottom: 16px;">
+        <svg viewBox="0 0 880 200" width="880" height="200" role="img" aria-label="Two receiver triggers: ExplodeSettings message and MLS removed commit">
+          <defs>
+            <marker id="exp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M270,48 L306,48" marker-end="url(#exp-arrow)"/>
+          <path class="edge" d="M270,152 L306,152" marker-end="url(#exp-arrow)"/>
+          <g>
+            <rect class="box hot" x="10" y="16" width="260" height="64" rx="10"/>
+            <text class="sub center brand" x="140" y="38">Trigger A</text>
+            <text class="lbl center" x="140" y="60">ExplodeSettings message</text>
+          </g>
+          <g>
+            <rect class="box" x="310" y="16" width="560" height="64" rx="10"/>
+            <text class="sub center" x="590" y="38">Writer</text>
+            <text class="lbl center" x="590" y="60">IncomingMessageWriter.processExplodeSettings</text>
+          </g>
+          <g>
+            <rect class="box hot" x="10" y="120" width="260" height="64" rx="10"/>
+            <text class="sub center brand" x="140" y="142">Trigger B</text>
+            <text class="lbl center" x="140" y="164">MLS "removed" commit</text>
+          </g>
+          <g>
+            <rect class="box" x="310" y="120" width="560" height="64" rx="10"/>
+            <text class="sub center" x="590" y="142">Branch</text>
+            <text class="lbl center" x="590" y="164">wasRemovedFromConversation</text>
+          </g>
+        </svg>
+      </div>
+      <div class="article">
+        <h3>On <code class="inline">ExplodeSettings</code></h3>
+        <p>
+          <code class="inline">IncomingMessageWriter.processExplodeSettings</code> writes <code class="inline">expiresAt</code> to
+          the row. If the timestamp is in the past, it posts
+          <code class="inline">.conversationExpired</code> for immediate cleanup. If it's in the future
+          (scheduled explode), it posts <code class="inline">.conversationScheduledExplosion</code> so the
+          worker can arm a timer. Either way, the UI's <code class="inline">expiresAt</code> filter only
+          hides the row once <code class="inline">expiresAt &lt;= now</code>.
+        </p>
+        <h3>On the MLS "removed" event</h3>
+        <p>
+          When the current inbox appears in the commit's <code class="inline">removedInboxIds</code>,
+          <code class="inline">conversation.postLeftConversationNotification()</code> fires. The UI removes
+          the row from the list. Same end state as the message path, just a
+          different trigger.
+        </p>
+      </div>
+    </section>
+
+    <!-- 05 — Worker -->
+    <section class="section" id="worker">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>ExpiredConversationsWorker</h2>
+        <span class="section-meta">The reaper</span>
+      </div>
+      <div class="article">
+        <p>
+          The worker is the single owner of cleanup for expired rows. It listens
+          for four signals and re-runs the cleanup query on each: app foreground,
+          <code class="inline">.conversationExpired</code>, <code class="inline">.conversationScheduledExplosion</code>, and
+          <code class="inline">.explosionNotificationTapped</code> (the user tapped the explode push).
+        </p>
+        <p>
+          The cleanup query is the soft-delete filter inverted —
+          <code class="inline">expiresAt &lt;= now</code> rows are eligible for hard deletion of associated
+          messages, members, profiles, and invites. Under single-inbox identity
+          (<a href="./011-single-inbox-identity-model.html">ADR 011</a>) the worker
+          never touches the keychain or the XMTP database; it scopes deletions to
+          the conversation row and its dependencies.
+        </p>
+      </div>
+    </section>
+
+    <!-- 06 — What is/isn't touched -->
+    <section class="section" id="scope">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>What is &amp; isn't touched</h2>
+        <span class="section-meta">Single-inbox scope rules</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Side</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td>Touched</td><td>The conversation row, its messages, members, profiles, invites, and any local state keyed to it.</td></tr>
+          <tr><td>Touched</td><td>MLS group state on the network — removed members + creator leave commit.</td></tr>
+          <tr><td>Not touched</td><td>Keychain identity. There is exactly one, shared with every other conversation.</td></tr>
+          <tr><td>Not touched</td><td>The XMTP database file — it still holds other conversations.</td></tr>
+          <tr><td>Not touched</td><td>The <code class="inline">DBInbox</code> row — there's only one and it represents the user.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 07 — Scheduled -->
+    <section class="section" id="scheduled">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Scheduled explode</h2>
+        <span class="section-meta">Future-dated expirations</span>
+      </div>
+      <div class="article">
+        <p>
+          The <code class="inline">scheduleExplosion</code> path sends an <code class="inline">ExplodeSettings</code> with a
+          future <code class="inline">expiresAt</code> and otherwise leaves the group in place. When the
+          timer fires in <code class="inline">ExpiredConversationsWorker</code>, the local app posts
+          <code class="inline">.conversationExpired</code> and the conversation is filtered out of the UI.
+          The creator does not leave the group on the network at that point; the
+          scheduled path currently relies on every member applying
+          <code class="inline">expiresAt</code> locally.
+        </p>
+      </div>
+    </section>
+
+    <!-- 08 — Trust model -->
+    <section class="section" id="trust">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Trust model</h2>
+        <span class="section-meta">What the mechanism does and doesn't enforce</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Threat</th><th>Mitigation</th></tr></thead>
+        <tbody>
+          <tr><td>Honest peers fail to delete</td><td>None needed — the MLS remove + leave commits make the group state unrecoverable on the network.</td></tr>
+          <tr><td>Offline peer misses the explode</td><td>Push notification (<code class="inline">shouldPush = true</code>) wakes them; on next app launch the worker reconciles either trigger.</td></tr>
+          <tr><td>Out-of-order delivery</td><td>Either trigger (message or MLS remove) is sufficient; whichever arrives first wins.</td></tr>
+          <tr><td>Duplicate explode messages</td><td>Idempotency check: rows already with <code class="inline">expiresAt</code> set are not re-stamped.</td></tr>
+          <tr><td>Malicious peer keeps ciphertext</td><td>Not enforceable — see "What is &amp; isn't touched". Encrypted message content may exist in third-party backups or modified clients.</td></tr>
+          <tr><td>System caches retain message text</td><td>Not enforceable — iOS may keep notification text briefly after deletion.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 09 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">09</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Sender writer (pinned call order)</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationExplosionWriter.swift</td></tr>
+          <tr><td>MLS seam</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ExplodeGroupOperationsProtocol.swift</td></tr>
+          <tr><td>Custom content codec</td><td class="mono">ConvosCore/Sources/ConvosCore/Custom Content Types/ExplodeSettingsCodec.swift</td></tr>
+          <tr><td>Receiver dispatch</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/IncomingMessageWriter.swift</td></tr>
+          <tr><td>Cleanup worker</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Workers/ExpiredConversationsWorker.swift</td></tr>
+          <tr><td>Soft-delete filter</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Repositories/ConversationsRepository.swift</td></tr>
+          <tr><td>Stream routing</td><td class="mono">ConvosCore/Sources/ConvosCore/Syncing/StreamProcessor.swift</td></tr>
+          <tr><td>Sender tests (call order, fallback)</td><td class="mono">ConvosCore/Tests/ConvosCoreTests/ConversationExplosionWriterTests.swift</td></tr>
+          <tr><td>Receiver tests</td><td class="mono">ConvosCore/Tests/ConvosCoreTests/IncomingMessageWriterExplodeTests.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./011-single-inbox-identity-model.html">ADR 011 — Identity →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Design Library — Convos Docs</title>
+  <meta name="description" content="Tokens, type ladder, components, and diagram primitives used across the Convos iOS documentation." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="./index.html" class="active">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> Design library · v0.1</div>
+      <h1>The components, tokens, and diagram primitives behind every Convos doc page.</h1>
+      <p class="lede">
+        This page exists so reviewers can see — at a glance — the visual contract
+        that documentation pages render against. Anything used in an article should
+        appear here first.
+      </p>
+      <div class="hero-meta">
+        <span>Tokens mirror <code class="inline">convos-assistants</code></span>
+        <span class="pipe">·</span>
+        <span>Layout inspired by <a href="https://thariqs.github.io/html-effectiveness/" target="_blank" rel="noopener">html-effectiveness</a></span>
+        <span class="pipe">·</span>
+        <span>Last updated 2026-05-21</span>
+      </div>
+    </section>
+
+    <!-- 01 — Color -->
+    <section class="section" id="color">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Color</h2>
+        <span class="section-meta">brand · text · surface · semantic</span>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 12px 0 8px; color: var(--color-foreground-tertiary);">Brand &amp; semantic</h3>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-brand);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Brand</div><div class="swatch-token">--color-brand · #FC4F37</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-brand-hover);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Brand hover</div><div class="swatch-token">--color-brand-hover · #D9412D</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-success);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Success</div><div class="swatch-token">--color-success · #16A34A</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-error);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Error</div><div class="swatch-token">--color-error · #DC2626</div></div>
+        </div>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 24px 0 8px; color: var(--color-foreground-tertiary);">Text</h3>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-foreground);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Foreground</div><div class="swatch-token">--color-foreground · #000000</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-foreground-secondary);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Secondary</div><div class="swatch-token">--color-foreground-secondary · #666666</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-foreground-tertiary);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Tertiary</div><div class="swatch-token">--color-foreground-tertiary · #B2B2B2</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-foreground-inactive);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Inactive</div><div class="swatch-token">--color-foreground-inactive · #D9D9D9</div></div>
+        </div>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 24px 0 8px; color: var(--color-foreground-tertiary);">Surface &amp; edge</h3>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-surface); border-bottom: 1px solid var(--color-edge);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Surface</div><div class="swatch-token">--color-surface · #FFFFFF</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-surface-muted);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Surface muted</div><div class="swatch-token">--color-surface-muted · #F5F5F5</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-edge);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Edge</div><div class="swatch-token">--color-edge · #EBEBEB</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch-color" style="background: var(--color-edge-muted);"></div>
+          <div class="swatch-meta"><div class="swatch-name">Edge muted</div><div class="swatch-token">--color-edge-muted · #F0F0F0</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Type -->
+    <section class="section" id="type">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Typography</h2>
+        <span class="section-meta">Inter, falling back to SF Pro</span>
+      </div>
+      <div class="type-rows">
+        <div class="type-row"><div class="label">display · 56 / 60</div><div class="t-display">Conversations, ephemerally yours.</div></div>
+        <div class="type-row"><div class="label">h1 · 40 / 44</div><div class="t-h1">Decentralized invites with cryptographic tokens.</div></div>
+        <div class="type-row"><div class="label">h2 · 28 / 34</div><div class="t-h2">The inbox lifecycle keeps device pressure bounded.</div></div>
+        <div class="type-row"><div class="label">h3 · 20 / 28</div><div class="t-h3">Why we superseded the per-conversation identity model.</div></div>
+        <div class="type-row"><div class="label">body · 17 / 26</div><div class="t-body">XMTP is the substrate; Convos layers identity, lifecycle, and metadata semantics on top. Every doc page on this site explains one such layer.</div></div>
+        <div class="type-row"><div class="label">callout · 16 / 24</div><div class="t-callout">Use callout for sub-decks under a heading — the size where one sentence carries weight without crowding the column.</div></div>
+        <div class="type-row"><div class="label">subheadline · 15 / 22</div><div class="t-subheadline">Subheadline labels chart axes, table cells, and the second tier of card metadata.</div></div>
+        <div class="type-row"><div class="label">footnote · 13 / 18</div><div class="t-footnote">Footnote handles citations, caveats, and small-print under diagrams. Always paired with secondary or tertiary color.</div></div>
+        <div class="type-row"><div class="label">caption · 12 / 16</div><div class="t-caption">Caption — file paths, timestamps, axis ticks.</div></div>
+        <div class="type-row"><div class="label">eyebrow · 11 / 14 · uppercase</div><div class="t-eyebrow">Status · Last reviewed · Owner</div></div>
+      </div>
+    </section>
+
+    <!-- 03 — Status pills -->
+    <section class="section" id="status">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Status</h2>
+        <span class="section-meta">ADR lifecycle states</span>
+      </div>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pill" data-status="proposed"><span class="pill-dot"></span>Proposed</span>
+        <span class="pill" data-status="superseded"><span class="pill-dot"></span>Superseded</span>
+        <span class="pill" data-status="deprecated"><span class="pill-dot"></span>Deprecated</span>
+      </div>
+    </section>
+
+    <!-- 04 — Cards -->
+    <section class="section" id="cards">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Index cards</h2>
+        <span class="section-meta">used in the table of contents</span>
+      </div>
+      <div class="card-grid" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+        <a class="card" href="#">
+          <div class="card-num">01</div>
+          <div class="card-title">Decentralized Invite System</div>
+          <div class="card-desc">Signed tokens, invite tags, and the join-request DM that lets two strangers shake hands without a server.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="#">
+          <div class="card-num">02</div>
+          <div class="card-title">Per-Conversation Identity Model</div>
+          <div class="card-desc">The original isolation design — one XMTP inbox per conversation — and why we walked it back to a single inbox.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="superseded"><span class="pill-dot"></span>Superseded by 011</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- 05 — Callouts -->
+    <section class="section" id="callouts">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Callouts</h2>
+        <span class="section-meta">Inline emphasis inside long-form docs</span>
+      </div>
+      <div class="callout">
+        <strong>Note.</strong> Under the single-inbox model (ADR 011) an invite slug
+        reveals the inviter's global inbox ID. The privacy posture of the invite
+        token is tracked as a follow-up.
+      </div>
+    </section>
+
+    <!-- 06 — Diagram primitives -->
+    <section class="section" id="diagrams">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Diagram primitives</h2>
+        <span class="section-meta">Nodes and flows for inline architecture diagrams</span>
+      </div>
+
+      <div class="diagram" style="margin-bottom: 16px;">
+        <svg viewBox="0 0 720 96" width="720" height="96" role="img" aria-label="Demo: inviter to signed invite token to joiner">
+          <defs>
+            <marker id="demo1-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M230,48 L266,48" marker-end="url(#demo1-arrow)"/>
+          <path class="edge" d="M490,48 L526,48" marker-end="url(#demo1-arrow)"/>
+          <g>
+            <rect class="box hot" x="10" y="16" width="220" height="64" rx="10"/>
+            <text class="sub center brand" x="120" y="38">Inviter</text>
+            <text class="lbl center" x="120" y="60">Convos iOS · inbox A</text>
+          </g>
+          <g>
+            <rect class="box" x="270" y="16" width="220" height="64" rx="10"/>
+            <text class="sub center" x="380" y="38">Wire</text>
+            <text class="lbl center" x="380" y="60">Signed invite token</text>
+          </g>
+          <g>
+            <rect class="box" x="530" y="16" width="180" height="64" rx="10"/>
+            <text class="sub center" x="620" y="38">Joiner</text>
+            <text class="lbl center" x="620" y="60">Convos iOS · inbox B</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="diagram">
+        <svg viewBox="0 0 720 96" width="720" height="96" role="img" aria-label="Demo: three node types — ghost, plain, brand">
+          <g>
+            <rect class="box ghost" x="10" y="16" width="220" height="64" rx="10"/>
+            <text class="sub center" x="120" y="38">Optional</text>
+            <text class="lbl center" x="120" y="60">Public preview image</text>
+          </g>
+          <g>
+            <rect class="box" x="250" y="16" width="220" height="64" rx="10"/>
+            <text class="sub center" x="360" y="38">Required</text>
+            <text class="lbl center" x="360" y="60">Encrypted group image</text>
+          </g>
+          <g>
+            <rect class="box hot" x="490" y="16" width="220" height="64" rx="10"/>
+            <text class="sub center brand" x="600" y="38">Storage</text>
+            <text class="lbl center" x="600" y="60">S3 + lifecycle</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 07 — Footer -->
+    <footer class="footer">
+      <span>Convos Docs · design library</span>
+      <span class="spacer"></span>
+      <span><a href="../index.html">← Back to index</a></span>
+    </footer>
+  </main>
+</body>
+</html>

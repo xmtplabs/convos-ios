@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 008 — Asset Lifecycle &amp; Renewal · Convos Docs</title>
+  <meta name="description" content="One S3 lifecycle rule, no bucket prefixes, no asset-type leak. Profile and group images are renewed by the client every ~15 days; chat images expire after 30." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 008 · Storage</div>
+      <h1>Asset lifecycle &amp; renewal.</h1>
+      <p class="lede">
+        Every S3 object expires 30 days after upload. The client renews profile
+        and group images every ~15 days by re-uploading; chat images are never
+        renewed and fall off the cliff. No prefixes, no tags — asset type is
+        invisible in URL structure.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#shape"><span class="n">01</span> Shape</a>
+        <a href="#renewal"><span class="n">02</span> Renewal</a>
+        <a href="#api"><span class="n">03</span> API contract</a>
+        <a href="#expired"><span class="n">04</span> Expired recovery</a>
+        <a href="#tradeoffs"><span class="n">05</span> Tradeoffs</a>
+        <a href="#code"><span class="n">06</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Shape -->
+    <section class="section" id="shape">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Shape of the system</h2>
+        <span class="section-meta">One bucket, one rule</span>
+      </div>
+      <div class="article">
+        <p>
+          The bucket has a single lifecycle rule: every object expires after
+          30 days from upload, measured at the S3 layer via <code class="inline">LastModified</code>.
+          No prefix or tag is used to classify asset type, so a URL gives away
+          nothing about whether it points at a chat image, a profile avatar, or
+          a group photo. The only way to keep an object alive past 30 days is to
+          upload its ciphertext again as a new object.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Lifecycle by asset class</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">Chat images</span>
+            <span class="name">Never renewed</span>
+            <span class="detail">Fall off after 30 days. Conversations remain readable; the inline image becomes a placeholder.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Profile avatars</span>
+            <span class="name">Renewed ~ every 15 days</span>
+            <span class="detail">Stay alive while the user opens the app at least once per renewal window.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Group images</span>
+            <span class="name">Renewed ~ every 15 days</span>
+            <span class="detail">Same cadence as avatars; renewal is keyed off the asset, not the conversation.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Renewal -->
+    <section class="section" id="renewal">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Renewal</h2>
+        <span class="section-meta">AssetRenewalManager.performRenewalIfNeeded()</span>
+      </div>
+      <div class="article">
+        <p>
+          The renewal manager runs best-effort on app launch and on a timer
+          while the app is foreground. Each pass collects the URLs that need
+          attention via <code class="inline">AssetRenewalURLCollector</code>, then submits them in a
+          batch to the backend. Failure is non-blocking — renewal never gates
+          the rest of the app from coming up.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Client</span>
+          <span class="seq-msg"><code class="inline">performRenewalIfNeeded()</code> reads <code class="inline">defaultRenewalInterval = 15 days</code> and decides whether to run.<span class="meta">Skipped if the last successful pass was inside the interval.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Client</span>
+          <span class="seq-msg"><code class="inline">AssetRenewalURLCollector</code> walks the renewable assets (profile avatars + group images) and emits their S3 keys.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Client</span>
+          <span class="seq-msg"><code class="inline">ConvosAPIClient.renewAssetsBatch(assetKeys:)</code> → <code class="inline">POST /v2/assets/renew-batch</code>.<span class="meta">Renewal is a fresh ciphertext re-upload server-side, not a metadata stamp on the existing object.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor other">Server</span>
+          <span class="seq-msg">Returns <code class="inline">AssetRenewalResult { renewed, failed, expiredKeys }</code>.<span class="meta"><code class="inline">expiredKeys</code> lists the keys the server couldn't find — those have already aged out.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor">Client</span>
+          <span class="seq-msg">For each expired key, <code class="inline">ExpiredAssetRecoveryHandler</code> clears the local reference (UI falls back to placeholder) and, if the source bytes are still in the local cache, re-uploads to mint a fresh URL.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 — API contract -->
+    <section class="section" id="api">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>API contract</h2>
+        <span class="section-meta">renew-batch endpoint</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Method &amp; path</td><td class="mono">POST /v2/assets/renew-batch</td></tr>
+          <tr><td>Client call</td><td class="mono">ConvosAPIClient.renewAssetsBatch(assetKeys: [String])</td></tr>
+          <tr><td>Request</td><td>JSON array of S3 keys</td></tr>
+          <tr><td>Response</td><td class="mono">AssetRenewalResult { renewed: Int, failed: Int, expiredKeys: [String] }</td></tr>
+          <tr><td>Per-key outcomes</td><td>Renewed (counted in <code class="inline">renewed</code>), failed (counted, retried next pass), expired (listed in <code class="inline">expiredKeys</code>, surfaced to <code class="inline">ExpiredAssetRecoveryHandler</code>).</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 04 — Expired recovery -->
+    <section class="section" id="expired">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Expired recovery</h2>
+        <span class="section-meta">When the bytes still live locally</span>
+      </div>
+      <div class="article">
+        <p>
+          A confirmed <code class="inline">not_found</code> means the S3 object aged out before the
+          renewal pass reached it. The recovery handler clears the
+          stored URL so the UI falls back to placeholder (an emoji avatar, the
+          deterministic group emoji from <a href="./007-default-conversation-display-name.html">ADR 007</a>),
+          then checks the local cache. If the cleartext bytes are still there,
+          the handler re-encrypts and re-uploads, then stamps the new URL on the
+          owning row. If the bytes are gone, recovery ends — the user is
+          prompted to re-pick an image the next time they open the relevant
+          settings screen.
+        </p>
+      </div>
+    </section>
+
+    <!-- 05 — Tradeoffs -->
+    <section class="section" id="tradeoffs">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Tradeoffs</h2>
+        <span class="section-meta">What this design buys and costs</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Property</th><th>Posture</th></tr></thead>
+        <tbody>
+          <tr><td>Asset-type leak via URL</td><td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Protected</span></td></tr>
+          <tr><td>Storage cost on inactive users</td><td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Low</span></td></tr>
+          <tr><td>Image availability for active users</td><td><span class="pill" data-status="accepted"><span class="pill-dot"></span>Preserved by renewal</span></td></tr>
+          <tr><td>Image availability for inactive users (30+ days)</td><td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Lost; recovery via local cache</span></td></tr>
+          <tr><td>Operational complexity</td><td><span class="pill" data-status="accepted"><span class="pill-dot"></span>One lifecycle rule, no prefix taxonomy</span></td></tr>
+          <tr><td>Renewal traffic</td><td><span class="pill" data-status="superseded"><span class="pill-dot"></span>Periodic batch POST, best-effort</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 06 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Renewal scheduler &amp; entry</td><td class="mono">ConvosCore/Sources/ConvosCore/Assets/AssetRenewalManager.swift</td></tr>
+          <tr><td>Renewable-URL collection</td><td class="mono">ConvosCore/Sources/ConvosCore/Assets/AssetRenewalURLCollector.swift</td></tr>
+          <tr><td>Expired-asset cleanup &amp; reupload</td><td class="mono">ConvosCore/Sources/ConvosCore/Assets/ExpiredAssetRecoveryHandler.swift</td></tr>
+          <tr><td>HTTP transport</td><td class="mono">ConvosCore/Sources/ConvosCore/API/ConvosAPIClient.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./009-encrypted-conversation-images.html">ADR 009 — Encrypted Images →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

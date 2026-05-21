@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 009 — Encrypted Conversation Images · Convos Docs</title>
+  <meta name="description" content="One AES-256-GCM key per group encrypts every profile avatar and group image. Wire references carry only url, salt, and nonce." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 009 · Storage</div>
+      <h1>Encrypted conversation images.</h1>
+      <p class="lede">
+        Every avatar and group image is AES-256-GCM ciphertext on S3. One
+        encryption key lives in the conversation's metadata; each image has its
+        own salt and nonce. The wire reference is just <code class="inline">{ url, salt, nonce }</code>
+        — the key never travels.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#layout"><span class="n">01</span> Layout</a>
+        <a href="#encrypt"><span class="n">02</span> Encrypt pipeline</a>
+        <a href="#decrypt"><span class="n">03</span> Decrypt pipeline</a>
+        <a href="#ref"><span class="n">04</span> EncryptedImageRef</a>
+        <a href="#scope"><span class="n">05</span> Scope &amp; rotation</a>
+        <a href="#threats"><span class="n">06</span> Threats</a>
+        <a href="#code"><span class="n">07</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Layout -->
+    <section class="section" id="layout">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Layout</h2>
+        <span class="section-meta">Where keys, salts, and ciphertext each live</span>
+      </div>
+      <div class="article">
+        <p>
+          Three distinct things participate in each encrypted image. Keeping
+          them physically separate is what gives non-members no way to decrypt
+          even if they get the ciphertext URL.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Three locations</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">Group metadata</span>
+            <span class="name">imageEncryptionKey</span>
+            <span class="detail">One 32-byte key per conversation, in the encrypted MLS metadata. Visible only to members.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Wire message</span>
+            <span class="name">EncryptedImageRef · {url, salt, nonce}</span>
+            <span class="detail">Per-image. Travels in <code class="inline">ProfileUpdate</code>, <code class="inline">ProfileSnapshot</code>, and conversation metadata.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">S3</span>
+            <span class="name">Ciphertext object</span>
+            <span class="detail">Random key. No metadata or prefix that hints at owner, conversation, or asset type.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Encrypt -->
+    <section class="section" id="encrypt">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Encrypt pipeline</h2>
+        <span class="section-meta">From raw image to ref</span>
+      </div>
+      <div class="pipeline">
+        <div class="stage">
+          <span class="stage-num">01 · RESIZE</span>
+          <span class="stage-title">Compress to JPEG</span>
+          <span class="stage-desc">Cap dimensions and quality before encryption to keep ciphertext bounded.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">02 · DERIVE</span>
+          <span class="stage-title">HKDF-SHA256</span>
+          <span class="stage-desc">Mix group key with a random 32-byte salt to derive the per-image AES key.</span>
+          <span class="stage-bits">key = HKDF(group.imageEncryptionKey, salt)</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">03 · ENCRYPT</span>
+          <span class="stage-title">AES-256-GCM</span>
+          <span class="stage-desc">Encrypt JPEG bytes with a fresh 12-byte nonce; tag is bundled into the ciphertext.</span>
+          <span class="stage-bits">EncryptedPayload { ciphertext, salt, nonce }</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">04 · UPLOAD</span>
+          <span class="stage-title">S3 PUT + Ref</span>
+          <span class="stage-desc">Upload ciphertext, then emit <code class="inline">EncryptedImageRef { url, salt, nonce }</code> into the message.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 — Decrypt -->
+    <section class="section" id="decrypt">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Decrypt pipeline</h2>
+        <span class="section-meta">EncryptedImageService.loadAndDecrypt(url:salt:nonce:conversationId:)</span>
+      </div>
+      <div class="article">
+        <p>
+          Reads run in reverse. The service uses
+          <code class="inline">conversationId</code> to look up the group's
+          <code class="inline">imageEncryptionKey</code> from MLS metadata, mixes it with the ref's
+          salt via HKDF to recover the per-image key, then decrypts with the
+          nonce. AES-GCM's tag verifies integrity; a tampered byte fails the
+          tag check and surfaces as a load error.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 900 96" width="900" height="96" role="img" aria-label="Decrypt pipeline: input ref plus group key, derive per-image key, decrypt with AES-GCM">
+          <defs>
+            <marker id="dec-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <text class="lbl" x="200" y="54" text-anchor="middle">+</text>
+          <path class="edge" d="M420,48 L456,48" marker-end="url(#dec-arrow)"/>
+          <path class="edge" d="M650,48 L686,48" marker-end="url(#dec-arrow)"/>
+          <g>
+            <rect class="box" x="10" y="16" width="180" height="64" rx="10"/>
+            <text class="sub center" x="100" y="38">Input</text>
+            <text class="lbl center" x="100" y="60">EncryptedImageRef</text>
+          </g>
+          <g>
+            <rect class="box" x="210" y="16" width="210" height="64" rx="10"/>
+            <text class="sub center" x="315" y="38">Lookup</text>
+            <text class="lbl center" x="315" y="60">group.imageEncryptionKey</text>
+          </g>
+          <g>
+            <rect class="box" x="460" y="16" width="190" height="64" rx="10"/>
+            <text class="sub center" x="555" y="38">Derive</text>
+            <text class="lbl center" x="555" y="60">HKDF(key, salt)</text>
+          </g>
+          <g>
+            <rect class="box hot" x="690" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center brand" x="790" y="38">Decrypt</text>
+            <text class="lbl center" x="790" y="60">AES-256-GCM(nonce)</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 04 — Ref -->
+    <section class="section" id="ref">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>EncryptedImageRef</h2>
+        <span class="section-meta">The wire shape</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Field</th><th>Type</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">url</span></td><td><span class="mono">String</span></td><td>S3 location of the ciphertext.</td></tr>
+          <tr><td><span class="mono">salt</span></td><td><span class="mono">Data (32 bytes)</span></td><td>HKDF input — different per image, so two images encrypted under the same group key use different per-image keys.</td></tr>
+          <tr><td><span class="mono">nonce</span></td><td><span class="mono">Data (12 bytes)</span></td><td>AES-GCM nonce — uniquely paired with the per-image key for that single encryption.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>Note.</strong> The encryption <em>key</em> is never carried in the
+        ref. A leaked ref + leaked ciphertext URL is still useless without
+        access to the conversation's encrypted metadata.
+      </div>
+    </section>
+
+    <!-- 05 — Scope -->
+    <section class="section" id="scope">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Scope &amp; rotation</h2>
+        <span class="section-meta">What the v1 key covers</span>
+      </div>
+      <div class="article">
+        <p>
+          One <code class="inline">imageEncryptionKey</code> per group covers every avatar and the
+          group image; per-image salts keep derived keys distinct. The key is
+          not rotated when members are removed — a former member who recorded
+          the key while a member could still decrypt images uploaded before
+          they were removed. Future image authorization will lean on XMTP
+          metadata access controls rather than a key rotation.
+        </p>
+      </div>
+    </section>
+
+    <!-- 06 — Threats -->
+    <section class="section" id="threats">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Threats</h2>
+        <span class="section-meta">What this design defends against</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Threat</th><th>Mitigation</th></tr></thead>
+        <tbody>
+          <tr><td>Non-member reading ciphertext from S3</td><td>No key, no read — the group key isn't on the object or in the ref.</td></tr>
+          <tr><td>Tampering with the ciphertext</td><td>AES-GCM tag check fails; load surfaces an error.</td></tr>
+          <tr><td>Per-image key reuse</td><td>Random per-image salt → HKDF derives a fresh key per image even under one group key.</td></tr>
+          <tr><td>URL leak hints at asset type</td><td>No prefix, no tag (see <a href="./008-asset-lifecycle-and-renewal.html">ADR 008</a>).</td></tr>
+          <tr><td>Removed member retains decrypt ability</td><td>Not mitigated in v1 — key isn't rotated on remove.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 07 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Wire schema (EncryptedImageRef / EncryptedProfileImageRef)</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/Proto/profile_messages.proto</td></tr>
+          <tr><td>AES-256-GCM + HKDF</td><td class="mono">ConvosCore/Sources/ConvosCore/Profiles/Crypto/ImageEncryption.swift</td></tr>
+          <tr><td>Decrypt + cache</td><td class="mono">ConvosCore/Sources/ConvosCore/Crypto/EncryptedImageService.swift</td></tr>
+          <tr><td>Avatar upload path</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift</td></tr>
+          <tr><td>Group image upload path</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift</td></tr>
+          <tr><td>UI fetch</td><td class="mono">Convos/Shared Views/AvatarView.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./010-public-preview-image-toggle.html">ADR 010 — Public Preview →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

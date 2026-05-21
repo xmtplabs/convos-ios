@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Module Map — Convos Docs</title>
+  <meta name="description" content="The Swift packages and app targets that make up Convos iOS, the dependency graph between them, and the rules for what lives where." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <style>
+    .layer {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border: 1px solid var(--color-edge);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      margin-bottom: 8px;
+    }
+    .layer-label {
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--color-foreground-tertiary);
+      font-weight: 700;
+    }
+    .layer-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .layer-cell {
+      background: var(--color-surface-muted);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .layer-cell .nm { font-weight: 600; font-size: var(--text-footnote); }
+    .layer-cell .sub { font-size: var(--text-caption); color: var(--color-foreground-secondary); }
+    .layer.brand-edge { border-color: var(--color-brand); }
+    .layer.brand-edge .layer-cell { background: rgba(252,79,55,0.05); }
+    @media (max-width: 720px) {
+      .layer-row { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> Overview · 03</div>
+      <h1>Module map.</h1>
+      <p class="lede">
+        Six Swift packages, three app targets, one library product per
+        platform-specific bridge. The rules for what lives where are stable;
+        this page is the map that makes those rules legible.
+      </p>
+      <div class="hero-meta">
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#stack"><span class="n">01</span> Dependency stack</a>
+        <a href="#packages"><span class="n">02</span> Packages</a>
+        <a href="#products"><span class="n">03</span> Library products</a>
+        <a href="#targets"><span class="n">04</span> App targets</a>
+        <a href="#rules"><span class="n">05</span> Placement rules</a>
+        <a href="#external"><span class="n">06</span> External deps</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Stack -->
+    <section class="section" id="stack">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Dependency stack</h2>
+        <span class="section-meta">From leaves to apps</span>
+      </div>
+      <div class="article">
+        <p>
+          Lower layers know nothing about the layers above them. Every package
+          is allowed to depend only on packages below; the rule is enforced by
+          SPM and by the test suites that compile each package in isolation.
+        </p>
+      </div>
+
+      <div class="layer">
+        <span class="layer-label">App targets</span>
+        <div class="layer-row">
+          <div class="layer-cell"><span class="nm">Convos</span><span class="sub">Main app · SwiftUI views &amp; ViewModels.</span></div>
+          <div class="layer-cell"><span class="nm">ConvosAppClip</span><span class="sub">App Clip · invite preview &amp; join.</span></div>
+          <div class="layer-cell"><span class="nm">NotificationService</span><span class="sub">NSE · decrypts pushes.</span></div>
+          <div class="layer-cell"><span class="nm">ConvosTests · UI tests</span><span class="sub">Integration suites.</span></div>
+        </div>
+      </div>
+
+      <div class="layer brand-edge">
+        <span class="layer-label">Library products (from ConvosCore package)</span>
+        <div class="layer-row" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="layer-cell"><span class="nm">ConvosCore</span><span class="sub">Cross-platform (iOS + macOS) business logic.</span></div>
+          <div class="layer-cell"><span class="nm">ConvosCoreiOS</span><span class="sub">iOS-only bridges (UIImage, push registration).</span></div>
+          <div class="layer-cell"><span class="nm">ConvosConnectionsXMTP</span><span class="sub">XMTP adapter for the device-connections package.</span></div>
+        </div>
+      </div>
+
+      <div class="layer">
+        <span class="layer-label">Foundation packages</span>
+        <div class="layer-row">
+          <div class="layer-cell"><span class="nm">ConvosInvites</span><span class="sub">Invite tokens · signing · encoding.</span></div>
+          <div class="layer-cell"><span class="nm">ConvosAppData</span><span class="sub">Legacy appData protobuf · helpers.</span></div>
+          <div class="layer-cell"><span class="nm">ConvosConnections</span><span class="sub">Device data sources · cross-platform.</span></div>
+          <div class="layer-cell"><span class="nm">ConvosLogging</span><span class="sub">Logger abstraction.</span></div>
+        </div>
+      </div>
+
+      <div class="layer">
+        <span class="layer-label">External</span>
+        <div class="layer-row">
+          <div class="layer-cell"><span class="nm">libxmtp · XMTPiOS</span><span class="sub">MLS-backed messaging primitive.</span></div>
+          <div class="layer-cell"><span class="nm">GRDB</span><span class="sub">SQLite + SQLCipher.</span></div>
+          <div class="layer-cell"><span class="nm">Firebase App Check</span><span class="sub">Anti-abuse for the API client.</span></div>
+          <div class="layer-cell"><span class="nm">Sentry</span><span class="sub">Crash &amp; error telemetry.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Packages -->
+    <section class="section" id="packages">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Packages</h2>
+        <span class="section-meta">What each one owns</span>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 8px 0 8px; color: var(--color-foreground-tertiary);">Foundation</h3>
+      <table class="facts">
+        <thead><tr><th>Package</th><th>Owns</th><th>Notable</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="mono">ConvosLogging</td>
+            <td>Logger protocol &amp; sinks.</td>
+            <td>Zero-dependency leaf so the rest of the stack has a single Logger to import.</td>
+          </tr>
+          <tr>
+            <td class="mono">ConvosAppData</td>
+            <td>Legacy appData protobuf types · Base64URL · DEFLATE helpers.</td>
+            <td>Pre-message-era data carried as XMTP <code class="inline">appData</code>. Kept compiling for backward-compat reads.</td>
+          </tr>
+          <tr>
+            <td class="mono">ConvosInvites</td>
+            <td>Cryptographic invite primitives (token, signer, encoding) plus <code class="inline">InviteCoordinator</code> for the join flow.</td>
+            <td>Reusable outside the app. See <a href="../adr/001-invite-system-architecture.html">ADR 001</a>.</td>
+          </tr>
+          <tr>
+            <td class="mono">ConvosConnections</td>
+            <td>Device data sources (sources, sinks, manager, action schemas).</td>
+            <td>Cross-platform (iOS + macOS), no XMTP dependency. <code class="inline">ConvosConnectionsScreenTime</code> ships as a separate library product.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 class="t-eyebrow" style="margin: 24px 0 8px; color: var(--color-foreground-tertiary);">Core (the ConvosCore SPM package)</h3>
+      <table class="facts">
+        <thead><tr><th>Subdirectory</th><th>Owns</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Auth/Keychain</td><td>The singleton <code class="inline">KeychainIdentityStore</code> — see <a href="../adr/011-single-inbox-identity-model.html">ADR 011</a>.</td></tr>
+          <tr><td class="mono">Sessions</td><td><code class="inline">SessionManager</code> · App Clip bootstrap · the synchronous one-slot cache.</td></tr>
+          <tr><td class="mono">Inboxes</td><td><code class="inline">SessionStateMachine</code> · NSE-side <code class="inline">CachedPushNotificationHandler</code> · authorize/register operations.</td></tr>
+          <tr><td class="mono">Messaging</td><td><code class="inline">MessagingService</code> protocol surface · <code class="inline">UnusedConversationCache</code>.</td></tr>
+          <tr><td class="mono">Profiles</td><td>Profile message codecs · snapshot builder · avatar encryption (see <a href="../adr/005-member-profile-system.html">ADR 005</a> + <a href="../adr/009-encrypted-conversation-images.html">009</a>).</td></tr>
+          <tr><td class="mono">Invites &amp; Custom Metadata</td><td>App-side glue around <code class="inline">ConvosInvites</code>: <code class="inline">SignedInvite+Signing</code>, custom-metadata extension methods.</td></tr>
+          <tr><td class="mono">Storage</td><td>GRDB schema · writers · repositories · workers · the legacy data wipe.</td></tr>
+          <tr><td class="mono">Syncing</td><td><code class="inline">StreamProcessor</code> · <code class="inline">InviteJoinRequestsManager</code> · adapters between XMTP streams and writers.</td></tr>
+          <tr><td class="mono">Custom Content Types</td><td>XMTP codec registrations: <code class="inline">ExplodeSettings</code>, <code class="inline">CapabilityRequest</code>, <code class="inline">CloudConnectionGrantRequest</code>, etc.</td></tr>
+          <tr><td class="mono">CapabilityResolution</td><td>The connections resolver — registry, picker layout, manifest, invocation router (see <a href="../adr/013-connections-resolution.html">ADR 013</a>).</td></tr>
+          <tr><td class="mono">CloudConnections</td><td>Composio-brokered OAuth grants · <code class="inline">DBCloudConnection</code> · <code class="inline">DBCloudConnectionGrant</code>.</td></tr>
+          <tr><td class="mono">Connections · Contacts · Device</td><td>App-side glue for the device-connections package + system contacts/device info.</td></tr>
+          <tr><td class="mono">Assets</td><td><code class="inline">AssetRenewalManager</code> + collectors + expired recovery (see <a href="../adr/008-asset-lifecycle-and-renewal.html">ADR 008</a>).</td></tr>
+          <tr><td class="mono">API · Networking</td><td><code class="inline">ConvosAPIClient</code>, SIWE auth, Firebase App Check bridge.</td></tr>
+          <tr><td class="mono">Crypto · Image Cache</td><td><code class="inline">EncryptedImageService</code>, three-tier image cache.</td></tr>
+          <tr><td class="mono">Utilities · Constants · Extensions</td><td>Shared utilities — <code class="inline">EmojiSelector</code>, <code class="inline">NameLimits</code>, type aliases.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 03 — Library products -->
+    <section class="section" id="products">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Library products</h2>
+        <span class="section-meta">Three products from one package</span>
+      </div>
+      <div class="article">
+        <p>
+          The <code class="inline">ConvosCore</code> SPM package vends three library products. Splitting
+          them at the product level (not at the package level) means a single
+          dependency graph but selectable surfaces — the NSE pulls only what it
+          needs; tests run against the cross-platform core without iOS.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Products from the ConvosCore package</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">ConvosCore</span>
+            <span class="name">Cross-platform business logic</span>
+            <span class="detail">Compiles on iOS <em>and</em> macOS — never imports UIKit. Uses the <code class="inline">ImageType</code> alias for cross-platform image handling.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">ConvosCoreiOS</span>
+            <span class="name">iOS-only bridges</span>
+            <span class="detail">Implements ConvosCore protocols with iOS-specific APIs: <code class="inline">UIImage</code> handling, push registration, system notification helpers.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">ConvosConnectionsXMTP</span>
+            <span class="name">XMTP wire layer for device connections</span>
+            <span class="detail">Three JSON codecs sitting between <code class="inline">ConvosConnections</code> Swift types and XMTPiOS. Lets the device package stay free of any XMTP dependency.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 — App targets -->
+    <section class="section" id="targets">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>App targets</h2>
+        <span class="section-meta">What ships to users</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Target</th><th>Role</th><th>Pulls in</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="mono">Convos</td>
+            <td>The main app. SwiftUI views, ViewModels, deep-link handling, settings.</td>
+            <td>ConvosCore + ConvosCoreiOS + ConvosConnectionsXMTP (registered codecs).</td>
+          </tr>
+          <tr>
+            <td class="mono">ConvosAppClip</td>
+            <td>10MB-budget invite preview &amp; join surface. Writes identity to the shared keychain so the main app picks it up post-install. See <a href="../adr/011-single-inbox-identity-model.html#clip">ADR 011 §06</a>.</td>
+            <td>ConvosCore + ConvosCoreiOS via the app-group access group.</td>
+          </tr>
+          <tr>
+            <td class="mono">NotificationService</td>
+            <td>NSE — decrypts MLS push payloads, validates <code class="inline">clientId</code>, surfaces the notification body.</td>
+            <td>ConvosCore (identity-keyed cache via <code class="inline">CachedPushNotificationHandler</code>).</td>
+          </tr>
+          <tr>
+            <td class="mono">ConvosTests</td>
+            <td>Integration suites for the main app target.</td>
+            <td>Convos + ConvosCore.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 05 — Placement rules -->
+    <section class="section" id="rules">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Placement rules</h2>
+        <span class="section-meta">Where new code goes</span>
+      </div>
+      <div class="article">
+        <p>
+          When you're about to add a new file, this is the lookup table the
+          codebase wants you to use. The rules are present-tense — they describe
+          what holds today, not what would happen ideally.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>If the new code…</th><th>Goes in</th></tr></thead>
+        <tbody>
+          <tr><td>…handles a SwiftUI view, ViewModel, or design-system surface</td><td><code class="inline">Convos/</code> (main app target)</td></tr>
+          <tr><td>…is business logic, a writer/repository/worker, or a network call</td><td><code class="inline">ConvosCore/Sources/ConvosCore/</code></td></tr>
+          <tr><td>…uses UIKit (UIImage, UIApplication, NotificationCenter for iOS pushes)</td><td><code class="inline">ConvosCore/Sources/ConvosCoreiOS/</code></td></tr>
+          <tr><td>…is an iOS-only system integration the core needs (e.g. push registration)</td><td>Define a protocol in ConvosCore, implement it in ConvosCoreiOS, inject from the main app.</td></tr>
+          <tr><td>…is a new device-data source or sink</td><td><code class="inline">ConvosConnections/Sources/ConvosConnections/</code></td></tr>
+          <tr><td>…is the XMTP wire format for a device-connections message</td><td><code class="inline">ConvosCore/Sources/ConvosConnectionsXMTP/</code></td></tr>
+          <tr><td>…is invite-token cryptography (no XMTP)</td><td><code class="inline">ConvosInvites/Sources/ConvosInvitesCore/</code></td></tr>
+          <tr><td>…is the app-side glue around an invite (sending, custom metadata)</td><td><code class="inline">ConvosCore/Sources/ConvosCore/Invites &amp; Custom Metadata/</code></td></tr>
+          <tr><td>…is a new XMTP custom content type</td><td><code class="inline">ConvosCore/Sources/ConvosCore/Custom Content Types/</code> + register in <code class="inline">SessionStateMachine.clientOptions</code></td></tr>
+          <tr><td>…is a GRDB migration</td><td><code class="inline">ConvosCore/Sources/ConvosCore/Storage/SharedDatabaseMigrator.swift</code></td></tr>
+        </tbody>
+      </table>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>Cross-platform discipline.</strong> Code in
+        <code class="inline">ConvosCore</code> must compile on macOS — never <code class="inline">import UIKit</code>,
+        never <code class="inline">#if canImport(UIKit)</code>. Use the <code class="inline">ImageType</code> alias
+        from <code class="inline">ConvosCore/Utilities/ImageType.swift</code> for cross-platform image
+        handling. Anything iOS-specific goes in <code class="inline">ConvosCoreiOS</code> behind a
+        protocol injected at the app level.
+      </div>
+    </section>
+
+    <!-- 06 — External deps -->
+    <section class="section" id="external">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>External dependencies</h2>
+        <span class="section-meta">What ConvosCore pulls in</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Dep</th><th>Role</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">libxmtp · XMTPiOS</td><td>MLS-backed messaging protocol client.</td><td>Wrapped behind <code class="inline">XMTPClientProvider</code> for testability — never imported directly outside the messaging seam.</td></tr>
+          <tr><td class="mono">GRDB.swift</td><td>SQLite/SQLCipher access; DB encryption key from the keychain.</td><td>Pinned to 7.5.0.</td></tr>
+          <tr><td class="mono">firebase-ios-sdk</td><td>App Check (anti-abuse token) for the Convos backend API.</td><td>Only <code class="inline">FirebaseCore</code> and <code class="inline">FirebaseAppCheck</code> are linked; no Firestore, no FCM.</td></tr>
+          <tr><td class="mono">CSecp256k1.swift</td><td>secp256k1 ECDSA for invite signing.</td><td>Used through <code class="inline">ConvosInvites</code>.</td></tr>
+          <tr><td class="mono">CryptoSwift</td><td>HKDF and helpers not yet in CryptoKit.</td><td>Mostly profile/avatar encryption helpers.</td></tr>
+          <tr><td class="mono">swift-protobuf</td><td>Protobuf encoding for invite + profile messages.</td><td></td></tr>
+          <tr><td class="mono">sentry-cocoa</td><td>Crash &amp; error telemetry.</td><td></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Next · <a href="./identity-system.html">Identity end-to-end →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

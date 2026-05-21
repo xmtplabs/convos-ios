@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Data Flow &amp; Persistence — Convos Docs</title>
+  <meta name="description" content="GRDB at the center; writers, repositories, and workers around it. SwiftUI observes; the XMTPClientProvider seam isolates XMTP from everything else." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> Overview · 02</div>
+      <h1>Data flow &amp; persistence.</h1>
+      <p class="lede">
+        GRDB sits at the centre. Writers mutate it (and emit XMTP messages);
+        repositories read it (and emit Combine streams). SwiftUI subscribes.
+        The XMTP SDK never escapes the messaging seam — everything else talks
+        to <code class="inline">XMTPClientProvider</code>.
+      </p>
+      <div class="hero-meta">
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#shape"><span class="n">01</span> Shape</a>
+        <a href="#flow"><span class="n">02</span> One write</a>
+        <a href="#models"><span class="n">03</span> Three layers of model</a>
+        <a href="#writers"><span class="n">04</span> Writers</a>
+        <a href="#repos"><span class="n">05</span> Repositories</a>
+        <a href="#workers"><span class="n">06</span> Workers</a>
+        <a href="#seam"><span class="n">07</span> XMTP seam</a>
+        <a href="#stream"><span class="n">08</span> Stream side</a>
+        <a href="#tests"><span class="n">09</span> Testability</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Shape -->
+    <section class="section" id="shape">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Shape</h2>
+        <span class="section-meta">Writers in, repositories out</span>
+      </div>
+      <div class="article">
+        <p>
+          GRDB is the single source of truth for what the UI shows. Writers are
+          the only code that puts rows into GRDB. Repositories are the only code
+          that hands GRDB rows out. SwiftUI observes the repositories. There is
+          no read path that bypasses GRDB — even fresh XMTP stream events flow
+          through a writer before becoming visible.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 480 540" width="480" height="540" role="img" aria-label="Data flow: input through writer, store, repo, to UI">
+          <defs>
+            <marker id="df-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M240,76 L240,108" marker-end="url(#df-arrow)"/>
+          <path class="edge" d="M240,184 L240,216" marker-end="url(#df-arrow)"/>
+          <path class="edge" d="M240,292 L240,324" marker-end="url(#df-arrow)"/>
+          <path class="edge" d="M240,400 L240,432" marker-end="url(#df-arrow)"/>
+          <g>
+            <rect class="box" x="20" y="12" width="440" height="64" rx="10"/>
+            <text class="sub center" x="240" y="34">In</text>
+            <text class="lbl center" x="240" y="58">User action · XMTP stream · Worker tick</text>
+          </g>
+          <g>
+            <rect class="box hot" x="20" y="120" width="440" height="64" rx="10"/>
+            <text class="sub center brand" x="240" y="142">Writer</text>
+            <text class="lbl center" x="240" y="166">Mutates GRDB · emits XMTP</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="228" width="440" height="64" rx="10"/>
+            <text class="sub center" x="240" y="250">Store</text>
+            <text class="lbl center" x="240" y="274">GRDB · SQLCipher</text>
+          </g>
+          <g>
+            <rect class="box hot" x="20" y="336" width="440" height="64" rx="10"/>
+            <text class="sub center brand" x="240" y="358">Repo</text>
+            <text class="lbl center" x="240" y="382">Combine publisher</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="444" width="440" height="64" rx="10"/>
+            <text class="sub center" x="240" y="466">UI</text>
+            <text class="lbl center" x="240" y="490">SwiftUI @Observable</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 02 — One write -->
+    <section class="section" id="flow">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>One write, end to end</h2>
+        <span class="section-meta">Example: user sends a message</span>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">View</span>
+          <span class="seq-msg">User taps send. ViewModel calls <code class="inline">OutgoingMessageWriter.send(...)</code>.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg">Writes the message row to GRDB with <code class="inline">deliveryStatus = .pending</code>.<span class="meta">The row is visible immediately — the UI shows the message in flight.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg">Calls <code class="inline">XMTPClientProvider.send(...)</code> on the conversation's MLS group.<span class="meta">Awaits the SDK's commit; converts SDK errors to domain errors before re-raising.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">Writer</span>
+          <span class="seq-msg">On success: updates the row to <code class="inline">delivered</code>. On failure: <code class="inline">failed</code>, with a retry timestamp.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor other">Repo</span>
+          <span class="seq-msg"><code class="inline">MessagesRepository</code>'s Combine publisher fires; the ViewModel updates; SwiftUI re-renders the row in its new state.</span>
+        </div>
+      </div>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>The first write is always local.</strong> Optimistic state is a
+        first-class concept: pending rows are visible before XMTP has
+        acknowledged. The writer reconciles back to <code class="inline">delivered</code> /
+        <code class="inline">failed</code> rather than waiting before writing.
+      </div>
+    </section>
+
+    <!-- 03 — Three layers -->
+    <section class="section" id="models">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Three layers of model</h2>
+        <span class="section-meta">DB row → hydrated → domain</span>
+      </div>
+      <div class="article">
+        <p>
+          Three flavours of type live under <code class="inline">Storage/</code>. Keeping them
+          separate means GRDB-friendly representations (codable, flat) stay
+          structurally distinct from the domain types SwiftUI consumes
+          (computed properties, denormalized convenience fields).
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Layer</th><th>Folder</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Database Models</td>
+            <td class="mono">Storage/Database Models/</td>
+            <td><code class="inline">DBConversation</code>, <code class="inline">DBMessage</code>, <code class="inline">DBMyProfile</code> etc. — Codable + GRDB-typed; raw row shape.</td>
+          </tr>
+          <tr>
+            <td>Hydration</td>
+            <td class="mono">Storage/Hydration/</td>
+            <td>Joins one or more DB rows into a denormalized fetched object (e.g. <code class="inline">DBConversationDetails</code> reads the conversation plus its members and last message in one query).</td>
+          </tr>
+          <tr>
+            <td>Domain Models</td>
+            <td class="mono">Storage/Models/</td>
+            <td><code class="inline">Conversation</code>, <code class="inline">Profile</code>, <code class="inline">Message</code> — what the UI consumes. Includes computed properties (display name, default emoji from <a href="../adr/007-default-conversation-display-name.html">ADR 007</a>, lock state derivation, etc.).</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 04 — Writers -->
+    <section class="section" id="writers">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Writers</h2>
+        <span class="section-meta">Sole owners of mutation</span>
+      </div>
+      <div class="article">
+        <p>
+          Writers are the only code allowed to mutate GRDB and the only code
+          allowed to emit XMTP messages. Each writer owns a domain. New
+          domains get new writers — writers don't grow indefinitely.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Writers grouped by domain</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="boundary-cell"><span class="role">Conversations</span><span class="name">ConversationWriter</span><span class="detail">Sync from XMTP groups; gap-fill profiles; derive <code class="inline">isLocked</code>.</span></div>
+          <div class="boundary-cell"><span class="role">Conversations</span><span class="name">ConversationMetadataWriter</span><span class="detail">Updates name, image, lock state, public preview URL.</span></div>
+          <div class="boundary-cell"><span class="role">Conversations</span><span class="name">ConversationConsentWriter</span><span class="detail">XMTP consent state changes.</span></div>
+          <div class="boundary-cell"><span class="role">Conversations</span><span class="name">ConversationExplosionWriter</span><span class="detail">Remove-all-then-leave flow from <a href="../adr/004-explode-feature.html">ADR 004</a>.</span></div>
+          <div class="boundary-cell"><span class="role">Conversations</span><span class="name">ConversationStateManager</span><span class="detail">Drives a conversation through <code class="inline">.creating → .ready</code>; schedules profile sync.</span></div>
+          <div class="boundary-cell"><span class="role">Conversations</span><span class="name">ConversationLocalStateWriter</span><span class="detail">Pin, mute, last-read marker, draft input.</span></div>
+          <div class="boundary-cell"><span class="role">Messages</span><span class="name">OutgoingMessageWriter</span><span class="detail">Send text, reply, reaction with optimistic state.</span></div>
+          <div class="boundary-cell"><span class="role">Messages</span><span class="name">IncomingMessageWriter</span><span class="detail">Stream dispatch — text, reactions, profile updates, explode signals.</span></div>
+          <div class="boundary-cell"><span class="role">Messages</span><span class="name">ReactionWriter · ReplyMessageWriter</span><span class="detail">Per-message-type write paths.</span></div>
+          <div class="boundary-cell"><span class="role">Messages</span><span class="name">ReadReceiptWriter</span><span class="detail">Per-conversation read state; emits a typed XMTP message.</span></div>
+          <div class="boundary-cell"><span class="role">Profiles</span><span class="name">MyGlobalProfileWriter</span><span class="detail">Writes <code class="inline">DBMyProfile</code>; computes SHA-256 content digest.</span></div>
+          <div class="boundary-cell"><span class="role">Profiles</span><span class="name">MyProfileWriter</span><span class="detail">Sends <code class="inline">ProfileUpdate</code>; runs activate-sync from the global profile.</span></div>
+          <div class="boundary-cell"><span class="role">Profiles</span><span class="name">ProfileSyncCoordinator</span><span class="detail">Per-conversation actor serializing rapid <code class="inline">.ready</code> transitions.</span></div>
+          <div class="boundary-cell"><span class="role">Invites</span><span class="name">InviteWriter</span><span class="detail">Slug generation, pending-invite bookkeeping.</span></div>
+          <div class="boundary-cell"><span class="role">Inbox</span><span class="name">InboxWriter</span><span class="detail">Initial inbox row + clientId persistence on register.</span></div>
+          <div class="boundary-cell"><span class="role">Media</span><span class="name">PendingPhotoUploadWriter</span><span class="detail">Queues photo bytes for upload, retries with backoff.</span></div>
+          <div class="boundary-cell"><span class="role">Media</span><span class="name">PhotoPreferencesWriter · AttachmentLocalStateWriter</span><span class="detail">Per-user photo settings + attachment cache state.</span></div>
+          <div class="boundary-cell"><span class="role">Media</span><span class="name">LinkPreviewWriter · VoiceMemoTranscriptWriter</span><span class="detail">OG-metadata fetch results; voice-memo transcription.</span></div>
+          <div class="boundary-cell"><span class="role">People</span><span class="name">ContactsWriter</span><span class="detail">System Contacts → <code class="inline">DBContact</code>.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 — Repositories -->
+    <section class="section" id="repos">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Repositories</h2>
+        <span class="section-meta">Sole owners of observed reads</span>
+      </div>
+      <div class="article">
+        <p>
+          Each repository wraps one query (or one cluster of related queries)
+          and emits a Combine publisher. ViewModels subscribe; SwiftUI views
+          observe the ViewModel. Writers never call repositories — they write
+          rows, and the publisher refresh is GRDB's job.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Repository</th><th>Question it answers</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">ConversationsRepository</code></td><td>The conversation list, with <code class="inline">expiresAt</code> soft-delete filter.</td></tr>
+          <tr><td><code class="inline">ConversationRepository</code></td><td>One conversation's hydrated details.</td></tr>
+          <tr><td><code class="inline">ConversationsCountRepository</code></td><td>Sidebar badge counts.</td></tr>
+          <tr><td><code class="inline">PinnedConversationsCountRepository</code></td><td>Just the pinned slice.</td></tr>
+          <tr><td><code class="inline">MessagesRepository</code></td><td>One conversation's messages, paginated.</td></tr>
+          <tr><td><code class="inline">ContactsRepository</code></td><td>System contacts joined with their inbox-id-derived profile.</td></tr>
+          <tr><td><code class="inline">InvitesRepository</code></td><td>The invites the user has issued.</td></tr>
+          <tr><td><code class="inline">InviteRepository</code></td><td>A specific invite's status.</td></tr>
+          <tr><td><code class="inline">PendingInviteRepository</code></td><td>Outstanding join requests — no <code class="inline">clientId</code> scoping under single-inbox (see <a href="../adr/011-single-inbox-identity-model.html">ADR 011</a>).</td></tr>
+          <tr><td><code class="inline">MyGlobalProfileRepository</code></td><td>The user's <code class="inline">DBMyProfile</code> as a stream.</td></tr>
+          <tr><td><code class="inline">MyProfileRepository</code></td><td>The per-conversation override view.</td></tr>
+          <tr><td><code class="inline">ConversationPermissionsRepository</code></td><td>Derived from MLS permission policies (super-admin, add-member policy, etc.).</td></tr>
+          <tr><td><code class="inline">PhotoPreferencesRepository</code></td><td>Per-user photo-picker preferences.</td></tr>
+          <tr><td><code class="inline">VoiceMemoTranscriptRepository</code></td><td>Transcription results, observed per-message.</td></tr>
+          <tr><td><code class="inline">AssistantFilesLinksRepository</code></td><td>Files &amp; links surfaced for assistant conversations.</td></tr>
+          <tr><td><code class="inline">DraftConversationRepository</code></td><td>The composer's in-flight conversation while members are picked.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 06 — Workers -->
+    <section class="section" id="workers">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Workers</h2>
+        <span class="section-meta">Long-running background jobs</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Worker</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code class="inline">ExpiredConversationsWorker</code></td>
+            <td>Reaps expired rows; listens for <code class="inline">.conversationExpired</code>, <code class="inline">.conversationScheduledExplosion</code>, <code class="inline">.explosionNotificationTapped</code>, and app-foreground. Drives the soft-delete → hard-delete transition for <a href="../adr/004-explode-feature.html">explode</a>.</td>
+          </tr>
+          <tr>
+            <td><code class="inline">ScheduledExplosionManager</code></td>
+            <td>Holds the timer for future-dated <code class="inline">ExplodeSettings</code>; posts <code class="inline">.conversationExpired</code> when the deadline is reached.</td>
+          </tr>
+          <tr>
+            <td><code class="inline">AssetRenewalManager</code></td>
+            <td>Periodic renewal pass (<a href="../adr/008-asset-lifecycle-and-renewal.html">ADR 008</a>); collects renewable URLs, batches to <code class="inline">renew-batch</code>, processes <code class="inline">expiredKeys</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 07 — XMTP seam -->
+    <section class="section" id="seam">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>XMTP seam</h2>
+        <span class="section-meta">XMTPClientProvider — the only protocol that knows about XMTPiOS</span>
+      </div>
+      <div class="article">
+        <p>
+          Every call into XMTP goes through <code class="inline">XMTPClientProvider</code>. The
+          protocol mirrors the SDK's surface but is the only place that imports
+          XMTPiOS types — every writer, every repository, every test uses the
+          protocol. Production builds inject the real provider; tests inject a
+          mock. Even debug-time tooling lives behind extensions on the protocol
+          (<code class="inline">XMTPClientProvider+MetadataDebug</code>,
+          <code class="inline">XMTPClientProvider+HiddenMessagesDebug</code>) rather than reaching
+          for SDK types directly.
+        </p>
+      </div>
+      <div class="callout">
+        <strong>Rule.</strong> If you find yourself writing <code class="inline">import XMTPiOS</code>
+        anywhere outside <code class="inline">ConvosCore/Messaging/</code> or
+        <code class="inline">ConvosCore/Inboxes/</code>, that's a code smell. The fix is either to
+        extend the provider protocol or to introduce a higher-level adapter.
+      </div>
+    </section>
+
+    <!-- 08 — Stream side -->
+    <section class="section" id="stream">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Stream side</h2>
+        <span class="section-meta">XMTP → StreamProcessor → writer</span>
+      </div>
+      <div class="article">
+        <p>
+          Inbound XMTP messages are dispatched through <code class="inline">StreamProcessor</code>.
+          It routes each message by content type to the appropriate writer:
+          plain messages to <code class="inline">IncomingMessageWriter</code>, profile updates to the
+          profile path, explode signals to the explosion writer, capability
+          requests to the capability handler, and so on. Each writer is the
+          single owner of its row updates.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 480 540" width="480" height="540" role="img" aria-label="Stream side: XMTP stream through StreamProcessor and writer to DB and repositories">
+          <defs>
+            <marker id="ss-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M240,76 L240,108" marker-end="url(#ss-arrow)"/>
+          <path class="edge" d="M240,184 L240,216" marker-end="url(#ss-arrow)"/>
+          <path class="edge" d="M240,292 L240,324" marker-end="url(#ss-arrow)"/>
+          <path class="edge" d="M240,400 L240,432" marker-end="url(#ss-arrow)"/>
+          <g>
+            <rect class="box hot" x="20" y="12" width="440" height="64" rx="10"/>
+            <text class="sub center brand" x="240" y="34">In</text>
+            <text class="lbl center" x="240" y="58">XMTP stream</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="120" width="440" height="64" rx="10"/>
+            <text class="sub center" x="240" y="142">Dispatch</text>
+            <text class="lbl center" x="240" y="166">StreamProcessor</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="228" width="440" height="64" rx="10"/>
+            <text class="sub center" x="240" y="250">Writer</text>
+            <text class="lbl center" x="240" y="274">IncomingMessageWriter · ProfileWriter · …</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="336" width="440" height="64" rx="10"/>
+            <text class="sub center" x="240" y="358">DB</text>
+            <text class="lbl center" x="240" y="382">GRDB rows updated</text>
+          </g>
+          <g>
+            <rect class="box hot" x="20" y="444" width="440" height="64" rx="10"/>
+            <text class="sub center brand" x="240" y="466">Out</text>
+            <text class="lbl center" x="240" y="490">Repositories notify UI</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 09 — Tests -->
+    <section class="section" id="tests">
+      <div class="section-head">
+        <span class="section-num">09</span>
+        <h2>Testability</h2>
+        <span class="section-meta">Why the seam matters</span>
+      </div>
+      <div class="article">
+        <p>
+          Three deliberate choices make the data layer test-friendly without
+          needing the iOS Simulator:
+        </p>
+        <ul>
+          <li><strong>Cross-platform ConvosCore.</strong> The package compiles on macOS, so unit tests run under Swift's test runner with no simulator boot.</li>
+          <li><strong><code class="inline">XMTPClientProvider</code> mocks.</strong> The test target injects an in-memory provider; writers exercise their real GRDB code against a real <code class="inline">MockDatabaseManager</code>.</li>
+          <li><strong>Writers are protocol-typed at call sites.</strong> Every writer used by a ViewModel is reached through a protocol, so tests can swap in fakes per-domain without rebuilding the world.</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./module-map.html">Module map →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 001 — Decentralized Invite System · Convos Docs</title>
+  <meta name="description" content="Convos invites are signed cryptographic tokens shared as URL slugs. This page documents the token format, the join handshake, and the verification path." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 001 · Invites</div>
+      <h1>Decentralized invite system.</h1>
+      <p class="lede">
+        An invite is a URL-safe slug carrying a signed protobuf payload. The
+        joiner verifies the signature, decrypts the wrapped conversation token,
+        and DMs the inviter a join request. No backend ever sees the
+        conversation ID.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Cryptographic redesign tracked in <code class="inline">docs/plans/invite-system-single-inbox.md</code></span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#anatomy"><span class="n">01</span> Anatomy of an invite</a>
+        <a href="#tag"><span class="n">02</span> Invite tag</a>
+        <a href="#pipeline"><span class="n">03</span> Slug pipeline</a>
+        <a href="#sharing"><span class="n">04</span> Sharing</a>
+        <a href="#join"><span class="n">05</span> Join handshake</a>
+        <a href="#errors"><span class="n">06</span> Error feedback</a>
+        <a href="#threats"><span class="n">07</span> Threats &amp; mitigations</a>
+        <a href="#followup"><span class="n">08</span> Planned redesign</a>
+        <a href="#code"><span class="n">09</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Anatomy -->
+    <section class="section" id="anatomy">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Anatomy of an invite</h2>
+        <span class="section-meta">What ends up inside the URL slug</span>
+      </div>
+      <div class="article">
+        <p>
+          A slug encodes a <code class="inline">SignedInvite</code> protobuf: an <code class="inline">InvitePayload</code> plus the inviter's
+          secp256k1 signature over it. The payload includes the encrypted conversation token, the inviter's inbox ID,
+          the invite tag, and optional metadata (name, description, image URL, expiration, single-use flag).
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">SignedInvite · protobuf wire format</div>
+        <div class="boundary-body">
+          <div class="boundary-cell">
+            <span class="role">Payload</span>
+            <span class="name">InvitePayload</span>
+            <span class="detail">Invite tag · encrypted conversation token · creator inbox ID · optional metadata.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Signature</span>
+            <span class="name">secp256k1 ECDSA · 65 bytes</span>
+            <span class="detail">64-byte signature + 1-byte recovery ID. Lets the joiner <em>recover</em> the inviter's public key.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Encoding</span>
+            <span class="name">URL-safe Base64 · asterisks every 300 chars</span>
+            <span class="detail">DEFLATE applied when the result is smaller. Compression marker byte <code class="inline">0x1F</code>.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Invite tag -->
+    <section class="section" id="tag">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Invite tag</h2>
+        <span class="section-meta">The 10-character handle the conversation carries</span>
+      </div>
+      <div class="article">
+        <p>
+          Every conversation has a persistent invite tag — a 10-character random alphanumeric string
+          (regex <code class="inline">^[A-Za-z0-9]{10}$</code>) stored in the conversation's XMTP custom metadata. The same tag
+          is embedded in every invite for that conversation, so it does four jobs at once:
+        </p>
+        <ul>
+          <li><strong>Joiner protection.</strong> When XMTP delivers the "you've been added" event, the joiner compares the conversation's tag to the one their invite carried. A mismatch means someone is trying to add them somewhere they didn't agree to go.</li>
+          <li><strong>Conversation identity binding.</strong> The tag binds the encrypted conversation token to a specific conversation; transplant attacks fail this check.</li>
+          <li><strong>Revocation.</strong> Updating the tag in metadata invalidates every existing invite at once.</li>
+          <li><strong>Duplicate join detection.</strong> The joiner queries the local database for the tag before sending a request; if a conversation already exists, the join is short-circuited.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 03 — Slug pipeline -->
+    <section class="section" id="pipeline">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Slug pipeline</h2>
+        <span class="section-meta">From conversation ID to URL-safe string</span>
+      </div>
+      <div class="pipeline">
+        <div class="stage">
+          <span class="stage-num">01 · ENCRYPT</span>
+          <span class="stage-title">Conversation token</span>
+          <span class="stage-desc">Encrypt the conversation ID with ChaCha20-Poly1305 under a per-inviter derived key.</span>
+          <span class="stage-bits">HKDF-SHA256 · salt <code class="inline">"ConvosInviteV1"</code> · info <code class="inline">"inbox:&lt;inboxId&gt;"</code> · AAD = inviter inbox ID</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">02 · PACK</span>
+          <span class="stage-title">InvitePayload</span>
+          <span class="stage-desc">Build the protobuf: tag, encrypted token, inviter inbox ID, optional metadata.</span>
+          <span class="stage-bits">version · nonce(12B) · ciphertext · auth_tag(16B)</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">03 · SIGN</span>
+          <span class="stage-title">secp256k1 ECDSA</span>
+          <span class="stage-desc">Sign SHA-256 of the serialized payload; emit 65 bytes (signature + recovery).</span>
+          <span class="stage-bits">Public key is recovered later from the signature — never carried in the slug.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">04 · ENCODE</span>
+          <span class="stage-title">URL-safe slug</span>
+          <span class="stage-desc">DEFLATE if smaller, then URL-safe Base64; insert <code class="inline">*</code> every 300 chars for iMessage.</span>
+          <span class="stage-bits">Decompressed-size cap: 1MB invite / 10MB metadata to block decompression bombs.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 — Sharing -->
+    <section class="section" id="sharing">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Sharing</h2>
+        <span class="section-meta">QR · Universal Link · Messages</span>
+      </div>
+      <div class="article">
+        <p>
+          The slug is the only thing that travels. It sits at the tail of the Convos universal link
+          (or in a QR code, or pasted into any messenger). Receivers either tap the link — the main app or the
+          App Clip handles the URL — or paste it into the join field. Universal-link routing is documented in the
+          <em>module map</em> overview; the bytes in transit are the same.
+        </p>
+      </div>
+    </section>
+
+    <!-- 05 — Join handshake -->
+    <section class="section" id="join">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Join handshake</h2>
+        <span class="section-meta">Joiner ↔ inviter, no third party</span>
+      </div>
+      <div class="article">
+        <p>
+          The join is a one-round DM. The joiner sends the inviter a <code class="inline">JoinRequest</code> message
+          carrying the original signed invite. The inviter's client verifies, then adds the joiner to the MLS group.
+          The joiner's client confirms the conversation it lands in by comparing invite tags.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Joiner</span>
+          <span class="seq-msg">Decode slug, verify signature, recover inviter's public key.<span class="meta">Decrypt the conversation token using the HKDF-derived key.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Joiner</span>
+          <span class="seq-msg">Check local DB for a conversation with this invite tag.<span class="meta">If present — short-circuit, open the existing conversation.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Joiner</span>
+          <span class="seq-msg">Open or reuse a DM to the inviter; send <code class="inline">JoinRequest</code> with the signed invite as payload.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor other">Inviter</span>
+          <span class="seq-msg">Verify the signature and creator inbox ID against the user's identity; check expiration and single-use flags.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor other">Inviter</span>
+          <span class="seq-msg">If valid — <code class="inline">group.addMembers(…)</code> the joiner. If invalid — DM-block via XMTP consent.<span class="meta">Spam protection collapses to "valid invites get added, invalid ones lose the DM thread."</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">06</span>
+          <span class="seq-actor">Joiner</span>
+          <span class="seq-msg">XMTP delivers the "added to group" event. Joiner compares the group's invite tag to the one in their invite.<span class="meta">Tag mismatch is treated as a malicious add — surfaced to the user, not silently accepted.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 — Error feedback -->
+    <section class="section" id="errors">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Error feedback</h2>
+        <span class="section-meta">InviteJoinError — sent back through the same DM</span>
+      </div>
+      <div class="article">
+        <p>
+          When a join request fails for legitimate reasons (not spam), the inviter's client sends an
+          <code class="inline">InviteJoinError</code> message back through the join DM. The codec follows the same custom-content-type
+          pattern as <code class="inline">ExplodeSettings</code>. Each error carries the original <code class="inline">inviteTag</code> so the joiner's
+          state machine can match it to the pending request and transition to <code class="inline">.joinFailed</code> with the right user-facing copy.
+        </p>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Condition</th><th>Error type</th><th>User-facing meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Conversation expired / deleted</td><td class="mono">conversationExpired</td><td>"This invite is no longer valid."</td></tr>
+          <tr><td>Conversation not found</td><td class="mono">conversationNotFound</td><td>"That conversation can't be located."</td></tr>
+          <tr><td>Inviter has denied consent</td><td class="mono">consentNotAllowed</td><td>"This invite can't be accepted."</td></tr>
+          <tr><td>Any other failure</td><td class="mono">genericFailure</td><td>"Something went wrong — try again."</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 16px;">
+        <p>
+          Delivery is fire-and-forget with <code class="inline">shouldPush: true</code> so the joiner gets the error even
+          when their app isn't foreground. Unknown error types — fields a newer build might emit — fall back to
+          <code class="inline">conversationExpired</code> on parse, keeping older builds graceful.
+        </p>
+      </div>
+    </section>
+
+    <!-- 07 — Threats & mitigations -->
+    <section class="section" id="threats">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Threats &amp; mitigations</h2>
+        <span class="section-meta">Current posture</span>
+      </div>
+      <table class="facts">
+        <thead>
+          <tr><th>Threat</th><th>Mitigation</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Invite forgery</td><td>secp256k1 ECDSA verification, public key recovered from the signature.</td></tr>
+          <tr><td>Token reuse across identities</td><td>AAD binding in ChaCha20-Poly1305 ties the token to a single inviter.</td></tr>
+          <tr><td>Conversation ID exposure</td><td>ID encrypted under an HKDF-derived key; only the inviter can decrypt without the slug.</td></tr>
+          <tr><td>Malicious "added to group" event</td><td>Joiner compares invite-tag from slug to the group's metadata tag before trusting the add.</td></tr>
+          <tr><td>Timing attacks on verification</td><td>Constant-time comparison on cryptographic operations.</td></tr>
+          <tr><td>Decompression bombs</td><td>1MB / 10MB decompressed-size caps.</td></tr>
+          <tr><td>Spam / fake join requests</td><td>XMTP consent: invalid requests trigger DM block.</td></tr>
+          <tr><td>Replay attacks</td><td>Optional invite expiration and single-use flags in the payload.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 08 — Planned redesign -->
+    <section class="section" id="followup">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Planned cryptographic redesign</h2>
+        <span class="section-meta">What changes next, and why</span>
+      </div>
+      <div class="callout">
+        <strong>Forward-looking.</strong> The invite payload includes the inviter's inbox ID — and since identity is
+        global (one inbox per user), a decoded slug reveals the inviter's global identifier to anyone who picks it
+        up. The redesign that addresses this — a different join-request transport and a token payload that doesn't
+        expose the inviter — is tracked in
+        <code class="inline">docs/plans/invite-system-single-inbox.md</code>. The wire format described on this page is the
+        live format today; the redesign will land as a deliberate breaking change with a versioned slug header.
+      </div>
+    </section>
+
+    <!-- 09 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">09</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Files that implement the contract above</span>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 8px 0 8px; color: var(--color-foreground-tertiary);">ConvosInvites · reusable, no app dependency</h3>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Wire schemas</td><td class="mono">ConvosInvites/Sources/ConvosInvitesCore/Core/Proto/invite.pb.swift</td></tr>
+          <tr><td>Token encryption</td><td class="mono">ConvosInvites/Sources/ConvosInvitesCore/Core/InviteToken.swift</td></tr>
+          <tr><td>Signing</td><td class="mono">ConvosInvites/Sources/ConvosInvitesCore/Core/InviteSigner.swift</td></tr>
+          <tr><td>URL encoding</td><td class="mono">ConvosInvites/Sources/ConvosInvitesCore/Core/InviteEncoding.swift</td></tr>
+          <tr><td>Key derivation / public-key recovery</td><td class="mono">ConvosInvites/Sources/ConvosInvitesCore/Core/Crypto.swift</td></tr>
+          <tr><td>Join request processing</td><td class="mono">ConvosInvites/Sources/ConvosInvites/InviteCoordinator.swift</td></tr>
+          <tr><td>Tag storage</td><td class="mono">ConvosInvites/Sources/ConvosInvites/InviteTagStorage.swift</td></tr>
+          <tr><td>XMTP client seam</td><td class="mono">ConvosInvites/Sources/ConvosInvites/InviteClientProvider.swift</td></tr>
+          <tr><td>Error codec</td><td class="mono">ConvosInvites/Sources/ConvosInvites/ContentTypes/InviteJoinErrorCodec.swift</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="t-eyebrow" style="margin: 24px 0 8px; color: var(--color-foreground-tertiary);">ConvosCore · app integration</h3>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Slug generation</td><td class="mono">ConvosCore/Sources/ConvosCore/Invites &amp; Custom Metadata/SignedInvite+Signing.swift</td></tr>
+          <tr><td>Custom metadata bridge</td><td class="mono">ConvosCore/Sources/ConvosCore/Invites &amp; Custom Metadata/XMTPGroup+CustomMetadata.swift</td></tr>
+          <tr><td>Join request manager</td><td class="mono">ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift</td></tr>
+          <tr><td>Client adapter</td><td class="mono">ConvosCore/Sources/ConvosCore/Syncing/InviteClientProviderAdapter.swift</td></tr>
+          <tr><td>Join state machine</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift</td></tr>
+          <tr><td>Pending invite storage</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Repositories/PendingInviteRepository.swift</td></tr>
+          <tr><td>Error handler protocol</td><td class="mono">ConvosCore/Sources/ConvosCore/Inboxes/InviteJoinErrorHandler.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Prev · <a href="./011-single-inbox-identity-model.html">ADR 011 — Identity ←</a></span>
+    </footer>
+  </main>
+</body>
+</html>

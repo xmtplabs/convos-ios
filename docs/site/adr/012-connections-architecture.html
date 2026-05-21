@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 012 — Connections Architecture · Convos Docs</title>
+  <meta name="description" content="Two subsystems under one umbrella: ConvosConnections for device data sources, CloudConnections for OAuth services. Fronted by the capability resolver in ADR 013." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 012 · Connections</div>
+      <h1>Connections architecture.</h1>
+      <p class="lede">
+        Two subsystems under one umbrella. <code class="inline">ConvosConnections</code> wraps
+        device data sources (HealthKit, EventKit, Photos, …) into Swift types
+        agents talk to over XMTP. <code class="inline">CloudConnections</code> brokers OAuth grants
+        for services agents call directly. <a href="./013-connections-resolution.html">ADR 013</a>
+        fronts both behind one resolver.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · 2026-04-28</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#shape"><span class="n">01</span> Shape</a>
+        <a href="#device"><span class="n">02</span> Device subsystem</a>
+        <a href="#xmtp"><span class="n">03</span> XMTP adapter</a>
+        <a href="#cloud"><span class="n">04</span> Cloud subsystem</a>
+        <a href="#kinds"><span class="n">05</span> Connection kinds</a>
+        <a href="#discovery"><span class="n">06</span> Discovery</a>
+        <a href="#code"><span class="n">07</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Shape -->
+    <section class="section" id="shape">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Shape</h2>
+        <span class="section-meta">One umbrella, two subsystems, one adapter</span>
+      </div>
+      <div class="article">
+        <p>
+          Agents reach into the user's life in two structurally different ways.
+          Device data sources live on the user's iPhone, gated by per-framework
+          iOS authorization, and are reached <em>via</em> the device.
+          Cloud OAuth services live on third-party servers, gated by an OAuth
+          grant, and are reached <em>around</em> the device — the agent calls the
+          third-party API directly through Composio. The wire shape and the
+          execution path are materially different; the user-facing language
+          ("connect your calendar") is the same.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Packages</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">Device</span>
+            <span class="name">ConvosConnections</span>
+            <span class="detail">Top-level Swift package. Cross-platform (iOS + macOS). No XMTP dependency.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Wire</span>
+            <span class="name">ConvosConnectionsXMTP</span>
+            <span class="detail">Separate package under ConvosCore. The only place that knows about both ConvosConnections and XMTPiOS.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Cloud</span>
+            <span class="name">CloudConnections (in ConvosCore)</span>
+            <span class="detail">Lives in ConvosCore because grants persist in GRDB and ride on member-profile metadata.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Device subsystem -->
+    <section class="section" id="device">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Device subsystem · ConvosConnections</h2>
+        <span class="section-meta">Sources, sinks, and the manager</span>
+      </div>
+      <div class="article">
+        <p>
+          The device subsystem is a manager that registers two kinds of
+          handler per <code class="inline">ConnectionKind</code>: a <strong>source</strong> that observes the iOS
+          framework and emits payloads, and a <strong>sink</strong> that accepts
+          invocations from agents and translates them into framework calls.
+          Authorization is per-source — every framework has its own consent UI
+          and the subsystem doesn't try to homogenize them.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 1080 96" width="1080" height="96" role="img" aria-label="Device subsystem: iOS through source to ConnectionsManager, sink and agent feeding from the other side">
+          <defs>
+            <marker id="dev-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <!-- forward arrows (iOS → Source → Manager) -->
+          <path class="edge" d="M210,48 L246,48" marker-end="url(#dev-arrow)"/>
+          <path class="edge" d="M400,48 L436,48" marker-end="url(#dev-arrow)"/>
+          <!-- reverse arrows (Agent → Sink → Manager): paths drawn right-to-left so the arrowhead lands at the left end -->
+          <path class="edge" d="M870,48 L834,48" marker-end="url(#dev-arrow)"/>
+          <path class="edge" d="M680,48 L644,48" marker-end="url(#dev-arrow)"/>
+          <g>
+            <rect class="box" x="10" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center" x="110" y="38">iOS</text>
+            <text class="lbl center" x="110" y="60">EventKit · HealthKit · …</text>
+          </g>
+          <g>
+            <rect class="box" x="250" y="16" width="150" height="64" rx="10"/>
+            <text class="sub center" x="325" y="38">Source</text>
+            <text class="lbl center" x="325" y="60">DataSource</text>
+          </g>
+          <g>
+            <rect class="box hot" x="440" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center brand" x="540" y="38">Hub</text>
+            <text class="lbl center" x="540" y="60">ConnectionsManager</text>
+          </g>
+          <g>
+            <rect class="box" x="680" y="16" width="150" height="64" rx="10"/>
+            <text class="sub center" x="755" y="38">Sink</text>
+            <text class="lbl center" x="755" y="60">DataSink</text>
+          </g>
+          <g>
+            <rect class="box" x="870" y="16" width="200" height="64" rx="10"/>
+            <text class="sub center" x="970" y="38">Agent</text>
+            <text class="lbl center" x="970" y="60">ConnectionInvocation</text>
+          </g>
+        </svg>
+      </div>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          <code class="inline">ConnectionsManager</code> fan-outs sensor payloads to every conversation
+          enabled for that source's read capability, gating writes by an
+          <code class="inline">EnablementStore</code> keyed by <code class="inline">(kind, capability, conversationId)</code>.
+          ScreenTime sits in a separate library product
+          (<code class="inline">ConvosConnectionsScreenTime</code>) because the Family Controls
+          entitlement needs Apple approval; apps without that entitlement build
+          the rest of the package alone.
+        </p>
+      </div>
+    </section>
+
+    <!-- 03 — XMTP adapter -->
+    <section class="section" id="xmtp">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>XMTP adapter</h2>
+        <span class="section-meta">Three codecs, JSON over XMTP</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Codec</th><th>Direction</th><th>Content type</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">ConnectionPayloadCodec</td><td>device → agent</td><td class="mono">convos.org/connection_payload/1.0</td></tr>
+          <tr><td class="mono">ConnectionInvocationCodec</td><td>agent → device</td><td class="mono">convos.org/connection_invocation/1.0</td></tr>
+          <tr><td class="mono">ConnectionInvocationResultCodec</td><td>device → agent</td><td class="mono">convos.org/connection_invocation_result/1.0</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          All three encode their Codable Swift type as JSON. JSON over protobuf
+          because the agent runtime's natural form is JSON tool calls, schema
+          evolution is easier than fixed field numbers, and the payloads stay
+          human-readable for debugging.
+          <code class="inline">XMTPConnectionDelivery</code> implements
+          <code class="inline">ConnectionDelivering</code> through an injected conversation-lookup
+          closure, so the device package never sees ConvosCore's GRDB storage.
+          <code class="inline">XMTPInvocationListener</code> filters by content type, gates schema
+          versions, and replies with a synthetic <code class="inline">executionFailed</code> for
+          version skew it doesn't understand — so an agent gets a structured "no"
+          rather than silence.
+        </p>
+      </div>
+    </section>
+
+    <!-- 04 — Cloud subsystem -->
+    <section class="section" id="cloud">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Cloud subsystem · CloudConnections</h2>
+        <span class="section-meta">Composio-brokered OAuth</span>
+      </div>
+      <div class="article">
+        <p>
+          A cloud connection is an OAuth grant the user authorizes once per
+          service per device. The grant itself is not transmitted as an XMTP
+          message — once the OAuth flow completes via
+          <code class="inline">ConvosAPIClient.completeCloudConnection</code>, a
+          <code class="inline">CloudConnectionGrantEntry</code> is appended to the sender's
+          <code class="inline">CloudConnectionsMetadataPayload</code> and re-published as part of the
+          next <code class="inline">ProfileUpdate</code>. Agents observe grants by reading the member
+          profile under the <code class="inline">connections</code> key (see
+          <a href="./013-connections-resolution.html">ADR 013</a> for the unified
+          manifest shape that supersedes the cloud-only payload).
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Agent</span>
+          <span class="seq-msg">Send <code class="inline">connection_grant_request</code> (<code class="inline">convos.org/connection_grant_request/1.0</code>). Renders as a "Connect Google Calendar" card.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">User</span>
+          <span class="seq-msg">Tap "Open Settings" → OAuth flow brokered by Composio.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Client</span>
+          <span class="seq-msg"><code class="inline">completeCloudConnection</code> stores the grant in GRDB and emits a fresh <code class="inline">ProfileUpdate</code> with the new entry on <code class="inline">connections</code> metadata.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor other">Agent</span>
+          <span class="seq-msg">Reads the manifest from the sender's member profile and calls Composio directly using <code class="inline">composioEntityId</code> / <code class="inline">composioConnectionId</code>.<span class="meta">The device is not in the loop for cloud calls.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 05 — Connection kinds -->
+    <section class="section" id="kinds">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Connection kinds</h2>
+        <span class="section-meta">Taxonomy of device sources</span>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">ConnectionKind</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(3, minmax(0,1fr));">
+          <div class="boundary-cell"><span class="role">.health</span><span class="name">HealthKit</span><span class="detail">Steps, sleep, workouts, biometrics.</span></div>
+          <div class="boundary-cell"><span class="role">.calendar</span><span class="name">EventKit</span><span class="detail">Events &amp; calendars. Read + write.</span></div>
+          <div class="boundary-cell"><span class="role">.contacts</span><span class="name">Contacts</span><span class="detail">Address-book entries.</span></div>
+          <div class="boundary-cell"><span class="role">.location</span><span class="name">CoreLocation</span><span class="detail">Foreground &amp; significant-change.</span></div>
+          <div class="boundary-cell"><span class="role">.photos</span><span class="name">Photos</span><span class="detail">PHAsset reads + metadata.</span></div>
+          <div class="boundary-cell"><span class="role">.music</span><span class="name">MusicKit</span><span class="detail">Library and playback state.</span></div>
+          <div class="boundary-cell"><span class="role">.motion</span><span class="name">CoreMotion</span><span class="detail">Activity recognition; sensor primitive.</span></div>
+          <div class="boundary-cell"><span class="role">.homeKit</span><span class="name">HomeKit</span><span class="detail">Devices and scenes.</span></div>
+          <div class="boundary-cell"><span class="role">.screenTime</span><span class="name">Family Controls</span><span class="detail">Gated behind <code class="inline">ConvosConnectionsScreenTime</code>.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 — Discovery -->
+    <section class="section" id="discovery">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Discovery</h2>
+        <span class="section-meta">How agents know what to ask for</span>
+      </div>
+      <div class="article">
+        <p>
+          Agents don't discover capabilities at runtime. They have a priori
+          knowledge of action schemas because the convos-cli vendors the same
+          domain types as TypeScript / Bun equivalents. The fallbacks for
+          version skew are structured: unknown action name →
+          <code class="inline">unknownAction</code>; newer <code class="inline">schemaVersion</code> than the device knows
+          → <code class="inline">executionFailed</code> with a version-mismatch message; capability
+          not enabled for the conversation → <code class="inline">capabilityNotEnabled</code>.
+        </p>
+        <p>
+          The unified discovery surface — a <code class="inline">capability_request</code> /
+          <code class="inline">capability_request_result</code> pair plus the
+          <code class="inline">CapabilityManifest</code> published on <code class="inline">ProfileUpdate</code> — is the
+          subject of <a href="./013-connections-resolution.html">ADR 013</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- 07 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Module locations</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>Path</th></tr></thead>
+        <tbody>
+          <tr><td>Device subsystem</td><td class="mono">ConvosConnections/Sources/ConvosConnections/</td></tr>
+          <tr><td>ScreenTime sink</td><td class="mono">ConvosConnections/Sources/ConvosConnectionsScreenTime/</td></tr>
+          <tr><td>Device tests</td><td class="mono">ConvosConnections/Tests/ConvosConnectionsTests/</td></tr>
+          <tr><td>XMTP adapter</td><td class="mono">ConvosCore/Sources/ConvosConnectionsXMTP/</td></tr>
+          <tr><td>Cloud subsystem</td><td class="mono">ConvosCore/Sources/ConvosCore/CloudConnections/</td></tr>
+          <tr><td>Cloud grant codec</td><td class="mono">ConvosCore/Sources/ConvosCore/Custom Content Types/CloudConnectionGrantRequestCodec.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Next · <a href="./013-connections-resolution.html">ADR 013 — Resolution &amp; Picker →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

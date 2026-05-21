@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Convos iOS — Documentation</title>
+  <meta name="description" content="Architecture decisions, system overviews, and diagram-rich explainers for the Convos iOS codebase." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="./index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="./index.html" class="active">Index</a>
+        <a href="./design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> Documentation · table of contents</div>
+      <h1>How Convos iOS is built — one page per system, with the diagrams that explain it.</h1>
+      <p class="lede">
+        Thirteen architecture decisions, three system overviews, and a small library
+        of investigations and plans. Each entry distils a chunk of the codebase into
+        the smallest accurate explanation — closer to a map than a manual.
+      </p>
+      <div class="hero-meta">
+        <span>11 ADRs · 3 overviews · 2 investigations</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+        <span class="pipe">·</span>
+        <span><a href="./design/index.html" style="color: var(--color-brand); font-weight: 600;">Design library →</a></span>
+      </div>
+    </section>
+
+    <!-- A — Identity & invites -->
+    <section class="section" id="identity">
+      <div class="section-head">
+        <span class="section-num">A</span>
+        <h2>Identity &amp; invites</h2>
+        <span class="section-meta">How users find, verify, and join each other</span>
+      </div>
+      <div class="card-grid">
+        <a class="card" href="./adr/011-single-inbox-identity-model.html">
+          <div class="card-num">ADR 011</div>
+          <div class="card-title">Single-Inbox Identity Model</div>
+          <div class="card-desc">One XMTP inbox per user, an iCloud-synced keychain identity shared with the NSE and the App Clip, and the cache invariants that keep push deliveries from crossing identities.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/001-invite-system-architecture.html">
+          <div class="card-num">ADR 001</div>
+          <div class="card-title">Decentralized Invite System</div>
+          <div class="card-desc">Signed cryptographic tokens, 10-char invite tags, and the join-request DM that lets two strangers shake hands without a server.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · crypto redesign planned</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- B — Conversation primitives -->
+    <section class="section" id="conversations">
+      <div class="section-head">
+        <span class="section-num">B</span>
+        <h2>Conversation primitives</h2>
+        <span class="section-meta">The verbs available on a single conversation</span>
+      </div>
+      <div class="card-grid">
+        <a class="card" href="./adr/004-explode-feature.html">
+          <div class="card-num">ADR 004</div>
+          <div class="card-title">Explode</div>
+          <div class="card-desc">Irreversible deletion — local data, XMTP keys, and the "everyone else, please do the same" broadcast.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · amended</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/006-lock-convo-feature.html">
+          <div class="card-num">ADR 006</div>
+          <div class="card-title">Lock Convo</div>
+          <div class="card-desc">A super-admin switch that closes a conversation to new joins without dissolving the existing membership.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/007-default-conversation-display-name.html">
+          <div class="card-num">ADR 007</div>
+          <div class="card-title">Default Display Name &amp; Emoji</div>
+          <div class="card-desc">The deterministic algorithm every Convos client uses to render the same name and emoji for an un-titled conversation.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- C — Profiles & media -->
+    <section class="section" id="media">
+      <div class="section-head">
+        <span class="section-num">C</span>
+        <h2>Profiles &amp; media</h2>
+        <span class="section-meta">How identity surfaces and how images travel</span>
+      </div>
+      <div class="card-grid">
+        <a class="card" href="./adr/005-member-profile-system.html">
+          <div class="card-num">ADR 005</div>
+          <div class="card-title">Member Profile System</div>
+          <div class="card-desc">ProfileUpdate, ProfileSnapshot, and how a member presents themselves inside a single conversation.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · revised 2026-03</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/009-encrypted-conversation-images.html">
+          <div class="card-num">ADR 009</div>
+          <div class="card-title">Encrypted Conversation Images</div>
+          <div class="card-desc">One shared key per group, AES-256-GCM payloads, and an EncryptedImageRef sitting where the bytes used to.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/010-public-preview-image-toggle.html">
+          <div class="card-num">ADR 010</div>
+          <div class="card-title">Public Preview Image Toggle</div>
+          <div class="card-desc">A privacy-first default with an explicit opt-in for invite cards that need a visible group photo.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/008-asset-lifecycle-and-renewal.html">
+          <div class="card-num">ADR 008</div>
+          <div class="card-title">Asset Lifecycle &amp; Renewal</div>
+          <div class="card-desc">S3 retention rules that shrink storage for inactive users without leaking asset type through bucket structure.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- D — Connections (device + cloud) -->
+    <section class="section" id="connections">
+      <div class="section-head">
+        <span class="section-num">D</span>
+        <h2>Connections</h2>
+        <span class="section-meta">How agents reach into the user's life — device data &amp; cloud services</span>
+      </div>
+      <div class="card-grid">
+        <a class="card" href="./adr/012-connections-architecture.html">
+          <div class="card-num">ADR 012</div>
+          <div class="card-title">Connections Architecture</div>
+          <div class="card-desc">The two parallel subsystems — ConvosConnections (device) and cloud connectors — and the boundary between them.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · 2026-04-28</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./adr/013-connections-resolution.html">
+          <div class="card-num">ADR 013</div>
+          <div class="card-title">Connections Resolution &amp; Picker</div>
+          <div class="card-desc">How the UI resolves a generic "connect me to X" request into a concrete device source or cloud account.</div>
+          <div class="card-foot">
+            <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · 2026-05-04</span>
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- E — System overviews -->
+    <section class="section" id="overviews">
+      <div class="section-head">
+        <span class="section-num">E</span>
+        <h2>System overviews</h2>
+        <span class="section-meta">Maps that cross ADR boundaries</span>
+      </div>
+      <div class="card-grid">
+        <a class="card" href="./overviews/identity-system.html">
+          <div class="card-num">01</div>
+          <div class="card-title">Identity system end-to-end</div>
+          <div class="card-desc">Single-inbox identity from launch to invite to join, with the call sites in ConvosCore highlighted along the way.</div>
+          <div class="card-foot">
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./overviews/data-flow.html">
+          <div class="card-num">02</div>
+          <div class="card-title">Data flow &amp; persistence</div>
+          <div class="card-desc">GRDB, writers, repositories, and the rules for what ever crosses the XMTPClientProvider boundary.</div>
+          <div class="card-foot">
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./overviews/module-map.html">
+          <div class="card-num">03</div>
+          <div class="card-title">Module map</div>
+          <div class="card-desc">ConvosCore, ConvosCoreiOS, ConvosAppData, ConvosInvites, and the main app — what lives where and why.</div>
+          <div class="card-foot">
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <!-- F — Plans & investigations -->
+    <section class="section" id="plans">
+      <div class="section-head">
+        <span class="section-num">F</span>
+        <h2>Plans &amp; investigations</h2>
+        <span class="section-meta">Open threads, in-flight work, and write-ups that aren't yet ADRs</span>
+      </div>
+      <div class="card-grid">
+        <a class="card" href="./plans/invite-system-single-inbox.html">
+          <div class="card-num">PLAN</div>
+          <div class="card-title">Invite system under single-inbox</div>
+          <div class="card-desc">The cryptographic redesign tracked off ADR 001 — token payload, join-request DM, and the new privacy posture.</div>
+          <div class="card-foot">
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+        <a class="card" href="./investigations/profile-rebroadcast.html">
+          <div class="card-num">INV</div>
+          <div class="card-title">Profile rebroadcast on join</div>
+          <div class="card-desc">Where focus-mode state should live so it survives a fresh join — invite processor vs. AssistantBuilder.</div>
+          <div class="card-foot">
+            <span class="card-cta">Read <span class="arrow">→</span></span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>Convos Docs · iOS · v0.1</span>
+      <span class="spacer"></span>
+      <span><a href="./design/index.html">Design library →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

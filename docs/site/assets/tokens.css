@@ -1,0 +1,120 @@
+/*
+ * Convos Docs — design tokens
+ *
+ * Mirrors the palette and type scale used by convos-assistants
+ * (dashboard/src/app/globals.css, pool/frontend/admin.css). Keep
+ * this file token-only; presentation rules live in site.css.
+ */
+
+:root {
+  /* Brand */
+  --color-brand: #FC4F37;
+  --color-brand-hover: #D9412D;
+  --color-orange: #E54D00;
+  --color-lava: #FC4F37;
+
+  /* Text (light mode) */
+  --color-foreground: #000000;
+  --color-foreground-secondary: #666666;
+  --color-foreground-tertiary: #B2B2B2;
+  --color-foreground-inactive: #D9D9D9;
+  --color-foreground-inverted: #FFFFFF;
+
+  /* Surfaces */
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F5F5F5;
+  --color-surface-hover: #FAFAFA;
+  --color-bg-raised: #FFFFFF;
+  --color-fill-subtle: #F5F5F5;
+  --color-fill-minimal: #FAFAFA;
+  --color-fill-tertiary: #B2B2B2;
+
+  /* Borders */
+  --color-edge: #EBEBEB;
+  --color-edge-muted: #F0F0F0;
+
+  /* Semantic */
+  --color-error: #DC2626;
+  --color-error-bg: #FEE2E2;
+  --color-success: #16A34A;
+  --color-success-bg: #F0FDF4;
+  --color-warn: #92400E;
+  --color-warn-bg: #FEF3C7;
+  --color-info: #1D4ED8;
+  --color-info-bg: #DBEAFE;
+
+  /* Status dots */
+  --dot-accepted: #34C759;
+  --dot-proposed: #8B5CF6;
+  --dot-deprecated: #B2B2B2;
+  --dot-superseded: #F59E0B;
+
+  /* Spacing scale */
+  --space-4xs: 2px;
+  --space-3xs: 4px;
+  --space-2xs: 8px;
+  --space-xs: 12px;
+  --space-sm: 16px;
+  --space-md: 24px;
+  --space-lg: 32px;
+  --space-xl: 40px;
+  --space-2xl: 56px;
+  --space-3xl: 80px;
+  --space-4xl: 120px;
+
+  /* iOS type scale */
+  --text-display: 56px;
+  --text-display-lh: 60px;
+  --text-display-tracking: -1.5px;
+
+  --text-h1: 40px;
+  --text-h1-lh: 44px;
+  --text-h1-tracking: -1px;
+
+  --text-h2: 28px;
+  --text-h2-lh: 34px;
+  --text-h2-tracking: -0.5px;
+
+  --text-h3: 20px;
+  --text-h3-lh: 28px;
+  --text-h3-tracking: -0.3px;
+
+  --text-body: 17px;
+  --text-body-lh: 26px;
+
+  --text-callout: 16px;
+  --text-callout-lh: 24px;
+
+  --text-subheadline: 15px;
+  --text-subheadline-lh: 22px;
+
+  --text-footnote: 13px;
+  --text-footnote-lh: 18px;
+
+  --text-caption: 12px;
+  --text-caption-lh: 16px;
+
+  --text-eyebrow: 11px;
+  --text-eyebrow-lh: 14px;
+  --text-eyebrow-tracking: 0.6px;
+
+  /* Fonts */
+  --font-ios: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+  --font-sans: "Inter", var(--font-ios);
+  --font-mono: "SF Mono", "JetBrains Mono", Monaco, "Courier New", monospace;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Shadows */
+  --shadow-glass: 0 4px 16px 0 rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 0 0 0.5px rgba(0,0,0,0.06);
+  --shadow-pop: 0 8px 24px rgba(0,0,0,0.10);
+
+  /* Layout */
+  --content-max: 960px;
+  --reading-max: 720px;
+}

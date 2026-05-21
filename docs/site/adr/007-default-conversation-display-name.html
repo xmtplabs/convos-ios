@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 007 — Default Display Name &amp; Emoji · Convos Docs</title>
+  <meta name="description" content="A deterministic algorithm every Convos client follows so that the same conversation renders the same name and emoji on every device." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+  <style>
+    .emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+      gap: 4px;
+      border: 1px solid var(--color-edge);
+      border-radius: var(--radius-md);
+      padding: 8px;
+      background: var(--color-surface);
+    }
+    .emoji-grid .cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 4px;
+      background: var(--color-surface-muted);
+      border-radius: var(--radius-sm);
+      font-size: 20px;
+      line-height: 1;
+    }
+    .emoji-grid .cell .idx {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--color-foreground-tertiary);
+    }
+    @media (max-width: 720px) {
+      .emoji-grid { grid-template-columns: repeat(6, minmax(0,1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 007 · Conversations</div>
+      <h1>Default display name and emoji.</h1>
+      <p class="lede">
+        Every conversation needs a name and an avatar — even when no-one has set
+        them. The algorithm below is the cross-client contract: same conversation,
+        same emoji, same fallback name on every device that follows it.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#name"><span class="n">01</span> Display name</a>
+        <a href="#formatting"><span class="n">02</span> Member formatting</a>
+        <a href="#emoji"><span class="n">03</span> Emoji selection</a>
+        <a href="#pool"><span class="n">04</span> Emoji pool</a>
+        <a href="#avatar"><span class="n">05</span> Avatar</a>
+        <a href="#anonymous"><span class="n">06</span> Fully anonymous</a>
+        <a href="#constants"><span class="n">07</span> Constants</a>
+        <a href="#code"><span class="n">08</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Display name -->
+    <section class="section" id="name">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Display name resolution</h2>
+        <span class="section-meta">First matching row wins</span>
+      </div>
+      <div class="article">
+        <p>
+          "Other members" means every member excluding the current user. A
+          member's <code class="inline">displayName</code> is their profile <code class="inline">name</code> if set,
+          otherwise <code class="inline">"Somebody"</code>.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Priority</th><th>Condition</th><th>Display name</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Conversation has a non-empty custom <code class="inline">name</code></td><td>The custom name.</td></tr>
+          <tr><td>2</td><td>DM, other member has a name</td><td>Other member's <code class="inline">displayName</code>.</td></tr>
+          <tr><td>3</td><td>DM, other member has no name</td><td><code class="inline">"Somebody"</code></td></tr>
+          <tr><td>4</td><td>Group with no other members</td><td><code class="inline">"New Convo"</code></td></tr>
+          <tr><td>5</td><td>Group with other members</td><td>Result of <em>member name formatting</em> (next section).</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 02 — Member formatting -->
+    <section class="section" id="formatting">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Member name formatting</h2>
+        <span class="section-meta">Up to MAX_NAMES = 3</span>
+      </div>
+      <div class="article">
+        <p>
+          Partition other members into <strong>named</strong> (profile name is
+          non-empty, sorted lexicographically) and <strong>anonymous</strong>
+          (counted, never listed individually). Then apply one of three cases.
+        </p>
+      </div>
+
+      <h3 class="t-eyebrow" style="margin: 8px 0 8px; color: var(--color-foreground-tertiary);">Case A — no named members</h3>
+      <table class="facts">
+        <thead><tr><th>Anonymous count</th><th>Output</th></tr></thead>
+        <tbody>
+          <tr><td>0</td><td><code class="inline">""</code> (empty)</td></tr>
+          <tr><td>1</td><td><code class="inline">"Somebody"</code></td></tr>
+          <tr><td>2+</td><td><code class="inline">"Somebodies"</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="t-eyebrow" style="margin: 16px 0 8px; color: var(--color-foreground-tertiary);">Case B — total ≤ 3 items</h3>
+      <div class="article">
+        <p>
+          Combine the sorted named profiles with one "Somebody" / "Somebodies"
+          token (when anonymous &gt; 0), then join.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Item count</th><th>Separator</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>—</td><td><code class="inline">"Alice"</code></td></tr>
+          <tr><td>2</td><td><code class="inline"> &amp; </code></td><td><code class="inline">"Alice &amp; Bob"</code></td></tr>
+          <tr><td>3</td><td><code class="inline">, </code></td><td><code class="inline">"Alice, Bob, Somebody"</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="t-eyebrow" style="margin: 16px 0 8px; color: var(--color-foreground-tertiary);">Case C — total &gt; 3 items</h3>
+      <div class="article">
+        <p>
+          Take the first 3 sorted named profiles; the rest collapse into an
+          "and N other(s)" tail. Anonymous members are counted toward the tail,
+          never listed individually.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Members (names)</th><th>Output</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">["Alice"]</code></td><td><code class="inline">"Alice"</code></td></tr>
+          <tr><td><code class="inline">["Bob", "Alice"]</code></td><td><code class="inline">"Alice &amp; Bob"</code></td></tr>
+          <tr><td><code class="inline">["Carol", "Alice", "Bob"]</code></td><td><code class="inline">"Alice, Bob, Carol"</code></td></tr>
+          <tr><td><code class="inline">["Dave", "Carol", "Alice", "Bob"]</code></td><td><code class="inline">"Alice, Bob, Carol and 1 other"</code></td></tr>
+          <tr><td><code class="inline">["Eve", "Dave", "Carol", "Alice", "Bob"]</code></td><td><code class="inline">"Alice, Bob, Carol and 2 others"</code></td></tr>
+          <tr><td><code class="inline">[nil]</code></td><td><code class="inline">"Somebody"</code></td></tr>
+          <tr><td><code class="inline">[nil, nil]</code></td><td><code class="inline">"Somebodies"</code></td></tr>
+          <tr><td><code class="inline">["Alice", nil]</code></td><td><code class="inline">"Alice &amp; Somebody"</code></td></tr>
+          <tr><td><code class="inline">["Alice", nil, nil]</code></td><td><code class="inline">"Alice &amp; Somebodies"</code></td></tr>
+          <tr><td><code class="inline">["Alice", "Bob", nil]</code></td><td><code class="inline">"Alice, Bob, Somebody"</code></td></tr>
+          <tr><td><code class="inline">["Alice", "Bob", "Carol", nil]</code></td><td><code class="inline">"Alice, Bob, Carol and 1 other"</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 03 — Emoji selection -->
+    <section class="section" id="emoji">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Emoji selection</h2>
+        <span class="section-meta">Deterministic from the group ID</span>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 880 96" width="880" height="96" role="img" aria-label="Emoji selection: input ID, SHA-256 hash, modulo 90, pick from pool">
+          <defs>
+            <marker id="emoji-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M220,48 L256,48" marker-end="url(#emoji-arrow)"/>
+          <path class="edge" d="M440,48 L476,48" marker-end="url(#emoji-arrow)"/>
+          <path class="edge" d="M640,48 L676,48" marker-end="url(#emoji-arrow)"/>
+          <g>
+            <rect class="box" x="10" y="16" width="210" height="64" rx="10"/>
+            <text class="sub center" x="115" y="38">Input</text>
+            <text class="lbl center" x="115" y="60">clientConversationId (UTF-8)</text>
+          </g>
+          <g>
+            <rect class="box" x="260" y="16" width="180" height="64" rx="10"/>
+            <text class="sub center" x="350" y="38">Hash</text>
+            <text class="lbl center" x="350" y="60">SHA-256(input)</text>
+          </g>
+          <g>
+            <rect class="box" x="480" y="16" width="160" height="64" rx="10"/>
+            <text class="sub center" x="560" y="38">Index</text>
+            <text class="lbl center" x="560" y="60">hash[0] % 90</text>
+          </g>
+          <g>
+            <rect class="box hot" x="680" y="16" width="190" height="64" rx="10"/>
+            <text class="sub center brand" x="775" y="38">Pick</text>
+            <text class="lbl center" x="775" y="60">EMOJI_POOL[index]</text>
+          </g>
+        </svg>
+      </div>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          Collisions are expected — 90 emojis across many conversations means
+          two unrelated conversations can land on the same icon. That's fine; the
+          emoji is one of several visual cues, not a unique identifier.
+        </p>
+      </div>
+    </section>
+
+    <!-- 04 — Emoji pool -->
+    <section class="section" id="pool">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Emoji pool</h2>
+        <span class="section-meta">90 items, in order</span>
+      </div>
+      <div class="emoji-grid">
+        <div class="cell">🥫<span class="idx">00</span></div>
+        <div class="cell">🎸<span class="idx">01</span></div>
+        <div class="cell">🎨<span class="idx">02</span></div>
+        <div class="cell">🎯<span class="idx">03</span></div>
+        <div class="cell">🎪<span class="idx">04</span></div>
+        <div class="cell">🎭<span class="idx">05</span></div>
+        <div class="cell">🎬<span class="idx">06</span></div>
+        <div class="cell">🎤<span class="idx">07</span></div>
+        <div class="cell">🎧<span class="idx">08</span></div>
+        <div class="cell">🎹<span class="idx">09</span></div>
+
+        <div class="cell">🎺<span class="idx">10</span></div>
+        <div class="cell">🎻<span class="idx">11</span></div>
+        <div class="cell">🪘<span class="idx">12</span></div>
+        <div class="cell">🪗<span class="idx">13</span></div>
+        <div class="cell">🎲<span class="idx">14</span></div>
+        <div class="cell">🎮<span class="idx">15</span></div>
+        <div class="cell">🧩<span class="idx">16</span></div>
+        <div class="cell">🪀<span class="idx">17</span></div>
+        <div class="cell">🪁<span class="idx">18</span></div>
+        <div class="cell">🧸<span class="idx">19</span></div>
+
+        <div class="cell">🪆<span class="idx">20</span></div>
+        <div class="cell">🔮<span class="idx">21</span></div>
+        <div class="cell">🧿<span class="idx">22</span></div>
+        <div class="cell">🪬<span class="idx">23</span></div>
+        <div class="cell">🎰<span class="idx">24</span></div>
+        <div class="cell">🛸<span class="idx">25</span></div>
+        <div class="cell">🚀<span class="idx">26</span></div>
+        <div class="cell">⚓️<span class="idx">27</span></div>
+        <div class="cell">🧲<span class="idx">28</span></div>
+        <div class="cell">💎<span class="idx">29</span></div>
+
+        <div class="cell">🌵<span class="idx">30</span></div>
+        <div class="cell">🌊<span class="idx">31</span></div>
+        <div class="cell">🍄<span class="idx">32</span></div>
+        <div class="cell">🌸<span class="idx">33</span></div>
+        <div class="cell">🌈<span class="idx">34</span></div>
+        <div class="cell">🌻<span class="idx">35</span></div>
+        <div class="cell">🌴<span class="idx">36</span></div>
+        <div class="cell">🌲<span class="idx">37</span></div>
+        <div class="cell">🍀<span class="idx">38</span></div>
+        <div class="cell">🌾<span class="idx">39</span></div>
+
+        <div class="cell">🪻<span class="idx">40</span></div>
+        <div class="cell">🪷<span class="idx">41</span></div>
+        <div class="cell">🪹<span class="idx">42</span></div>
+        <div class="cell">🪺<span class="idx">43</span></div>
+        <div class="cell">🌙<span class="idx">44</span></div>
+        <div class="cell">⭐️<span class="idx">45</span></div>
+        <div class="cell">🌍<span class="idx">46</span></div>
+        <div class="cell">🔥<span class="idx">47</span></div>
+        <div class="cell">💧<span class="idx">48</span></div>
+        <div class="cell">🌪️<span class="idx">49</span></div>
+
+        <div class="cell">🦊<span class="idx">50</span></div>
+        <div class="cell">🐙<span class="idx">51</span></div>
+        <div class="cell">🦋<span class="idx">52</span></div>
+        <div class="cell">🐢<span class="idx">53</span></div>
+        <div class="cell">🦩<span class="idx">54</span></div>
+        <div class="cell">🦄<span class="idx">55</span></div>
+        <div class="cell">🐋<span class="idx">56</span></div>
+        <div class="cell">🦈<span class="idx">57</span></div>
+        <div class="cell">🦑<span class="idx">58</span></div>
+        <div class="cell">🐠<span class="idx">59</span></div>
+
+        <div class="cell">🦜<span class="idx">60</span></div>
+        <div class="cell">🦚<span class="idx">61</span></div>
+        <div class="cell">🦢<span class="idx">62</span></div>
+        <div class="cell">🦉<span class="idx">63</span></div>
+        <div class="cell">🦇<span class="idx">64</span></div>
+        <div class="cell">🐝<span class="idx">65</span></div>
+        <div class="cell">🐌<span class="idx">66</span></div>
+        <div class="cell">🦎<span class="idx">67</span></div>
+        <div class="cell">🐲<span class="idx">68</span></div>
+        <div class="cell">🦕<span class="idx">69</span></div>
+
+        <div class="cell">🍕<span class="idx">70</span></div>
+        <div class="cell">🌮<span class="idx">71</span></div>
+        <div class="cell">🍩<span class="idx">72</span></div>
+        <div class="cell">🍦<span class="idx">73</span></div>
+        <div class="cell">🥑<span class="idx">74</span></div>
+        <div class="cell">🍎<span class="idx">75</span></div>
+        <div class="cell">🍋<span class="idx">76</span></div>
+        <div class="cell">🍇<span class="idx">77</span></div>
+        <div class="cell">🥝<span class="idx">78</span></div>
+        <div class="cell">🍒<span class="idx">79</span></div>
+
+        <div class="cell">🧁<span class="idx">80</span></div>
+        <div class="cell">🍰<span class="idx">81</span></div>
+        <div class="cell">🍪<span class="idx">82</span></div>
+        <div class="cell">🥨<span class="idx">83</span></div>
+        <div class="cell">🥐<span class="idx">84</span></div>
+        <div class="cell">🧀<span class="idx">85</span></div>
+        <div class="cell">🥗<span class="idx">86</span></div>
+        <div class="cell">🍜<span class="idx">87</span></div>
+        <div class="cell">🍣<span class="idx">88</span></div>
+        <div class="cell">🥟<span class="idx">89</span></div>
+      </div>
+    </section>
+
+    <!-- 05 — Avatar -->
+    <section class="section" id="avatar">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Avatar resolution</h2>
+        <span class="section-meta">Custom · single peer · emoji · cluster</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Priority</th><th>Condition</th><th>Avatar</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Conversation has a custom <code class="inline">imageURL</code></td><td>The custom image.</td></tr>
+          <tr><td>2</td><td>Exactly 1 other member</td><td>That member's profile avatar.</td></tr>
+          <tr><td>3</td><td>0 other members, or no member has an avatar</td><td>The deterministic emoji.</td></tr>
+          <tr><td>4</td><td>2+ other members with at least one avatar</td><td>Clustered avatar of up to 7 member profiles (sorted: avatar-bearing first, then named, then by <code class="inline">inboxId</code>).</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 06 — Fully anonymous -->
+    <section class="section" id="anonymous">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Fully anonymous flag</h2>
+        <span class="section-meta">Signal for presentation tweaks</span>
+      </div>
+      <div class="article">
+        <p>
+          A conversation is "fully anonymous" when it has at least 1 other member
+          <em>and</em> none of those members have a non-empty profile name. A
+          conversation with 0 other members is not anonymous — it's considered
+          new. Clients may use the flag to lean into the emoji presentation when
+          there's no name to show.
+        </p>
+      </div>
+    </section>
+
+    <!-- 07 — Constants -->
+    <section class="section" id="constants">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Constants</h2>
+        <span class="section-meta">NameLimits.swift</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Name</th><th>Value</th><th>Usage</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">maxDisplayNameLength</code></td><td>50</td><td>Max length for a custom conversation name.</td></tr>
+          <tr><td><code class="inline">maxDisplayedMemberNames</code></td><td>3</td><td>Named members shown before "and N others" truncation.</td></tr>
+          <tr><td>Emoji pool size</td><td>90</td><td>Modulo used for emoji selection.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 08 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Code map</h2>
+        <span class="section-meta">Reference implementation (iOS)</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Display name &amp; avatar resolution</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Models/Conversation.swift</td></tr>
+          <tr><td>Member name formatting</td><td class="mono">ConvosCore/Sources/ConvosCore/Storage/Models/Profile.swift</td></tr>
+          <tr><td>Emoji selector</td><td class="mono">ConvosCore/Sources/ConvosCore/Utilities/EmojiSelector.swift</td></tr>
+          <tr><td>Constants</td><td class="mono">ConvosCore/Sources/ConvosCore/Constants/NameLimits.swift</td></tr>
+          <tr><td>Test vectors</td><td class="mono">ConvosCore/Tests/ConvosCoreTests/DefaultConversationDisplayTests.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./005-member-profile-system.html">ADR 005 — Member Profiles →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

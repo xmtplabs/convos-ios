@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ADR 013 — Connections Resolution &amp; Picker · Convos Docs</title>
+  <meta name="description" content="One agent contract for both device and cloud connections. A per-conversation routing table picks the provider; the picker renders five variants depending on the shape of the decision." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> ADR 013 · Connections</div>
+      <h1>Resolution &amp; picker.</h1>
+      <p class="lede">
+        One agent contract fronts both connection subsystems. The user picks a
+        provider per conversation; the resolver remembers; the manifest tells
+        the agent which provider serves which verb in which conversation. The
+        device and cloud subsystems still own their execution paths.
+      </p>
+      <div class="hero-meta">
+        <span class="pill" data-status="accepted"><span class="pill-dot"></span>Accepted · 2026-05-04</span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#shape"><span class="n">01</span> Shape</a>
+        <a href="#subjects"><span class="n">02</span> Subjects &amp; providers</a>
+        <a href="#resolver"><span class="n">03</span> Resolver</a>
+        <a href="#wire"><span class="n">04</span> Wire types</a>
+        <a href="#picker"><span class="n">05</span> Picker variants</a>
+        <a href="#router"><span class="n">06</span> Invocation router</a>
+        <a href="#manifest"><span class="n">07</span> Manifest</a>
+        <a href="#code"><span class="n">08</span> Code map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — Shape -->
+    <section class="section" id="shape">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>Shape</h2>
+        <span class="section-meta">A thin coordination layer with four jobs</span>
+      </div>
+      <div class="article">
+        <p>
+          The resolver doesn't execute anything. Device invocations still flow
+          through <code class="inline">ConvosConnections</code>; cloud calls still go agent-side via
+          Composio. The resolver only persists the user's per-conversation
+          choice and routes the device path through
+          <code class="inline">CapabilityInvocationRouter</code> when a request arrives.
+        </p>
+      </div>
+      <div class="boundary">
+        <div class="boundary-head">Four responsibilities</div>
+        <div class="boundary-body" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+          <div class="boundary-cell">
+            <span class="role">Taxonomy</span>
+            <span class="name">CapabilitySubject + ProviderID</span>
+            <span class="detail">A flat enum of user-facing subjects and a dotted-string provider namespace shared across both subsystems.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Registry</span>
+            <span class="name">CapabilityProviderRegistry</span>
+            <span class="detail">In-memory actor of currently usable providers. Populated by each subsystem at bootstrap and on link/unlink.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Routing table</span>
+            <span class="name">GRDBCapabilityResolver</span>
+            <span class="detail">Maps <code class="inline">(subject, conversationId, capability) → Set&lt;ProviderID&gt;</code>. Survives restart.</span>
+          </div>
+          <div class="boundary-cell">
+            <span class="role">Contract</span>
+            <span class="name">capability_request / _result</span>
+            <span class="detail">Agent asks; user answers; manifest republishes. Same wire shape for device and cloud answers.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Subjects & providers -->
+    <section class="section" id="subjects">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Subjects &amp; providers</h2>
+        <span class="section-meta">The flat enums users and agents share</span>
+      </div>
+      <div class="article">
+        <h3>CapabilitySubject</h3>
+        <p>
+          A user-facing taxonomy, separate from <code class="inline">ConnectionKind</code>. Not every
+          subject has a device counterpart (<code class="inline">.tasks</code>, <code class="inline">.mail</code>); not every
+          <code class="inline">ConnectionKind</code> is a subject (<code class="inline">.motion</code> is a sensor primitive,
+          not something to "grant access to").
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Subject</th><th>Federates reads?</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">.calendar</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.contacts</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.tasks</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.mail</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.photos</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.fitness</code></td><td><strong>Yes</strong> — Apple Health + Strava + Fitbit can answer the same read.</td></tr>
+          <tr><td><code class="inline">.music</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.location</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.home</code></td><td>No</td></tr>
+          <tr><td><code class="inline">.screenTime</code></td><td>No</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <h3>ProviderID</h3>
+        <p>
+          Opaque dotted-string identifiers — <code class="inline">device.calendar</code>,
+          <code class="inline">composio.google_calendar</code>. The resolver routes by registry
+          lookup, never by parsing the prefix. Two helpers exist for the rare
+          cases where the namespace matters:
+          <code class="inline">ProviderID.cloudServiceId</code> (strips <code class="inline">composio.</code>) and
+          <code class="inline">ConnectionKind.fromDeviceProviderId(_:)</code> (inverse for
+          <code class="inline">device.&lt;kind&gt;</code>).
+        </p>
+      </div>
+    </section>
+
+    <!-- 03 — Resolver -->
+    <section class="section" id="resolver">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Resolver</h2>
+        <span class="section-meta">capabilityResolution table</span>
+      </div>
+      <div class="article">
+        <p>
+          <code class="inline">GRDBCapabilityResolver</code> is the production implementation;
+          <code class="inline">InMemoryCapabilityResolver</code> mirrors the surface for tests.
+          Validity of any resolution is enforced by
+          <code class="inline">CapabilityResolutionValidator</code> at every write site.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Field</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">subject</code></td><td>One of the 10 cases above.</td></tr>
+          <tr><td><code class="inline">conversationId</code></td><td>Per-conversation routing.</td></tr>
+          <tr><td><code class="inline">capability</code></td><td><code class="inline">.read</code>, <code class="inline">.write_create</code>, <code class="inline">.write_update</code>, <code class="inline">.write_delete</code>.</td></tr>
+          <tr><td><code class="inline">grantedToInboxId</code></td><td>Identifies which inbox holds the grant; part of the primary key.</td></tr>
+          <tr><td><code class="inline">providerIds</code></td><td>Delimiter-separated set of <code class="inline">ProviderID</code>s.</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          Cardinality follows the federation × verb matrix:
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Federates reads?</th><th>Verb</th><th>Allowed size</th></tr></thead>
+        <tbody>
+          <tr><td>No</td><td><code class="inline">.read</code></td><td>1</td></tr>
+          <tr><td>No</td><td>any write</td><td>1</td></tr>
+          <tr><td>Yes</td><td><code class="inline">.read</code></td><td>≥ 1</td></tr>
+          <tr><td>Yes</td><td>any write</td><td>1 — writes never federate.</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          The table has <code class="inline">ON DELETE CASCADE</code> from the conversation row, so
+          deleting a conversation removes its resolutions automatically.
+        </p>
+      </div>
+    </section>
+
+    <!-- 04 — Wire types -->
+    <section class="section" id="wire">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Wire types</h2>
+        <span class="section-meta">capability_request / _result</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Codec</th><th>Direction</th><th>Content type</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">CapabilityRequestCodec</td><td>agent → user</td><td class="mono">convos.org/capability_request/1.0</td></tr>
+          <tr><td class="mono">CapabilityRequestResultCodec</td><td>user → agent</td><td class="mono">convos.org/capability_request_result/1.0</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          Both encode their Codable Swift type as JSON, consistent with the
+          <code class="inline">ConnectionInvocation</code> codecs from <a href="./012-connections-architecture.html">ADR 012</a>.
+          Both reject decode of a higher <code class="inline">version</code> than they understand;
+          <code class="inline">CapabilityRequest</code> truncates <code class="inline">rationale</code> to 500 chars and
+          <code class="inline">preferredProviders</code> to 16 entries on decode so a hostile sender
+          can't bloat the picker. <code class="inline">CapabilityRequestResult</code> always replies
+          — <code class="inline">.approved</code> / <code class="inline">.denied</code> / <code class="inline">.cancelled</code> — so the agent
+          can correlate by <code class="inline">requestId</code> and stop waiting. The reply's
+          <code class="inline">providers</code> field carries what was actually persisted, not what the
+          agent asked for, so an agent that supplied a hint can detect whether
+          it was honored.
+        </p>
+      </div>
+    </section>
+
+    <!-- 05 — Picker variants -->
+    <section class="section" id="picker">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Picker variants</h2>
+        <span class="section-meta">CapabilityPickerLayout.Variant</span>
+      </div>
+      <div class="article">
+        <p>
+          <code class="inline">CapabilityRequestHandler.computeLayout</code> picks one of five layouts
+          based on the linked-provider count and the federation × verb shape.
+          The handler picks; the view renders.
+        </p>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Variant</th><th>When</th></tr></thead>
+        <tbody>
+          <tr><td><code class="inline">.confirm</code></td><td>Exactly one linked provider — default-approve card with "Use a different one?" disclosure.</td></tr>
+          <tr><td><code class="inline">.singleSelect</code></td><td>Multiple linked providers; single-select. Used for any write verb or read on a non-federating subject.</td></tr>
+          <tr><td><code class="inline">.multiSelect</code></td><td>Multiple linked providers; multi-select. Only renders for <code class="inline">.read</code> on a federating subject.</td></tr>
+          <tr><td><code class="inline">.connectAndApprove</code></td><td>Zero linked providers — card doubles as a "Connect a calendar" entry point.</td></tr>
+          <tr><td><code class="inline">.verbConsent</code></td><td>Same subject already has a resolution for some other verb; new verb defaults to those providers and the card is a consent prompt (no picker).</td></tr>
+        </tbody>
+      </table>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          <code class="inline">preferredProviders</code> from the agent is honored only when every
+          preferred id is in the linked set; otherwise the picker falls through
+          to its default. Preferences never override federation rules — a write
+          verb is single-select even if the agent asks for two providers.
+        </p>
+      </div>
+    </section>
+
+    <!-- 06 — Invocation router -->
+    <section class="section" id="router">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Invocation router</h2>
+        <span class="section-meta">CapabilityInvocationRouter</span>
+      </div>
+      <div class="article">
+        <p>
+          Every <code class="inline">ConnectionInvocation</code> arriving from an agent flows through
+          the router before reaching <code class="inline">ConnectionsManager</code>. The router
+          consults the resolver and either dispatches or replies with a
+          structured status.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Router</span>
+          <span class="seq-msg">No subject mapping for the invocation's <code class="inline">kind</code> → reply <code class="inline">unknownAction</code>.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Router</span>
+          <span class="seq-msg">No capability declared for the action → reply <code class="inline">unknownAction</code>.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Router</span>
+          <span class="seq-msg">Empty resolution for <code class="inline">(subject, capability, conversationId)</code> → reply <code class="inline">capabilityNotEnabled</code>.<span class="meta">The agent should send a <code class="inline">capability_request</code> first.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">Router</span>
+          <span class="seq-msg">Resolution contains <code class="inline">device.&lt;kind&gt;</code> → dispatch to <code class="inline">ConnectionsManager</code> and return its slice of the result.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor">Router</span>
+          <span class="seq-msg">Resolution exists but contains only cloud providers → reply <code class="inline">executionFailed</code> instructing the agent to call those provider APIs directly.<span class="meta">Cloud federation is the agent's concern, not the device's.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 07 — Manifest -->
+    <section class="section" id="manifest">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Manifest</h2>
+        <span class="section-meta">CapabilityManifest on member-profile metadata</span>
+      </div>
+      <div class="article">
+        <p>
+          After a resolution changes — or a provider's link state flips — the
+          host writes a <code class="inline">CapabilityManifest</code> to
+          <code class="inline">profile.metadata["connections"]</code> on the next <code class="inline">ProfileUpdate</code>.
+          This replaces the cloud-only payload from <a href="./012-connections-architecture.html">ADR 012</a>
+          with a unified shape that carries both device and cloud entries.
+          Older readers that expected the cloud-only shape skip device entries
+          (they're additive).
+        </p>
+        <p>
+          Provider lists are sorted alphabetically by <code class="inline">id.rawValue</code> so
+          equivalent state produces byte-identical JSON, avoiding spurious
+          <code class="inline">ProfileUpdate</code> writes when nothing has changed.
+        </p>
+      </div>
+      <div class="callout" style="margin-top: 12px;">
+        <strong>Per-device only.</strong> Cloud grants persist on the member
+        profile (canonical, sync via XMTP) <em>and</em> the resolver row persists on
+        the device only — there's no cross-device sync of the routing table
+        today. A user who linked Google Calendar on iPhone and switches to iPad
+        sees the link, but not the per-conversation routing; they re-pick on
+        first request.
+      </div>
+    </section>
+
+    <!-- 08 — Code map -->
+    <section class="section" id="code">
+      <div class="section-head">
+        <span class="section-num">08</span>
+        <h2>Code map</h2>
+        <span class="section-meta">CapabilityResolution module</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Concern</th><th>File</th></tr></thead>
+        <tbody>
+          <tr><td>Subject taxonomy</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilitySubject.swift</td></tr>
+          <tr><td>Provider ID</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/ProviderID.swift</td></tr>
+          <tr><td>Provider protocol</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityProvider.swift</td></tr>
+          <tr><td>Registry (actor)</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityProviderRegistry.swift</td></tr>
+          <tr><td>Bootstrap (device + cloud)</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityProviderBootstrap.swift</td></tr>
+          <tr><td>Device adapter</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/DeviceCapabilityProvider.swift</td></tr>
+          <tr><td>Cloud adapter</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CloudCapabilityProvider.swift</td></tr>
+          <tr><td>Allowlist</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/SupportedConnections.swift</td></tr>
+          <tr><td>Resolver protocol</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityResolver.swift</td></tr>
+          <tr><td>GRDB resolver</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/GRDBCapabilityResolver.swift</td></tr>
+          <tr><td>Resolution validator</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityResolution.swift</td></tr>
+          <tr><td>Wire · request</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityRequest.swift</td></tr>
+          <tr><td>Wire · result</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityRequestResult.swift</td></tr>
+          <tr><td>Handler (variant + commit/deny/cancel)</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityRequestHandler.swift</td></tr>
+          <tr><td>Picker layout</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityPickerLayout.swift</td></tr>
+          <tr><td>Manifest</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityManifest.swift</td></tr>
+          <tr><td>Manifest builder</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityManifestBuilder.swift</td></tr>
+          <tr><td>Invocation router</td><td class="mono">ConvosCore/Sources/ConvosCore/CapabilityResolution/CapabilityInvocationRouter.swift</td></tr>
+          <tr><td>Codec · request</td><td class="mono">ConvosCore/Sources/ConvosCore/Custom Content Types/CapabilityRequestCodec.swift</td></tr>
+          <tr><td>Codec · result</td><td class="mono">ConvosCore/Sources/ConvosCore/Custom Content Types/CapabilityRequestResultCodec.swift</td></tr>
+          <tr><td>Picker view</td><td class="mono">Convos/Capabilities/CapabilityPickerCardView.swift</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Related · <a href="./012-connections-architecture.html">ADR 012 — Connections →</a></span>
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Identity System End-to-End — Convos Docs</title>
+  <meta name="description" content="From launch to keychain to push delivery — one walk through the identity surfaces of Convos iOS, pulling threads from ADR 011, 001, and the App Clip handoff." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="../index.html">
+        <span class="brand-mark">C</span>
+        Convos Docs <span class="brand-suffix">/ iOS</span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="../index.html">Index</a>
+        <a href="../design/index.html">Design</a>
+        <a href="https://github.com/convos-org/convos-ios" target="_blank" rel="noopener">GitHub →</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow"><span class="dot"></span> Overview · 01</div>
+      <h1>Identity system, end to end.</h1>
+      <p class="lede">
+        Follow one user from the moment they first launch the app to the moment
+        a push notification wakes the NSE. The path crosses five surfaces — the
+        keychain, <code class="inline">SessionManager</code>, <code class="inline">SessionStateMachine</code>, the invite
+        join flow, and the NSE delivery cache — each documented in detail in
+        its own ADR.
+      </p>
+      <div class="hero-meta">
+        <span>Synthesizes <a href="../adr/011-single-inbox-identity-model.html">ADR 011</a> · <a href="../adr/001-invite-system-architecture.html">ADR 001</a></span>
+        <span class="pipe">·</span>
+        <span>Last reviewed 2026-05-21</span>
+      </div>
+      <nav class="page-nav">
+        <a href="#first"><span class="n">01</span> First launch</a>
+        <a href="#second"><span class="n">02</span> Returning launch</a>
+        <a href="#clip"><span class="n">03</span> Via the App Clip</a>
+        <a href="#joining"><span class="n">04</span> Joining a conversation</a>
+        <a href="#push"><span class="n">05</span> Push delivery</a>
+        <a href="#wipe"><span class="n">06</span> Account wipe</a>
+        <a href="#map"><span class="n">07</span> Surface map</a>
+      </nav>
+    </section>
+
+    <!-- 01 — First launch -->
+    <section class="section" id="first">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>First launch — fresh install</h2>
+        <span class="section-meta">No identity in the keychain yet</span>
+      </div>
+      <div class="article">
+        <p>
+          The app launches with an empty keychain slot and an unbound XMTP
+          identity. <code class="inline">SessionManager.loadOrCreateService()</code> is the only call
+          that needs to happen — its synchronous one-slot cache decides whether
+          to authorize or register based on what's in the keychain.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">App</span>
+          <span class="seq-msg"><code class="inline">ConvosAppDelegate</code> boots; <code class="inline">SessionManager</code> is instantiated.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Session</span>
+          <span class="seq-msg"><code class="inline">loadOrCreateService()</code> takes the lock, calls <code class="inline">KeychainIdentityStore.loadSync()</code>; returns <code class="inline">nil</code> — no identity.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Session</span>
+          <span class="seq-msg"><code class="inline">AuthorizeInboxOperation</code> takes the <code class="inline">.register</code> branch.<span class="meta">Generates secp256k1 key pair + 256-bit SQLCipher key, writes both to the shared keychain slot.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">Session</span>
+          <span class="seq-msg"><code class="inline">SessionStateMachine</code> builds the <code class="inline">XMTPiOS.Client</code> with <code class="inline">deviceSyncEnabled: true</code> and the full codec list.<span class="meta">Local SQLCipher database file <code class="inline">xmtp-&lt;host&gt;-&lt;hash&gt;.db3</code> is created under the app group.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor">App</span>
+          <span class="seq-msg">Onboarding carousel runs; the user picks a name + avatar; <code class="inline">DBMyProfile</code> is created.<span class="meta">Subsequent <code class="inline">.ready</code> transitions on new conversations will propagate this via activate-sync (see <a href="../adr/005-member-profile-system.html">ADR 005</a>).</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 — Returning -->
+    <section class="section" id="second">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Returning launch — identity already present</h2>
+        <span class="section-meta">The hot path</span>
+      </div>
+      <div class="article">
+        <p>
+          Every subsequent launch — same device, or a new device signed into the
+          same Apple ID — sees the identity in the keychain. The path through
+          <code class="inline">SessionManager</code> is identical; only the branch in
+          <code class="inline">AuthorizeInboxOperation</code> changes.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 440 432" width="440" height="432" role="img" aria-label="Returning launch: load through keychain, authorize, ready">
+          <defs>
+            <marker id="ret-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M220,76 L220,108" marker-end="url(#ret-arrow)"/>
+          <path class="edge" d="M220,184 L220,216" marker-end="url(#ret-arrow)"/>
+          <path class="edge" d="M220,292 L220,324" marker-end="url(#ret-arrow)"/>
+          <g>
+            <rect class="box" x="20" y="12" width="400" height="64" rx="10"/>
+            <text class="sub center" x="220" y="34">Launch</text>
+            <text class="lbl center" x="220" y="58">SessionManager.loadOrCreateService()</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="120" width="400" height="64" rx="10"/>
+            <text class="sub center" x="220" y="142">Read</text>
+            <text class="lbl center" x="220" y="166">KeychainIdentityStore.loadSync()</text>
+          </g>
+          <g>
+            <rect class="box hot" x="20" y="228" width="400" height="64" rx="10"/>
+            <text class="sub center brand" x="220" y="250">Authorize</text>
+            <text class="lbl center" x="220" y="274">AuthorizeInboxOperation · .authorize</text>
+          </g>
+          <g>
+            <rect class="box" x="20" y="336" width="400" height="64" rx="10"/>
+            <text class="sub center" x="220" y="358">Ready</text>
+            <text class="lbl center" x="220" y="382">MessagingService cached in slot</text>
+          </g>
+        </svg>
+      </div>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>iCloud sync.</strong> The keychain item has
+        <code class="inline">kSecAttrSynchronizable = true</code>, so the identity follows the user
+        across their Apple ID devices. A second device's first launch hits the
+        <code class="inline">.authorize</code> branch — <code class="inline">deviceSyncEnabled</code> on the XMTP client
+        then replays group memberships and message history from the XMTP
+        history server.
+      </div>
+    </section>
+
+    <!-- 03 — Clip handoff -->
+    <section class="section" id="clip">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>Via the App Clip</h2>
+        <span class="section-meta">Clip → keychain → main app</span>
+      </div>
+      <div class="article">
+        <p>
+          When a user taps an invite link without the main app installed, iOS
+          launches the App Clip. The Clip's job is to write the identity into
+          the shared keychain slot so the main app can pick it up on first
+          launch — onboarding is skipped, the user lands directly in the
+          conversation they joined.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor">Clip</span>
+          <span class="seq-msg">User taps invite link. iOS launches <code class="inline">ConvosAppClip</code>.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor">Clip</span>
+          <span class="seq-msg"><code class="inline">ClipIdentityBootstrap</code> builds <code class="inline">SessionManager</code> in <code class="inline">.clipBootstrap</code> mode — push registration, asset renewal, prewarm, and timers are skipped.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">Clip</span>
+          <span class="seq-msg"><code class="inline">loadOrCreateService()</code> forces materialization — register branch runs, identity is written to the shared keychain slot.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">Clip</span>
+          <span class="seq-msg">The Clip processes the invite slug (verify signature, decrypt token, DM join request).<span class="meta">See <a href="../adr/001-invite-system-architecture.html">ADR 001</a>.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor other">User</span>
+          <span class="seq-msg">User installs the full app from the Clip card.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">06</span>
+          <span class="seq-actor">App</span>
+          <span class="seq-msg">First main-app launch: <code class="inline">loadOrCreateService()</code> finds the identity, takes the <code class="inline">.authorize</code> branch, lands directly in the joined conversation.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 — Joining -->
+    <section class="section" id="joining">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Joining a conversation</h2>
+        <span class="section-meta">How an invite consumes the singleton identity</span>
+      </div>
+      <div class="article">
+        <p>
+          The invite system (<a href="../adr/001-invite-system-architecture.html">ADR 001</a>)
+          uses the user's single inbox for both ends of the handshake. The
+          inviter's inbox signs the slug; the joiner's inbox sends the
+          <code class="inline">JoinRequest</code> DM and ends up as a member of the resulting MLS
+          group. There's no per-conversation inbox provisioning — the join flow
+          reuses the singleton service from <code class="inline">SessionManager</code>.
+        </p>
+      </div>
+      <div class="diagram">
+        <svg viewBox="0 0 880 96" width="880" height="96" role="img" aria-label="Join handshake: inviter to slug to joiner to join-request DM">
+          <defs>
+            <marker id="join-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#B2B2B2"/>
+            </marker>
+          </defs>
+          <path class="edge" d="M250,48 L286,48" marker-end="url(#join-arrow)"/>
+          <path class="edge" d="M440,48 L476,48" marker-end="url(#join-arrow)"/>
+          <path class="edge" d="M720,48 L756,48" marker-end="url(#join-arrow)"/>
+          <g>
+            <rect class="box hot" x="10" y="16" width="240" height="64" rx="10"/>
+            <text class="sub center brand" x="130" y="38">Inviter</text>
+            <text class="lbl center" x="130" y="60">SessionManager · singleton</text>
+          </g>
+          <g>
+            <rect class="box" x="290" y="16" width="150" height="64" rx="10"/>
+            <text class="sub center" x="365" y="38">Slug</text>
+            <text class="lbl center" x="365" y="60">SignedInvite</text>
+          </g>
+          <g>
+            <rect class="box hot" x="480" y="16" width="240" height="64" rx="10"/>
+            <text class="sub center brand" x="600" y="38">Joiner</text>
+            <text class="lbl center" x="600" y="60">SessionManager · singleton</text>
+          </g>
+          <g>
+            <rect class="box" x="760" y="16" width="110" height="64" rx="10"/>
+            <text class="sub center" x="815" y="38">DM</text>
+            <text class="lbl center" x="815" y="60">JoinRequest</text>
+          </g>
+        </svg>
+      </div>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          Pending invites are tracked in <code class="inline">PendingInviteRepository</code> with no
+          <code class="inline">clientId</code> scoping — the protocol's only no-arg method is
+          <code class="inline">allPendingInviteDetails()</code>. Under single-inbox, the question
+          "which inboxes have pending invites?" collapses to "the user has some,
+          or doesn't" so the API has one bool.
+        </p>
+      </div>
+    </section>
+
+    <!-- 05 — Push -->
+    <section class="section" id="push">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Push delivery</h2>
+        <span class="section-meta">Backend ↔ APNs ↔ NSE</span>
+      </div>
+      <div class="article">
+        <p>
+          The backend never sees the inbox ID. It routes by a random
+          <code class="inline">clientId</code> generated for the user at registration time. Push
+          payloads carry ciphertext only — the NSE decrypts in-process, reads
+          the singleton identity, and validates the payload's <code class="inline">clientId</code>
+          against the stored one before reusing its cached service.
+        </p>
+      </div>
+      <div class="sequence">
+        <div class="seq-row">
+          <span class="seq-step">01</span>
+          <span class="seq-actor other">XMTP</span>
+          <span class="seq-msg">A peer sends a message; XMTP network notifies the backend that a delivery is pending.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">02</span>
+          <span class="seq-actor other">Backend</span>
+          <span class="seq-msg">Looks up the <code class="inline">clientId</code> for the recipient; forwards an APNs push with the encrypted XMTP payload.<span class="meta">The backend has no inbox ID, no plaintext, no membership context.</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">03</span>
+          <span class="seq-actor">NSE</span>
+          <span class="seq-msg">iOS wakes <code class="inline">NotificationService</code>. <code class="inline">CachedPushNotificationHandler</code> reads the singleton identity from the keychain.</span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">04</span>
+          <span class="seq-actor">NSE</span>
+          <span class="seq-msg">Validates payload <code class="inline">clientId</code> vs. stored <code class="inline">clientId</code>.<span class="meta">Mismatch → tear down the cached service and rebuild for the new identity (e.g. user signed out + in during the same NSE process).</span></span>
+        </div>
+        <div class="seq-row">
+          <span class="seq-step">05</span>
+          <span class="seq-actor">NSE</span>
+          <span class="seq-msg">Cached <code class="inline">MessagingService</code> decrypts the MLS message and surfaces the notification body.<span class="meta">Cache TTL is 15 minutes from last access.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 06 — Wipe -->
+    <section class="section" id="wipe">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Account wipe</h2>
+        <span class="section-meta">deleteAllInboxes()</span>
+      </div>
+      <div class="article">
+        <p>
+          The wipe is the only path that removes the keychain identity. It runs
+          via <code class="inline">deleteAllInboxes()</code>, which keeps the cached service alive
+          through the entire teardown so a concurrent <code class="inline">loadOrCreateService()</code>
+          (a push arriving mid-delete, a SwiftUI sync accessor) observes the
+          being-torn-down service rather than racing a fresh one against the
+          same SQLCipher files.
+        </p>
+      </div>
+      <div class="pipeline">
+        <div class="stage">
+          <span class="stage-num">01 · DENY</span>
+          <span class="stage-title">Mark every conversation</span>
+          <span class="stage-desc">Consent denied on each MLS group so resync can't re-create them.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">02 · LEAVE</span>
+          <span class="stage-title">Leave groups</span>
+          <span class="stage-desc">Best-effort <code class="inline">leaveGroup</code> on every owned conversation.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">03 · CLEAR</span>
+          <span class="stage-title">Delete keys + DB</span>
+          <span class="stage-desc">Wipe keychain slot, delete the SQLCipher file, drop GRDB rows.</span>
+        </div>
+        <div class="stage">
+          <span class="stage-num">04 · UNREG</span>
+          <span class="stage-title">Tell the backend</span>
+          <span class="stage-desc"><code class="inline">unregisterInstallation(clientId:)</code> so push routing stops.</span>
+        </div>
+      </div>
+      <div class="article" style="margin-top: 12px;">
+        <p>
+          The NSE shares the keychain. If the wipe happens in the main app while
+          the NSE is foreground, the NSE drops the next delivery (no identity)
+          and best-effort <code class="inline">unregisterInstallation(clientId:)</code>s its
+          <code class="inline">clientId</code>.
+        </p>
+      </div>
+    </section>
+
+    <!-- 07 — Surface map -->
+    <section class="section" id="map">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Surface map</h2>
+        <span class="section-meta">Where to look when something feels off</span>
+      </div>
+      <table class="facts">
+        <thead><tr><th>Symptom</th><th>Likely surface</th><th>ADR</th></tr></thead>
+        <tbody>
+          <tr><td>Identity disappears between launches</td><td>Keychain attributes (<code class="inline">…AfterFirstUnlock</code>, sync flag, access group)</td><td><a href="../adr/011-single-inbox-identity-model.html#storage">ADR 011 §02</a></td></tr>
+          <tr><td>App boots but XMTP never becomes ready</td><td><code class="inline">SessionStateMachine</code> client options, codec list, network reachability</td><td><a href="../adr/011-single-inbox-identity-model.html#client">ADR 011 §03</a></td></tr>
+          <tr><td>Push notifications arrive but don't decrypt</td><td><code class="inline">CachedPushNotificationHandler</code> identity validation</td><td><a href="../adr/011-single-inbox-identity-model.html#push">ADR 011 §04</a></td></tr>
+          <tr><td>App Clip joins land in the right convo, full app shows onboarding</td><td><code class="inline">ClipIdentityBootstrap</code> register path / shared access group</td><td><a href="../adr/011-single-inbox-identity-model.html#clip">ADR 011 §06</a></td></tr>
+          <tr><td>Join request fails silently</td><td>Invite tag mismatch, signature verification, consent state</td><td><a href="../adr/001-invite-system-architecture.html#join">ADR 001 §05</a></td></tr>
+          <tr><td>Wipe leaves stale files</td><td><code class="inline">LegacyDataWipe</code> with generation tag <code class="inline">convos-v2</code></td><td><a href="../adr/011-single-inbox-identity-model.html#code">ADR 011 §09</a></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="footer">
+      <span><a href="../index.html">← Back to index</a></span>
+      <span class="spacer"></span>
+      <span>Next · <a href="./data-flow.html">Data flow &amp; persistence →</a></span>
+    </footer>
+  </main>
+</body>
+</html>
