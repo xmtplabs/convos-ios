@@ -235,24 +235,34 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return conversation.id
     }
 
-    private func _store(
+    /// A `DBConversation` row + its members and profiles, fully resolved from
+    /// XMTP but not yet written to the local DB. Built by `prepare(...)`,
+    /// consumed by `persist(_:in:)`.
+    ///
+    /// The split lets the batch catch-up path fan out N parallel `prepare`
+    /// calls (each does XMTP network work) and then collapse the N
+    /// `persist` calls into a single GRDB transaction — one observer fire
+    /// for the whole backlog instead of N. The stream path threads them
+    /// sequentially via `_store` and is byte-equivalent to the old shape.
+    struct PreparedConversation {
+        let dbConversation: DBConversation
+        let dbMembers: [DBConversationMember]
+        let memberProfiles: [DBMemberProfile]
+    }
+
+    /// Async, network-bound, transaction-free. Safe to call concurrently for
+    /// many conversations.
+    func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        withLatestMessages: Bool = false,
         clientConversationId: String? = nil,
         quarantinedAt: Date? = nil
-    ) async throws -> DBConversation {
-        // Sync group to get latest state including member permission levels
+    ) async throws -> PreparedConversation {
         try await conversation.sync()
-
-        // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
         let memberProfiles = try conversation.memberProfiles
-
-        // Create database representation (imageLastRenewed will be determined inside the write transaction
-        // to avoid race conditions with concurrent asset renewal)
         let dbConversation = try await createDBConversation(
             from: conversation,
             metadata: metadata,
@@ -261,22 +271,90 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed: nil,
             quarantinedAt: quarantinedAt
         )
-
-        // Save to database. Capture the actual clientConversationId used (may be a draft ID
-        // like "draft-XXX" instead of the XMTP group ID) so cache notifications match
-        // the ID that ViewModels subscribe to.
-        // Also returns the old image URL for cache invalidation.
-        let saveResult = try await saveConversationToDatabase(
+        return PreparedConversation(
             dbConversation: dbConversation,
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
         )
+    }
+
+    /// Synchronous, transaction-scoped. Call inside `databaseWriter.write { db in ... }`.
+    /// Idempotent: replay-safe thanks to `saveConversation`'s no-op diff
+    /// short-circuit + the `onConflict: .ignore` localState insert.
+    func persist(_ prepared: PreparedConversation, in db: Database) throws -> ConversationSaveResult {
+        let creator = DBMember(inboxId: prepared.dbConversation.creatorId)
+        try creator.save(db)
+
+        // Save conversation (handle local conversation updates).
+        // Also handles imageLastRenewed preservation inside the transaction.
+        let saveResult = try saveConversation(prepared.dbConversation, in: db)
+
+        // Save local state
+        let localState = ConversationLocalState(
+            conversationId: prepared.dbConversation.id,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: Date.distantPast,
+            isMuted: false,
+            pinnedOrder: nil
+        )
+        try localState.insert(db, onConflict: .ignore)
+
+        // Remove conversation_members rows for members no longer in the group
+        let currentMemberInboxIds = Set(prepared.dbMembers.map(\.inboxId))
+        if !currentMemberInboxIds.isEmpty {
+            try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == prepared.dbConversation.id)
+                .filter(!currentMemberInboxIds.contains(DBConversationMember.Columns.inboxId))
+                .deleteAll(db)
+        }
+
+        try saveMembers(prepared.dbMembers, in: db)
+
+        // Fill gaps: only write appData profiles for members without message-sourced data
+        try prepared.memberProfiles.forEach { profile in
+            let existing = try DBMemberProfile.fetchOne(
+                db,
+                conversationId: prepared.dbConversation.id,
+                inboxId: profile.inboxId
+            )
+            if existing?.name != nil || existing?.avatar != nil || existing?.memberKind != nil {
+                return
+            }
+            let member = DBMember(inboxId: profile.inboxId)
+            try member.save(db)
+            try profile.save(db)
+        }
+
+        return saveResult
+    }
+
+    private func _store(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        withLatestMessages: Bool = false,
+        clientConversationId: String? = nil,
+        quarantinedAt: Date? = nil
+    ) async throws -> DBConversation {
+        let prepared = try await prepare(
+            conversation: conversation,
+            inboxId: inboxId,
+            clientConversationId: clientConversationId,
+            quarantinedAt: quarantinedAt
+        )
+
+        // Persist in a single transaction. Capture the actual clientConversationId
+        // used (may be a draft ID like "draft-XXX" instead of the XMTP group ID)
+        // so cache notifications match the ID that ViewModels subscribe to.
+        let saveResult = try await databaseWriter.write { [self] db in
+            try persist(prepared, in: db)
+        }
 
         // Network-driven member commit just landed (initial conversation
         // arrival or refresh-with-new-members). Fire the contact-sync
         // coordinator with `force: true`; the coordinator will skip if the
         // local user has not acted in this conversation yet (action-gated).
-        enqueueContactSyncForNetworkChange(conversationId: dbConversation.id)
+        enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
 
         if let preservedInviteTag = saveResult.preservedInviteTag,
            (try conversation.inviteTag).isEmpty {
@@ -289,31 +367,32 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         // Prefetch encrypted profile images in background
-        prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
+        prefetchEncryptedImages(profiles: prepared.memberProfiles, group: conversation)
 
-        // Prefetch encrypted group image in background (invalidate old URL if changed)
-        // Use actualClientConversationId to match the ID that ViewModels subscribe to
+        // Prefetch encrypted group image in background (invalidate old URL if changed).
+        // The incoming image URL lives on the prepared DBConversation (createDBConversation
+        // builds it from metadata.imageURLString verbatim).
         prefetchEncryptedGroupImage(
             cacheId: saveResult.clientConversationId,
             group: conversation,
-            oldImageURL: saveResult.oldImageURL != metadata.imageURLString ? saveResult.oldImageURL : nil
+            oldImageURL: saveResult.oldImageURL != prepared.dbConversation.imageURLString ? saveResult.oldImageURL : nil
         )
 
         do {
             _ = try await inviteWriter.generate(
-                for: dbConversation,
+                for: prepared.dbConversation,
                 expiresAt: nil,
                 expiresAfterUse: false
             )
         } catch {
-            Log.error("Invite generation skipped for conversation \(dbConversation.id): \(error)")
+            Log.error("Invite generation skipped for conversation \(prepared.dbConversation.id): \(error)")
         }
 
         // Fetch and store latest messages if requested
         if withLatestMessages {
             try await fetchAndStoreLatestMessages(
                 for: conversation,
-                dbConversation: dbConversation,
+                dbConversation: prepared.dbConversation,
                 currentInboxId: inboxId
             )
         }
@@ -323,7 +402,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt {
             let result = try await messageWriter.store(
                 message: lastMessage,
-                for: dbConversation
+                for: prepared.dbConversation
             )
             Log.debug("Saved last message: \(result)")
         }
@@ -331,7 +410,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Process profile messages from history to populate member profiles
         await processProfileMessagesFromHistory(conversation: conversation)
 
-        return dbConversation
+        return prepared.dbConversation
     }
 
     // MARK: - Helper Methods
@@ -422,67 +501,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
     }
 
-    private struct ConversationSaveResult {
+    struct ConversationSaveResult {
         let clientConversationId: String
         let oldImageURL: String?
         let preservedInviteTag: String?
-    }
-
-    /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
-    /// and the old image URL for cache invalidation purposes.
-    private func saveConversationToDatabase(
-        dbConversation: DBConversation,
-        dbMembers: [DBConversationMember],
-        memberProfiles: [DBMemberProfile]
-    ) async throws -> ConversationSaveResult {
-        try await databaseWriter.write { [self] db in
-            let creator = DBMember(inboxId: dbConversation.creatorId)
-            try creator.save(db)
-
-            // Save conversation (handle local conversation updates)
-            // This also handles imageLastRenewed preservation inside the transaction
-            let saveResult = try self.saveConversation(dbConversation, in: db)
-
-            // Save local state
-            let localState = ConversationLocalState(
-                conversationId: dbConversation.id,
-                isPinned: false,
-                isUnread: false,
-                isUnreadUpdatedAt: Date.distantPast,
-                isMuted: false,
-                pinnedOrder: nil
-            )
-            try localState.insert(db, onConflict: .ignore)
-
-            // Remove conversation_members rows for members no longer in the group
-            let currentMemberInboxIds = Set(dbMembers.map(\.inboxId))
-            if !currentMemberInboxIds.isEmpty {
-                try DBConversationMember
-                    .filter(DBConversationMember.Columns.conversationId == dbConversation.id)
-                    .filter(!currentMemberInboxIds.contains(DBConversationMember.Columns.inboxId))
-                    .deleteAll(db)
-            }
-
-            // Save members (upserts conversation_members + stub memberProfile rows)
-            try self.saveMembers(dbMembers, in: db)
-
-            // Fill gaps: only write appData profiles for members without message-sourced data
-            try memberProfiles.forEach { profile in
-                let existing = try DBMemberProfile.fetchOne(
-                    db,
-                    conversationId: dbConversation.id,
-                    inboxId: profile.inboxId
-                )
-                if existing?.name != nil || existing?.avatar != nil || existing?.memberKind != nil {
-                    return
-                }
-                let member = DBMember(inboxId: profile.inboxId)
-                try member.save(db)
-                try profile.save(db)
-            }
-
-            return saveResult
-        }
     }
 
     /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
