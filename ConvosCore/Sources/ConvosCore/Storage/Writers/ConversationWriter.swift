@@ -334,19 +334,24 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// foreground critical path after its single transaction commits, so
     /// the user-visible foreground latency only includes prepare + persist.
     ///
-    /// Identical to the side-effect tail of `_store` minus the
-    /// `oldImageURL` comparison (the batch persists multiple rows in one
-    /// transaction and doesn't track per-row old URLs — passing nil makes
-    /// the prefetcher fetch unconditionally, which is the right default
-    /// for a freshly-synced conversation).
+    /// `saveResult` is required because `saveConversation` may resolve a
+    /// different `clientConversationId` than the one on the incoming
+    /// `PreparedConversation` (e.g. a sticky draft id wins over the XMTP
+    /// group id — see ClientConversationIdPriorityTests). The image cache
+    /// has to key off the *actual* persisted id so the UI lookups find it.
+    /// Passing nil for `oldImageURL` is acceptable here because the batch
+    /// persists multiple rows in one transaction and doesn't track per-row
+    /// old URLs; the prefetcher then fetches unconditionally, the right
+    /// default for a freshly-synced conversation.
     func runPostPersistSideEffects(
         prepared: PreparedConversation,
+        saveResult: ConversationSaveResult,
         group: XMTPiOS.Group
     ) async {
         enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
         prefetchEncryptedImages(profiles: prepared.memberProfiles, group: group)
         prefetchEncryptedGroupImage(
-            cacheId: prepared.dbConversation.clientConversationId,
+            cacheId: saveResult.clientConversationId,
             group: group,
             oldImageURL: nil
         )
@@ -360,6 +365,34 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             Log.error("Invite generation skipped for conversation \(prepared.dbConversation.id): \(error)")
         }
         await processProfileMessagesFromHistory(conversation: group)
+    }
+
+    /// Apply the supplemental messages (reactions, read receipts) the batch
+    /// catch-up filter excluded from the main transaction. Each gets its
+    /// own small transaction via the existing per-type handlers — same
+    /// loop body as `fetchAndStoreLatestMessages:704-721`. Without this,
+    /// reactions and read receipts that arrived while the device was
+    /// offline are filtered out by `isStorableForBatch` and never picked
+    /// up: libxmtp's `streamAllMessages` only delivers events from the
+    /// connection time forward, it does not replay historical backlog.
+    func applyBacklogSupplementals(
+        _ messages: [XMTPiOS.DecodedMessage],
+        for conversation: DBConversation
+    ) async {
+        for message in messages {
+            guard !message.isProfileMessage, !message.isTypingIndicator else {
+                continue
+            }
+            if message.isReadReceipt {
+                await storeReadReceipt(message, conversationId: conversation.id)
+                continue
+            }
+            do {
+                _ = try await messageWriter.store(message: message, for: conversation)
+            } catch {
+                Log.error("Failed to apply backlog supplemental message \(message.id) in \(conversation.id): \(error)")
+            }
+        }
     }
 
     private func _store(

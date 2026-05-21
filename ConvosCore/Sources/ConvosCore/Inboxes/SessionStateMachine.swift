@@ -810,7 +810,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         let inboxId = client.inboxId
         let cursor = Self.readLastCatchUpCursor(for: inboxId)
         Log.info("[catchup] running batch since=\(cursor.map { "\($0)" } ?? "nil") for inbox=\(inboxId.prefix(8))")
-        await syncingManager?.runBatchCatchUp(client: client, since: cursor)
+        // Don't advance the cursor unless we actually invoked the batch.
+        // `syncingManager` is nil when `AuthorizeInboxOperation` is configured
+        // with `startsStreamingServices: false` — silently advancing the
+        // cursor in that case would mark missed activity as "processed" and
+        // permanently skip it on the next foreground.
+        guard let syncingManager else {
+            Log.warning("[catchup] syncingManager nil, skipping batch (cursor unchanged)")
+            return
+        }
+        await syncingManager.runBatchCatchUp(client: client, since: cursor)
         Self.writeLastCatchUpCursor(Date(), for: inboxId)
     }
 

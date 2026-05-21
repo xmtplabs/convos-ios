@@ -12,7 +12,7 @@ struct BatchCatchUpResult: Sendable {
 /// the app was backgrounded or killed, *before* streams resume — so the
 /// foreground stream restart doesn't re-deliver the backlog as per-event
 /// traffic. Replaces N writes / N observer fires / N SwiftUI re-renders
-/// with one of each.
+/// with one of each (for the regular-message path).
 ///
 /// Flow:
 /// 1. `client.conversationsProvider.listGroups(lastActivityAfterNs:)`
@@ -20,20 +20,38 @@ struct BatchCatchUpResult: Sendable {
 /// 2. Per conversation, in parallel:
 ///    - Read the local `MAX(message.dateNs)` for that conversation
 ///    - `Group.messages(afterNs:)` to fetch the backlog from XMTP
-///    - Filter to "regular" messages (text, attachments, link previews,
-///      updates) — reactions, typing indicators, read receipts, and
-///      profile messages have their own per-event handlers that
-///      activate once the stream takes over after the batch returns.
+///    - Split into "regular" messages (text, attachments, link previews,
+///      group updates — go through `IncomingMessageWriter.persist` in
+///      the batched transaction) and "supplementals" (reactions, read
+///      receipts — each has its own per-type handler that the existing
+///      stream-replay path also uses, but the libxmtp stream only
+///      delivers events forward from connection time so we have to
+///      apply supplementals ourselves before streams take over).
 ///    - Build a `PreparedConversation` + `[PreparedIncomingMessage]`
 ///      via the writers' prepare phases. All transaction-free.
 /// 3. Open ONE `databaseWriter.write` and persist every prepared
-///    conversation + its prepared messages inside that single
-///    transaction. One observer fire, one SwiftUI re-render.
-/// 4. After the transaction commits, fire per-conversation side
-///    effects (prefetch + invite generation) off the critical path so
-///    they don't block the foreground hook.
+///    conversation + its prepared regular messages inside that single
+///    transaction. One observer fire, one SwiftUI re-render for the
+///    regular-message path.
+/// 4. After the transaction commits, apply per-conversation
+///    supplementals via the existing reaction/read-receipt handlers
+///    (each runs its own small transaction — same shape the stream
+///    path uses via `fetchAndStoreLatestMessages`).
+/// 5. Per-conversation side effects (prefetch + invite generation +
+///    profile-from-history) fire off the foreground critical path so
+///    they don't block the hook.
 ///
-/// Stream redelivery after the batch returns is free thanks to:
+/// Why supplementals can't ride the main transaction: their handlers
+/// (`handleReactionAddition/Removal`, `storeReadReceipt`) each open
+/// their own `databaseWriter.write` block and do non-trivial conditional
+/// logic (existence checks, timestamp comparisons). Inlining them into
+/// the batched persist would require duplicating that logic; running
+/// them via the existing handlers preserves a single source of truth.
+/// The cost is N small transactions vs one big one, but in practice
+/// supplementals are a small fraction of backlog traffic.
+///
+/// Stream redelivery of regular messages after the batch returns is
+/// free thanks to:
 /// - `saveConversation`'s no-op diff short-circuit (#857)
 /// - `DBMessage` primary-key INSERT OR REPLACE semantics
 /// - Reaction handler existence checks
@@ -88,11 +106,18 @@ final class BatchCatchUp: @unchecked Sendable {
         // Phase 1: parallel prepare (network-bound, transaction-free).
         let prepared = try await prepareAll(groups: groups, inboxId: inboxId)
 
-        // Phase 2: single-transaction persist.
-        try await databaseWriter.write { [conversationWriter, messageWriter] db in
+        // Phase 2: single-transaction persist of conversations + regular
+        // messages. `saveResults[i]` corresponds to `prepared[i]` — needed
+        // post-transaction because `saveConversation` may resolve a
+        // different clientConversationId than the input (sticky-draft
+        // logic), which the image-cache key downstream depends on.
+        let saveResults: [ConversationWriter.ConversationSaveResult] = try await databaseWriter.write { [conversationWriter, messageWriter] db in
+            var results: [ConversationWriter.ConversationSaveResult] = []
+            results.reserveCapacity(prepared.count)
             for entry in prepared {
-                _ = try conversationWriter.persist(entry.conversation, in: db)
-                for preparedMessage in entry.messages {
+                let result = try conversationWriter.persist(entry.conversation, in: db)
+                results.append(result)
+                for preparedMessage in entry.regularMessages {
                     _ = try messageWriter.persist(
                         preparedMessage,
                         conversation: entry.conversation.dbConversation,
@@ -100,25 +125,46 @@ final class BatchCatchUp: @unchecked Sendable {
                     )
                 }
             }
+            return results
         }
 
-        // Phase 3: per-conversation side effects, off the foreground critical
-        // path. Same helpers the stream path runs after each individual save.
-        Task.detached(priority: .background) { [conversationWriter] in
-            for entry in prepared {
+        // Phase 3: apply supplementals (reactions + read receipts) via the
+        // existing per-type handlers. libxmtp's `streamAllMessages` only
+        // delivers events forward from connection time — it does NOT
+        // replay historical backlog, so these would be lost if we relied
+        // on the stream to pick them up. Each handler runs its own small
+        // transaction; cheap because supplementals are a small fraction
+        // of typical backlog volume.
+        var supplementalCount = 0
+        for entry in prepared {
+            if entry.supplementalMessages.isEmpty { continue }
+            supplementalCount += entry.supplementalMessages.count
+            await conversationWriter.applyBacklogSupplementals(
+                entry.supplementalMessages,
+                for: entry.conversation.dbConversation
+            )
+        }
+
+        // Phase 4: per-conversation side effects (prefetch, invite
+        // generation, profile-from-history), off the foreground critical
+        // path. `saveResult.clientConversationId` is the *actual*
+        // persisted id and is what the image cache must key off.
+        Task.detached(priority: .background) { [conversationWriter, prepared, saveResults] in
+            for (entry, saveResult) in zip(prepared, saveResults) {
                 await conversationWriter.runPostPersistSideEffects(
                     prepared: entry.conversation,
+                    saveResult: saveResult,
                     group: entry.group
                 )
             }
         }
 
         let elapsed = CFAbsoluteTimeGetCurrent() - started
-        let totalMessages = prepared.reduce(0) { $0 + $1.messages.count }
-        Log.info("[PERF] catchup.batch.messages: \(Int(elapsed * 1000))ms convs=\(prepared.count) messages=\(totalMessages)")
+        let totalRegular = prepared.reduce(0) { $0 + $1.regularMessages.count }
+        Log.info("[PERF] catchup.batch.messages: \(Int(elapsed * 1000))ms convs=\(prepared.count) messages=\(totalRegular) supplementals=\(supplementalCount)")
         return BatchCatchUpResult(
             conversationsProcessed: prepared.count,
-            messagesProcessed: totalMessages,
+            messagesProcessed: totalRegular,
             durationSeconds: elapsed
         )
     }
@@ -128,7 +174,8 @@ final class BatchCatchUp: @unchecked Sendable {
     private struct PreparedEntry {
         let group: XMTPiOS.Group
         let conversation: ConversationWriter.PreparedConversation
-        let messages: [IncomingMessageWriter.PreparedIncomingMessage]
+        let regularMessages: [IncomingMessageWriter.PreparedIncomingMessage]
+        let supplementalMessages: [XMTPiOS.DecodedMessage]
     }
 
     private func prepareAll(
@@ -148,18 +195,27 @@ final class BatchCatchUp: @unchecked Sendable {
                         in: databaseWriter
                     )
                     let allMessages = try await group.messages(afterNs: perConvCursorNs)
-                    let storable = allMessages.filter { Self.isStorableForBatch($0) }
-                    var preparedMessages: [IncomingMessageWriter.PreparedIncomingMessage] = []
-                    preparedMessages.reserveCapacity(storable.count)
-                    for message in storable {
-                        let prepared = try await messageWriter.prepare(message: message)
-                        preparedMessages.append(prepared)
+
+                    var regularMessages: [IncomingMessageWriter.PreparedIncomingMessage] = []
+                    var supplementalMessages: [XMTPiOS.DecodedMessage] = []
+                    regularMessages.reserveCapacity(allMessages.count)
+                    for message in allMessages {
+                        switch Self.classify(message) {
+                        case .regular:
+                            let prepared = try await messageWriter.prepare(message: message)
+                            regularMessages.append(prepared)
+                        case .supplemental:
+                            supplementalMessages.append(message)
+                        case .skip:
+                            continue
+                        }
                     }
 
                     return PreparedEntry(
                         group: group,
                         conversation: preparedConv,
-                        messages: preparedMessages
+                        regularMessages: regularMessages,
+                        supplementalMessages: supplementalMessages
                     )
                 }
             }
@@ -172,20 +228,34 @@ final class BatchCatchUp: @unchecked Sendable {
         }
     }
 
-    /// Only batch messages that go through the regular `IncomingMessageWriter.persist` path.
-    /// Reactions, typing indicators, read receipts, and profile messages have their own
-    /// per-event handlers that pick them up via the stream after the batch returns.
-    private static func isStorableForBatch(_ message: XMTPiOS.DecodedMessage) -> Bool {
-        if message.isProfileMessage || message.isTypingIndicator || message.isReadReceipt {
-            return false
+    private enum MessageClassification {
+        /// Goes through `IncomingMessageWriter.persist` in the batched transaction.
+        case regular
+        /// Handled post-transaction via `ConversationWriter.applyBacklogSupplementals`
+        /// (reactions, read receipts). These have per-type handlers that
+        /// the stream-driven path also uses; we apply them here because
+        /// the libxmtp stream doesn't replay historical backlog.
+        case supplemental
+        /// Drop entirely (typing indicators, profile messages, undecodable).
+        /// Typing indicators are inherently live-only; profile messages
+        /// are handled by `processProfileMessagesFromHistory` post-persist.
+        case skip
+    }
+
+    private static func classify(_ message: XMTPiOS.DecodedMessage) -> MessageClassification {
+        if message.isProfileMessage || message.isTypingIndicator {
+            return .skip
+        }
+        if message.isReadReceipt {
+            return .supplemental
         }
         guard let contentType = try? message.encodedContent.type else {
-            return false
+            return .skip
         }
         if contentType == ContentTypeReaction || contentType == ContentTypeReactionV2 {
-            return false
+            return .supplemental
         }
-        return true
+        return .regular
     }
 
     /// `MAX(dateNs)` for the conversation, or `0` when the local DB has no messages
