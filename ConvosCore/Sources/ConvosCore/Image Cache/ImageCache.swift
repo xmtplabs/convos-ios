@@ -334,79 +334,55 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             return await loadImageFromCache(identifier: identifier, source: "loadImage (nil URL)")
         }
 
-        if object.isEncryptedImage {
-            // For encrypted images: peek to check URL change without updating tracker
-            // The prefetcher will update the tracker when it caches the decrypted image
-            let peek = await urlTracker.peek(url, for: identifier)
-
-            if peek.changed {
-                // URL changed — fetch and decrypt the new image inline
-                if let image = await fetchEncryptedImageInline(for: object, url: url, identifier: identifier) {
-                    return image
-                }
-                // Fetch failed — fall back to stale cached image rather than blank avatar
-                return await loadImageFromCache(identifier: identifier, source: "loadImage (encrypted fallback)")
-            }
-
-            // URL unchanged - normal cache lookup
-            if let memoryImage = cache.object(forKey: identifier as NSString) {
-                return memoryImage
-            }
-            if let diskImage = await loadImageFromDisk(identifier: identifier, imageFormat: .jpg) {
-                cacheImageInMemory(diskImage, key: identifier, cache: cache, logContext: "loadImage (from disk)")
-                return diskImage
-            }
-
-            // Not cached - try inline fetch if encryption parameters are available
-            if let image = await fetchEncryptedImageInline(for: object, url: url, identifier: identifier) {
-                return image
-            }
-
-            // No encryption params - return nil, prefetcher should handle it
-            return nil
-        }
-
-        // For unencrypted images: check if URL changed (without updating tracker yet)
+        // Cache-first for both encrypted and unencrypted: serve any cached
+        // image immediately and refresh in the background only when the URL
+        // has drifted. The only path that blocks on the network is a true
+        // cold cache (no memory, no disk). With sidecar-backed URL tracking
+        // (see URLTracker), cold launches on previously-cached identifiers
+        // report `changed: false` and don't schedule any refresh at all.
         let peek = await urlTracker.peek(url, for: identifier)
 
-        if peek.changed {
-            // URL changed or cold start - try to fetch from network first
-            if let image = await fetchImageFromNetwork(url: url, identifier: identifier) {
-                // Success - commit the new URL to tracker
-                _ = await urlTracker.track(url, for: identifier)
-                return image
-            }
-            // Network failed - fall through to check caches below
-            // Don't update tracker yet, so next load will retry the network fetch
-        }
-
-        // Check memory cache
         if let memoryImage = cache.object(forKey: identifier as NSString) {
-            // Only update tracker if URL hasn't changed (idempotent)
-            // Don't update if we're here after network failure - we want to retry next time
-            if !peek.changed {
-                _ = await urlTracker.track(url, for: identifier)
+            if peek.changed {
+                scheduleBackgroundRefresh(for: object, url: url, identifier: identifier)
             }
             return memoryImage
         }
-
-        // Check disk cache
         if let diskImage = await loadImageFromDisk(identifier: identifier, imageFormat: .jpg) {
             cacheImageInMemory(diskImage, key: identifier, cache: cache, logContext: "loadImage (from disk)")
-            // Only update tracker if URL hasn't changed (idempotent)
-            // Don't update if we're here after network failure - we want to retry next time
-            if !peek.changed {
-                _ = await urlTracker.track(url, for: identifier)
+            if peek.changed {
+                scheduleBackgroundRefresh(for: object, url: url, identifier: identifier)
             }
             return diskImage
         }
 
-        // Cache miss - fetch from network and update tracker only on success
+        // Cold path: nothing in memory or on disk. Block on the network so
+        // the caller gets the image rather than a placeholder.
+        if object.isEncryptedImage {
+            return await fetchEncryptedImageInline(for: object, url: url, identifier: identifier)
+        }
         if let networkImage = await fetchImageFromNetwork(url: url, identifier: identifier) {
             _ = await urlTracker.track(url, for: identifier)
             return networkImage
         }
         return nil
+    }
+
+    /// Fire-and-forget refresh used when a cache hit was served but the URL
+    /// has drifted. Inline fetch helpers handle their own deduplication
+    /// (loadingTasksLock for network, EncryptedImageLoader internally) and
+    /// commit the new URL on success, so the new bytes propagate via
+    /// `cacheUpdates`/`urlChanges` once the fetch completes — no UI delay.
+    private func scheduleBackgroundRefresh(for object: any ImageCacheable, url: URL, identifier: String) {
+        Task.detached(priority: .background) {
+            if object.isEncryptedImage {
+                _ = await self.fetchEncryptedImageInline(for: object, url: url, identifier: identifier)
+                return
+            }
+            if await self.fetchImageFromNetwork(url: url, identifier: identifier) != nil {
+                _ = await self.urlTracker.track(url, for: identifier)
+            }
+        }
     }
 
     private func loadImageFromCache(identifier: String, source: String) async -> UIImage? {
