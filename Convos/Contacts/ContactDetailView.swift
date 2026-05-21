@@ -11,20 +11,27 @@ import SwiftUI
 //   2. Member-avatar tap inside a chat (`ConversationView` presents
 //      `presentingProfileForMember`) -> `mode: .scopedToConversation(...)`.
 //
-// Section visibility is driven by the mode plus the contact's stored state:
+// One row framework for everyone: header / subtitle / optional pill / a
+// stack of secondary rows that all share `ContactDetailActionRow`. Human,
+// verified-agent, and the current user's own card differ only in *which*
+// rows render, in this fixed order:
 //
 //   - Close (X) button - always, top-leading overlay
-//   - Header (avatar / name / optional role-label capsule) - always
+//   - Header (avatar + name) - always
 //   - Subtitle - "Invited X ago by Y" in scoped mode when the member has a
 //     `joinedAt`; otherwise "Added X ago" from `contact.addedAt`
-//   - Agent rows (Get skills / Learn about assistants) - both modes, when
-//     `contact.agentVerification?.isVerified == true`
-//   - Chat - both modes; calls `contactsWriter.upsertContact(...)`
-//     before opening the picker so a synthetic / non-yet-stored contact is
-//     promoted to a real one. Disabled for verified agents (no DMs yet).
+//   - Pill below the subtitle - "You" for the current user's own card,
+//     the agent role label ("Assistant", "Verified by ...") for verified
+//     agents, otherwise nothing
+//   - Chat - hidden for the current user; disabled for verified agents
+//     (no DMs yet); calls `contactsWriter.upsertContact(...)` before
+//     opening the picker so a synthetic / non-yet-stored contact is
+//     promoted to a real one
+//   - Get skills / Learn about assistants - verified agents only, inline
+//     in the action stack after Chat
 //   - Remove - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
-//   - Block / Unblock - both modes (hidden for the current user)
+//   - Block / Unblock - hidden for the current user; both modes otherwise
 //
 // Mirrors `ContactsPickerMode`'s "one component, two entry points" pattern.
 
@@ -123,6 +130,10 @@ struct ContactDetailView: View {
         // overlap with the close button. A ScrollView keeps the header
         // pinned below the toolbar and lets the rest scroll.
         ScrollView {
+            // Spacing 0 here is load-bearing: `headerBadge` returns an
+            // `EmptyView` when there's no pill to show, and a non-zero
+            // VStack spacing would still reserve space around that empty
+            // view, inflating the gap between subtitle and actions.
             VStack(spacing: 0.0) {
                 ContactDetailHeader(contact: contact)
                 ContactDetailSubtitle(
@@ -157,7 +168,12 @@ struct ContactDetailView: View {
                 .padding(.bottom, 80.0)
             }
         }
-        .scrollContentBackground(.hidden)
+        // ScrollView on short content (human card with just Chat + Block)
+        // would otherwise rubber-band on touch even though the content
+        // already fits. `.basedOnSize` disables bounce when the content
+        // fits the viewport and re-enables it when it doesn't (agent or
+        // self card on smaller phones).
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     // MARK: - Derived
