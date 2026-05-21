@@ -34,7 +34,7 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        let allIds: [String] = viewModel.sections.flatMap { $0.contacts.map(\.inboxId) }
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         // Alice and the unverified agent pass through; both verified agents
         // are filtered out. Unverified agents intentionally remain visible
         // because they're not yet attested.
@@ -71,7 +71,7 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         viewModel.searchQuery = "ALI"
-        let allIds: [String] = viewModel.sections.flatMap { $0.contacts.map(\.inboxId) }
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds, [alice.inboxId])
     }
 
@@ -89,7 +89,7 @@ final class ContactsViewModelTests: XCTestCase {
         // Searching "alice" must not surface the verified Alice Assistant -
         // the agent filter precedes the search filter in the pipeline.
         viewModel.searchQuery = "alice"
-        let allIds: [String] = viewModel.sections.flatMap { $0.contacts.map(\.inboxId) }
+        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds, [alice.inboxId])
     }
 }

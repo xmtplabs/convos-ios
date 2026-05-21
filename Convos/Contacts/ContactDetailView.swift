@@ -831,7 +831,7 @@ extension Contact {
 
 #Preview("Agent template") {
     NavigationStack {
-        ContactCardView(
+        ContactDetailView(
             contact: .mock(
                 displayName: "Tifoso",
                 agentVerification: .verified(.convos),
