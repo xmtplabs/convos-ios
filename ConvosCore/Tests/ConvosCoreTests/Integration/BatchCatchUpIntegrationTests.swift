@@ -101,10 +101,14 @@ struct BatchCatchUpIntegrationTests {
         #expect(result.conversationsProcessed == 1, "Expected 1 changed conversation, got \(result.conversationsProcessed)")
         #expect(result.messagesProcessed >= messageCount, "Expected at least \(messageCount) messages persisted, got \(result.messagesProcessed)")
 
-        // Single transaction for the whole backlog. The batched persist is
-        // `databaseWriter.write { db in ... persist all conversations + all
-        // messages ... }` — exactly one commit, regardless of N.
-        #expect(counter.commitCount == 1, "Expected exactly 1 committed transaction during batch.run, got \(counter.commitCount)")
+        // Single transaction for the whole backlog persist + one post-commit
+        // `setUnread` write that mirrors the stream path's tail in
+        // `fetchAndStoreLatestMessages` (the conversation here has 25
+        // messages from A, so it qualifies for unread marking on B). The
+        // headline property is that the *persist* is one transaction
+        // regardless of N messages — not that the entire `run` does zero
+        // post-commit work.
+        #expect(counter.commitCount == 2, "Expected exactly 2 committed transactions during batch.run (1 persist + 1 unread mark), got \(counter.commitCount)")
 
         // Messages actually landed in B's DB.
         let storedMessageCount = try await fixtures.databaseManager.dbReader.read { db in
