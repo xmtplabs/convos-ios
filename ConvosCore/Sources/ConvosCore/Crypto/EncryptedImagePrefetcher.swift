@@ -8,6 +8,16 @@ protocol EncryptedImagePrefetcherProtocol: Sendable {
 }
 
 actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
+    /// Process-wide singleton so `inflightFetches` dedupes across every
+    /// concurrent `_store()` invocation. Without it, each call site
+    /// instantiated its own prefetcher and the per-instance in-flight
+    /// table couldn't catch the actual race: many conversations going
+    /// through `_store()` in parallel all checking ImageCacheContainer
+    /// at the same time, all seeing "not cached," and all firing fetches
+    /// for the same inboxId. The init that accepts a custom loader stays
+    /// for tests.
+    static let shared: EncryptedImagePrefetcher = .init()
+
     private static let maxConcurrentDownloads: Int = 4
     private static let maxRetryAttempts: Int = 2
     private static let retryDelaySeconds: UInt64 = 1
