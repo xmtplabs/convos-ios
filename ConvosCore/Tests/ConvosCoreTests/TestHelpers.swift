@@ -249,6 +249,7 @@ actor MockSyncingManager: SyncingManagerProtocol {
     var stopCallCount: Int = 0
     var pauseCallCount: Int = 0
     var resumeCallCount: Int = 0
+    var runBatchCatchUpCallCount: Int = 0
 
     var isSyncReady: Bool {
         isStarted && !isPaused
@@ -283,6 +284,14 @@ actor MockSyncingManager: SyncingManagerProtocol {
     }
 
     func requestDiscovery() async {
+    }
+
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
+        await incrementBatchCatchUpCount()
+    }
+
+    private func incrementBatchCatchUpCount() {
+        runBatchCatchUpCallCount += 1
     }
 }
 
