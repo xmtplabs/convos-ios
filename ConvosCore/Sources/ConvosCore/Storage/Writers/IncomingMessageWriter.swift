@@ -75,7 +75,6 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
     /// is dropped intentionally (e.g. unverified-sender
     /// ConnectionGrantRequest); the caller turns that into the
     /// canonical "no-op" result.
-    // swiftlint:disable:next function_body_length cyclomatic_complexity
     func persist(
         _ prepared: PreparedIncomingMessage,
         conversation: DBConversation,
