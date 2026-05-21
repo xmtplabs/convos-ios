@@ -112,41 +112,54 @@ struct BatchCatchUp {
         // different clientConversationId than the input (sticky-draft
         // logic), which the image-cache key downstream depends on.
         //
-        // We also capture conversations where a backlog message removed
-        // the local inbox — the stream path in
-        // `IncomingMessageWriter.store` posts
-        // `postLeftConversationNotification` for these; the batch path
-        // must too or users removed while backgrounded never get notified.
-        // Collected inside the transaction (only `persist` knows) but
-        // dispatched after commit (notification posts are not a DB
-        // operation).
+        // We also capture two post-commit signals that the stream path
+        // emits inside `IncomingMessageWriter.store` /
+        // `fetchAndStoreLatestMessages` and which the batch must mirror:
+        //   - conversations where a backlog message removed the local
+        //     inbox -> `postLeftConversationNotification` after commit
+        //   - conversations that received a message whose content type
+        //     marks the conversation unread (from a sender that isn't
+        //     us) -> `setUnread(true, ...)` after commit
+        // Collected inside the transaction (only `persist` knows the
+        // result) but dispatched after commit (notification posts +
+        // localStateWriter writes are not part of this transaction).
         struct PersistOutcomes {
             let saveResults: [ConversationWriter.ConversationSaveResult]
             let conversationsRemovingLocalInbox: [DBConversation]
+            let conversationsToMarkUnread: [String]
         }
         let outcomes: PersistOutcomes = try await databaseWriter.write { [conversationWriter, messageWriter] db in
             var results: [ConversationWriter.ConversationSaveResult] = []
             var removals: [DBConversation] = []
+            var unreadIds: [String] = []
             results.reserveCapacity(prepared.count)
             for entry in prepared {
                 let result = try conversationWriter.persist(entry.conversation, in: db)
                 results.append(result)
+                var entryMarksUnread = false
                 for preparedMessage in entry.regularMessages {
                     let messageResult = try messageWriter.persist(
                         preparedMessage,
                         conversation: entry.conversation.dbConversation,
                         in: db
                     )
-                    if let messageResult,
-                       messageResult.wasRemovedFromConversation,
-                       !messageResult.messageAlreadyExists {
+                    guard let messageResult else { continue }
+                    if messageResult.wasRemovedFromConversation, !messageResult.messageAlreadyExists {
                         removals.append(entry.conversation.dbConversation)
                     }
+                    if messageResult.contentType.marksConversationAsUnread,
+                       preparedMessage.source.senderInboxId != inboxId {
+                        entryMarksUnread = true
+                    }
+                }
+                if entryMarksUnread {
+                    unreadIds.append(entry.conversation.dbConversation.id)
                 }
             }
             return PersistOutcomes(
                 saveResults: results,
-                conversationsRemovingLocalInbox: removals
+                conversationsRemovingLocalInbox: removals,
+                conversationsToMarkUnread: unreadIds
             )
         }
         let saveResults = outcomes.saveResults
@@ -155,6 +168,16 @@ struct BatchCatchUp {
         // `IncomingMessageWriter.store`.
         for conversation in outcomes.conversationsRemovingLocalInbox {
             conversation.postLeftConversationNotification()
+        }
+
+        // Mark unread, matching the stream path's tail in
+        // `fetchAndStoreLatestMessages`.
+        for conversationId in outcomes.conversationsToMarkUnread {
+            do {
+                try await conversationWriter.markUnread(true, for: conversationId)
+            } catch {
+                Log.error("Failed to mark conversation \(conversationId) unread after batch catch-up: \(error)")
+            }
         }
 
         // Phase 3: apply supplementals (reactions + read receipts) via the
