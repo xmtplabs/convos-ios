@@ -418,10 +418,16 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// when the agent actually joins). Used by
     /// `ConversationViewModel+ThinkingIndicators` to route assistant
     /// thinking sessions under the contact card instead of the inline
-    /// footer. Independent of whether the conversation was created via the
-    /// builder — the same flow will run when adding an agent to an
-    /// existing conversation.
-    var isInAssistantBuilderFlow: Bool = false
+    /// footer, and forwarded to the messages-list repo so the processor
+    /// can suppress the legacy "Assistant joined" update row for the
+    /// duration of the builder UX. Independent of whether the conversation
+    /// was created via the builder — the same flow will run when adding
+    /// an agent to an existing conversation.
+    var isInAssistantBuilderFlow: Bool = false {
+        didSet {
+            messagesListRepository.isInAssistantBuilderFlow = isInAssistantBuilderFlow
+        }
+    }
     @ObservationIgnored
     private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
     /// Background tasks that assign `eagerUploadKey` to a freshly-added

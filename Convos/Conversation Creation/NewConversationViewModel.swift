@@ -49,6 +49,7 @@ class NewConversationViewModel: Identifiable {
     private(set) var conversationViewModel: ConversationViewModel? {
         didSet {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
+            conversationViewModel?.isInAssistantBuilderFlow = isInAssistantBuilderFlow
         }
     }
     /// When `true`, every `conversationViewModel` we vend (the initial
@@ -63,6 +64,19 @@ class NewConversationViewModel: Identifiable {
         didSet {
             guard oldValue != suppressesContactCard else { return }
             conversationViewModel?.allowsContactCard = !suppressesContactCard
+        }
+    }
+    /// Mirrors `ConversationViewModel.isInAssistantBuilderFlow` at the wrapper
+    /// level so the value survives the inbox-acquisition VM swap. The
+    /// Assistant Builder sets this on appear and clears it on disappear; the
+    /// `didSet` on `conversationViewModel` forwards it onto the current inner
+    /// VM, which in turn forwards it onto the messages-list repo so the
+    /// processor can suppress the "Assistant joined" update row for the
+    /// duration of the builder UI.
+    var isInAssistantBuilderFlow: Bool = false {
+        didSet {
+            guard oldValue != isInAssistantBuilderFlow else { return }
+            conversationViewModel?.isInAssistantBuilderFlow = isInAssistantBuilderFlow
         }
     }
     let qrScannerViewModel: QRScannerViewModel

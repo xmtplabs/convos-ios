@@ -25,6 +25,13 @@ protocol MessagesListRepositoryProtocol {
     /// When set, the processor prepends a `.assistantBuilderSummary` cell and
     /// filters every messages-group whose timestamp predates `cutoffDate`.
     var assistantBuilderSummary: AssistantBuilderSummary? { get set }
+    /// `true` while the conversation is rendered under the assistant builder
+    /// UI (set by `AssistantBuilderView.onAppear`, cleared on disappear). The
+    /// processor uses this to suppress the legacy "Assistant joined" update
+    /// row throughout the builder flow — pre-Make it lives under the builder
+    /// overlay anyway, and post-Make the contact card is the canonical
+    /// arrival signal so the row would just compete with the morph.
+    var isInAssistantBuilderFlow: Bool { get set }
 }
 
 @MainActor
@@ -55,6 +62,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     var assistantBuilderSummary: AssistantBuilderSummary? {
         didSet {
             guard oldValue != assistantBuilderSummary else { return }
+            reprocessCachedMessages()
+        }
+    }
+    var isInAssistantBuilderFlow: Bool = false {
+        didSet {
+            guard oldValue != isInAssistantBuilderFlow else { return }
             reprocessCachedMessages()
         }
     }
@@ -177,7 +190,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             sendReadReceipts: sendReadReceipts,
             previousReadByMembers: lastReadByMembers,
             verifiedAssistant: verifiedAssistant,
-            assistantBuilderSummary: assistantBuilderSummary
+            assistantBuilderSummary: assistantBuilderSummary,
+            isInAssistantBuilderFlow: isInAssistantBuilderFlow
         )
         lastReadByMembers = Self.extractReadByMembers(from: items)
         scheduleAssistantJoinDismissIfNeeded(items)

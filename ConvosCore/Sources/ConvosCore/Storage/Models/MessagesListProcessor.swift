@@ -12,7 +12,8 @@ public final class MessagesListProcessor: Sendable {
         sendReadReceipts: Bool = true,
         previousReadByMembers: [ConversationMember] = [],
         verifiedAssistant: ConversationMember? = nil,
-        assistantBuilderSummary: AssistantBuilderSummary? = nil
+        assistantBuilderSummary: AssistantBuilderSummary? = nil,
+        isInAssistantBuilderFlow: Bool = false
     ) -> [MessagesListItemType] {
         let baseItems: [MessagesListItemType] = processMessages(
             messages,
@@ -27,7 +28,8 @@ public final class MessagesListProcessor: Sendable {
         return applyAssistantContactCardAndSummary(
             to: baseItems,
             verifiedAssistant: verifiedAssistant,
-            assistantBuilderSummary: assistantBuilderSummary
+            assistantBuilderSummary: assistantBuilderSummary,
+            isInAssistantBuilderFlow: isInAssistantBuilderFlow
         )
     }
 
@@ -39,9 +41,24 @@ public final class MessagesListProcessor: Sendable {
     private static func applyAssistantContactCardAndSummary(
         to baseItems: [MessagesListItemType],
         verifiedAssistant: ConversationMember?,
-        assistantBuilderSummary: AssistantBuilderSummary?
+        assistantBuilderSummary: AssistantBuilderSummary?,
+        isInAssistantBuilderFlow: Bool
     ) -> [MessagesListItemType] {
         var items: [MessagesListItemType] = baseItems
+
+        // Suppress the legacy "Assistant joined" update row throughout the
+        // entire builder flow — pre-Make the builder overlay covers the
+        // chat, and post-Make the summary + contact card morph announce
+        // arrival, so the update row would only briefly flash through the
+        // overlay fade-out. Done outside the `assistantBuilderSummary`
+        // block because the flag is set on builder appearance, before the
+        // summary exists.
+        if isInAssistantBuilderFlow {
+            items = items.filter { item in
+                guard case .update(_, let update, _) = item else { return true }
+                return !update.addedVerifiedAssistant
+            }
+        }
 
         if let summary = assistantBuilderSummary {
             items = items.flatMap { item -> [MessagesListItemType] in
