@@ -397,6 +397,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
     }
 
+    /// Mark a conversation unread. Exposed so `BatchCatchUp` can mirror
+    /// the stream path's `fetchAndStoreLatestMessages` tail without
+    /// reaching into `localStateWriter` directly.
+    func markUnread(_ unread: Bool, for conversationId: String) async throws {
+        try await localStateWriter.setUnread(unread, for: conversationId)
+    }
+
     private func _store(
         conversation: XMTPiOS.Group,
         inboxId: String,
@@ -672,6 +679,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if !localConversation.isUnused {
                 conversationToSave = conversationToSave.with(createdAt: localConversation.createdAt)
             }
+            // Merge sticky fields from the by-tag match for the same
+            // reasons documented above: this row is replacing
+            // `localConversation`, so its sticky-on agent flag and
+            // quarantine timestamps must carry forward.
+            let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
+            let preservedQuarantinedAtByTag: Date? = conversationToSave.quarantinedAt ?? localConversation.quarantinedAt
+            let preservedQuarantineReleasedAtByTag: Date? = conversationToSave.quarantineReleasedAt ?? localConversation.quarantineReleasedAt
+            conversationToSave = conversationToSave
+                .with(hasHadVerifiedAssistant: mergedHasAgentByTag)
+                .with(
+                    quarantinedAt: preservedQuarantinedAtByTag,
+                    quarantineReleasedAt: preservedQuarantineReleasedAtByTag
+                )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
