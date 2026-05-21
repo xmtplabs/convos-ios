@@ -66,6 +66,20 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         case .success(let verification):
             let transaction = try verifiedTransaction(verification)
             await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transactionId: transaction.id)
+            // Emit immediately from the verified transaction so the paywall's
+            // "Current plan" badge (and any other subscription-derived UI)
+            // flips without waiting for `Transaction.currentEntitlements` to
+            // repopulate. In sandbox that cache can lag by seconds after a
+            // successful purchase — for a first-time buyer it returns 0
+            // entries and the subject would emit `nil`; for an upgrade it
+            // returns the old entitlement and the subject would emit the old
+            // tier. Either way the paywall shows the wrong state until the
+            // next `Transaction.updates` cycle arrives.
+            // `refreshFromEntitlements` below reconciles a moment later — no-op
+            // if it agrees, corrects if Apple's view differs.
+            if let sub = await userSubscription(from: transaction) {
+                subscriptionSubject.send(sub)
+            }
             await refreshFromEntitlements()
             // Force a credits refresh: the tier just changed (or was set for
             // the first time), so `monthlyGrant` derived from
