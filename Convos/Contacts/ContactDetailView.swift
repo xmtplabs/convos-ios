@@ -115,47 +115,76 @@ struct ContactDetailView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        VStack(spacing: 0.0) {
-            ContactDetailHeader(contact: contact)
-            ContactDetailSubtitle(
-                contact: contact,
-                invitedBy: mode.invitedBy,
-                joinedAt: mode.joinedAt,
-                isBlocked: isBlocked
-            )
-            .padding(.top, DesignConstants.Spacing.step2x)
-            if isVerifiedAgent {
-                ContactDetailAgentLinks()
-                    .padding(.top, DesignConstants.Spacing.step8x)
+        // ScrollView (not a plain VStack with a Spacer) because verified
+        // agents render two extra link rows + a Remove row above Block,
+        // and on smaller phones that content can exceed the sheet's
+        // height. The previous VStack+Spacer layout pushed long content
+        // *up* behind the transparent toolbar - the avatar would visually
+        // overlap with the close button. A ScrollView keeps the header
+        // pinned below the toolbar and lets the rest scroll.
+        ScrollView {
+            VStack(spacing: 0.0) {
+                ContactDetailHeader(contact: contact)
+                ContactDetailSubtitle(
+                    contact: contact,
+                    invitedBy: mode.invitedBy,
+                    joinedAt: mode.joinedAt,
+                    isBlocked: isBlocked
+                )
+                .padding(.top, DesignConstants.Spacing.step2x)
+                headerBadge
+                ContactDetailActions(
+                    isBlocked: isBlocked,
+                    isApplyingBlockChange: isApplyingBlockChange,
+                    // Verified agents (Convos / OAuth-verified) don't accept
+                    // 1:1 DMs today, so the Chat CTA would open a conversation
+                    // that goes nowhere. Disable until DM support for agents
+                    // lands; the agent rows that follow the Chat button
+                    // remain the right way to interact.
+                    canSendMessage: session != nil && !isVerifiedAgent,
+                    showChat: !mode.isCurrentUser,
+                    showAgentLinks: isVerifiedAgent,
+                    showRemove: mode.isScopedToConversation
+                        && !mode.isCurrentUser
+                        && mode.canRemoveMembers,
+                    showBlock: !mode.isCurrentUser,
+                    contactDisplayName: contact.resolvedDisplayName,
+                    onSendMessage: handleSendMessage,
+                    onRemove: handleRemoveTap,
+                    onToggleBlock: handleBlockTap
+                )
+                .padding(.top, DesignConstants.Spacing.step8x)
+                .padding(.bottom, 80.0)
             }
-            ContactDetailActions(
-                isBlocked: isBlocked,
-                isApplyingBlockChange: isApplyingBlockChange,
-                // Verified agents (Convos / OAuth-verified) don't accept
-                // 1:1 DMs today, so the Chat CTA would open a conversation
-                // that goes nowhere. Disable until DM support for agents
-                // lands; the "Get skills" / "Learn about assistants" rows
-                // above remain the right way to interact.
-                canSendMessage: session != nil && !isVerifiedAgent,
-                showRemove: mode.isScopedToConversation
-                    && !mode.isCurrentUser
-                    && mode.canRemoveMembers,
-                showBlock: !mode.isCurrentUser,
-                contactDisplayName: contact.resolvedDisplayName,
-                onSendMessage: handleSendMessage,
-                onRemove: handleRemoveTap,
-                onToggleBlock: handleBlockTap
-            )
-            .padding(.top, DesignConstants.Spacing.step8x)
-            .padding(.bottom, 80.0)
-            Spacer(minLength: 0.0)
         }
+        .scrollContentBackground(.hidden)
     }
 
     // MARK: - Derived
 
     private var isVerifiedAgent: Bool {
         contact.isVerifiedAgent
+    }
+
+    /// Pill rendered below the subtitle. "You" for the current user's
+    /// own card, the agent role label for verified agents, otherwise
+    /// nothing. The top padding is inside the builder so it doesn't
+    /// inflate the gap above the actions row when no badge is showing.
+    @ViewBuilder
+    private var headerBadge: some View {
+        if mode.isCurrentUser {
+            ContactDetailBadge(
+                label: "You",
+                accessibilityIdentifier: "contact-detail-you-badge"
+            )
+            .padding(.top, DesignConstants.Spacing.step2x)
+        } else if let roleLabel = contact.agentVerification?.roleLabel {
+            ContactDetailBadge(
+                label: roleLabel,
+                accessibilityIdentifier: "contact-detail-role-label-\(contact.inboxId)"
+            )
+            .padding(.top, DesignConstants.Spacing.step2x)
+        }
     }
 
     // MARK: - Picker sheet
@@ -372,17 +401,27 @@ private struct ContactDetailHeader: View {
             Text(contact.resolvedDisplayName)
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
-
-            if let roleLabel = contact.agentVerification?.roleLabel {
-                Text(roleLabel)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-                    .accessibilityIdentifier("contact-detail-role-label-\(contact.inboxId)")
-            }
         }
+    }
+}
+
+/// Small capsule pill rendered below the subtitle. Used for the
+/// verified-agent role label ("Assistant", "Verified by ...") and for
+/// the "You" indicator on the current user's own card - same shape so
+/// the spacing around the pill mirrors the surrounding label spacing
+/// regardless of which one is showing.
+private struct ContactDetailBadge: View {
+    let label: String
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        Text(label)
+            .font(.footnote)
+            .foregroundStyle(.colorTextSecondary)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, DesignConstants.Spacing.stepX)
+            .background(.colorTextSecondary.opacity(0.1), in: .capsule)
+            .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -436,69 +475,19 @@ private struct ContactDetailSubtitle: View {
     }
 }
 
-// MARK: - Agent links
-
-private struct ContactDetailAgentLinks: View {
-    @Environment(\.openURL) private var openURL: OpenURLAction
-
-    var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
-            agentLinkRow(
-                title: "Get skills",
-                subtitle: "Browse 100+ curated capabilities",
-                url: AgentLinks.getSkillsURL,
-                accessibilityIdentifier: "contact-detail-get-skills"
-            )
-            agentLinkRow(
-                title: "Learn about assistants",
-                subtitle: "Capabilities, privacy and security",
-                url: AgentLinks.learnAboutAssistantsURL,
-                accessibilityIdentifier: "contact-detail-learn-about-assistants"
-            )
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-    }
-
-    private func agentLinkRow(
-        title: String,
-        subtitle: String,
-        url: URL,
-        accessibilityIdentifier: String
-    ) -> some View {
-        let action = { openURL(url) }
-        return Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2.0) {
-                    Text(title)
-                        .font(.body)
-                        .foregroundStyle(.colorTextPrimary)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.colorTextTertiary)
-            }
-            .padding(DesignConstants.Spacing.step3x)
-            .background(
-                RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
-            )
-        }
-        .accessibilityIdentifier(accessibilityIdentifier)
-    }
-}
-
 // MARK: - Action stack
 
-/// Renders Chat + (optional) Remove + (optional) Block in the order shown
-/// in the design. Chat is the primary CTA (filled dark pill); Remove and
-/// Block use the secondary action-row style (white pill + caption).
+/// Renders Chat (always first) plus any combination of the verified-
+/// agent links, Remove, and Block - in that order. Chat is the primary
+/// CTA (filled dark pill); the rest use the secondary action-row style
+/// (capsule label + caption below) so an agent and human card share
+/// one row framework and only differ in which rows render.
 private struct ContactDetailActions: View {
     let isBlocked: Bool
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
+    let showChat: Bool
+    let showAgentLinks: Bool
     let showRemove: Bool
     let showBlock: Bool
     let contactDisplayName: String
@@ -506,9 +495,16 @@ private struct ContactDetailActions: View {
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
 
+    @Environment(\.openURL) private var openURL: OpenURLAction
+
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step6x) {
-            chatButton
+            if showChat {
+                chatButton
+            }
+            if showAgentLinks {
+                agentLinkRows
+            }
             if showRemove {
                 removeRow
             }
@@ -517,6 +513,28 @@ private struct ContactDetailActions: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
+    }
+
+    @ViewBuilder
+    private var agentLinkRows: some View {
+        ContactDetailActionRow(
+            label: "Get skills",
+            footer: "Browse 100+ curated capabilities",
+            color: .colorTextPrimary,
+            isDisabled: false,
+            accessibilityLabel: "Get skills",
+            accessibilityIdentifier: "contact-detail-get-skills",
+            action: { openURL(AgentLinks.getSkillsURL) }
+        )
+        ContactDetailActionRow(
+            label: "Learn about assistants",
+            footer: "Capabilities, privacy and security",
+            color: .colorTextPrimary,
+            isDisabled: false,
+            accessibilityLabel: "Learn about assistants",
+            accessibilityIdentifier: "contact-detail-learn-about-assistants",
+            action: { openURL(AgentLinks.learnAboutAssistantsURL) }
+        )
     }
 
     private var chatButton: some View {
