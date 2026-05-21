@@ -144,7 +144,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             kid: keyId,
             keyset: keyset
         )
-        Log.info("[Attestation] agent \(inboxId.prefix(8)) cached result: \(result), kid=\(keyId)")
+        Log.debug("[Attestation] agent \(inboxId.prefix(8)) cached result: \(result), kid=\(keyId)")
         return result
     }
 
