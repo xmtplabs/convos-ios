@@ -329,6 +329,39 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return saveResult
     }
 
+    /// Post-persist side effects the stream path runs after each individual
+    /// save. The batch catch-up path runs them per-conversation off the
+    /// foreground critical path after its single transaction commits, so
+    /// the user-visible foreground latency only includes prepare + persist.
+    ///
+    /// Identical to the side-effect tail of `_store` minus the
+    /// `oldImageURL` comparison (the batch persists multiple rows in one
+    /// transaction and doesn't track per-row old URLs — passing nil makes
+    /// the prefetcher fetch unconditionally, which is the right default
+    /// for a freshly-synced conversation).
+    func runPostPersistSideEffects(
+        prepared: PreparedConversation,
+        group: XMTPiOS.Group
+    ) async {
+        enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
+        prefetchEncryptedImages(profiles: prepared.memberProfiles, group: group)
+        prefetchEncryptedGroupImage(
+            cacheId: prepared.dbConversation.clientConversationId,
+            group: group,
+            oldImageURL: nil
+        )
+        do {
+            _ = try await inviteWriter.generate(
+                for: prepared.dbConversation,
+                expiresAt: nil,
+                expiresAfterUse: false
+            )
+        } catch {
+            Log.error("Invite generation skipped for conversation \(prepared.dbConversation.id): \(error)")
+        }
+        await processProfileMessagesFromHistory(conversation: group)
+    }
+
     private func _store(
         conversation: XMTPiOS.Group,
         inboxId: String,
