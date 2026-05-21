@@ -636,6 +636,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     }
 
     private func handleAuthorized(result: InboxReadyResult) async throws {
+        // Drain the backlog in batched form before streams start. Same
+        // motivation as `handleEnterForeground` — on cold start the
+        // network may have a large backlog (NSE didn't run, or the app
+        // was killed for a long time) and per-event stream catch-up
+        // would N-times the writes / observer fires / SwiftUI renders.
+        // The cursor is the same `lastWelcomeProcessed` UserDefaults
+        // value the NSE writes, so even cold start respects whatever the
+        // NSE has already processed in the background.
+        await runBatchCatchUp(client: result.client)
+
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
         emitStateChange(.ready(result))
@@ -773,17 +783,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await result.client.reconnectLocalDatabase()
 
-        // Drain the backlog in one batched transaction before streams resume.
-        // Replaces N per-event writes / observer fires / SwiftUI re-renders
-        // with one each. The cursor is the same `lastWelcomeProcessed`
-        // UserDefaults value the NSE writes after each push-driven catch-up,
-        // so foreground and NSE share the catch-up frontier without
-        // double-processing. The stream resume that follows is the
-        // correctness safety net for anything the batch missed.
-        let inboxId = result.client.inboxId
-        let cursor = Self.readLastCatchUpCursor(for: inboxId)
-        await syncingManager?.runBatchCatchUp(client: result.client, since: cursor)
-        Self.writeLastCatchUpCursor(Date(), for: inboxId)
+        // Drain the backlog in batched form before streams resume.
+        await runBatchCatchUp(client: result.client)
 
         await startNetworkMonitoring()
         await syncingManager?.resume()
@@ -792,9 +793,30 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("Inbox returned to ready state")
     }
 
+    /// Drain the backlog of activity since the last catch-up frontier, in
+    /// batched form, before streams start or resume. Called from both
+    /// `handleAuthorized` (cold start) and `handleEnterForeground`
+    /// (foreground after background). Cursor is the same
+    /// `lastWelcomeProcessed` UserDefaults value the NSE writes after
+    /// each push-driven catch-up, so foreground/cold-start and NSE all
+    /// share the same frontier without double-processing.
+    ///
+    /// `nonisolated` so the non-Sendable `XMTPClientProvider` doesn't
+    /// cross the actor's isolation boundary on the way to
+    /// `syncingManager.runBatchCatchUp` (also nonisolated for the same
+    /// reason). `syncingManager` is captured locally so we don't need
+    /// to hop the actor for it either.
+    private nonisolated func runBatchCatchUp(client: any XMTPClientProvider) async {
+        let inboxId = client.inboxId
+        let cursor = Self.readLastCatchUpCursor(for: inboxId)
+        Log.info("[catchup] running batch since=\(cursor.map { "\($0)" } ?? "nil") for inbox=\(inboxId.prefix(8))")
+        await syncingManager?.runBatchCatchUp(client: client, since: cursor)
+        Self.writeLastCatchUpCursor(Date(), for: inboxId)
+    }
+
     /// Persisted catch-up cursor shared with `MessagingService+PushNotifications`.
-    /// Same UserDefaults key — both foreground and NSE update it as they
-    /// drain backlog, so the two paths converge on the same frontier.
+    /// Same UserDefaults key — foreground, cold start, and NSE all update
+    /// it as they drain backlog, converging on the same frontier.
     private static let catchUpCursorKeyPrefix: String = "convos.pushNotifications.lastWelcomeProcessed"
 
     private static func readLastCatchUpCursor(for inboxId: String) -> Date? {
