@@ -110,6 +110,23 @@ final class ConversationsViewController: UIViewController {
     var onStartConvo: (() -> Void)?
     var onJoinConvo: (() -> Void)?
     var onShowAllFilter: (() -> Void)?
+    /// Fired on every scroll tick with the latest content offset Y. Used
+    /// by the host SwiftUI shell (`MainTabView`) to flip the assistant
+    /// builder bar between expanded and collapsed states based on whether
+    /// the list is at the top.
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+
+    /// Extra bottom inset to clear the SwiftUI bottom chrome (builder
+    /// bar + custom tab bar) that lives in the host's safe-area inset
+    /// chain. The chain doesn't always propagate to UIKit-hosted
+    /// collection views, so the SwiftUI host pushes this value down and
+    /// we apply it via `additionalSafeAreaInsets`.
+    var bottomChromeInset: CGFloat = 0 {
+        didSet {
+            guard isViewLoaded, oldValue != bottomChromeInset else { return }
+            additionalSafeAreaInsets.bottom = bottomChromeInset
+        }
+    }
 
     // MARK: - Lifecycle
 
@@ -642,6 +659,16 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         guard let conversation = conversation(for: indexPath) else { return }
         onSelectConversation?(conversation)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Report scrolled distance from the natural top — zero when the
+        // list is at rest at the top, positive when scrolled down,
+        // negative on overscroll bounce past the top. Without adding the
+        // adjusted top inset back in, the "at top" position is whatever
+        // `-adjustedContentInset.top` happens to be, which the host can't
+        // compare against a fixed threshold cleanly.
+        onScrollOffsetChange?(scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
     }
 
     func collectionView(

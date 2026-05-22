@@ -42,7 +42,7 @@ struct AssistantBuilderBar: View {
                     .transition(.blurReplace)
             }
         }
-        .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isExpanded)
+        .animation(.smooth(duration: 0.25), value: isExpanded)
     }
 
     private var expandedBar: some View {
@@ -50,7 +50,7 @@ struct AssistantBuilderBar: View {
             assistantAvatar
 
             Text("Make an agent")
-                .font(.body)
+                .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -78,9 +78,31 @@ struct AssistantBuilderBar: View {
     private var collapsedBar: some View {
         HStack {
             Spacer()
-            assistantAvatar
+            collapsedGlassCircle
         }
         .accessibilityIdentifier("assistant-builder-bar-collapsed")
+    }
+
+    /// Black-tinted liquid-glass circle that fills the same vertical
+    /// extent as the expanded capsule so the chrome's overall height
+    /// stays constant across the morph. The `GlassEffectContainer`
+    /// interpolates the surface shape (capsule -> circle) and tint via
+    /// the shared `glassEffectID`.
+    private var collapsedGlassCircle: some View {
+        Button(action: onTap) {
+            Image("addAssistantIcon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .frame(width: Constant.collapsedIconSize, height: Constant.collapsedIconSize)
+                .frame(width: Constant.collapsedCircleSize, height: Constant.collapsedCircleSize)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.tint(Color.black).interactive(), in: .circle)
+        .accessibilityLabel("Make an agent")
+        .accessibilityIdentifier("assistant-builder-bar-avatar")
     }
 
     private var assistantAvatar: some View {
@@ -105,8 +127,7 @@ struct AssistantBuilderBar: View {
     private func attachmentButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .resizable()
-                .scaledToFit()
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(Color.colorTextSecondary)
                 .frame(width: Constant.attachmentIconWidth, height: Constant.attachmentIconHeight)
                 .contentShape(.rect)
@@ -117,10 +138,18 @@ struct AssistantBuilderBar: View {
 
     private enum Constant {
         static let surfaceId: String = "assistant-builder-bar-glass"
-        static let avatarSize: CGFloat = 44
-        static let attachmentIconWidth: CGFloat = 24.0
-        static let attachmentIconHeight: CGFloat = 22.0
-        static let attachmentIconSpacing: CGFloat = 20.0
+        static let avatarSize: CGFloat = 32
+        /// Diameter of the collapsed-state glass circle. Matches the
+        /// expanded capsule's height (32pt avatar + step3x*2 padding =
+        /// 32 + 24 = 56pt) so the chrome's overall vertical footprint
+        /// stays constant across the expanded -> collapsed morph,
+        /// avoiding a layout shift that would oscillate the scroll
+        /// position.
+        static let collapsedCircleSize: CGFloat = 56.0
+        static let collapsedIconSize: CGFloat = 24.0
+        static let attachmentIconWidth: CGFloat = 20.0
+        static let attachmentIconHeight: CGFloat = 18.0
+        static let attachmentIconSpacing: CGFloat = 24.0
         static let attachmentGroupHorizontalPadding: CGFloat = 8.0
     }
 }

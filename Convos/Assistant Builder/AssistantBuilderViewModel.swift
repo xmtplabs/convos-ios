@@ -647,13 +647,17 @@ final class AssistantBuilderViewModel: Identifiable {
         newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation
-        let assistantJoined = conversation?.hasAgent ?? false
 
         newConversationViewModel.dismissWithDeletion()
 
-        guard let conversation,
-              !conversation.isDraft,
-              assistantJoined else { return }
+        // Once the draft has been committed (real XMTP group id, not a
+        // `draft-...` placeholder) we always run the consent-delete path
+        // so the user leaves the XMTP group. Without this, dropping out
+        // before the agent joined would delete the local row but leave
+        // the XMTP group on the server — the next sync would re-add a
+        // row to the conversations list and the user would see the
+        // discarded convo come back.
+        guard let conversation, !conversation.isDraft else { return }
 
         Task { [session] in
             do {

@@ -9,13 +9,23 @@ struct ConversationsView: View {
     /// sheet zoom; passed through to `ConversationPresenter` so the pill
     /// overlay renders with the right matched-transition source.
     let appIndicatorContext: AppIndicatorContext
-    /// Optional inset rendered above the NavigationSplitView's sidebar
-    /// — used by `MainTabView` to attach the `AssistantBuilderBar` only
-    /// to the conversation list, not the conversation detail. Putting
-    /// the inset on the sidebar means pushing a conversation detail
-    /// doesn't inherit the bar's safe-area inset, so the detail's bottom
-    /// bar can't briefly jump to "above" the (about-to-disappear) bar.
+    /// Optional accessory rendered as an overlay at the bottom of the
+    /// sidebar. Reserved for callers that want extra chrome scoped to
+    /// the conversation list only; `MainTabView` no longer uses this
+    /// (the builder bar moved into the global bottom chrome), but the
+    /// hook stays in case downstream callers need it.
     var sidebarBottomAccessory: AnyView?
+    /// Fired with the conversation list's current scroll content-offset Y
+    /// on every scroll tick, forwarded from `ConversationsViewController`.
+    /// `MainTabView` uses this to flip the assistant builder bar between
+    /// expanded and collapsed states.
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Extra bottom inset (in points) for the conversation list to clear
+    /// the SwiftUI bottom chrome (builder bar + custom tab bar) rendered
+    /// by `MainTabView` as a `safeAreaInset`. SwiftUI's safe-area chain
+    /// doesn't reliably propagate that inset to the UIKit collection
+    /// view, so we plumb it through explicitly.
+    var bottomChromeInset: CGFloat = 0
 
     @Namespace private var namespace: Namespace.ID
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -92,9 +102,11 @@ struct ConversationsView: View {
             },
             onStartConvo: viewModel.onStartConvo,
             onJoinConvo: viewModel.onJoinConvo,
-            onShowAllFilter: { viewModel.activeFilter = .all }
+            onShowAllFilter: { viewModel.activeFilter = .all },
+            onScrollOffsetChange: onScrollOffsetChange,
+            bottomChromeInset: bottomChromeInset
         )
-        .ignoresSafeArea(edges: [.top, .bottom])
+        .ignoresSafeArea(edges: .top)
     }
 
     @ViewBuilder

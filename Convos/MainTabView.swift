@@ -14,13 +14,29 @@ struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
 
-    /// Drives the `AssistantBuilderBar` between expanded (full pill) and
-    /// collapsed (avatar circle) states. Defaults to expanded on app
-    /// launch — the inner tab content flips this to false when its list
-    /// scrolls past the top, and back to true when the list returns near
-    /// the top. State lives here so a tab swap doesn't reset the bar's
-    /// position.
+    /// Tracks which tab is currently active. The underlying SwiftUI
+    /// `TabView` uses this for selection so its content / lifecycle
+    /// machinery still works — we just hide its built-in tab bar via
+    /// `.toolbarVisibility(.hidden, for: .tabBar)` and render
+    /// `ConvosTabBar` ourselves so we control the show / hide animation
+    /// when a conversation is selected (and can sit it in the same
+    /// `GlassEffectContainer` chrome as the builder bar).
+    @State private var activeTab: ConvosTab = .chats
+    /// Drives the `AssistantBuilderBar` between expanded (capsule) and
+    /// collapsed (glass circle) states. Held in state with hysteresis
+    /// thresholds rather than derived purely from scroll offset so that
+    /// a bouncy scroll near the boundary doesn't flicker the bar back
+    /// and forth: once collapsed it stays collapsed until the list
+    /// returns to the top; once expanded it stays expanded until the
+    /// user has scrolled `Constant.collapseScrollThreshold` past the
+    /// top.
     @State private var isBuilderBarExpanded: Bool = true
+    /// Measured height of the bottom chrome (builder bar + tab bar
+    /// stack) published via a `PreferenceKey` from inside the chrome.
+    /// Used to push an explicit additional bottom inset down into
+    /// `ConversationsViewController`, because SwiftUI's safe-area inset
+    /// chain doesn't reliably propagate to the UIKit collection view.
+    @State private var bottomChromeHeight: CGFloat = 0
     /// Photo / camera / voice-memo entry points for the
     /// `AssistantBuilderBar`. Tapping the photo or camera icon presents
     /// the matching picker first; only once the user has actually picked
@@ -64,32 +80,65 @@ struct MainTabView: View {
         conversationsViewModel.selectedConversationViewModel != nil
     }
 
+    /// Apply hysteresis to the bar expansion state in response to a
+    /// scroll offset update from the active tab. Collapses once the
+    /// user has scrolled `collapseScrollThreshold` past the top, and
+    /// expands again once the list is back near the top (within
+    /// `expandScrollThreshold`). The gap between the two thresholds
+    /// prevents a bouncing scroll near the boundary from flickering the
+    /// bar.
+    private func updateBuilderBarExpansion(forOffset offset: CGFloat) {
+        if isBuilderBarExpanded {
+            if offset > Constant.collapseScrollThreshold {
+                withAnimation(.smooth(duration: 0.25)) {
+                    isBuilderBarExpanded = false
+                }
+            }
+        } else {
+            if offset <= Constant.expandScrollThreshold {
+                withAnimation(.smooth(duration: 0.25)) {
+                    isBuilderBarExpanded = true
+                }
+            }
+        }
+    }
+
     var body: some View {
-        TabView {
-            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill") {
+        TabView(selection: $activeTab) {
+            Tab(value: ConvosTab.chats) {
                 ConversationsView(
                     viewModel: conversationsViewModel,
                     profileSettingsViewModel: profileSettingsViewModel,
                     appIndicatorContext: appIndicatorContext,
-                    sidebarBottomAccessory: AnyView(assistantBuilderBar)
+                    sidebarBottomAccessory: nil,
+                    onScrollOffsetChange: { offset in
+                        updateBuilderBarExpansion(forOffset: offset)
+                    },
+                    bottomChromeInset: bottomChromeHeight
                 )
-                .toolbar(isConversationSelected ? .hidden : .automatic, for: .tabBar)
+                .toolbarVisibility(.hidden, for: .tabBar)
             }
 
-            Tab("Stuff", systemImage: "square.grid.2x2.fill") {
+            Tab(value: ConvosTab.stuff) {
                 StuffTabView(
                     appIndicatorContext: appIndicatorContext,
                     conversationsViewModel: conversationsViewModel
                 )
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    assistantBuilderBar
-                }
+                .toolbarVisibility(.hidden, for: .tabBar)
             }
 
-            Tab(role: .search) {
+            Tab(value: ConvosTab.search) {
                 SearchTabView()
+                    .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !isConversationSelected {
+                bottomChrome
+                    .transition(.blurReplace)
+            }
+        }
+        .animation(.smooth(duration: 0.35), value: isConversationSelected)
         .sheet(item: $conversationsViewModel.assistantBuilderViewModel) { builderViewModel in
             AssistantBuilderView(
                 viewModel: builderViewModel,
@@ -142,13 +191,30 @@ struct MainTabView: View {
         }
     }
 
-    /// The bar is duplicated as an inset on each tab that wants it (Chats,
-    /// Stuff) instead of using `.tabViewBottomAccessory` — the accessory
-    /// modifier caps its content height too tightly for the design's
-    /// expanded glass pill (avatar + label + three icon buttons). Each
-    /// instance reads from / writes to the shared `isBuilderBarExpanded`
-    /// state on `MainTabView`, so swapping tabs preserves the bar's
-    /// position.
+    /// The shared bottom chrome — assistant builder bar stacked above the
+    /// custom `ConvosTabBar`. Lives in one VStack so when the chrome
+    /// hides (because a conversation got selected) the builder bar and
+    /// the tab pills disappear together. The system tab bar is hidden
+    /// in every tab via `.toolbarVisibility(.hidden, for: .tabBar)` so
+    /// only this custom chrome shows up at the bottom.
+    @ViewBuilder
+    private var bottomChrome: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            assistantBuilderBar
+            ConvosTabBar(activeTab: $activeTab)
+                .padding(.horizontal, DesignConstants.Spacing.step6x)
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: BottomChromeHeightKey.self, value: proxy.size.height)
+            }
+        )
+        .onPreferenceChange(BottomChromeHeightKey.self) { value in
+            bottomChromeHeight = value
+        }
+    }
+
     @ViewBuilder
     private var assistantBuilderBar: some View {
         AssistantBuilderBar(
@@ -159,7 +225,6 @@ struct MainTabView: View {
             onTapVoiceMemo: openBuilderInVoiceMemoMode
         )
         .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .padding(.bottom, DesignConstants.Spacing.step4x)
         .matchedTransitionSource(id: Constant.builderTransitionId, in: namespace)
     }
 
@@ -227,5 +292,21 @@ struct MainTabView: View {
         static let builderTransitionId: String = "assistant-builder-transition-source"
         static let appSettingsTransitionId: String = "app-settings-transition-source"
         static let composerTransitionId: String = "composer-transition-source"
+        /// Hysteresis thresholds for the builder bar expansion. The gap
+        /// between them eats overscroll bounce noise near the top so the
+        /// bar doesn't flicker when the user is dragging back and forth
+        /// at the boundary.
+        static let collapseScrollThreshold: CGFloat = 20.0
+        static let expandScrollThreshold: CGFloat = 4.0
+    }
+}
+
+/// Carries the measured height of `MainTabView.bottomChrome` up via the
+/// SwiftUI preference system so the host can plumb it into UIKit-hosted
+/// scroll views that don't see SwiftUI's safe-area inset.
+private struct BottomChromeHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
