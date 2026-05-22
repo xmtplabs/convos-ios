@@ -7,6 +7,7 @@ import XMTPiOS
 @main
 struct ConvosApp: App {
     @UIApplicationDelegateAdaptor(ConvosAppDelegate.self) private var appDelegate: ConvosAppDelegate
+    @Environment(\.scenePhase) private var scenePhase: ScenePhase
 
     private let convos: ConvosClient
     let conversationsViewModel: ConversationsViewModel
@@ -76,6 +77,15 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
+        // Sync the mock credits/subscription state from the persisted picker
+        // preset so HOME pill + paywall reflect the operator's last selection.
+        // Non-production only; production builds will swap in real services.
+        if !environment.isProduction {
+            let persistedPreset = FeatureFlags.shared.mockCreditsPreset
+            MockCreditsService.shared.setPreset(persistedPreset)
+            MockSubscriptionService.shared.setPreset(persistedPreset)
+        }
+
         let dbWriter = convos.databaseWriter
         Task {
             await agentKeyset.prefetch()
@@ -95,6 +105,17 @@ struct ConvosApp: App {
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active else { return }
+                // Foreground refresh — TTL-debounced inside both services, so
+                // this is a cheap no-op if we were just active. Catches the
+                // case where credits changed server-side while the app was
+                // backgrounded (Hermes consume, Apple webhook, manual op).
+                Task {
+                    await CreditsServices.shared.refresh()
+                    await SubscriptionServices.shared.refresh()
+                }
+            }
         }
     }
 }

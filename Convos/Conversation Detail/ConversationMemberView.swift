@@ -6,12 +6,15 @@ struct ConversationMemberView: View {
     let member: ConversationMember
 
     @State private var presentingBlockConfirmation: Bool = false
+    @State private var creditsBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var presentingPaywall: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
         List {
             headerSection
+            outOfCreditsSection
 
             if member.isAgent {
                 agentSections
@@ -21,6 +24,19 @@ struct ConversationMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
+        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
+            creditsBalance = newBalance
+        }
+        .task {
+            // Refresh credits when the contact sheet appears so the
+            // "out of credits" section + upgrade CTA reflect current
+            // backend state. TTL-debounced inside the service.
+            await CreditsServices.shared.refresh()
+        }
+        .sheet(isPresented: $presentingPaywall) {
+            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            PaywallView(viewModel: paywallViewModel)
+        }
         .alert(
             "Block \(member.profile.displayName) and leave convo?",
             isPresented: $presentingBlockConfirmation
@@ -32,6 +48,56 @@ struct ConversationMemberView: View {
         } message: {
             Text("They won't know they're blocked, and you'll leave this conversation so they can't reach you here.")
         }
+    }
+
+    @ViewBuilder
+    private var outOfCreditsSection: some View {
+        if shouldShowOutOfCredits {
+            Section {
+                outOfCreditsRow
+                upgradeButton
+            }
+            .listRowBackground(Color.colorBackgroundRaised)
+        }
+    }
+
+    private var shouldShowOutOfCredits: Bool {
+        guard member.isAgent,
+              !ConfigManager.shared.currentEnvironment.isProduction,
+              let creditsBalance else { return false }
+        return creditsBalance.isDepleted
+    }
+
+    @ViewBuilder
+    private var outOfCreditsRow: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "exclamationmark.octagon.fill")
+                .font(.title3)
+                .foregroundStyle(.colorRed)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text("Out of credits")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Your agents are paused until you upgrade or top up.")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+    }
+
+    @ViewBuilder
+    private var upgradeButton: some View {
+        let upgradeAction = { presentingPaywall = true }
+        Button(action: upgradeAction) {
+            Text("Upgrade")
+                .font(.body)
+                .foregroundStyle(.colorRed)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("upgrade-from-out-of-credits-button")
     }
 
     private var headerSection: some View {

@@ -64,6 +64,10 @@ enum ConversationOnboardingState: Equatable {
     /// Autodismissed success state after saving first Profile
     case savedProfileSuccess
 
+    /// One-time paywall step shown after the first profile setup.
+    /// User must subscribe or claim the 7-day trial to proceed.
+    case presentingPaywall
+
     /// Ask user to allow notifications (undetermined state)
     case requestNotifications
 
@@ -146,6 +150,8 @@ final class ConversationOnboardingCoordinator {
     /// setup before the rename don't get a redundant profile prompt.
     private static let legacyHasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsProfileKey: String = "hasSeenAddAsProfile"
+    private static let hasShownNUXPaywallKey: String = "hasShownNUXPaywall"
+
     static func markProfileEditorShown() {
         UserDefaults.standard.set(true, forKey: hasShownProfileEditorKey)
     }
@@ -154,6 +160,7 @@ final class ConversationOnboardingCoordinator {
         UserDefaults.standard.removeObject(forKey: hasShownProfileEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
+        UserDefaults.standard.removeObject(forKey: hasShownNUXPaywallKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
         for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {
@@ -171,6 +178,16 @@ final class ConversationOnboardingCoordinator {
     private var hasCompletedOnboarding: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasCompletedOnboardingKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.hasCompletedOnboardingKey) }
+    }
+
+    private var hasShownNUXPaywall: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownNUXPaywallKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownNUXPaywallKey) }
+    }
+
+    private var shouldShowNUXPaywall: Bool {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+        return !hasShownNUXPaywall
     }
 
     private func hasSetProfile(for conversationId: String) -> Bool {
@@ -204,6 +221,7 @@ final class ConversationOnboardingCoordinator {
         hasSeenAddAsProfile = false
         hasCompletedOnboarding = false
         hasShownProfileEditor = false
+        hasShownNUXPaywall = false
     }
 
     // MARK: - Dependencies
@@ -519,6 +537,20 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func transitionAfterProfileSetup() async {
+        if shouldShowNUXPaywall {
+            state = .presentingPaywall
+            handleStateChange()
+            return
+        }
+        await transitionToNotificationState()
+    }
+
+    /// Called by the NUX paywall view after the user either subscribes or
+    /// claims the 7-day trial. Idempotent — extra calls after the state
+    /// already moved on are no-ops.
+    func userDidCompleteNUXPaywall() async {
+        guard case .presentingPaywall = state else { return }
+        hasShownNUXPaywall = true
         await transitionToNotificationState()
     }
 
@@ -526,6 +558,7 @@ final class ConversationOnboardingCoordinator {
     func reset(conversationId: String? = nil) {
         hasCompletedOnboarding = false
         hasShownProfileEditor = false
+        hasShownNUXPaywall = false
         state = .idle
 
         // If conversationId provided, clear that specific conversation's profile flag
