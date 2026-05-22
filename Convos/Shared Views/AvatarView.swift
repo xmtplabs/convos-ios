@@ -91,7 +91,12 @@ struct ConversationAvatarView: View {
     var body: some View {
         Group {
             if hasForcedAgentStyle {
-                MonogramView(name: "Agent", agentVerification: forcedVerification ?? .unverified)
+                // The forced-agent style is set by the Agent Builder's
+                // conversation indicator before the user taps Make
+                // (see `MainTabView.centeredConversationIndicator`). The
+                // draft conversation has no real agent yet, so we show
+                // the "add agent" icon instead of an "A" monogram.
+                PendingAgentAvatarView()
             } else if let conversationImage {
                 Image(uiImage: conversationImage)
                     .resizable()
@@ -128,6 +133,26 @@ struct ConversationAvatarView: View {
             EmojiAvatarView(emoji: emoji)
         case .monogram(let name):
             MonogramView(name: name)
+        }
+    }
+}
+
+/// Avatar used by the Agent Builder's conversation indicator before the
+/// user taps Make. A black circle with the "add agent" glyph — mirrors
+/// the agent avatar in the inline `AgentBuilderBar`, so the indicator
+/// and the bar share visual language while the conversation is still
+/// a draft.
+struct PendingAgentAvatarView: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.black)
+            Image("addAgentIcon")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.white)
+                .padding(8)
         }
     }
 }

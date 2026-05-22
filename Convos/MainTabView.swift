@@ -23,6 +23,11 @@ struct MainTabView: View {
     /// when a conversation is selected (and can sit it in the same
     /// `GlassEffectContainer` chrome as the builder bar).
     @State private var activeTab: ConvosTab = .chats
+    /// Last tab the user was on before switching to `.search`. Tapping
+    /// the cancel button in the search input bar restores this so the
+    /// X-cancel returns the user to where they came from instead of
+    /// always defaulting to Chats.
+    @State private var lastNonSearchTab: ConvosTab = .chats
     /// NavigationStack path for the Stuff tab. Lifted to this shell so
     /// the bottom chrome can hide when Stuff has a detail pushed, same
     /// way it hides when Chats has a conversation selected.
@@ -69,6 +74,13 @@ struct MainTabView: View {
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
+    /// Current contents of the search input bar that replaces the agent
+    /// builder bar when the Search tab is active. Owned by `MainTabView`
+    /// (rather than the tab's own view) because the bar lives in
+    /// `bottomChrome`, which the shell builds; reading it from the
+    /// tab's view requires plumbing this binding down.
+    @State private var searchQuery: String = ""
+    @FocusState private var isSearchFieldFocused: Bool
     /// Set when the inline builder (rendered inside the chats list's
     /// empty state) commits its first conversation. The shell presents
     /// the new conversation as a sheet, mirroring how the bottom-bar
@@ -139,6 +151,12 @@ struct MainTabView: View {
     /// straight into making their first agent.
     private var isInlineBuilderActive: Bool {
         conversationsViewModel.isEmptyCTAActive
+    }
+
+    /// True while the user is on the search tab. Swaps the agent
+    /// builder bar in `bottomChrome` for the search input bar.
+    private var isOnSearchTab: Bool {
+        activeTab == .search
     }
 
     /// Scroll offset for whichever tab is currently active.
@@ -425,10 +443,20 @@ struct MainTabView: View {
     @ViewBuilder
     private var bottomChrome: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            agentBuilderBar
-            ConvosTabBar(activeTab: $activeTab)
-                .padding(.horizontal, DesignConstants.Spacing.step6x)
+            if !isOnSearchTab {
+                agentBuilderBar
+                    .transition(.blurReplace)
+            }
+            if isOnSearchTab {
+                searchInputBar
+                    .transition(.blurReplace)
+            } else {
+                ConvosTabBar(activeTab: $activeTab)
+                    .padding(.horizontal, DesignConstants.Spacing.step6x)
+                    .transition(.blurReplace)
+            }
         }
+        .animation(.smooth(duration: 0.25), value: isOnSearchTab)
         .background(
             GeometryReader { proxy in
                 Color.clear
@@ -437,6 +465,17 @@ struct MainTabView: View {
         )
         .onPreferenceChange(BottomChromeHeightKey.self) { value in
             bottomChromeHeight = value
+        }
+        .onChange(of: activeTab) { oldTab, newTab in
+            if newTab != .search {
+                lastNonSearchTab = newTab
+            }
+            if newTab == .search {
+                isSearchFieldFocused = true
+            } else if oldTab == .search {
+                searchQuery = ""
+                isSearchFieldFocused = false
+            }
         }
     }
 
@@ -452,6 +491,58 @@ struct MainTabView: View {
             transitionSourceId: Constant.builderTransitionId
         )
         .padding(.horizontal, DesignConstants.Spacing.step6x)
+    }
+
+    /// Replaces the agent builder bar in `bottomChrome` while the
+    /// Search tab is active. Renders a glass-pill text field with a
+    /// trailing X that returns the user to the Chats tab and clears
+    /// the query. The actual search results UI lives inside
+    /// `SearchTabView` and reads `searchQuery` through the binding.
+    private var searchInputBar: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(.colorTextSecondary)
+                TextField("Search", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .focused($isSearchFieldFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("search-input")
+                if !searchQuery.isEmpty {
+                    Button {
+                        searchQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.colorTextTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .glassEffect(.regular.interactive(), in: .capsule)
+            Button {
+                withAnimation(.smooth(duration: 0.3)) {
+                    activeTab = lastNonSearchTab
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Cancel search")
+            .accessibilityIdentifier("search-cancel")
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.bottom, DesignConstants.Spacing.step3x)
     }
 
     private func openBuilder() {
