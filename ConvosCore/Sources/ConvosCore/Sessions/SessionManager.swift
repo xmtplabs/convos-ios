@@ -780,7 +780,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
-        DefaultDeviceConnectionAuthorizer()
+        DefaultDeviceConnectionAuthorizer(
+            dataSources: platformProviders.deviceConnections.dataSources
+        )
     }
 
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {

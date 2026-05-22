@@ -16,7 +16,20 @@ public protocol DeviceConnectionAuthorizer: Sendable {
 }
 
 public struct DefaultDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
-    public init() {}
+    private let dataSourcesByKind: [ConnectionKind: any DataSource]
+
+    /// `dataSources` is the same array the host passes via
+    /// `PlatformProviders.deviceConnections.dataSources` — one `DataSource` per
+    /// `ConnectionKind` the host has linked. Unsupported kinds (missing from the
+    /// array) resolve to `UnsupportedKindDataSource` and report `.unavailable`,
+    /// which the UI already treats as "hide / disabled".
+    public init(dataSources: [any DataSource]) {
+        var byKind: [ConnectionKind: any DataSource] = [:]
+        for source in dataSources {
+            byKind[source.kind] = source
+        }
+        self.dataSourcesByKind = byKind
+    }
 
     public func currentAuthorization(for kind: ConnectionKind) async -> ConnectionAuthorizationStatus {
         await dataSource(for: kind).authorizationStatus()
@@ -27,17 +40,7 @@ public struct DefaultDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
     }
 
     private func dataSource(for kind: ConnectionKind) -> any DataSource {
-        switch kind {
-        case .calendar: return CalendarDataSource()
-        case .contacts: return ContactsDataSource()
-        case .health: return HealthDataSource()
-        case .photos: return PhotosDataSource()
-        case .music: return MusicDataSource()
-        case .location: return LocationDataSource()
-        case .homeKit: return HomeDataSource()
-        case .motion: return MotionDataSource()
-        case .screenTime: return UnsupportedKindDataSource(kind: kind)
-        }
+        dataSourcesByKind[kind] ?? UnsupportedKindDataSource(kind: kind)
     }
 }
 
