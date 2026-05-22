@@ -628,9 +628,9 @@ class ConversationViewModel: Identifiable { // swiftlint:disable:this type_body_
     }
 
     func onPhotoAttached() {
-        guard !hasShownPhotosInfoSheet else { return }
-        hasShownPhotosInfoSheet = true
-        presentingPhotosInfoSheet = true
+        // The "Pics are personal" first-attachment info sheet is disabled
+        // for now — neither the agent-builder flow nor the regular
+        // composer should interrupt the user with it on attach.
     }
 
     func onRequestAgentJoin() {

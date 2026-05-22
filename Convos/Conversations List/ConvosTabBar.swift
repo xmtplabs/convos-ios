@@ -49,7 +49,7 @@ struct ConvosTabBar: View {
                 Image(systemName: tab.symbol)
                     .font(.system(size: 22, weight: .regular))
                 Text(tab.title)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 10, weight: activeTab == tab ? .bold : .medium))
             }
             .padding(.top, 6)
             .padding(.bottom, 7)

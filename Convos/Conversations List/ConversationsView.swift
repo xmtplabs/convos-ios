@@ -76,7 +76,16 @@ struct ConversationsView: View {
                 onCommitted: handleInlineBuilderCommit(_:)
             )
         } else {
-            Color.colorBackgroundSurfaceless
+            // Fallback for surfaces where the inline builder isn't
+            // wired up — primarily the iPad detail pane when no
+            // conversation is selected. The inline builder is gated
+            // on the compact-size-class sidebar (see `sidebarContent`),
+            // so iPad keeps the original "Pop-up private convos" card
+            // with its working Start / Join buttons.
+            ConversationsListEmptyCTA(
+                onStartConvo: viewModel.onStartConvo,
+                onJoinConvo: viewModel.onJoinConvo
+            )
         }
     }
 

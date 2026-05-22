@@ -135,12 +135,11 @@ struct AgentBuilderView: View {
     private var inlineBody: some View {
         Group {
             if viewModel.hasCommitted {
-                Color.colorBackgroundRaisedSecondary
+                Color.clear
             } else {
                 composerRect(focusState: $inlineFocusState)
             }
         }
-        .background(Color.colorBackgroundRaisedSecondary)
         .onAppear {
             focusCoordinator.moveFocus(to: .agentBuilder)
         }
@@ -278,7 +277,16 @@ struct AgentBuilderView: View {
             Button {
                 let shouldRestore = viewModel.stopVoiceMemoRecording()
                 if shouldRestore {
-                    focusState.wrappedValue = .agentBuilder
+                    // SwiftUI's `@FocusState` ignores a focus assignment
+                    // landed on the same runloop tick the controlling
+                    // view tree is mid-animation through (the recording-
+                    // controls `.blurReplace` collapse). Dispatching one
+                    // tick out lets the composer text field finish its
+                    // own state settle, then accept focus.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(80))
+                        focusState.wrappedValue = .agentBuilder
+                    }
                 }
             } label: {
                 ZStack {
