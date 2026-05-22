@@ -445,32 +445,86 @@ enum MessagingServiceError: Error {
 }
 
 private extension MessagingService {
-    /// Sends a `DeviceRemovedContent` into the most recent existing
-    /// conversation under the inbox. Best-effort: any failure (no
-    /// conversations, send error, etc.) is logged and swallowed so the
-    /// caller's revoke flow still proceeds.
+    /// Sends a `DeviceRemovedContent` so the target installation sees
+    /// `StaleDeviceBanner` in real time. Best-effort — any failure is
+    /// logged and swallowed so the caller's revoke flow still proceeds.
+    ///
+    /// Channel-selection strategy (in priority order):
+    ///   1. The user's pre-warmed unused conversation (`DBConversation`
+    ///      with `isUnused == true`). It exists from silent identity
+    ///      creation, has only the user's own inbox as a member, and is
+    ///      hidden from the UI — so other users never see the codec and
+    ///      no peer logs a decode failure. This is the right channel
+    ///      99% of the time.
+    ///   2. Fallback: any real, allowed, non-unused conversation. We pay
+    ///      the price of a stray codec arriving at peers (they log a
+    ///      decode warning) only when no unused conversation exists.
+    ///   3. If neither exists, log + return; the revoked installation
+    ///      catches up via `assertInstallationActive` on its next
+    ///      foreground entry or auth bootstrap.
     func sendDeviceRemovedSignal(installationId: String, client: any XMTPClientProvider) async {
+        if let conversationId = try? await findUnusedConversationId(),
+           let conversation = try? await client.conversationsProvider.findConversation(
+               conversationId: conversationId
+           ) {
+            do {
+                try await conversation.send(
+                    content: DeviceRemovedContent(revokedInstallationId: installationId),
+                    options: SendOptions(contentType: ContentTypeDeviceRemoved)
+                )
+                Log.info("MessagingService: sent DeviceRemoved for \(installationId) into hidden unused conversation \(conversationId)")
+                return
+            } catch {
+                Log.warning("MessagingService: send into unused conversation failed (\(error)), falling back to allowed conversation")
+            }
+        }
+
         do {
             let conversations = try await client.conversationsProvider.list(
                 createdAfterNs: nil,
                 createdBeforeNs: nil,
                 lastActivityBeforeNs: nil,
                 lastActivityAfterNs: nil,
-                limit: 1,
-                consentStates: nil,
+                limit: 5,
+                consentStates: [.allowed],
                 orderBy: .createdAt
             )
-            guard let target = conversations.first else {
-                Log.warning("MessagingService: no conversations to send DeviceRemoved into — receiver will catch up on next foreground")
+            // Filter out unused conversations (they'd have been caught
+            // above; this is defensive in case the DB-level lookup
+            // returned nil but libxmtp still has the row).
+            let unusedIds = (try? await findAllUnusedConversationIds()) ?? []
+            guard let target = conversations.first(where: { !unusedIds.contains($0.id) }) else {
+                Log.warning("MessagingService: no usable conversation to send DeviceRemoved into — receiver will catch up on next foreground")
                 return
             }
             try await target.send(
                 content: DeviceRemovedContent(revokedInstallationId: installationId),
                 options: SendOptions(contentType: ContentTypeDeviceRemoved)
             )
-            Log.info("MessagingService: sent DeviceRemoved for \(installationId) into conversation \(target.id)")
+            Log.info("MessagingService: sent DeviceRemoved for \(installationId) into fallback conversation \(target.id)")
         } catch {
             Log.warning("MessagingService: failed to send DeviceRemoved signal (proceeding with revoke): \(error)")
+        }
+    }
+
+    func findUnusedConversationId() async throws -> String? {
+        try await databaseReader.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .order(DBConversation.Columns.createdAt.desc)
+                .fetchOne(db)?
+                .id
+        }
+    }
+
+    func findAllUnusedConversationIds() async throws -> Set<String> {
+        try await databaseReader.read { db in
+            Set(
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchAll(db)
+                    .map(\.id)
+            )
         }
     }
 }

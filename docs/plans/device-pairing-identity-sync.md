@@ -452,3 +452,30 @@ Build order inside the PR (so each commit compiles and tests pass for bisect-fri
 - A native camera scanner for the joiner. The Universal Link flow (tap the URL on B's device) is sufficient. Add scanner in a follow-up.
 - IAP-restore UX. Apple's StoreKit handles transaction restore via Apple ID; once both devices are on the same `accountId` post-pair, our backend's IAP entitlement resolves the same on both. No additional iOS-side work required for the pairing PR, but the IAP team should verify the round-trip end-to-end before TestFlight beta cuts.
 - Device naming UX (rename a paired device). Defer.
+
+## Known limitations (acceptable for TestFlight; flagged for follow-up)
+
+### Private key at rest in history-synced DM
+
+`IdentityShareContent` carries the raw secp256k1 private key inside a normal MLS DM (`findOrCreateDm` between the initiator's real inbox and the joiner's ephemeral inbox). libxmtp ships with `deviceSyncEnabled: true` (see `SessionStateMachine.clientOptions`), which replicates message history across all installations under an inbox via XMTP's history server. After the joiner adopts the paired identity, both installations sit under the *same* inbox — so the original IdentityShare DM (from the *ephemeral* inbox era) lives encrypted on the history server *and* in every paired installation's persistent SQLCipher DB indefinitely. The encryption is MLS-grade; the practical concern is "any future paired device or anyone with the inbox's MLS keying material can decrypt a message containing the secp256k1 signing key."
+
+Why we shipped it anyway:
+- Anyone who can decrypt that DM already has the inbox's MLS keys, which means they already have access to all of the user's conversations — possessing the secp256k1 key in addition gives no extra access in practice.
+- The library doesn't currently expose an "ephemeral, no-store" content type. Building one is a real chunk of work in libxmtp.
+
+Follow-up: when libxmtp exposes a non-persistent message type, switch `IdentityShareCodec` to it and clean up any existing DMs on receipt. Track this with the libxmtp team.
+
+### Orphan backend `accountId` from cold-launch pair
+
+If the user taps a `/pair/<slug>` deep link on a brand-new install *during* the silent-identity-creation window (a few hundred ms between `ConvosApp.init` finishing and `ConversationsView` becoming interactive), the placeholder identity completes its SIWE auth against the backend, registers an `accountId` keyed on the placeholder's wallet address, and subscribes to push topics for the placeholder inbox. Pairing then replaces the keychain identity, `refreshAfterPairingCompleted` clears the cached `MessagingService`, and the next backend auth runs SIWE under the *paired* address, returning the paired `accountId`. The placeholder `accountId` is now orphaned: no live device authenticates against it, no installations under its inbox can decrypt anything, push topic subscriptions are dead-ended.
+
+Practical impact:
+- No user-visible data loss; the user only ever sees the paired account.
+- Backend storage cost is one extra `account` row + a few `notifications_subscription` rows per cold-launch pair.
+- Push delivery: the placeholder topics are subscribed to from the device's APNs token before pair; after pair, the device re-registers under the paired account. The orphan subscriptions point at an inbox no installation can serve, so any push that ever lands on them is silently dropped — not a delivery regression for the user, just dead routing on the backend.
+
+Follow-up — two complementary paths, do at least one:
+- iOS: pre-identity onboarding gate. When `ConvosApp.init` sees a `/pair/<slug>` URL in the launch options, set a `SessionManager` flag that short-circuits `loadOrCreateService()` to the failed-keychain branch until either the joiner sheet completes pairing or the user dismisses it. This is task #20 from the original plan; deferred because the `hasAnyUsedConversations` gate already handles the *data-loss* case, but it doesn't prevent the orphan account.
+- Backend: GC accounts with zero active installations after a grace period (e.g. 7 days). The same logic would handle other orphan cases (deleted-all-data, multi-region replay, etc.) and removes the need for the iOS-side gate.
+
+Until either lands, expect one orphan `accountId` per fresh-install-and-pair sequence.
