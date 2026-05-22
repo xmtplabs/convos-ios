@@ -461,9 +461,9 @@ Build order inside the PR (so each commit compiles and tests pass for bisect-fri
 
 Why we shipped it anyway:
 - Anyone who can decrypt that DM already has the inbox's MLS keys, which means they already have access to all of the user's conversations — possessing the secp256k1 key in addition gives no extra access in practice.
-- The library doesn't currently expose an "ephemeral, no-store" content type. Building one is a real chunk of work in libxmtp.
+- A clean fix exists and is small.
 
-Follow-up: when libxmtp exposes a non-persistent message type, switch `IdentityShareCodec` to it and clean up any existing DMs on receipt. Track this with the libxmtp team.
+Follow-up: libxmtp already supports per-conversation **disappearing messages** via the `disappearingMessageSettings:` parameter on `findOrCreateDm` (see `XMTPClientProvider`'s `Conversations` extension — we currently pass `nil`). The pairing DM should be created with a tight expiration (e.g. 5 minutes — long enough for the handshake, short enough that the key isn't durably stored anywhere). After the TTL, the DM and all messages in it — including the `IdentityShareContent` — get pruned from both the history server and every installation's local DB. Both the joiner's ephemeral side and the initiator's real side benefit. No new content-type needed; just thread a non-nil `DisappearingMessageSettings` through `LivePairingService` when it constructs the DM in `sendPairingJoinRequest`/`sendPinToJoiner`/`sendIdentityShare`. Tracked as a fast follow-up.
 
 ### Orphan backend `accountId` from cold-launch pair
 
