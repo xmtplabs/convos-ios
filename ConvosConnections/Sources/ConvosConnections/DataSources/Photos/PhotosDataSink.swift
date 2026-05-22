@@ -1,3 +1,4 @@
+import ConvosConnections
 import Foundation
 #if canImport(Photos)
 @preconcurrency import Photos

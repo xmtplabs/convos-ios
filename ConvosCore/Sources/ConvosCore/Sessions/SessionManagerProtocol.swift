@@ -109,6 +109,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the view model having to know about HealthKit / EventKit / etc.
     func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer
 
+    /// `DataSink` the host has linked for `kind`, or `nil` if the host opted out
+    /// of that kind via `PlatformProviders.deviceConnections`. Lets the view-model
+    /// layer query a sink's `actionSchemas()` without hard-referencing per-kind
+    /// classes (which would force the corresponding Apple framework into the
+    /// binary even when the host doesn't ship that kind).
+    func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)?
+
     /// Per-conversation observer of every `(subject, capability)` resolution the user
     /// has approved. Conversation Info uses this to render the "Connections" section.
     func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol

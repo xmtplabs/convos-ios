@@ -190,6 +190,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         MockDeviceConnectionAuthorizer()
     }
 
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        nil
+    }
+
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
         MockCapabilityResolutionsRepository()
     }

@@ -785,6 +785,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        platformProviders.deviceConnections.dataSinks.first(where: { $0.kind == kind })
+    }
+
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
         CapabilityResolutionsRepository(dbReader: databaseReader, conversationId: conversationId)
     }

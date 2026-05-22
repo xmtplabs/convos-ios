@@ -1,3 +1,4 @@
+import ConvosConnections
 import Foundation
 #if os(iOS)
 @preconcurrency import CoreLocation
