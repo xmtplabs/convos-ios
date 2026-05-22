@@ -1,4 +1,5 @@
 @testable import ConvosConnections
+@testable import ConvosConnectionsPhotos
 import Testing
 
 @Suite("Photos action schemas")

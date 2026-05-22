@@ -1,3 +1,4 @@
+import ConvosConnections
 import Foundation
 #if canImport(CoreMotion) && os(iOS)
 @preconcurrency import CoreMotion

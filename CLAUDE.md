@@ -434,7 +434,7 @@ When migrating from `ObservableObject`:
 - **Prefer editing existing files** over creating new ones
 - **Follow existing patterns** in neighboring code
 - **Check dependencies** before using any library
-- **Run `/lint` before committing** - SwiftLint runs via `/lint` command and pre-commit hooks, not during builds (for faster compilation)
+- **Pre-commit and pre-push hooks run SwiftLint automatically** - blocks the commit on violations. Run `/lint` manually for a full-tree sweep. SwiftLint does not run during Xcode builds (for faster compilation).
 - **Run the full test suite before pushing** - Start Docker with `./dev/up` if needed, run `swift test --package-path ConvosCore`, and verify all tests pass. Never push without a passing test run against your final code.
 
 ---
@@ -455,7 +455,7 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 | `/format` | Format code with SwiftFormat |
 | `/firebase-token` | Get Firebase App Check debug token from simulator logs |
 
-**Pre-commit workflow:** SwiftLint runs via `/lint` and pre-commit hooks, not during Xcode builds (for faster compilation). The pre-commit hook auto-fixes issues; run `/lint` manually to check before staging.
+**Pre-commit workflow:** SwiftFormat auto-formats and SwiftLint blocks the commit on violations (both via `Scripts/hooks/pre-commit`). Pre-push lints the diff against `dev` again as a final gate before the push hits GitHub. SwiftLint does not run during Xcode builds (for faster compilation). A full-tree `/lint` runs in ~1-2 seconds with the current config.
 
 ### Subagents
 
@@ -604,12 +604,14 @@ main
 
 ### Pre-commit Hooks
 
-A pre-commit hook at `Scripts/hooks/pre-commit` is automatically installed by `Scripts/setup.sh`. It:
-- Runs SwiftFormat on staged Swift files
-- Runs SwiftLint with auto-fix
-- Blocks commits with unfixable lint errors
+`Scripts/setup.sh` configures `git config core.hooksPath Scripts/hooks` so the tracked hook scripts run for every commit and push:
 
-If the hook isn't installed, run `Scripts/setup.sh` to set it up.
+- **`pre-commit`** auto-runs SwiftFormat on staged Swift files (writes back into the staged copy via `git add`), then SwiftLint `--strict --quiet` in a single batched invocation on the staged paths. Violations block the commit. Pass paths positionally (not `--use-stdin`) so file-path-dependent rules like `sorted_imports` actually fire.
+- **`pre-push`** re-lints every Swift file changed since the merge-base with `origin/dev`. Same batched-invocation shape. Last line of defense before the push reaches GitHub.
+
+A full-tree lint runs in ~1-2 seconds; the per-staged-file pre-commit lint is sub-second.
+
+If the hooks aren't installed (no `core.hooksPath` set), run `Scripts/setup.sh`.
 
 ### Parallel Task Management
 

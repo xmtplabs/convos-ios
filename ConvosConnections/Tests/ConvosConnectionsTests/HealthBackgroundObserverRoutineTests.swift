@@ -1,4 +1,5 @@
 @testable import ConvosConnections
+@testable import ConvosConnectionsHealth
 import Foundation
 import Testing
 

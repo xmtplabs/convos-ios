@@ -1358,7 +1358,7 @@ class ConversationViewModel: Identifiable { // swiftlint:disable:this type_body_
 
         for providerId in providerIds {
             if let kind = ConnectionKind.fromDeviceProviderId(providerId),
-               let source = await Self.deviceActionSchemas(for: kind) {
+               let source = await deviceActionSchemas(for: kind) {
                 let schemas = source
                     .filter { $0.capability == capability }
                     .sorted(by: { $0.actionName < $1.actionName })
@@ -1384,23 +1384,15 @@ class ConversationViewModel: Identifiable { // swiftlint:disable:this type_body_
         }
     }
 
-    private static func deviceActionSchemas(for kind: ConnectionKind) async -> [ActionSchema]? {
-        switch kind {
-        case .calendar:
-            return await CalendarDataSink().actionSchemas()
-        case .contacts:
-            return await ContactsDataSink().actionSchemas()
-        case .photos:
-            return await PhotosDataSink().actionSchemas()
-        case .health:
-            return await HealthDataSink().actionSchemas()
-        case .music:
-            return await MusicDataSink().actionSchemas()
-        case .homeKit:
-            return await HomeKitDataSink().actionSchemas()
-        case .location, .motion, .screenTime:
-            return nil
-        }
+    private func deviceActionSchemas(for kind: ConnectionKind) async -> [ActionSchema]? {
+        // Looks up the sink the host registered via `PlatformProviders.deviceConnections`.
+        // Hosts that don't link a per-kind ConvosConnections product return `nil` for
+        // every device kind, which matches the v1 cloud-only configuration. The
+        // `supportedDeviceKinds` filter further upstream already prevents device kinds
+        // from being surfaced in the picker; this code path is a defensive no-op for
+        // those builds.
+        guard let sink = session.deviceDataSink(for: kind) else { return nil }
+        return await sink.actionSchemas()
     }
 
     private static func persistApprovedDeviceCapabilities(

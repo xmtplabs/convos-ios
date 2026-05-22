@@ -1,3 +1,4 @@
+import ConvosConnections
 import Foundation
 #if canImport(HomeKit) && os(iOS)
 @preconcurrency import HomeKit

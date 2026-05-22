@@ -90,50 +90,36 @@ fi
 
 echo "🔎 Linting before pushing"
 
-deduped_lint_paths=()
+# Dedup paths and resolve to files that actually exist on disk now (rebases
+# / deleted files can leave dangling entries).
+existing_paths=()
 while IFS= read -r path; do
-	[ -n "$path" ] && deduped_lint_paths+=("$path")
-done < <(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++')
-lint_paths=("${deduped_lint_paths[@]}")
-
-index=0
-for path in "${lint_paths[@]}"; do
-	if [ -f "$git_root/$path" ] || [ -f "$path" ]; then
-		export "SCRIPT_INPUT_FILE_$index=$path"
-		index=$((index + 1))
-	fi
-done
-
-if [ $index -eq 0 ]; then
-	echo "🔎 No changed Swift files to lint before pushing"
-	exit 0
-fi
-
-export SCRIPT_INPUT_FILE_COUNT="$index"
-
-lint_status=0
-for path in "${lint_paths[@]}"; do
+	if [ -z "$path" ]; then continue; fi
 	file_path="$path"
 	if [ ! -f "$file_path" ] && [ -f "$git_root/$path" ]; then
 		file_path="$git_root/$path"
 	fi
 	if [ -f "$file_path" ]; then
-		if ! swiftlint lint --strict --config "$git_root/.swiftlint.yml" --use-stdin < "$file_path"; then
-			lint_status=1
-		fi
+		existing_paths+=("$file_path")
 	fi
-done
+done < <(printf '%s\n' "${lint_paths[@]}" | awk '!seen[$0]++')
 
-if [ $lint_status -ne 0 ]; then
-	echo ""
-	echo "Done linting"
+if [ ${#existing_paths[@]} -eq 0 ]; then
+	echo "🔎 No changed Swift files to lint before pushing"
+	exit 0
+fi
+
+# One batched invocation. Previously we looped `swiftlint --use-stdin`
+# per file; that skipped any rule that requires a real file path
+# (sorted_imports was the recurring offender), letting violations slip
+# through to CI. Passing paths positionally fires the same rule set CI
+# uses.
+if ! swiftlint lint --strict --quiet --config "$git_root/.swiftlint.yml" "${existing_paths[@]}"; then
 	echo ""
 	echo "❌ Found SwiftLint violations, fix them before pushing."
 	exit 1
 fi
 
-echo ""
-echo "Done linting"
 echo "✅ No SwiftLint violations on pre-push, pushing!"
 echo ""
 
