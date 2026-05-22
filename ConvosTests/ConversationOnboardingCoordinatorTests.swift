@@ -1,11 +1,14 @@
-import XCTest
-import UserNotifications
 @testable import Convos
+import UserNotifications
+import XCTest
 
 @MainActor
 final class ConversationOnboardingCoordinatorTests: XCTestCase {
+    // swiftlint:disable:next implicitly_unwrapped_optional
     var coordinator: ConversationOnboardingCoordinator!
+    // swiftlint:disable:next implicitly_unwrapped_optional
     var mockNotificationCenter: MockNotificationCenter!
+    // swiftlint:disable:next explicit_type_interface
     let testConversationId = "test-conversation-id"
     let testAutodismissDuration: CGFloat = 0.05
 
@@ -14,6 +17,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         userDefaults.removeObject(forKey: "hasCompletedConversationOnboarding")
         userDefaults.removeObject(forKey: "hasSetProfileForConversation_\(testConversationId)")
         userDefaults.removeObject(forKey: "hasSeenAddAsProfile")
+        userDefaults.removeObject(forKey: "hasShownNUXPaywall")
     }
 
     override func setUp() async throws {
@@ -172,15 +176,29 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
     func testReset_ClearsAllState() async {
         UserDefaults.standard.set(true, forKey: "hasCompletedConversationOnboarding")
         UserDefaults.standard.set(true, forKey: "hasShownProfileEditor")
+        UserDefaults.standard.set(true, forKey: "hasShownNUXPaywall")
 
         coordinator.reset()
 
         let hasCompleted = UserDefaults.standard.bool(forKey: "hasCompletedConversationOnboarding")
         let hasShown = UserDefaults.standard.bool(forKey: "hasShownProfileEditor")
+        let hasShownNUX = UserDefaults.standard.bool(forKey: "hasShownNUXPaywall")
 
         XCTAssertFalse(hasCompleted)
         XCTAssertFalse(hasShown)
+        XCTAssertFalse(hasShownNUX, "reset() must clear hasShownNUXPaywall so the NUX paywall re-appears on the next onboarding pass")
         XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    func testReset_WithConversationId_ClearsNUXPaywallFlag() async {
+        UserDefaults.standard.set(true, forKey: "hasShownNUXPaywall")
+
+        coordinator.reset(conversationId: testConversationId)
+
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: "hasShownNUXPaywall"),
+            "reset(conversationId:) must clear hasShownNUXPaywall — it's an onboarding-reset path too"
+        )
     }
 
     // MARK: - Per-Conversation Profile Tests

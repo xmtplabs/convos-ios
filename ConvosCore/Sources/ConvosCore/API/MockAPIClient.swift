@@ -126,4 +126,22 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func revokeCloudConnection(connectionId: String) async throws {}
+
+    func getCreditBalance() async throws -> CreditBalance {
+        CreditBalance(
+            balance: 0,
+            monthlyGrant: 0,
+            monthlyGrantUsed: 0,
+            nextRefreshAt: Date(),
+            periodLabel: ""
+        )
+    }
+
+    func getSubscription() async throws -> UserSubscription? {
+        nil
+    }
+
+    func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
+        throw MockAPIError.invalidURL
+    }
 }

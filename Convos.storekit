@@ -1,0 +1,142 @@
+{
+  "identifier" : "B2A1F9E0-3D8C-4A7E-9C12-1F3A7B5E0001",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_applicationInternalID" : "0000000000",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
+      "localizations" : [
+        {
+          "description" : "Convos subscriptions",
+          "displayName" : "Convos",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "Convos",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "199.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "9001A001-0000-0000-0000-000000000003",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Pro plan — monthly subscription with a larger credit allotment and priority support.",
+              "displayName" : "Convos Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "app.convos.subs.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "214.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "9001A001-0000-0000-0000-000000000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Builder plan — annual subscription with credits to power your agents.",
+              "displayName" : "Convos Builder",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "app.convos.subs.builder.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Builder Annual (-10%)",
+          "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "9001A001-0000-0000-0000-000000000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Builder plan — monthly subscription with credits to power your agents.",
+              "displayName" : "Convos Builder",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "app.convos.subs.builder.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Builder Monthly",
+          "subscriptionGroupID" : "21F0AAB1-7B9D-4C3E-8F92-A0E1B2C3D401",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

@@ -243,6 +243,20 @@ public enum ConvosAPI {
             let error: String?
         }
     }
+
+    // MARK: - IAP Subscription verify
+
+    /// Verify body is just the signed Apple JWS. The `appAccountToken` lives
+    /// inside the signed payload and the backend extracts it from there + binds
+    /// it to the JWT-authenticated account on first call; sending it in the
+    /// body too would let a caller claim someone else's transaction.
+    struct VerifySubscriptionRequest: Encodable {
+        let jwsRepresentation: String
+    }
+
+    struct VerifySubscriptionResponse: Decodable {
+        let subscription: UserSubscription
+    }
 }
 
 // MARK: - Asset Renewal Result

@@ -131,6 +131,10 @@ struct ConversationsView: View {
         // preserves the navigation-bar height the indicator overlay sits
         // on top of.
         ToolbarItem(placement: .topBarTrailing) {
+            CreditsBadge()
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
             composeToolbarButton(
                 viewModel: viewModel,
                 transitionNamespace: appIndicatorContext.transitionNamespace,
@@ -189,6 +193,13 @@ struct ConversationsView: View {
                     preferredColumn = .detail
                 }
                 viewModel.onAppear()
+            }
+            .task {
+                // Refresh credits + subscription on every conversations-list
+                // appearance. TTL-debounced inside the services (15s), so
+                // safe to fire here without storming the API on rapid nav.
+                await CreditsServices.shared.refresh()
+                await SubscriptionServices.shared.refresh()
             }
             .onDisappear {
                 viewModel.onDisappear()
