@@ -136,7 +136,7 @@ final class AgentBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var didRequestAgentJoin: Bool = false
     @ObservationIgnored
-    private var didDiscard: Bool = false
+    private(set) var didDiscard: Bool = false
     @ObservationIgnored
     private var pendingConnectionGrantTask: Task<Void, Never>?
     /// Whether the composer text field was focused at the moment the user

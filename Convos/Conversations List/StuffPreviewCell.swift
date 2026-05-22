@@ -42,9 +42,18 @@ struct StuffPreviewCell: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: Constant.cornerRadius, style: .continuous))
-            .task(id: item.attachmentKey) {
+            .task(id: thumbnailTaskId) {
                 await loadThumbnail()
             }
+    }
+
+    /// Compose the attachment key with the current `colorScheme` so the
+    /// `.task(id:)` re-fires when the user toggles light/dark mode.
+    /// Without `colorScheme` in the id, the thumbnail rendered for the
+    /// previous appearance lingers until the conversation's attachment
+    /// key changes.
+    private var thumbnailTaskId: String {
+        "\(item.attachmentKey)-\(colorScheme == .dark ? "dark" : "light")"
     }
 
     private func loadThumbnail() async {

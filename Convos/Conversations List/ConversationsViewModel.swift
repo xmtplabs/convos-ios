@@ -96,6 +96,18 @@ final class ConversationsViewModel {
     }
     var agentBuilderViewModel: AgentBuilderViewModel? {
         didSet {
+            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
+            // an Agent Builder VM is dropped without committing (e.g.
+            // the host view sets this to nil on tab swap), discard the
+            // outgoing one so its draft XMTP group is torn down. Skip
+            // when the user committed — that conversation has shipped
+            // and should stay on the server.
+            if let outgoing = oldValue,
+               oldValue !== agentBuilderViewModel,
+               !outgoing.hasCommitted,
+               !outgoing.didDiscard {
+                outgoing.discard()
+            }
             updateListVisibility()
         }
     }

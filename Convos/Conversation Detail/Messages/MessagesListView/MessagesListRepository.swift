@@ -75,8 +75,11 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     /// Re-run the processor against the cached raw messages and emit so the
     /// view layer picks up freshly-set `verifiedAgent` /
     /// `agentBuilderSummary` without waiting for the next message delivery.
+    /// Intentionally does NOT short-circuit on `lastRawMessages.isEmpty` —
+    /// `MessagesListProcessor.process` synthesizes an agent contact card
+    /// group when `verifiedAgent` is set, even with zero messages, and we
+    /// need that synthesized output to reach the view.
     private func reprocessCachedMessages() {
-        guard !lastRawMessages.isEmpty else { return }
         let reprocessed = processMessages(
             lastRawMessages,
             readReceipts: lastReadReceipts,

@@ -132,6 +132,12 @@ final class ConversationsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
+        // Apply any inset value that landed before the view loaded —
+        // `bottomChromeInset.didSet` short-circuits while `isViewLoaded`
+        // is false, so without this the value silently vanishes.
+        if bottomChromeInset != 0 {
+            additionalSafeAreaInsets.bottom = bottomChromeInset
+        }
         _ = dataSource
     }
 

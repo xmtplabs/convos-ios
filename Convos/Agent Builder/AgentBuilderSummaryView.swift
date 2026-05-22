@@ -167,16 +167,17 @@ struct AgentBuilderSummaryView: View {
     @ViewBuilder
     private func connectionChip(identifier: String) -> some View {
         let imageName: String? = AgentBuilderConnection(rawValue: identifier)?.chipImageName
-        if let imageName {
-            Image(imageName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: chipSize, height: chipSize)
-        } else {
-            Color.colorFillSubtle
-                .frame(width: chipSize, height: chipSize)
-                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+        Group {
+            if let imageName {
+                Image(imageName)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Color.colorFillSubtle
+            }
         }
+        .frame(width: chipSize, height: chipSize)
+        .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
     }
 
     private func formattedDuration(_ duration: TimeInterval) -> String {

@@ -84,13 +84,18 @@ struct ConversationsView: View {
     }
 
     private func ensureInlineBuilder() {
-        // Recreate the VM not just when it's nil but also when the
-        // previous one has already committed — once committed,
-        // `AgentBuilderView.inlineBody` renders `Color.clear`, so a
-        // user who commits, leaves, then deletes the last convo would
-        // see a blank empty state. Spinning up a fresh VM here gets
-        // them an interactive composer again.
-        if inlineBuilderViewModel == nil || inlineBuilderViewModel?.hasCommitted == true {
+        // Recreate the VM when it's nil, when the previous one has
+        // already committed, or when it's been discarded. A committed
+        // VM renders `Color.clear` in `inlineBody`. A discarded VM had
+        // `discard()` called on it (e.g. by `AgentBuilderView.onDisappear`
+        // when the user left the chats tab without committing), so its
+        // tasks are cancelled and its conversation has been torn down.
+        // Either case leaves the empty state non-functional until we
+        // spin up a fresh VM.
+        let needsFresh: Bool = inlineBuilderViewModel == nil
+            || inlineBuilderViewModel?.hasCommitted == true
+            || inlineBuilderViewModel?.didDiscard == true
+        if needsFresh {
             inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
         }
     }
