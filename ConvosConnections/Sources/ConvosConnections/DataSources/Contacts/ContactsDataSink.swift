@@ -1,3 +1,4 @@
+import ConvosConnections
 import Foundation
 #if canImport(Contacts)
 @preconcurrency import Contacts

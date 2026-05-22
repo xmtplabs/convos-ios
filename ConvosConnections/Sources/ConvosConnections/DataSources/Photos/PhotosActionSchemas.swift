@@ -1,3 +1,4 @@
+import ConvosConnections
 import Foundation
 
 /// Static `ActionSchema` values published by `PhotosDataSink`.

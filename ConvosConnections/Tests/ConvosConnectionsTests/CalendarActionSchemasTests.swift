@@ -1,4 +1,5 @@
 @testable import ConvosConnections
+@testable import ConvosConnectionsCalendar
 import Testing
 
 @Suite("Calendar action schemas")

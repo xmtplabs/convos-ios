@@ -19,6 +19,8 @@ import Foundation
 /// against the relevant conversation.
 actor ConnectionInvocationRuntime {
     private let store: any EnablementStore
+    private let dataSources: [any DataSource]
+    private let dataSinks: [any DataSink]
     private let healthSubscriptionStore: (any HealthBackgroundSubscriptionStore)?
     private let healthGateway: (any HealthBackgroundDeliveryGateway)?
     private let healthBackfillReader: (any HealthBackfillReader)?
@@ -33,6 +35,8 @@ actor ConnectionInvocationRuntime {
 
     init(
         store: any EnablementStore,
+        dataSources: [any DataSource] = [],
+        dataSinks: [any DataSink] = [],
         healthSubscriptionStore: (any HealthBackgroundSubscriptionStore)? = nil,
         healthGateway: (any HealthBackgroundDeliveryGateway)? = nil,
         healthBackfillReader: (any HealthBackfillReader)? = nil,
@@ -40,6 +44,8 @@ actor ConnectionInvocationRuntime {
         healthRegistrar: (any HealthBackgroundObserverRegistrar)? = nil
     ) {
         self.store = store
+        self.dataSources = dataSources
+        self.dataSinks = dataSinks
         self.healthSubscriptionStore = healthSubscriptionStore
         self.healthGateway = healthGateway
         self.healthBackfillReader = healthBackfillReader
@@ -86,8 +92,8 @@ actor ConnectionInvocationRuntime {
         // will short-circuit to `.requiresConfirmation`. `alwaysConfirmWrites`
         // defaults to false, so the standard read/write happy paths are unaffected.
         let manager = ConnectionsManager(
-            sources: Self.makeSources(),
-            sinks: Self.makeSinks(),
+            sources: dataSources,
+            sinks: dataSinks,
             store: store,
             delivery: delivery,
             deliveryObserver: nil,
@@ -170,30 +176,6 @@ actor ConnectionInvocationRuntime {
         }
         guard encoded.type == ContentTypeConnectionInvocation else { return nil }
         return try? ConnectionInvocationCodec().decode(content: encoded)
-    }
-
-    private static func makeSources() -> [DataSource] {
-        [
-            CalendarDataSource(),
-            ContactsDataSource(),
-            PhotosDataSource(),
-            HealthDataSource(),
-            MusicDataSource(),
-            HomeDataSource(),
-            LocationDataSource(),
-            MotionDataSource(),
-        ]
-    }
-
-    private static func makeSinks() -> [DataSink] {
-        [
-            CalendarDataSink(),
-            ContactsDataSink(),
-            PhotosDataSink(),
-            HealthDataSink(),
-            MusicDataSink(),
-            HomeKitDataSink(),
-        ]
     }
 }
 

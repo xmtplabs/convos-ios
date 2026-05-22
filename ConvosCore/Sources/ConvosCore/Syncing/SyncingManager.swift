@@ -151,18 +151,24 @@ actor SyncingManager: SyncingManagerProtocol {
          databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-         notificationCenter: any UserNotificationCenterProtocol) {
+         notificationCenter: any UserNotificationCenterProtocol,
+         deviceConnections: DeviceConnectionsBundle = .none) {
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         let enablementStore: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
+        // The GRDB-backed subscription store is a Core-side type that doesn't
+        // pull HealthKit; safe to construct unconditionally. The HKHealthStore-
+        // backed gateway/reader/registrar come in via `deviceConnections.health`
+        // when the host links the `ConvosConnectionsHealth` product.
         let healthSubscriptionStore = GRDBHealthBackgroundSubscriptionStore(
             dbWriter: databaseWriter,
             dbReader: databaseReader
         )
-        let invocationRuntime = Self.makeInvocationRuntime(
+        let invocationRuntime = makeInvocationRuntime(
             enablementStore: enablementStore,
-            healthSubscriptionStore: healthSubscriptionStore
+            healthSubscriptionStore: healthSubscriptionStore,
+            deviceConnections: deviceConnections
         )
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
@@ -172,24 +178,6 @@ actor SyncingManager: SyncingManagerProtocol {
             notificationCenter: notificationCenter,
             invocationRuntime: invocationRuntime
         )
-    }
-
-    private static func makeInvocationRuntime(
-        enablementStore: any EnablementStore,
-        healthSubscriptionStore: any HealthBackgroundSubscriptionStore
-    ) -> ConnectionInvocationRuntime {
-        #if canImport(HealthKit)
-        return ConnectionInvocationRuntime(
-            store: enablementStore,
-            healthSubscriptionStore: healthSubscriptionStore,
-            healthGateway: HKHealthStoreBackgroundDeliveryGateway(),
-            healthBackfillReader: HKHealthStoreBackfillReader(),
-            healthDeltaReader: HKHealthStoreDeltaReader(),
-            healthRegistrar: HKHealthStoreObserverRegistrar()
-        )
-        #else
-        return ConnectionInvocationRuntime(store: enablementStore)
-        #endif
     }
 
     deinit {
@@ -922,4 +910,28 @@ actor SyncingManager: SyncingManagerProtocol {
         }
         notificationObservers.append(activeConversationObserver)
     }
+}
+
+private func makeInvocationRuntime(
+    enablementStore: any EnablementStore,
+    healthSubscriptionStore: any HealthBackgroundSubscriptionStore,
+    deviceConnections: DeviceConnectionsBundle
+) -> ConnectionInvocationRuntime {
+    if let health = deviceConnections.health {
+        return ConnectionInvocationRuntime(
+            store: enablementStore,
+            dataSources: deviceConnections.dataSources,
+            dataSinks: deviceConnections.dataSinks,
+            healthSubscriptionStore: healthSubscriptionStore,
+            healthGateway: health.backgroundDeliveryGateway,
+            healthBackfillReader: health.backfillReader,
+            healthDeltaReader: health.deltaReader,
+            healthRegistrar: health.observerRegistrar
+        )
+    }
+    return ConnectionInvocationRuntime(
+        store: enablementStore,
+        dataSources: deviceConnections.dataSources,
+        dataSinks: deviceConnections.dataSinks
+    )
 }
