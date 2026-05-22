@@ -107,6 +107,100 @@ struct IdentityShareCodecTests {
     }
 }
 
+@Suite("DeviceRemovedCodec")
+struct DeviceRemovedCodecTests {
+    @Test func roundtrips() throws {
+        let codec = DeviceRemovedCodec()
+        let content = DeviceRemovedContent(
+            revokedInstallationId: "abcdef1234567890",
+            removedAt: 1_700_000_000
+        )
+        let encoded = try codec.encode(content: content)
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded == content)
+    }
+
+    @Test func shouldNotPush() throws {
+        let codec = DeviceRemovedCodec()
+        let push = try codec.shouldPush(content: DeviceRemovedContent(revokedInstallationId: "x"))
+        #expect(push == false)
+    }
+}
+
+@Suite("PairingJoinRequestCodec")
+struct PairingJoinRequestCodecTests {
+    @Test func roundtrips() throws {
+        let codec = PairingJoinRequestCodec()
+        let content = PairingJoinRequestContent(
+            slug: "test-slug",
+            joinerInboxId: "joiner-inbox",
+            deviceName: "iPhone 13"
+        )
+        let encoded = try codec.encode(content: content)
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded == content)
+    }
+}
+
+@Suite("PairingMessageCodec")
+struct PairingMessageCodecTests {
+    @Test func pinRoundtrip() throws {
+        let codec = PairingMessageCodec()
+        let encoded = try codec.encode(content: .pin("123456"))
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded.type == .pin)
+        #expect(decoded.payload == "123456")
+    }
+
+    @Test func pinEchoRoundtrip() throws {
+        let codec = PairingMessageCodec()
+        let encoded = try codec.encode(content: .pinEcho("654321"))
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded.type == .pinEcho)
+        #expect(decoded.payload == "654321")
+    }
+
+    @Test func errorRoundtrip() throws {
+        let codec = PairingMessageCodec()
+        let encoded = try codec.encode(content: .error("nope"))
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded.type == .error)
+        #expect(decoded.payload == "nope")
+    }
+}
+
+@Suite("PairedDeviceNameStore")
+struct PairedDeviceNameStoreTests {
+    // Per-test unique app group so the suite stays self-contained even on
+    // a shared simulator UserDefaults backing store.
+    private static func testAppGroup() -> String {
+        "group.convos.test.\(UUID().uuidString)"
+    }
+
+    @Test func setAndReadByInstallationId() {
+        let appGroup = Self.testAppGroup()
+        PairedDeviceNameStore.setName("Jarod's iPad", forInstallationId: "inst-a", appGroup: appGroup)
+        #expect(PairedDeviceNameStore.name(forInstallationId: "inst-a", appGroup: appGroup) == "Jarod's iPad")
+        #expect(PairedDeviceNameStore.name(forInstallationId: "inst-other", appGroup: appGroup) == nil)
+    }
+
+    @Test func pendingConsumedOnce() {
+        let appGroup = Self.testAppGroup()
+        PairedDeviceNameStore.setPending("iPhone 17", appGroup: appGroup)
+        #expect(PairedDeviceNameStore.consumePending(appGroup: appGroup) == "iPhone 17")
+        #expect(PairedDeviceNameStore.consumePending(appGroup: appGroup) == nil)
+    }
+
+    @Test func pendingDoesNotInterfereWithKeyed() {
+        let appGroup = Self.testAppGroup()
+        PairedDeviceNameStore.setName("Named device", forInstallationId: "inst-a", appGroup: appGroup)
+        PairedDeviceNameStore.setPending("Pending device", appGroup: appGroup)
+        #expect(PairedDeviceNameStore.name(forInstallationId: "inst-a", appGroup: appGroup) == "Named device")
+        #expect(PairedDeviceNameStore.consumePending(appGroup: appGroup) == "Pending device")
+        #expect(PairedDeviceNameStore.name(forInstallationId: "inst-a", appGroup: appGroup) == "Named device")
+    }
+}
+
 @Suite("PairingInvite")
 struct PairingInviteTests {
     @Test func slugRoundtripsBeforeExpiry() throws {
