@@ -26,6 +26,19 @@ struct ConversationsView: View {
     /// doesn't reliably propagate that inset to the UIKit collection
     /// view, so we plumb it through explicitly.
     var bottomChromeInset: CGFloat = 0
+    /// Binding into the shell's "present this conversation as a sheet"
+    /// slot. Set by the inline agent builder (rendered in the chats
+    /// list's empty state) right after `commit()` lands a brand-new
+    /// conversation. `MainTabView` listens for non-nil here and shows
+    /// the conversation in a sheet, mirroring how the bottom-bar
+    /// builder is presented over the tabs.
+    @Binding var presentingCommittedConversation: ConversationViewModel?
+
+    /// Dedicated builder VM for the chats-list empty state. Created
+    /// lazily once the user is in the no-convos-yet state and torn down
+    /// the moment they ship their first convo (which also flips the
+    /// empty state off, so the inline builder unmounts naturally).
+    @State private var inlineBuilderViewModel: AgentBuilderViewModel?
 
     @Namespace private var namespace: Namespace.ID
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -50,18 +63,50 @@ struct ConversationsView: View {
     }
 
     var emptyConversationsViewScrollable: some View {
-        ScrollView {
-            LazyVStack(spacing: 0.0) {
-                emptyConversationsView
-            }
+        emptyConversationsView
+    }
+
+    @ViewBuilder
+    var emptyConversationsView: some View {
+        if let inlineBuilderViewModel {
+            AgentBuilderView(
+                viewModel: inlineBuilderViewModel,
+                profileSettingsViewModel: profileSettingsViewModel,
+                mode: .inline,
+                onCommitted: handleInlineBuilderCommit(_:)
+            )
+        } else {
+            Color.colorBackgroundSurfaceless
         }
     }
 
-    var emptyConversationsView: some View {
-        ConversationsListEmptyCTA(
-            onStartConvo: viewModel.onStartConvo,
-            onJoinConvo: viewModel.onJoinConvo
-        )
+    private func ensureInlineBuilder() {
+        if inlineBuilderViewModel == nil {
+            inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
+        }
+    }
+
+    private func handleInlineBuilderCommit(_ convoVM: ConversationViewModel) {
+        presentingCommittedConversation = convoVM
+        // Intentionally keep `inlineBuilderViewModel` around (in its
+        // committed state). The chats list will update with the new
+        // conversation shortly, at which point `isEmptyCTAActive` flips
+        // false and `sidebarContent` swaps from the empty branch to the
+        // collection view, unmounting the builder naturally. Clearing
+        // here eagerly would leave a blank `Color` behind the sheet if
+        // the user dismisses before the list catches up — see the
+        // `onChange` below that recreates a fresh VM in that race.
+    }
+
+    /// Called whenever the post-commit conversation sheet dismisses.
+    /// If the chats list is still in its empty state at that moment
+    /// (DB sync race — the new convo hasn't landed in
+    /// `conversations` yet), swap the committed inline builder VM out
+    /// for a fresh one so the user sees an interactive composer
+    /// instead of a stuck post-commit gray rect.
+    private func handleCommittedSheetDidDismiss() {
+        guard viewModel.isEmptyCTAActive else { return }
+        inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
     }
 
     var filteredEmptyStateView: some View {
@@ -111,8 +156,9 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private var sidebarContent: some View {
-        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
+        if viewModel.isEmptyCTAActive && horizontalSizeClass == .compact {
             emptyConversationsViewScrollable
+                .task { ensureInlineBuilder() }
         } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
             ScrollView {
                 filteredEmptyStateView
@@ -202,6 +248,10 @@ struct ConversationsView: View {
             }
             .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
                 preferredColumn = isNil ? .sidebar : .detail
+            }
+            .onChange(of: presentingCommittedConversation == nil) { wasNil, isNil in
+                guard !wasNil, isNil else { return }
+                handleCommittedSheetDidDismiss()
             }
             .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
                 guard let newState, case .exploded = newState else { return }
@@ -312,7 +362,8 @@ private struct ConversationsSheetModifier: ViewModifier {
         profileSettingsViewModel: profileSettingsViewModel,
         appIndicatorContext: AppIndicatorContext(
             profileImage: profileSettingsViewModel.profileImage
-        )
+        ),
+        presentingCommittedConversation: .constant(nil)
     )
 }
 
@@ -325,6 +376,7 @@ private struct ConversationsSheetModifier: ViewModifier {
         profileSettingsViewModel: profileSettingsViewModel,
         appIndicatorContext: AppIndicatorContext(
             profileImage: profileSettingsViewModel.profileImage
-        )
+        ),
+        presentingCommittedConversation: .constant(nil)
     )
 }

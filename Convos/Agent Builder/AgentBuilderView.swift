@@ -1,15 +1,38 @@
 import ConvosCore
 import SwiftUI
 
+/// Where the [[AgentBuilderView]] is being rendered. Drives whether it
+/// shows a close button (`.sheet` — the default presentation from the
+/// bottom builder bar) and whether the post-Make morph stays in-tree
+/// (`.sheet`) or fires `onCommitted` so a parent can present the
+/// resulting conversation in a fresh sheet (`.inline` — used as the
+/// chats-list empty state).
+enum AgentBuilderMode {
+    case sheet
+    case inline
+}
+
 struct AgentBuilderView: View {
     @Bindable var viewModel: AgentBuilderViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    var mode: AgentBuilderMode = .sheet
+    /// Fires once when the builder commits in `.inline` mode, passing the
+    /// just-created conversation view-model so the parent can present it
+    /// (typically as a sheet over the chats tab). Ignored in `.sheet`
+    /// mode — the existing in-place morph still owns that flow.
+    var onCommitted: ((ConversationViewModel) -> Void)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
     @State private var presentingDiscardConfirmation: Bool = false
+    @State private var didFireInlineCommit: Bool = false
+    /// Local focus state for `.inline` mode. Sheet mode reads its focus
+    /// state from [[ConversationPresenter]]'s content closure (which owns
+    /// the focus chain across the conversation + the composer); inline
+    /// mode renders only the composer, so it manages its own.
+    @FocusState private var inlineFocusState: MessagesViewInputFocus?
     /// Shared SwiftUI namespace used to morph the draft composer's rounded-
     /// rect card into the post-commit summary cell. Threaded down to the
     /// composer (same SwiftUI tree) and into the messages collection view's
@@ -45,18 +68,7 @@ struct AgentBuilderView: View {
     }
 
     var body: some View {
-        ConversationPresenter(
-            viewModel: viewModel.newConversationViewModel.conversationViewModel,
-            focusCoordinator: focusCoordinator,
-            insetsTopSafeArea: false,
-            sidebarColumnWidth: $sidebarWidth,
-            indicatorPlaceholderOverride: indicatorPlaceholder,
-            indicatorSubtitleOverride: indicatorSubtitle,
-            allowsIndicatorEditing: viewModel.hasCommitted,
-            defaultFocusOverride: viewModel.hasCommitted ? nil : .agentBuilder
-        ) { focusState, coordinator in
-            content(focusState: focusState, coordinator: coordinator)
-        }
+        modeBody
         .environment(\.forcedAgentVerification, forcedVerification)
         .interactiveDismissDisabled(!viewModel.hasCommitted && viewModel.hasContent)
         .onAppear {
@@ -82,6 +94,61 @@ struct AgentBuilderView: View {
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             focusCoordinator.horizontalSizeClass = newSizeClass
+        }
+        .onChange(of: viewModel.hasCommitted) { _, committed in
+            guard mode == .inline, committed, !didFireInlineCommit else { return }
+            guard let convoVM = viewModel.newConversationViewModel.conversationViewModel else { return }
+            didFireInlineCommit = true
+            onCommitted?(convoVM)
+        }
+    }
+
+    @ViewBuilder
+    private var modeBody: some View {
+        switch mode {
+        case .sheet:
+            ConversationPresenter(
+                viewModel: viewModel.newConversationViewModel.conversationViewModel,
+                focusCoordinator: focusCoordinator,
+                insetsTopSafeArea: false,
+                sidebarColumnWidth: $sidebarWidth,
+                indicatorPlaceholderOverride: indicatorPlaceholder,
+                indicatorSubtitleOverride: indicatorSubtitle,
+                allowsIndicatorEditing: viewModel.hasCommitted,
+                defaultFocusOverride: viewModel.hasCommitted ? nil : .agentBuilder
+            ) { focusState, coordinator in
+                content(focusState: focusState, coordinator: coordinator)
+            }
+        case .inline:
+            inlineBody
+        }
+    }
+
+    /// Composer-only rendering used when the builder is hosted directly
+    /// inside another view (e.g. the chats list's empty state). No top
+    /// bar, no conversation indicator, no underlying conversation morph
+    /// — those are owned by the host. Once `viewModel.hasCommitted`
+    /// flips true the `onCommitted` callback fires and the host unmounts
+    /// this view in favor of its own committed-conversation presentation
+    /// (typically a sheet over the chats tab).
+    @ViewBuilder
+    private var inlineBody: some View {
+        Group {
+            if viewModel.hasCommitted {
+                Color.colorBackgroundRaisedSecondary
+            } else {
+                composerRect(focusState: $inlineFocusState)
+            }
+        }
+        .background(Color.colorBackgroundRaisedSecondary)
+        .onAppear {
+            focusCoordinator.moveFocus(to: .agentBuilder)
+        }
+        .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
+            inlineFocusState = newFocus
+        }
+        .onChange(of: inlineFocusState) { _, newFocus in
+            focusCoordinator.syncFocusState(newFocus)
         }
     }
 
@@ -114,7 +181,9 @@ struct AgentBuilderView: View {
                 }
                 .animation(.spring(response: 0.42, dampingFraction: 0.85), value: viewModel.hasCommitted)
                 .toolbar {
-                    closeToolbarItem
+                    if mode == .sheet {
+                        closeToolbarItem
+                    }
                 }
                 .toolbarTitleDisplayMode(.inline)
                 .onAppear {

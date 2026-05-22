@@ -215,7 +215,7 @@ struct AgentDraftComposer: View {
     }
 
     private var textFieldPlaceholder: String {
-        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existance" : "Make a new little agent"
+        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existance" : "Make a new agent"
     }
 
     private var textField: some View {

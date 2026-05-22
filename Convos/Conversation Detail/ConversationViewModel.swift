@@ -143,7 +143,10 @@ enum ExplodeDuration: CaseIterable {
 
 @MainActor
 @Observable
-class ConversationViewModel { // swiftlint:disable:this type_body_length
+class ConversationViewModel: Identifiable { // swiftlint:disable:this type_body_length
+    nonisolated var id: String { _identifiableId }
+    private let _identifiableId: String = UUID().uuidString
+
     /// Set by `AgentBuilderViewModel.commit` at the moment of Make. Drives
     /// the in-stream summary cell at the top of the messages list and filters
     /// out any messages with `sentAt < summary.cutoffDate` (so the user's

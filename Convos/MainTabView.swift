@@ -64,6 +64,15 @@ struct MainTabView: View {
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
+    /// Set when the inline builder (rendered inside the chats list's
+    /// empty state) commits its first conversation. The shell presents
+    /// the new conversation as a sheet, mirroring how the bottom-bar
+    /// builder itself is presented over the tabs. The inline builder VM
+    /// lives inside `ConversationsView` (so it's scoped to the chats tab);
+    /// only the post-commit sheet has to bubble up to this level.
+    @State private var presentingCommittedConversation: ConversationViewModel?
+    @State private var committedConversationFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
+    @State private var committedConversationSidebarWidth: CGFloat = 0
     /// Live credit balance + subscription drive the app-indicator subtitle.
     /// Seeded from the services' current values so the first render doesn't
     /// flicker, then kept in sync via `.onReceive` on their publishers.
@@ -111,6 +120,14 @@ struct MainTabView: View {
             || !stuffPushedItems.isEmpty
     }
 
+    /// Mirrors [[ConversationsViewModel.isEmptyCTAActive]]. When true the
+    /// chats list is empty and we render an inline agent builder as the
+    /// primary content (instead of the tabs) so the user is guided
+    /// straight into making their first agent.
+    private var isInlineBuilderActive: Bool {
+        conversationsViewModel.isEmptyCTAActive
+    }
+
     /// Scroll offset for whichever tab is currently active.
     private var activeTabScrollOffset: CGFloat {
         switch activeTab {
@@ -146,17 +163,21 @@ struct MainTabView: View {
     var body: some View {
         tabView
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !isConversationSelected {
+                if !isConversationSelected && !isInlineBuilderActive {
                     bottomChrome
                         .transition(.blurReplace)
                 }
             }
             .animation(.smooth(duration: 0.35), value: isConversationSelected)
+            .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
             .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
                 creditBalance = newBalance
             }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
                 userSubscription = newSubscription
+            }
+            .sheet(item: $presentingCommittedConversation) { convoVM in
+                committedConversationSheetContent(viewModel: convoVM)
             }
             .modifier(MainTabSheetsModifier(
                 conversationsViewModel: conversationsViewModel,
@@ -170,6 +191,43 @@ struct MainTabView: View {
                 onCameraImageCaptured: handleCameraImageCaptured,
                 onCameraVideoCaptured: handleCameraVideoCaptured
             ))
+    }
+
+    @ViewBuilder
+    private func committedConversationSheetContent(viewModel convoVM: ConversationViewModel) -> some View {
+        ConversationPresenter(
+            viewModel: convoVM,
+            focusCoordinator: committedConversationFocusCoordinator,
+            insetsTopSafeArea: false,
+            sidebarColumnWidth: $committedConversationSidebarWidth
+        ) { focusState, coordinator in
+            NavigationStack {
+                ConversationView(
+                    viewModel: convoVM,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    focusState: focusState,
+                    focusCoordinator: coordinator,
+                    onScanInviteCode: {},
+                    onDeleteConversation: { presentingCommittedConversation = nil },
+                    messagesTopBarTrailingItem: .share,
+                    messagesTopBarTrailingItemEnabled: true,
+                    messagesTextFieldEnabled: true,
+                    bottomBarContent: { EmptyView() }
+                )
+                .toolbar { committedConversationCloseToolbarItem }
+            }
+        }
+        .presentationSizing(.page)
+    }
+
+    @ToolbarContentBuilder
+    private var committedConversationCloseToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(role: .close) {
+                presentingCommittedConversation = nil
+            }
+            .accessibilityIdentifier("close-committed-agent-conversation")
+        }
     }
 
     @ViewBuilder
@@ -187,7 +245,8 @@ struct MainTabView: View {
                             updateBuilderBarExpansion(forOffset: offset)
                         }
                     },
-                    bottomChromeInset: bottomChromeHeight
+                    bottomChromeInset: bottomChromeHeight,
+                    presentingCommittedConversation: $presentingCommittedConversation
                 )
                 .toolbarVisibility(.hidden, for: .tabBar)
             }

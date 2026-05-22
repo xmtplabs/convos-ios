@@ -174,6 +174,19 @@ final class ConversationsViewModel {
         activeFilter != .all && unpinnedConversations.isEmpty && hasUnpinnedConversations
     }
 
+    /// True when the chats list is empty and the `.all` filter is active —
+    /// i.e. the user is in the no-convos-yet state that previously rendered
+    /// `ConversationsListEmptyCTA` ("Pop-up private convos"). Mirrors the
+    /// SwiftUI-side gate inside `ConversationsView.sidebarContent` so the
+    /// shell can swap the chats tab for an inline agent builder and hide
+    /// the bottom chrome.
+    var isEmptyCTAActive: Bool {
+        unpinnedConversations.isEmpty
+            && pinnedConversations.isEmpty
+            && activeFilter == .all
+            && UIDevice.current.userInterfaceIdiom == .phone
+    }
+
     private static let hasCreatedMoreThanOneConvoKey: String = "hasCreatedMoreThanOneConvo"
     private(set) var hasCreatedMoreThanOneConvo: Bool {
         get {
