@@ -1,5 +1,5 @@
-@testable import ConvosConnectionsMusic
 @testable import ConvosConnections
+@testable import ConvosConnectionsMusic
 import Testing
 
 @Suite("Music action schemas")

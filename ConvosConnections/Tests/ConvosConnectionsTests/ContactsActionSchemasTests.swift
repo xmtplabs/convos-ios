@@ -1,5 +1,5 @@
-@testable import ConvosConnectionsContacts
 @testable import ConvosConnections
+@testable import ConvosConnectionsContacts
 import Testing
 
 @Suite("Contacts action schemas")

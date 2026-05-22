@@ -165,7 +165,7 @@ actor SyncingManager: SyncingManagerProtocol {
             dbWriter: databaseWriter,
             dbReader: databaseReader
         )
-        let invocationRuntime = Self.makeInvocationRuntime(
+        let invocationRuntime = makeInvocationRuntime(
             enablementStore: enablementStore,
             healthSubscriptionStore: healthSubscriptionStore,
             deviceConnections: deviceConnections
@@ -177,30 +177,6 @@ actor SyncingManager: SyncingManagerProtocol {
             deviceRegistrationManager: deviceRegistrationManager,
             notificationCenter: notificationCenter,
             invocationRuntime: invocationRuntime
-        )
-    }
-
-    private static func makeInvocationRuntime(
-        enablementStore: any EnablementStore,
-        healthSubscriptionStore: any HealthBackgroundSubscriptionStore,
-        deviceConnections: DeviceConnectionsBundle
-    ) -> ConnectionInvocationRuntime {
-        if let health = deviceConnections.health {
-            return ConnectionInvocationRuntime(
-                store: enablementStore,
-                dataSources: deviceConnections.dataSources,
-                dataSinks: deviceConnections.dataSinks,
-                healthSubscriptionStore: healthSubscriptionStore,
-                healthGateway: health.backgroundDeliveryGateway,
-                healthBackfillReader: health.backfillReader,
-                healthDeltaReader: health.deltaReader,
-                healthRegistrar: health.observerRegistrar
-            )
-        }
-        return ConnectionInvocationRuntime(
-            store: enablementStore,
-            dataSources: deviceConnections.dataSources,
-            dataSinks: deviceConnections.dataSinks
         )
     }
 
@@ -934,4 +910,28 @@ actor SyncingManager: SyncingManagerProtocol {
         }
         notificationObservers.append(activeConversationObserver)
     }
+}
+
+private func makeInvocationRuntime(
+    enablementStore: any EnablementStore,
+    healthSubscriptionStore: any HealthBackgroundSubscriptionStore,
+    deviceConnections: DeviceConnectionsBundle
+) -> ConnectionInvocationRuntime {
+    if let health = deviceConnections.health {
+        return ConnectionInvocationRuntime(
+            store: enablementStore,
+            dataSources: deviceConnections.dataSources,
+            dataSinks: deviceConnections.dataSinks,
+            healthSubscriptionStore: healthSubscriptionStore,
+            healthGateway: health.backgroundDeliveryGateway,
+            healthBackfillReader: health.backfillReader,
+            healthDeltaReader: health.deltaReader,
+            healthRegistrar: health.observerRegistrar
+        )
+    }
+    return ConnectionInvocationRuntime(
+        store: enablementStore,
+        dataSources: deviceConnections.dataSources,
+        dataSinks: deviceConnections.dataSinks
+    )
 }

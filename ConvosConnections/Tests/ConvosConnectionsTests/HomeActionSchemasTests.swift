@@ -1,5 +1,5 @@
-@testable import ConvosConnectionsHomeKit
 @testable import ConvosConnections
+@testable import ConvosConnectionsHomeKit
 import Testing
 
 @Suite("HomeKit action schemas")

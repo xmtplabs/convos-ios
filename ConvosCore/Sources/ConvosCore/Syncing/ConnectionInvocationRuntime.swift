@@ -177,7 +177,6 @@ actor ConnectionInvocationRuntime {
         guard encoded.type == ContentTypeConnectionInvocation else { return nil }
         return try? ConnectionInvocationCodec().decode(content: encoded)
     }
-
 }
 
 private struct UncheckedSendableClient: @unchecked Sendable {
