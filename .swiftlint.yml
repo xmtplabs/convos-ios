@@ -148,18 +148,20 @@ excluded:
   - .derivedData
   - .derivedData-device
   - .claude/worktrees
-  - ConvosCore/.build
-  - ConvosCoreiOS/.build
-  - ConvosConnections/.build
   - ConvosAppData/.build
+  - ConvosConnections/.build
+  - ConvosCore/.build
   - ConvosInvites/.build
+  - ConvosLogging/.build
+  # Stale local-dev artifact from a previously-existing ConvosProfiles
+  # package. Not in git, but leftover `.build/` on long-lived dev clones
+  # would otherwise pull libxmtp's example sources into lint scope.
   - ConvosProfiles/.build
   # Test targets and ad-hoc helpers we don't lint
-  - ConvosCore/Tests
-  - ConvosConnections/Tests
   - ConvosAppData/Tests
+  - ConvosConnections/Tests
+  - ConvosCore/Tests
   - ConvosInvites/Tests
-  - ConvosProfiles/Tests
   - ConvosTests
   - ConvosTests/Helpers
   - ConvosAppClipTests
