@@ -47,10 +47,6 @@ final class PaywallViewModel {
         currentSubscription?.tier
     }
 
-    var hasActiveSubscription: Bool {
-        currentSubscription != nil
-    }
-
     var legalDisclaimer: String {
         SubscriptionCopy.legalDisclaimer
     }
