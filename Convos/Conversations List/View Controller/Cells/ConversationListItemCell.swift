@@ -18,7 +18,7 @@ final class ConversationListItemCell: UICollectionViewListCell {
     func configure(
         with conversation: Conversation,
         isSelected: Bool,
-        memberNameOverride: @escaping @Sendable (String) -> String? = { _ in nil }
+        memberContactOverride: @escaping @Sendable (String) -> Contact? = { _ in nil }
     ) {
         if let wrapper = hostingWrapper {
             wrapper.update(conversation: conversation, isSelected: isSelected)
@@ -30,7 +30,7 @@ final class ConversationListItemCell: UICollectionViewListCell {
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 ConversationListItemWrapperView(wrapper: wrapper)
-                    .memberNameOverride(memberNameOverride)
+                    .memberContactOverride(memberContactOverride)
             }
             .margins(.all, 0)
             .background(.clear)

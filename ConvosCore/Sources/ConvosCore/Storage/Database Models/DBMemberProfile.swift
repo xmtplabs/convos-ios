@@ -250,3 +250,48 @@ extension DBMemberProfile {
         return ref
     }
 }
+
+// MARK: - Agent template metadata
+
+extension DBMemberProfile {
+    /// The backend `AgentTemplate.id` a template-backed agent was
+    /// provisioned from, read from the agent's per-conversation profile
+    /// `metadata`. nil for human members and for legacy agents that do
+    /// not carry a template.
+    var agentTemplateId: String? {
+        metadata?[Constant.templateIdKey]?.stringValue
+    }
+
+    /// The shareable web URL for this agent's template (the backend's
+    /// `publishedUrl`). Drives the contact card's Share button.
+    var agentTemplatePublishedURL: String? {
+        metadata?[Constant.publishedURLKey]?.stringValue
+    }
+
+    /// The agent template's emoji, when published.
+    var agentTemplateEmoji: String? {
+        metadata?[Constant.emojiKey]?.stringValue
+    }
+
+    /// The agent template's description, when published.
+    var agentTemplateDescription: String? {
+        metadata?[Constant.descriptionKey]?.stringValue
+    }
+
+    /// True when this member is a template-backed agent - an agent that
+    /// published a `templateId` in its profile metadata. Legacy agents
+    /// without a templateId return false.
+    var isAgentTemplate: Bool {
+        isAgent && agentTemplateId != nil
+    }
+
+    /// Keys a template-backed agent stamps into its per-conversation
+    /// profile `metadata`. Must match the agent runtime's profile
+    /// builder.
+    private enum Constant {
+        static let templateIdKey: String = "templateId"
+        static let publishedURLKey: String = "publishedUrl"
+        static let emojiKey: String = "emoji"
+        static let descriptionKey: String = "description"
+    }
+}

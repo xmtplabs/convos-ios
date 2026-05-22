@@ -36,6 +36,7 @@ public extension Conversation {
             isUnread: isUnread,
             isMuted: isMuted,
             pinnedOrder: isPinned ? 0 : nil,
+            hidesInviteCard: false,
             lastMessage: isUnread ? MessagePreview(
                 text: lastMessageText,
                 createdAt: Date()
@@ -84,6 +85,52 @@ public extension Conversation {
             isUnread: false,
             isMuted: false,
             pinnedOrder: nil,
+            hidesInviteCard: false,
+            lastMessage: nil,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            includeInfoInPublicPreview: false,
+            isDraft: true,
+            invite: nil,
+            expiresAt: .distantFuture,
+            debugInfo: .empty,
+            isLocked: false,
+            assistantJoinStatus: nil,
+            hasHadVerifiedAssistant: false
+        )
+    }
+
+    /// Draft placeholder seeded with members. Used by the contacts
+    /// picker flow so the chat header renders the contact's name and
+    /// avatar from the moment the new-convo sheet opens, instead of
+    /// flickering through "New Convo" while the state machine creates
+    /// the real conversation. `kind` is always `.group` because the
+    /// state machine's `handleCreate` calls `client.prepareConversation()`
+    /// which always returns a `Group` - synthesizing `.dm` here would
+    /// mean the synthetic briefly renders DM-styled before flipping
+    /// to group when the publisher emits the real conversation.
+    static func draft(id: String, seededMembers: [ConversationMember]) -> Conversation {
+        let creator: ConversationMember = seededMembers.first(where: { $0.isCurrentUser }) ?? .empty(isCurrentUser: true)
+        return Conversation(
+            id: id,
+            clientConversationId: id,
+            creator: creator,
+            createdAt: .distantFuture,
+            consent: .allowed,
+            kind: .group,
+            name: nil,
+            description: nil,
+            members: seededMembers,
+            otherMember: nil,
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
             lastMessage: nil,
             imageURL: nil,
             imageSalt: nil,

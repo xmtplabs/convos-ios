@@ -10,7 +10,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let filterEmptyMessage: String
     let hasCreatedMoreThanOneConvo: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
-    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
+    @Environment(\.memberContactOverride) private var memberContactOverride: @Sendable (String) -> Contact?
 
     // Callbacks
     var onSelectConversation: ((Conversation) -> Void)?
@@ -27,7 +27,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> ConversationsViewController {
         let viewController = ConversationsViewController()
-        viewController.memberNameOverride = memberNameOverride
+        viewController.memberContactOverride = memberContactOverride
         configureCallbacks(viewController)
         return viewController
     }
@@ -42,7 +42,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             hasCreatedMoreThanOneConvo: hasCreatedMoreThanOneConvo,
             horizontalSizeClass: horizontalSizeClass
         )
-        viewController.memberNameOverride = memberNameOverride
+        viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)
         viewController.bottomChromeInset = bottomChromeInset
 

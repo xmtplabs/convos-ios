@@ -222,7 +222,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isUnread: false,
                 isUnreadUpdatedAt: Date(),
                 isMuted: false,
-                pinnedOrder: nil
+                pinnedOrder: nil,
+                hidesInviteCard: false
             )
             try localState.save(db)
 
@@ -243,24 +244,34 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return conversation.id
     }
 
-    private func _store(
+    /// A `DBConversation` row + its members and profiles, fully resolved from
+    /// XMTP but not yet written to the local DB. Built by `prepare(...)`,
+    /// consumed by `persist(_:in:)`.
+    ///
+    /// The split lets the batch catch-up path fan out N parallel `prepare`
+    /// calls (each does XMTP network work) and then collapse the N
+    /// `persist` calls into a single GRDB transaction — one observer fire
+    /// for the whole backlog instead of N. The stream path threads them
+    /// sequentially via `_store` and is byte-equivalent to the old shape.
+    struct PreparedConversation {
+        let dbConversation: DBConversation
+        let dbMembers: [DBConversationMember]
+        let memberProfiles: [DBMemberProfile]
+    }
+
+    /// Async, network-bound, transaction-free. Safe to call concurrently for
+    /// many conversations.
+    func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        withLatestMessages: Bool = false,
         clientConversationId: String? = nil,
         quarantinedAt: Date? = nil
-    ) async throws -> DBConversation {
-        // Sync group to get latest state including member permission levels
+    ) async throws -> PreparedConversation {
         try await conversation.sync()
-
-        // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
         let memberProfiles = try conversation.memberProfiles
-
-        // Create database representation (imageLastRenewed will be determined inside the write transaction
-        // to avoid race conditions with concurrent asset renewal)
         let dbConversation = try await createDBConversation(
             from: conversation,
             metadata: metadata,
@@ -269,22 +280,164 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed: nil,
             quarantinedAt: quarantinedAt
         )
-
-        // Save to database. Capture the actual clientConversationId used (may be a draft ID
-        // like "draft-XXX" instead of the XMTP group ID) so cache notifications match
-        // the ID that ViewModels subscribe to.
-        // Also returns the old image URL for cache invalidation.
-        let saveResult = try await saveConversationToDatabase(
+        return PreparedConversation(
             dbConversation: dbConversation,
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
         )
+    }
+
+    /// Synchronous, transaction-scoped. Call inside `databaseWriter.write { db in ... }`.
+    /// Idempotent: replay-safe thanks to `saveConversation`'s no-op diff
+    /// short-circuit + the `onConflict: .ignore` localState insert.
+    func persist(_ prepared: PreparedConversation, in db: Database) throws -> ConversationSaveResult {
+        let creator = DBMember(inboxId: prepared.dbConversation.creatorId)
+        try creator.save(db)
+
+        // Save conversation (handle local conversation updates).
+        // Also handles imageLastRenewed preservation inside the transaction.
+        let saveResult = try saveConversation(prepared.dbConversation, in: db)
+
+        // Save local state
+        let localState = ConversationLocalState(
+            conversationId: prepared.dbConversation.id,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: Date.distantPast,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false
+        )
+        try localState.insert(db, onConflict: .ignore)
+
+        // Remove conversation_members rows for members no longer in the group
+        let currentMemberInboxIds = Set(prepared.dbMembers.map(\.inboxId))
+        if !currentMemberInboxIds.isEmpty {
+            try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == prepared.dbConversation.id)
+                .filter(!currentMemberInboxIds.contains(DBConversationMember.Columns.inboxId))
+                .deleteAll(db)
+        }
+
+        try saveMembers(prepared.dbMembers, in: db)
+
+        // Fill gaps: only write appData profiles for members without message-sourced data
+        try prepared.memberProfiles.forEach { profile in
+            let existing = try DBMemberProfile.fetchOne(
+                db,
+                conversationId: prepared.dbConversation.id,
+                inboxId: profile.inboxId
+            )
+            if existing?.name != nil || existing?.avatar != nil || existing?.memberKind != nil {
+                return
+            }
+            let member = DBMember(inboxId: profile.inboxId)
+            try member.save(db)
+            try profile.save(db)
+        }
+
+        return saveResult
+    }
+
+    /// Post-persist side effects the stream path runs after each individual
+    /// save. The batch catch-up path runs them per-conversation off the
+    /// foreground critical path after its single transaction commits, so
+    /// the user-visible foreground latency only includes prepare + persist.
+    ///
+    /// `saveResult` is required because `saveConversation` may resolve a
+    /// different `clientConversationId` than the one on the incoming
+    /// `PreparedConversation` (e.g. a sticky draft id wins over the XMTP
+    /// group id — see ClientConversationIdPriorityTests). The image cache
+    /// has to key off the *actual* persisted id so the UI lookups find it.
+    /// Passing nil for `oldImageURL` is acceptable here because the batch
+    /// persists multiple rows in one transaction and doesn't track per-row
+    /// old URLs; the prefetcher then fetches unconditionally, the right
+    /// default for a freshly-synced conversation.
+    func runPostPersistSideEffects(
+        prepared: PreparedConversation,
+        saveResult: ConversationSaveResult,
+        group: XMTPiOS.Group
+    ) async {
+        enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
+        prefetchEncryptedImages(profiles: prepared.memberProfiles, group: group)
+        prefetchEncryptedGroupImage(
+            cacheId: saveResult.clientConversationId,
+            group: group,
+            oldImageURL: nil
+        )
+        do {
+            _ = try await inviteWriter.generate(
+                for: prepared.dbConversation,
+                expiresAt: nil,
+                expiresAfterUse: false
+            )
+        } catch {
+            Log.error("Invite generation skipped for conversation \(prepared.dbConversation.id): \(error)")
+        }
+        await processProfileMessagesFromHistory(conversation: group)
+    }
+
+    /// Apply the supplemental messages (reactions, read receipts) the batch
+    /// catch-up filter excluded from the main transaction. Each gets its
+    /// own small transaction via the existing per-type handlers — same
+    /// loop body as `fetchAndStoreLatestMessages:704-721`. Without this,
+    /// reactions and read receipts that arrived while the device was
+    /// offline are filtered out by `isStorableForBatch` and never picked
+    /// up: libxmtp's `streamAllMessages` only delivers events from the
+    /// connection time forward, it does not replay historical backlog.
+    func applyBacklogSupplementals(
+        _ messages: [XMTPiOS.DecodedMessage],
+        for conversation: DBConversation
+    ) async {
+        for message in messages {
+            guard !message.isProfileMessage, !message.isTypingIndicator else {
+                continue
+            }
+            if message.isReadReceipt {
+                await storeReadReceipt(message, conversationId: conversation.id)
+                continue
+            }
+            do {
+                _ = try await messageWriter.store(message: message, for: conversation)
+            } catch {
+                Log.error("Failed to apply backlog supplemental message \(message.id) in \(conversation.id): \(error)")
+            }
+        }
+    }
+
+    /// Mark a conversation unread. Exposed so `BatchCatchUp` can mirror
+    /// the stream path's `fetchAndStoreLatestMessages` tail without
+    /// reaching into `localStateWriter` directly.
+    func markUnread(_ unread: Bool, for conversationId: String) async throws {
+        try await localStateWriter.setUnread(unread, for: conversationId)
+    }
+
+    private func _store(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        withLatestMessages: Bool = false,
+        clientConversationId: String? = nil,
+        quarantinedAt: Date? = nil
+    ) async throws -> DBConversation {
+        let prepared = try await prepare(
+            conversation: conversation,
+            inboxId: inboxId,
+            clientConversationId: clientConversationId,
+            quarantinedAt: quarantinedAt
+        )
+
+        // Persist in a single transaction. Capture the actual clientConversationId
+        // used (may be a draft ID like "draft-XXX" instead of the XMTP group ID)
+        // so cache notifications match the ID that ViewModels subscribe to.
+        let saveResult = try await databaseWriter.write { [self] db in
+            try persist(prepared, in: db)
+        }
 
         // Network-driven member commit just landed (initial conversation
         // arrival or refresh-with-new-members). Fire the contact-sync
         // coordinator with `force: true`; the coordinator will skip if the
         // local user has not acted in this conversation yet (action-gated).
-        enqueueContactSyncForNetworkChange(conversationId: dbConversation.id)
+        enqueueContactSyncForNetworkChange(conversationId: prepared.dbConversation.id)
 
         if let preservedInviteTag = saveResult.preservedInviteTag,
            (try conversation.inviteTag).isEmpty {
@@ -297,31 +450,32 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         // Prefetch encrypted profile images in background
-        prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
+        prefetchEncryptedImages(profiles: prepared.memberProfiles, group: conversation)
 
-        // Prefetch encrypted group image in background (invalidate old URL if changed)
-        // Use actualClientConversationId to match the ID that ViewModels subscribe to
+        // Prefetch encrypted group image in background (invalidate old URL if changed).
+        // The incoming image URL lives on the prepared DBConversation (createDBConversation
+        // builds it from metadata.imageURLString verbatim).
         prefetchEncryptedGroupImage(
             cacheId: saveResult.clientConversationId,
             group: conversation,
-            oldImageURL: saveResult.oldImageURL != metadata.imageURLString ? saveResult.oldImageURL : nil
+            oldImageURL: saveResult.oldImageURL != prepared.dbConversation.imageURLString ? saveResult.oldImageURL : nil
         )
 
         do {
             _ = try await inviteWriter.generate(
-                for: dbConversation,
+                for: prepared.dbConversation,
                 expiresAt: nil,
                 expiresAfterUse: false
             )
         } catch {
-            Log.error("Invite generation skipped for conversation \(dbConversation.id): \(error)")
+            Log.error("Invite generation skipped for conversation \(prepared.dbConversation.id): \(error)")
         }
 
         // Fetch and store latest messages if requested
         if withLatestMessages {
             try await fetchAndStoreLatestMessages(
                 for: conversation,
-                dbConversation: dbConversation,
+                dbConversation: prepared.dbConversation,
                 currentInboxId: inboxId
             )
         }
@@ -331,7 +485,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt, !lastMessage.isThinking {
             let result = try await messageWriter.store(
                 message: lastMessage,
-                for: dbConversation
+                for: prepared.dbConversation
             )
             Log.debug("Saved last message: \(result)")
         }
@@ -339,7 +493,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Process profile messages from history to populate member profiles
         await processProfileMessagesFromHistory(conversation: conversation)
 
-        return dbConversation
+        return prepared.dbConversation
     }
 
     // MARK: - Helper Methods
@@ -430,67 +584,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
     }
 
-    private struct ConversationSaveResult {
+    struct ConversationSaveResult {
         let clientConversationId: String
         let oldImageURL: String?
         let preservedInviteTag: String?
-    }
-
-    /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
-    /// and the old image URL for cache invalidation purposes.
-    private func saveConversationToDatabase(
-        dbConversation: DBConversation,
-        dbMembers: [DBConversationMember],
-        memberProfiles: [DBMemberProfile]
-    ) async throws -> ConversationSaveResult {
-        try await databaseWriter.write { [self] db in
-            let creator = DBMember(inboxId: dbConversation.creatorId)
-            try creator.save(db)
-
-            // Save conversation (handle local conversation updates)
-            // This also handles imageLastRenewed preservation inside the transaction
-            let saveResult = try self.saveConversation(dbConversation, in: db)
-
-            // Save local state
-            let localState = ConversationLocalState(
-                conversationId: dbConversation.id,
-                isPinned: false,
-                isUnread: false,
-                isUnreadUpdatedAt: Date.distantPast,
-                isMuted: false,
-                pinnedOrder: nil
-            )
-            try localState.insert(db, onConflict: .ignore)
-
-            // Remove conversation_members rows for members no longer in the group
-            let currentMemberInboxIds = Set(dbMembers.map(\.inboxId))
-            if !currentMemberInboxIds.isEmpty {
-                try DBConversationMember
-                    .filter(DBConversationMember.Columns.conversationId == dbConversation.id)
-                    .filter(!currentMemberInboxIds.contains(DBConversationMember.Columns.inboxId))
-                    .deleteAll(db)
-            }
-
-            // Save members (upserts conversation_members + stub memberProfile rows)
-            try self.saveMembers(dbMembers, in: db)
-
-            // Fill gaps: only write appData profiles for members without message-sourced data
-            try memberProfiles.forEach { profile in
-                let existing = try DBMemberProfile.fetchOne(
-                    db,
-                    conversationId: dbConversation.id,
-                    inboxId: profile.inboxId
-                )
-                if existing?.name != nil || existing?.avatar != nil || existing?.memberKind != nil {
-                    return
-                }
-                let member = DBMember(inboxId: profile.inboxId)
-                try member.save(db)
-                try profile.save(db)
-            }
-
-            return saveResult
-        }
     }
 
     /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
@@ -590,51 +687,31 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if !localConversation.isUnused {
                 conversationToSave = conversationToSave.with(createdAt: localConversation.createdAt)
             }
+            // Merge sticky fields from the by-tag match for the same
+            // reasons documented above: this row is replacing
+            // `localConversation`, so its sticky-on agent flag and
+            // quarantine timestamps must carry forward.
+            let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
+            let preservedQuarantinedAtByTag: Date? = conversationToSave.quarantinedAt ?? localConversation.quarantinedAt
+            let preservedQuarantineReleasedAtByTag: Date? = conversationToSave.quarantineReleasedAt ?? localConversation.quarantineReleasedAt
+            conversationToSave = conversationToSave
+                .with(hasHadVerifiedAssistant: mergedHasAgentByTag)
+                .with(
+                    quarantinedAt: preservedQuarantinedAtByTag,
+                    quarantineReleasedAt: preservedQuarantineReleasedAtByTag
+                )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
         } else if let existingConversation {
-            let preferredClientConversationId: String
-            if dbConversation.clientConversationId != existingConversation.clientConversationId {
-                if DBConversation.isDraft(id: dbConversation.clientConversationId) {
-                    preferredClientConversationId = dbConversation.clientConversationId
-                } else {
-                    preferredClientConversationId = existingConversation.clientConversationId
-                }
-            } else {
-                preferredClientConversationId = dbConversation.clientConversationId
-            }
-
-            var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
-            if existingConversation.isUnused {
-                updatedConversation = updatedConversation.with(isUnused: true)
-            }
-            if !existingConversation.isUnused {
-                updatedConversation = updatedConversation.with(createdAt: existingConversation.createdAt)
-            }
-            if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
-                updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
-            }
-            if let conflictingConversation = try existingConversationMatchingInviteTag(
-                inviteTag: updatedConversation.inviteTag,
-                excludingConversationId: updatedConversation.id,
+            let updateOutcome = try updateExistingConversation(
+                incoming: conversationToSave,
+                existing: existingConversation,
+                originalIncomingId: dbConversation.clientConversationId,
                 in: db
-            ) {
-                Log.error(
-                    "Invite tag collision before save. " +
-                        "incomingId=\(updatedConversation.id) " +
-                        "incomingClientConversationId=\(updatedConversation.clientConversationId) " +
-                        "incomingInviteTag=\(updatedConversation.inviteTag) " +
-                        "existingId=\(existingConversation.id) " +
-                        "existingClientConversationId=\(existingConversation.clientConversationId) " +
-                        "conflictingId=\(conflictingConversation.id) " +
-                        "conflictingClientConversationId=\(conflictingConversation.clientConversationId) " +
-                        "conflictingIsUnused=\(conflictingConversation.isUnused)"
-                )
-            }
-            try updatedConversation.save(db)
-            firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt
-            actualClientConversationId = preferredClientConversationId
+            )
+            firstTimeSeeingConversationExpired = updateOutcome.firstTimeSeeingConversationExpired
+            actualClientConversationId = updateOutcome.actualClientConversationId
         } else {
             try conversationToSave.save(db)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired
@@ -649,6 +726,73 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             clientConversationId: actualClientConversationId,
             oldImageURL: oldImageURL,
             preservedInviteTag: preservedInviteTag
+        )
+    }
+
+    private struct ExistingConversationUpdateOutcome {
+        let firstTimeSeeingConversationExpired: Bool
+        let actualClientConversationId: String
+    }
+
+    private func updateExistingConversation(
+        incoming conversationToSave: DBConversation,
+        existing existingConversation: DBConversation,
+        originalIncomingId: String,
+        in db: Database
+    ) throws -> ExistingConversationUpdateOutcome {
+        let preferredClientConversationId: String
+        if originalIncomingId != existingConversation.clientConversationId {
+            if DBConversation.isDraft(id: originalIncomingId) {
+                preferredClientConversationId = originalIncomingId
+            } else {
+                preferredClientConversationId = existingConversation.clientConversationId
+            }
+        } else {
+            preferredClientConversationId = originalIncomingId
+        }
+
+        var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
+        if existingConversation.isUnused {
+            updatedConversation = updatedConversation.with(isUnused: true)
+        }
+        if !existingConversation.isUnused {
+            updatedConversation = updatedConversation.with(createdAt: existingConversation.createdAt)
+        }
+        if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
+            updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
+        }
+        if let conflictingConversation = try existingConversationMatchingInviteTag(
+            inviteTag: updatedConversation.inviteTag,
+            excludingConversationId: updatedConversation.id,
+            in: db
+        ) {
+            Log.error(
+                "Invite tag collision before save. " +
+                    "incomingId=\(updatedConversation.id) " +
+                    "incomingClientConversationId=\(updatedConversation.clientConversationId) " +
+                    "incomingInviteTag=\(updatedConversation.inviteTag) " +
+                    "existingId=\(existingConversation.id) " +
+                    "existingClientConversationId=\(existingConversation.clientConversationId) " +
+                    "conflictingId=\(conflictingConversation.id) " +
+                    "conflictingClientConversationId=\(conflictingConversation.clientConversationId) " +
+                    "conflictingIsUnused=\(conflictingConversation.isUnused)"
+            )
+        }
+        if updatedConversation == existingConversation {
+            // Row would be byte-identical — skip the write so GRDB observers
+            // don't fire and re-render the conversations list for no state
+            // change. Common during catch-up bursts where the same row is
+            // re-saved across many consecutive stream events. The
+            // existing-by-tag and brand-new branches still write because
+            // they're either replacing a different row or creating one.
+            Log.debug("Skipped no-op conversation save for id=\(updatedConversation.id)")
+        } else {
+            try updatedConversation.save(db)
+        }
+        return ExistingConversationUpdateOutcome(
+            firstTimeSeeingConversationExpired: updatedConversation.isExpired
+                && updatedConversation.expiresAt != existingConversation.expiresAt,
+            actualClientConversationId: preferredClientConversationId
         )
     }
 
@@ -927,8 +1071,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 return
             }
 
-            let prefetcher = EncryptedImagePrefetcher()
-            await prefetcher.prefetchProfileImages(
+            await EncryptedImagePrefetcher.shared.prefetchProfileImages(
                 profiles: encryptedProfiles,
                 groupKey: groupKey
             )

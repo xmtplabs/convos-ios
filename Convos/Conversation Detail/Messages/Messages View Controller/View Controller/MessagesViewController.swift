@@ -264,7 +264,7 @@ final class MessagesViewController: UIViewController {
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
-    var memberNameOverride: ((String) -> String?)?
+    var memberContactOverride: ((String) -> Contact?)?
 
     var headerMode: MessagesHeaderMode = .standard {
         didSet { dataSource.headerMode = headerMode }
@@ -493,8 +493,8 @@ final class MessagesViewController: UIViewController {
         dataSource.onRetryTranscript = { [weak self] item in
             self?.onRetryTranscript?(item)
         }
-        dataSource.memberNameOverride = { [weak self] inboxId in
-            self?.memberNameOverride?(inboxId)
+        dataSource.memberContactOverride = { [weak self] inboxId in
+            self?.memberContactOverride?(inboxId)
         }
 
         setupImmediateTouchGesture()
@@ -639,12 +639,17 @@ extension MessagesViewController {
         var cells: [MessagesListItemType] = messages
         let hasVerifiedAssistant: Bool = conversation.members.contains(where: \.isVerifiedAssistant)
 
+        // Mirror the conversation's persisted "hide invite QR" flag onto the
+        // data source so the `.invite` cell renderer can drop the QR card
+        // while keeping the invite menu visible.
+        dataSource.hidesInviteCard = conversation.hidesInviteCard
+
         // Add invite or conversation info at the beginning if all messages are loaded.
-        // When the Assistant Builder summary is present, suppress this whole block —
+        // When the Assistant Builder summary is present, suppress this whole block -
         // the summary card already announces the assistant via its "You created an
         // assistant" footer, so showing the "+ Invite members" pill on top of it is
         // redundant. Without a summary, `.hidden` header mode still renders the
-        // `.invite` cell (which surfaces just the "Invite members" affordance — the
+        // `.invite` cell (which surfaces just the "Invite members" affordance - the
         // QR is gated inside the cell on the same `headerMode`).
         if hasLoadedAllMessages, !conversation.isDraft, assistantBuilderSummary == nil {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {

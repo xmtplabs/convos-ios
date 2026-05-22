@@ -12,7 +12,15 @@ final class ContactsViewModel {
     struct Section: Identifiable, Hashable {
         let id: String
         let title: String
-        let contacts: [Contact]
+        let rows: [Row]
+    }
+
+    struct Row: Identifiable, Hashable {
+        let id: String
+        let contact: Contact
+        /// Same resolver as the picker — convo name, then "DM" for 1:1
+        /// source, then agent role label, then empty (caller hides line).
+        let subtitle: String
     }
 
     var sections: [Section] = []
@@ -74,8 +82,13 @@ final class ContactsViewModel {
             default: return lhs < rhs
             }
         }
+        let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
+        let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
         sections = sortedKeys.map { key in
-            Section(id: key, title: key, contacts: grouped[key] ?? [])
+            let rows = (grouped[key] ?? []).map { contact in
+                Row(id: contact.inboxId, contact: contact, subtitle: contact.listSubtitle(sources: sources))
+            }
+            return Section(id: key, title: key, rows: rows)
         }
     }
 

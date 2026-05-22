@@ -199,6 +199,17 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     let voiceMemoTranscriptionService: any VoiceMemoTranscriptionServicing
     private let applyGlobalDefaultsForNewConversation: Bool
+    /// Armed by `NewConversationViewModel.markSeeded(expectingMemberCount:)`
+    /// for VMs whose initial `conversation` was synthesized from picker
+    /// contacts. The publisher subscription uses these to ignore early
+    /// DB emissions whose member count has not yet caught up to the
+    /// synthetic - otherwise the chat indicator briefly flips back to
+    /// the empty-conversation placeholder while the state machine's
+    /// addMembers hook is still in flight. Default state is "gate
+    /// open", so VMs constructed via any other path (DB hydration,
+    /// regular conversation open, etc.) are unaffected.
+    private var expectedSeededMemberCount: Int = 0
+    private var hasMetSeededExpectation: Bool = true
     let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
@@ -328,18 +339,13 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     /// Inbox-to-contact-name lookup used for auto-generated unnamed-group
-    /// titles in the chat header. Mirrors the resolver injected into the
-    /// conversation list. Returns the contact's stored display name when
-    /// the inbox is a known contact, else `nil` so the legacy precedence
-    /// (per-conversation profile name, then "Somebody") applies.
+    /// titles in the chat header. Adapted from the unified
+    /// `ContactsRepository.contact(for:)` resolver to the name-only
+    /// shape ConvosCore expects; returns nil when the inbox is not a
+    /// contact (or the contact has no display name) so the legacy
+    /// precedence applies.
     private func contactNameLookup(_ inboxId: String) -> String? {
-        guard let contact = try? messagingService.contactsRepository().fetchContact(inboxId: inboxId) else {
-            return nil
-        }
-        guard let stored = contact.displayName, !stored.isEmpty else {
-            return nil
-        }
-        return stored
+        messagingService.contactsRepository().contactName(for: inboxId)
     }
     var conversationInfoSubtitle: String {
         if let expiresAt = scheduledExplosionDate {
@@ -945,6 +951,36 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             .compactMap { $0 }
             .sink { [weak self] conversation in
                 guard let self else { return }
+                // During the contacts-picker create flow the VM is seeded
+                // with a synthetic draft Conversation that already carries
+                // the picked members (built from the contact list, so the
+                // chat header renders the contact's name + avatar from the
+                // moment the sheet opens). The DB-backed publisher may
+                // emit an emptier draft row first - the row exists from
+                // `UnusedConversationCache` but the state machine has not
+                // yet folded in the picked members. Ignore those emissions
+                // so we don't flicker back to "New Convo" before the real
+                // members land.
+                // When this VM was seeded via the contacts picker
+                // (armed through `markSeeded(expectingMemberCount:)`),
+                // the DB-backed publisher can emit a Conversation that
+                // hasn't yet folded in the picked members - first as an
+                // `isDraft = true` cache row with no members, then
+                // briefly as `isDraft = false` with no members before
+                // the state machine's addMembers hook lands. Either
+                // case would flip the chat indicator back to the empty
+                // placeholder for a frame. Skip incoming emissions with
+                // fewer non-self members than the seed until we've seen
+                // one that meets or exceeds it - after that, the gate
+                // stays open so later member additions / removals
+                // propagate normally. Non-seeded VMs default to "gate
+                // open", so this is a no-op for them.
+                if !hasMetSeededExpectation {
+                    if conversation.membersWithoutCurrent.count < expectedSeededMemberCount {
+                        return
+                    }
+                    hasMetSeededExpectation = true
+                }
                 let previousId = self.conversation.id
                 let wasViewingConversation = self.isViewingConversation
                 self.conversation = conversation
@@ -1097,6 +1133,20 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     // MARK: - Public
+
+    /// Arms the publisher-emission gate so the chat indicator doesn't
+    /// flip back to the empty-conversation placeholder while the DB
+    /// row catches up to the synthetic seed. Called by
+    /// `NewConversationViewModel` after constructing this VM with a
+    /// `Conversation.draft(id:seededMembers:)` whose member list
+    /// already reflects the picked contacts. Other code paths must
+    /// not call this - the default state is "gate open" so DB
+    /// emissions flow through normally.
+    func markSeeded(expectingMemberCount count: Int) {
+        guard count > 0 else { return }
+        expectedSeededMemberCount = count
+        hasMetSeededExpectation = false
+    }
 
     func startOnboarding() {
         // Draft ids are ephemeral placeholders (e.g. "draft-<UUID>"). Running the
@@ -2537,7 +2587,11 @@ extension ConversationViewModel {
         try await metadataWriter.addMembers(inboxIds, to: conversation.id)
     }
 
-    func requestAssistantJoin() {
+    /// Requests an agent join into this conversation. `templateId == nil`
+    /// is a bare join (the backend provisions its default agent); a
+    /// non-nil id provisions a fresh instance of that template. The
+    /// caller-facing `agents/join` body no longer accepts `instructions`.
+    func requestAgentJoin(templateId: String?) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
@@ -2556,6 +2610,7 @@ extension ConversationViewModel {
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
+                    templateId: templateId,
                     options: nil,
                     forceErrorCode: forceErrorCode
                 )
@@ -2590,6 +2645,12 @@ extension ConversationViewModel {
             await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
         }
         assistantJoinTaskId = taskId
+    }
+
+    /// Bare-join convenience for the in-conversation "add an assistant"
+    /// affordances. Kept so their call sites don't change.
+    func requestAssistantJoin() {
+        requestAgentJoin(templateId: nil)
     }
 
     private static func broadcastAssistantJoinRequest(

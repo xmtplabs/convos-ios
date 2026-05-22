@@ -124,7 +124,8 @@ struct AppSettingsView: View {
         ContactsView(
             contactsRepository: messagingService.contactsRepository(),
             contactsWriter: messagingService.contactsWriter(),
-            session: session
+            session: session,
+            profileSettingsViewModel: profileSettingsViewModel
         )
     }
 

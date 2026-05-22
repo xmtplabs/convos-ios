@@ -64,10 +64,10 @@ struct NewConvoIdentityView: View {
                     }
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Image(systemName: "plus.circle.fill")
+                        Image(systemName: "plus")
                         Text("Invite members")
                     }
-                    .font(.footnote)
+                    .font(.callout)
                     .foregroundStyle(.colorTextPrimary)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
                     .padding(.vertical, DesignConstants.Spacing.step3HalfX)

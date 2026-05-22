@@ -37,12 +37,13 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
-    var memberNameOverride: ((String) -> String?)?
+    var memberContactOverride: ((String) -> Contact?)?
     var hasAssistant: Bool = false
     var isAssistantJoinPending: Bool = false
     var isAssistantEnabled: Bool = false
     var headerMode: MessagesHeaderMode = .standard
     var assistantBuilderTransitionNamespace: Namespace.ID?
+    var hidesInviteCard: Bool = false
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -156,9 +157,10 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             isAssistantJoinPending: isAssistantJoinPending,
             isAssistantEnabled: isAssistantEnabled,
             headerMode: headerMode,
+            hidesInviteCard: hidesInviteCard,
             assistantBuilderTransitionNamespace: assistantBuilderTransitionNamespace,
-            memberNameOverride: { [weak self] inboxId in
-                self?.memberNameOverride?(inboxId)
+            memberContactOverride: { [weak self] inboxId in
+                self?.memberContactOverride?(inboxId)
             }
         )
         return CellFactory.createCell(

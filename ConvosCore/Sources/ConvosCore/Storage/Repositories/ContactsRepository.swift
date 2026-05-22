@@ -23,29 +23,54 @@ public protocol ContactsRepositoryProtocol: Sendable {
 
     /// Fetches a single contact by inboxId.
     func fetchContact(inboxId: String) throws -> Contact?
+
+    /// Batch lookup of source-conversation metadata (name + kind) for the
+    /// "you met them in X" subtitle on contact rows. Callers index by
+    /// `addedViaConversationId`. Missing ids are absent from the result
+    /// (conversation was deleted, or the contact has no source convo).
+    func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation]
+}
+
+/// Minimal snapshot of the conversation that promoted an inbox to a
+/// contact. Returned by `ContactsRepositoryProtocol.sourceConversations`.
+public struct ContactSourceConversation: Sendable, Hashable {
+    public let name: String?
+    public let kind: ConversationKind
+
+    public init(name: String?, kind: ConversationKind) {
+        self.name = name
+        self.kind = kind
+    }
 }
 
 extension ContactsRepositoryProtocol {
-    /// Authoritative inbox-to-display-name lookup for the UI's "contact
-    /// name overrides per-conversation profile name" rule. Returns the
-    /// contact's stored display name when the inbox is a known contact
-    /// with a non-empty name, otherwise `nil` so the caller's fallback
-    /// (per-conversation profile name, then "Somebody") applies.
+    /// Authoritative inbox-to-contact lookup for the UI's "contact data
+    /// overrides per-conversation profile data" rule. Returns the
+    /// stored contact when the inbox is a known contact, otherwise
+    /// `nil` so the caller's fallback (per-conversation profile) applies.
     ///
-    /// Suitable as the `@Sendable (String) -> String?` override passed
-    /// to ConvosCore's `Conversation.computedDisplayName(memberNameOverride:)`,
-    /// `ConversationMember.displayName(memberNameOverride:)`, and the
-    /// SwiftUI `.memberNameOverride(_:)` environment modifier. Storage
-    /// errors are swallowed as `nil` since the render-site callers
-    /// cannot usefully handle a thrown error mid-paint.
+    /// This is the canonical entry point for the
+    /// `memberContactOverride: @Sendable (String) -> Contact?` resolver
+    /// passed through the SwiftUI environment and the chat-layer
+    /// plumbing. UI sites adapt it as needed: text uses `?.displayName`
+    /// (with empty-string fallback), avatar rendering uses the full
+    /// contact for name + encrypted-image fields. Storage errors are
+    /// swallowed as `nil` since render-site callers cannot usefully
+    /// handle a thrown error mid-paint.
+    public func contact(for inboxId: String) -> Contact? {
+        try? fetchContact(inboxId: inboxId)
+    }
+
+    /// Convenience adapter for ConvosCore APIs that take a name-only
+    /// `(String) -> String?` resolver (`Conversation.computedDisplayName`,
+    /// `ConversationMember.displayName`, `ConversationUpdate.summary`).
+    /// Returns the contact's display name when present and non-empty,
+    /// otherwise `nil` so the caller's fallback chain applies.
     public func contactName(for inboxId: String) -> String? {
-        guard let contact = try? fetchContact(inboxId: inboxId) else {
+        guard let name = contact(for: inboxId)?.displayName, !name.isEmpty else {
             return nil
         }
-        guard let stored = contact.displayName, !stored.isEmpty else {
-            return nil
-        }
-        return stored
+        return name
     }
 }
 
@@ -91,6 +116,28 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
     func fetchContact(inboxId: String) throws -> Contact? {
         try databaseReader.read { db in
             try DBContact.fetchOne(db, key: inboxId).map(Contact.init(dbContact:))
+        }
+    }
+
+    func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation] {
+        guard !ids.isEmpty else { return [:] }
+        return try databaseReader.read { db in
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+            let rows = try GRDB.Row.fetchAll(
+                db,
+                sql: "SELECT id, name, kind FROM conversation WHERE id IN (\(placeholders))",
+                arguments: StatementArguments(Array(ids))
+            )
+            var result: [String: ContactSourceConversation] = [:]
+            for row in rows {
+                guard let id: String = row["id"] else { continue }
+                guard let kindRaw: String = row["kind"],
+                      let kind = ConversationKind(rawValue: kindRaw) else { continue }
+                let name: String? = row["name"]
+                let trimmed: String? = name.flatMap { $0.isEmpty ? nil : $0 }
+                result[id] = ContactSourceConversation(name: trimmed, kind: kind)
+            }
+            return result
         }
     }
 

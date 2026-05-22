@@ -3,36 +3,36 @@ import CryptoKit
 import Foundation
 import SwiftUI
 
-/// Compact row used in the alphabetical contact list. Renders the contact's
-/// decrypted avatar via `ContactAvatarView`, falling back to the colored
-/// monogram placeholder when no avatar URL has been mirrored yet.
+/// Row used in the alphabetical contact list. Visually matches
+/// `ContactsPickerRow` (56pt avatar, name + subtitle stacked) so the
+/// browser and picker surfaces stay aligned. The trailing accessory is
+/// supplied by the caller's context — e.g. a `NavigationLink` chevron in
+/// the browse list — so this view stays accessory-agnostic.
 struct ContactRowView: View {
     let contact: Contact
+    let subtitle: String
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
             ContactAvatarView(contact: contact)
-                .frame(width: 32, height: 32)
+                .frame(width: 56.0, height: 56.0)
 
-            VStack(alignment: .leading, spacing: 2.0) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(contact.resolvedDisplayName)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                }
             }
-            Spacer()
-
-            if let roleLabel = contact.agentVerification?.roleLabel {
-                Text(roleLabel)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-                    .accessibilityIdentifier("contact-role-label-\(contact.inboxId)")
-            }
+            Spacer(minLength: 0.0)
         }
-        .padding(.vertical, 2.0)
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+        .contentShape(Rectangle())
         .accessibilityIdentifier("contact-row-\(contact.inboxId)")
     }
 }
@@ -46,9 +46,8 @@ struct ContactRowView: View {
 ///
 /// When the contact has no avatar URL yet (name-only profile event seen so
 /// far, or a synthetic contact built from a chat member-tap with no image)
-/// the view falls through to the deterministic colored monogram placeholder
-/// rather than the standard grey monogram, giving nameless contacts a
-/// stable visual identity keyed by `inboxId`.
+/// the view falls through to `MonogramView` so the placeholder matches
+/// the standard avatar treatment used everywhere else in the app.
 struct ContactAvatarView: View {
     let contact: Contact
 
@@ -62,55 +61,27 @@ struct ContactAvatarView: View {
                 agentVerification: contact.agentVerification ?? .unverified
             )
         } else {
-            ContactAvatarPlaceholder(seed: contact.inboxId, initial: monogram)
+            MonogramView(
+                name: contact.resolvedDisplayName,
+                agentVerification: contact.agentVerification ?? .unverified
+            )
         }
-    }
-
-    private var monogram: String {
-        let trimmed = contact.resolvedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let first = trimmed.first else { return "?" }
-        return String(first).uppercased()
-    }
-}
-
-struct ContactAvatarPlaceholder: View {
-    let seed: String
-    let initial: String
-
-    var body: some View {
-        Circle()
-            .fill(backgroundColor)
-            .overlay {
-                Text(initial)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-    }
-
-    private var backgroundColor: Color {
-        // SHA256 over the UTF-8 bytes is the same
-        // deterministic-hash pattern `EmojiSelector` already uses for
-        // identifier-derived UI placeholders.
-        let hash = SHA256.hash(data: Data(seed.utf8))
-        let firstByte = Array(hash)[0]
-        let hue = Double(firstByte) / 256.0
-        return Color(hue: hue, saturation: 0.55, brightness: 0.7)
     }
 }
 
 #Preview {
     VStack(alignment: .leading) {
-        ContactRowView(contact: .mock(displayName: "Alice"))
-        ContactRowView(contact: .mock(displayName: "Bob"))
-        ContactRowView(contact: .mock(displayName: nil))
-        ContactRowView(contact: .mock(
-            displayName: "Convo Assistant",
-            agentVerification: .verified(.convos)
-        ))
-        ContactRowView(contact: .mock(
-            displayName: "Calendar Bot",
-            agentVerification: .verified(.userOAuth)
-        ))
+        ContactRowView(contact: .mock(displayName: "Alice"), subtitle: "Bike Trip 2026")
+        ContactRowView(contact: .mock(displayName: "Bob"), subtitle: "DM")
+        ContactRowView(contact: .mock(displayName: nil), subtitle: "")
+        ContactRowView(
+            contact: .mock(displayName: "Convo Assistant", agentVerification: .verified(.convos)),
+            subtitle: "Convos Assistant"
+        )
+        ContactRowView(
+            contact: .mock(displayName: "Calendar Bot", agentVerification: .verified(.userOAuth)),
+            subtitle: "Verified by Calendar"
+        )
     }
     .padding()
 }

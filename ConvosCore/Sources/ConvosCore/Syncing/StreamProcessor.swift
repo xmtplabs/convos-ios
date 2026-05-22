@@ -265,6 +265,20 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    // Short-circuit row-independent events so a catch-up burst of
+                    // typing indicators or read receipts doesn't re-save the conversation
+                    // row N times for no state change. Read receipts persist to
+                    // DBConversationReadReceipt independently; typing indicators don't
+                    // write at all. Explode/profile/real-message paths below still
+                    // depend on a fresh row, so they stay downstream of store().
+                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
+                        return
+                    }
+
+                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
+                        return
+                    }
+
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId
@@ -286,15 +300,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
-                        return
-                    }
-
                     if await processThinking(message, conversationId: conversation.id, params: params) {
-                        return
-                    }
-
-                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
 
@@ -383,6 +389,16 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     // MARK: - Profile Messages
 
+    /// Typing indicators are ephemeral UI signals — "X is typing" has no
+    /// meaning outside the live window. When streams reconnect after the
+    /// app was backgrounded or killed, libxmtp replays the backlog and
+    /// historical typing indicators arrive alongside real messages. Without
+    /// a freshness gate the UI would flash "X is typing" for someone who
+    /// finished typing minutes ago. Drop anything older than the live
+    /// window; the indicator's natural debounce on the sender side keeps
+    /// this well above one round-trip of normal latency.
+    private static let typingIndicatorLiveWindow: TimeInterval = 10
+
     private func processTypingIndicator(
         _ message: DecodedMessage,
         conversationId: String,
@@ -393,6 +409,12 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         guard message.senderInboxId != params.client.inboxId else {
+            return true
+        }
+
+        let ageSeconds = Date().timeIntervalSince1970 - (TimeInterval(message.sentAtNs) / 1_000_000_000)
+        guard ageSeconds <= Self.typingIndicatorLiveWindow else {
+            Log.debug("Dropping stale typing indicator from \(message.senderInboxId) (age=\(Int(ageSeconds))s)")
             return true
         }
 

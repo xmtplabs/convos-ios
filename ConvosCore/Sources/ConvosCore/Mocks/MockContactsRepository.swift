@@ -29,6 +29,10 @@ public final class MockContactsRepository: ContactsRepositoryProtocol, @unchecke
         subject.value.first { $0.inboxId == inboxId }
     }
 
+    public func sourceConversations(forIds ids: Set<String>) throws -> [String: ContactSourceConversation] {
+        [:]
+    }
+
     public func setContacts(_ contacts: [Contact]) {
         subject.send(contacts)
     }

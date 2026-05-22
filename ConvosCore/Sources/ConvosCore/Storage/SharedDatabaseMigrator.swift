@@ -309,6 +309,23 @@ extension SharedDatabaseMigrator {
                 t.add(column: "avatarKey", .blob)
             }
         }
+
+        // Per-conversation local flag: suppress the invite QR header for
+        // convos started from the contacts picker. The QR is meant as
+        // the empty-state CTA; a picker-seeded convo already has members
+        // and shouldn't lead with it. Stored locally because it's a UI
+        // preference, not consensus state.
+        //
+        // The `.notNull().defaults(to: false)` clause lets SQLite back-
+        // fill the column for existing rows in `conversationLocalState`
+        // with `false`, which matches the legacy behavior (no QR
+        // suppression) - so conversations created before this migration
+        // continue to render the QR header as they did.
+        migrator.registerMigration("addConversationLocalStateHidesInviteCard") { db in
+            try db.alter(table: "conversationLocalState") { t in
+                t.add(column: "hidesInviteCard", .boolean).notNull().defaults(to: false)
+            }
+        }
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
@@ -491,6 +508,10 @@ extension SharedDatabaseMigrator {
                 .defaults(to: Date.distantPast)
             t.column("isMuted", .boolean).notNull().defaults(to: false)
             t.column("pinnedOrder", .integer)
+            // `hidesInviteCard` is added by a later migration so existing
+            // installs back-fill correctly; don't list it here or the
+            // ALTER below will fail with `duplicate column name` on a
+            // fresh database.
         }
 
         try db.create(table: "message") { t in

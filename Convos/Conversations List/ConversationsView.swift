@@ -45,8 +45,8 @@ struct ConversationsView: View {
     /// cells share the same closure. Reads through the messaging
     /// service's contacts repository; uses `messagingServiceSync()`
     /// because cell rendering is synchronous.
-    private var contactNameOverride: @Sendable (String) -> String? {
-        viewModel.session.messagingServiceSync().contactsRepository().contactName(for:)
+    private var contactOverride: @Sendable (String) -> Contact? {
+        viewModel.session.messagingServiceSync().contactsRepository().contact(for:)
     }
 
     var emptyConversationsViewScrollable: some View {
@@ -140,7 +140,7 @@ struct ConversationsView: View {
     }
 
     var body: some View {
-        let nameOverride = contactNameOverride
+        let resolver = contactOverride
         return ConversationPresenter(
             viewModel: viewModel.selectedConversationViewModel,
             focusCoordinator: focusCoordinator,
@@ -209,7 +209,7 @@ struct ConversationsView: View {
         }
         .focusable(false)
         .focusEffectDisabled()
-        .memberNameOverride(nameOverride)
+        .memberContactOverride(resolver)
         .modifier(ConversationsSheetModifier(
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,

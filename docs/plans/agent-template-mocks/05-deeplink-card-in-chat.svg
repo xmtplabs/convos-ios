@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 693" width="320" height="693" role="img" aria-label="Agent template deeplink rendered as a card in a chat">
+<title>Agent template deeplink rendered as a card in a chat</title>
+
+  <rect x="1.5" y="1.5" width="317" height="690" rx="34" ry="34" fill="#000" stroke="#2a2a2a" stroke-width="3"/>
+  <rect x="122" y="6" width="76" height="18" rx="9" ry="9" fill="#000"/>
+
+  <text x="20" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#fff" text-anchor="start">4:35</text>
+  <text x="270" y="22" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#fff" text-anchor="start">SOS</text>
+  <rect x="288" y="14" width="14" height="9" rx="2" fill="none" stroke="#fff" stroke-width="0.8"/>
+  <rect x="290" y="16" width="6" height="5" fill="#fff"/>
+  <circle cx="284" cy="19" r="1" fill="#fff"/>
+  <path d="M 278 21 a 4 4 0 0 1 8 0" fill="none" stroke="#fff" stroke-width="0.8"/>
+
+  <rect x="14" y="36" width="32" height="32" rx="16" fill="#1c1c1e"/>
+  <text x="30" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="18" font-weight="400" fill="#fff" text-anchor="middle">‹</text>
+  <rect x="54" y="36" width="212" height="32" rx="16" fill="#1c1c1e"/>
+  <circle cx="70" cy="52" r="9" fill="#3a5a3a"/>
+  <text x="70" y="55" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="500" fill="#d1d1d6" text-anchor="middle">TR</text>
+  <text x="160" y="50" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="600" fill="#fff" text-anchor="middle">Trail run crew</text>
+  <text x="160" y="62" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#8e8e93" text-anchor="middle">4 members · Convo info</text>
+  <rect x="274" y="36" width="32" height="32" rx="16" fill="#1c1c1e"/>
+  <text x="290" y="56" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="16" font-weight="400" fill="#fff" text-anchor="middle">+</text>
+
+  <text x="160" y="92" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="400" fill="#6e6e73" text-anchor="middle">Today · 4:32 PM</text>
+
+  <circle cx="28" cy="120" r="12" fill="#5a3a2a"/>
+  <text x="28" y="124" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="500" fill="#d1d1d6" text-anchor="middle">G</text>
+  <text x="48" y="116" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="500" fill="#8e8e93" text-anchor="start">Gerald</text>
+  <rect x="48" y="124" width="172" height="28" rx="14" fill="#1c1c1e"/>
+  <text x="60" y="142" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="400" fill="#fff" text-anchor="start">try this one for your race recap</text>
+
+  <circle cx="28" cy="190" r="12" fill="#5a3a2a"/>
+  <text x="28" y="194" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="500" fill="#d1d1d6" text-anchor="middle">G</text>
+
+  <rect x="48" y="172" width="244" height="148" rx="18" fill="#1c1c1e"/>
+
+  <circle cx="68" cy="208" r="22" fill="#3b86ff"/>
+  <circle cx="68" cy="200" r="12" fill="#f4c79a"/>
+  <path d="M 56 206 q 12 14 24 0" fill="#3a2a1a"/>
+  <rect x="58" y="194" width="20" height="3" rx="1.5" fill="#3a2a1a"/>
+  <circle cx="63" cy="201" r="1.2" fill="#3a2a1a"/>
+  <circle cx="73" cy="201" r="1.2" fill="#3a2a1a"/>
+
+  <text x="102" y="200" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="14" font-weight="700" fill="#fff" text-anchor="start">Tifoso</text>
+  <rect x="148" y="190" width="40" height="14" rx="7" fill="#2c2c2e"/>
+  <circle cx="155" cy="197" r="2.5" fill="none" stroke="#8e8e93" stroke-width="0.9"/>
+  <path d="M 153 197 l 1.5 1.5 l 3 -3" fill="none" stroke="#8e8e93" stroke-width="0.9" stroke-linecap="round"/>
+  <text x="172" y="200" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="8.5" font-weight="600" fill="#8e8e93" text-anchor="middle">AGENT</text>
+
+  <text x="102" y="220" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">Your in-house expert on the pro</text>
+  <text x="102" y="234" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">cycling scene, from the Giro Hurt</text>
+  <text x="102" y="248" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="400" fill="#8e8e93" text-anchor="start">to the Hero Dirt.</text>
+
+  <line x1="60" y1="270" x2="280" y2="270" stroke="#2c2c2e" stroke-width="0.6"/>
+
+  <text x="60" y="290" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="500" fill="#6e6e73" text-anchor="start">Convos · agent template</text>
+  <text x="280" y="290" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="11" font-weight="600" fill="#fff" text-anchor="end">Open ›</text>
+
+  <text x="160" y="356" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="9" font-weight="400" fill="#6e6e73" text-anchor="middle">— tap card → new conversation with a fresh instance of Tifoso —</text>
+
+  <rect x="138" y="390" width="170" height="28" rx="14" fill="#fff"/>
+  <text x="222" y="408" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="400" fill="#000" text-anchor="middle">adding now, thanks 🚴</text>
+  <circle cx="296" cy="424" r="6" fill="none" stroke="#8e8e93" stroke-width="1"/>
+  <path d="M 293 424 l 2 2 l 4 -4" fill="none" stroke="#8e8e93" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="28" cy="464" r="12" fill="#3b86ff"/>
+  <circle cx="28" cy="458" r="6" fill="#f4c79a"/>
+  <path d="M 22 462 q 6 6 12 0" fill="#3a2a1a"/>
+  <text x="48" y="460" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="10" font-weight="500" fill="#8e8e93" text-anchor="start">Tifoso (joined via deeplink)</text>
+  <rect x="48" y="468" width="100" height="28" rx="14" fill="#1c1c1e"/>
+  <text x="60" y="486" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="400" fill="#fff" text-anchor="start">Buongiorno!</text>
+
+  <rect x="14" y="638" width="292" height="40" rx="20" fill="#0c0c0e" stroke="#2c2c2e" stroke-width="1"/>
+  <text x="30" y="662" font-family='-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' font-size="12" font-weight="400" fill="#6e6e73" text-anchor="start">Message</text>
+  <circle cx="285" cy="658" r="14" fill="#1c1c1e"/>
+  <path d="M 285 651 v 14 M 278 658 h 14" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

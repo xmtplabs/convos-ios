@@ -16,8 +16,8 @@ import SwiftUI
 // surface only needs to flip a `Bool` from its menu's `onAddFromContacts`.
 //
 // Mirrors the "one component, two-or-more entry points" pattern documented
-// in `ContactsPickerView` and `ContactCardView` (see `ContactsPickerMode`,
-// `ContactCardMode`).
+// in `ContactsPickerView` and `ContactDetailView` (see `ContactsPickerMode`,
+// `ContactDetailMode`).
 
 extension View {
     /// Presents `ContactsPickerView` (mode: `.addToConversation`) when

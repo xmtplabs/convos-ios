@@ -291,6 +291,8 @@ final class ConversationsViewModel {
                 serviceId: serviceId,
                 conversationId: conversationId
             )
+        case .agentTemplate(templateId: let templateId):
+            startConversation(withAgentTemplateId: templateId)
         }
     }
 
@@ -316,6 +318,16 @@ final class ConversationsViewModel {
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
+        )
+    }
+
+    /// Opens a new conversation and, once it is ready, requests a fresh
+    /// instance of the given agent template into it. Entry point for the
+    /// `convos://template/<id>` deeplink.
+    private func startConversation(withAgentTemplateId templateId: String) {
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: templateId)
         )
     }
 
@@ -352,14 +364,6 @@ final class ConversationsViewModel {
     }
 
     private func observe() {
-        NotificationCenter.default
-            .publisher(for: .contactsRequestedNewConversation)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                self?.handleContactsRequestedNewConversation(notification)
-            }
-            .store(in: &cancellables)
-
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
                 guard let conversationId = notification.userInfo?["conversationId"] as? String else {
@@ -436,29 +440,6 @@ final class ConversationsViewModel {
                 }
             }
             .store(in: &cancellables)
-    }
-
-    /// Presents an instant-feeling new-conversation flow for the inbox
-    /// IDs the contacts picker just confirmed. Mirrors the "+" button
-    /// path: spins up a `NewConversationViewModel` so the placeholder UI
-    /// is on screen immediately, and lets the state machine fold the
-    /// addMembers hook into its create sequence atomically (no separate
-    /// post-`.ready` call). The picker dismisses itself; the contacts
-    /// settings sheet (if open) is dismissed by the view layer's
-    /// `.onReceive` for the same notification.
-    private func handleContactsRequestedNewConversation(_ notification: Notification) {
-        guard let inboxIds = notification.userInfo?["inboxIds"] as? [String], !inboxIds.isEmpty else {
-            Log.warning("contactsRequestedNewConversation fired without inboxIds")
-            return
-        }
-        Log.info("Starting new conversation from contacts (\(inboxIds.count) members)")
-        if selectedConversationId != nil {
-            selectedConversationId = nil
-        }
-        newConversationViewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: inboxIds)
-        )
     }
 
     private func handleConversationNotificationTap(_ notification: Notification) {

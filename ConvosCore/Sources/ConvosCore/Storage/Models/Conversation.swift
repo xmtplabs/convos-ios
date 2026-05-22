@@ -18,6 +18,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let isUnread: Bool
     public let isMuted: Bool
     public let pinnedOrder: Int?
+    /// Per-conversation UI flag set by the contacts picker when it seeds a
+    /// new conversation with members. Suppresses the QR invite header in
+    /// the messages list so the user doesn't see an empty-state CTA on a
+    /// chat that already has members. The plus-menu "Convo code" entry
+    /// still reaches the QR on demand.
+    public let hidesInviteCard: Bool
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
     public let imageSalt: Data?

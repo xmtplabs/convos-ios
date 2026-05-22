@@ -876,6 +876,7 @@ private extension LightweightConversationDetails {
             isUnread: conversationLocalState.isUnread,
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
+            hidesInviteCard: conversationLocalState.hidesInviteCard,
             lastMessage: nil,
             imageURL: imageURL,
             imageSalt: conversation.imageSalt,

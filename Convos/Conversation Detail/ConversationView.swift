@@ -40,13 +40,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var presentingAddFromContactsPicker: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    /// Substitutes contact-list display names when a member's
-    /// per-conversation profile name is missing (system messages,
-    /// "Somebody joined" becomes "Alice joined" when Alice is a contact).
-    /// Built once per `ConversationView` lifetime; reads through the
-    /// messaging service's contacts repository.
-    private var contactNameOverride: @Sendable (String) -> String? {
-        viewModel.messagingService.contactsRepository().contactName(for:)
+    /// Substitutes the user's contact (name + avatar) for any member's
+    /// per-conversation profile when the inbox is a known contact. The
+    /// chat surfaces this so the join-system row reads
+    /// "Alice joined" with Alice's avatar instead of "Somebody" + S
+    /// monogram while Alice has not yet published her per-conversation
+    /// profile. Built once per `ConversationView` lifetime; reads
+    /// through the messaging service's contacts repository.
+    private var contactOverride: @Sendable (String) -> Contact? {
+        viewModel.messagingService.contactsRepository().contact(for:)
     }
 
     private var showPullToAddAssistant: Bool {
@@ -149,7 +151,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.retryTranscript(for: item)
             },
             profileSheetForMember: profileSheetForMember,
-            memberNameOverride: contactNameOverride,
+            memberContactOverride: contactOverride,
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
@@ -289,8 +291,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     @ViewBuilder
-    private func memberContactCardSheet(for member: ConversationMember) -> some View {
-        MemberContactCardSheetContent(viewModel: viewModel, member: member)
+    private func memberContactDetailSheet(for member: ConversationMember) -> some View {
+        MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel)
     }
 
     private var scanInviteButton: some View {
@@ -317,6 +319,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var stuffPage: some View {
         AssistantFilesLinksView(
+            conversationId: viewModel.conversation.id,
             repository: viewModel.makeAssistantFilesLinksRepository(),
             members: viewModel.conversation.members,
             usesInlineHeader: true,
@@ -326,7 +329,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
-        AnyView(MemberContactCardSheetContent(viewModel: viewModel, member: member))
+        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
     }
 
     private var pagerDotsInset: CGFloat {
@@ -396,16 +399,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // chat plus-menu's "Add from Contacts" row drives.
             presentingAddFromContactsPicker = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .contactsRequestedNewConversation)) { _ in
-            // The picker may have been presented over a contact-card sheet
-            // (member avatar tap, "Send a message", picker). When the user
-            // confirms, the conversations-list layer is about to present
-            // `NewConversationView` from its own sheet anchor; tear our
-            // contact-card sheet down in the same render pass so SwiftUI
-            // runs the dismissals in parallel rather than serially, which
-            // eliminates the brief conversation-list flash between sheets.
-            viewModel.presentingProfileForMember = nil
-        }
         .addFromContactsPicker(
             viewModel: viewModel,
             isPresented: $presentingAddFromContactsPicker
@@ -436,7 +429,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
-            memberContactCardSheet(for: member)
+            memberContactDetailSheet(for: member)
         }
         .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
             ReactionsDrawerView(message: message) { reaction in
@@ -498,18 +491,10 @@ private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
     .mock
 }
 
-struct AttachmentProfileSheetCloseButton: View {
-    @Environment(\.dismiss) private var dismiss: DismissAction
-
-    var body: some View {
-        let action = { dismiss() }
-        Button(role: .cancel, action: action)
-    }
-}
-
-struct MemberContactCardSheetContent: View {
+struct MemberContactDetailSheetContent: View {
     let viewModel: ConversationViewModel
     let member: ConversationMember
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -526,23 +511,21 @@ struct MemberContactCardSheetContent: View {
             dismiss()
         }
         NavigationStack {
-            ContactCardView(
+            ContactDetailView(
                 contact: resolvedContact,
                 mode: .scopedToConversation(
                     conversationId: viewModel.conversation.id,
                     canRemoveMembers: viewModel.canRemoveMembers,
-                    isCurrentUser: member.isCurrentUser
+                    isCurrentUser: member.isCurrentUser,
+                    invitedBy: member.invitedBy,
+                    joinedAt: member.joinedAt
                 ),
                 contactsWriter: contactsWriter,
                 contactsRepository: contactsRepository,
                 session: viewModel.session,
+                profileSettingsViewModel: profileSettingsViewModel,
                 onRemove: onRemove
             )
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    AttachmentProfileSheetCloseButton()
-                }
-            }
         }
     }
 }

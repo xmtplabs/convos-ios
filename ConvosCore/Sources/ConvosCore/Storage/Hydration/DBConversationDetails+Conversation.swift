@@ -58,6 +58,7 @@ extension DBConversationDetails {
             isUnread: conversationLocalState.isUnread,
             isMuted: conversationLocalState.isMuted,
             pinnedOrder: conversationLocalState.pinnedOrder,
+            hidesInviteCard: conversationLocalState.hidesInviteCard,
             lastMessage: lastMessage,
             imageURL: imageURL,
             imageSalt: conversation.imageSalt,

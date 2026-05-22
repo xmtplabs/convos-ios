@@ -30,10 +30,11 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onConvoCode: (() -> Void)? { get set }
     var onInviteAssistant: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
-    var memberNameOverride: ((String) -> String?)? { get set }
+    var memberContactOverride: ((String) -> Contact?)? { get set }
     var hasAssistant: Bool { get set }
     var isAssistantJoinPending: Bool { get set }
     var isAssistantEnabled: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
     var assistantBuilderTransitionNamespace: Namespace.ID? { get set }
+    var hidesInviteCard: Bool { get set }
 }

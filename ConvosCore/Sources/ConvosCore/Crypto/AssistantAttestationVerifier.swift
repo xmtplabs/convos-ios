@@ -1,7 +1,25 @@
 import CryptoKit
 import Foundation
+import os
 
 public enum AssistantAttestationVerifier {
+    /// Memoizes negative verdicts keyed by inputs that uniquely determine
+    /// the result. Staleness fails monotonically (age only grows for a
+    /// fixed `attestationTimestamp`) and signature verification is
+    /// deterministic, so once a `(inboxId, kid, attestationTimestamp)`
+    /// triple is known-unverified it stays unverified. When the agent
+    /// rotates to a new attestation the timestamp changes and the cache
+    /// key changes with it, so no false negatives. Positive verdicts are
+    /// not cached because they can transition to stale as time advances.
+    private struct NegativeCacheKey: Hashable {
+        let inboxId: String
+        let kid: String
+        let attestationTimestamp: String
+    }
+
+    private static let negativeCache: OSAllocatedUnfairLock<Set<NegativeCacheKey>>
+        = OSAllocatedUnfairLock(initialState: [])
+
     public static func verify(
         inboxId: String,
         attestation: String,
@@ -34,7 +52,18 @@ public enum AssistantAttestationVerifier {
         referenceDate: Date = Date(),
         maxAge: TimeInterval = 86400
     ) -> AgentVerification {
+        let cacheKey = NegativeCacheKey(
+            inboxId: inboxId,
+            kid: kid,
+            attestationTimestamp: attestationTimestamp
+        )
+        if negativeCache.withLock({ $0.contains(cacheKey) }) {
+            return .unverified
+        }
         guard let resolved = keyset.cachedResolveKey(for: kid) else {
+            // Cache miss, not a verification failure. Don't poison the
+            // negative cache — a later `resolveKey()` may populate the
+            // keyset, and we want the next call to retry verification.
             return .unverified
         }
         let valid = verifySignature(
@@ -45,7 +74,11 @@ public enum AssistantAttestationVerifier {
             referenceDate: referenceDate,
             maxAge: maxAge
         )
-        return valid ? .verified(resolved.issuer) : .unverified
+        if !valid {
+            negativeCache.withLock { _ = $0.insert(cacheKey) }
+            return .unverified
+        }
+        return .verified(resolved.issuer)
     }
 
     private static func verifySignature(
@@ -68,7 +101,7 @@ public enum AssistantAttestationVerifier {
 
         let age = abs(referenceDate.timeIntervalSince(timestampDate))
         if age > maxAge {
-            Log.info("[Attestation] timestamp too old for \(inboxId.prefix(8)): age=\(Int(age))s, max=\(Int(maxAge))s")
+            Log.debug("[Attestation] timestamp too old for \(inboxId.prefix(8)): age=\(Int(age))s, max=\(Int(maxAge))s")
             return false
         }
 
