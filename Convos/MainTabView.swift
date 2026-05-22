@@ -222,10 +222,11 @@ struct MainTabView: View {
             onTap: openBuilder,
             onTapPhotos: { isPhotoPickerPresented = true },
             onTapCamera: { isCameraPresented = true },
-            onTapVoiceMemo: openBuilderInVoiceMemoMode
+            onTapVoiceMemo: openBuilderInVoiceMemoMode,
+            transitionSourceNamespace: namespace,
+            transitionSourceId: Constant.builderTransitionId
         )
         .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .matchedTransitionSource(id: Constant.builderTransitionId, in: namespace)
     }
 
     private func openBuilder() {

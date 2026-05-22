@@ -60,6 +60,15 @@ extension ConversationViewModel {
 
             let targetVisible: Bool = visibleMessageIds.contains(session.targetMessageId)
             let resultVisible: Bool = session.resultMessageId.map { visibleMessageIds.contains($0) } ?? false
+            // The agent's reply to a builder bundle send can target
+            // either the text prompt message or the multi-remote
+            // attachment message — both client message ids live in
+            // `summary.bundledMessageIds`. Route to the contact card
+            // whenever the session's target lands inside that set so
+            // the indicator never anchors on a now-filtered bundle
+            // bubble.
+            let targetInBundle: Bool = assistantBuilderSummary?.bundledMessageIds
+                .contains(session.targetMessageId) ?? false
             // Builder-flow conversations route to the contact card when
             // the target/result aren't visible (filtered out by
             // `bundledMessageIds`) OR while the builder UI is up
@@ -68,7 +77,9 @@ extension ConversationViewModel {
             // conversations skip the card path entirely and use inline
             // footers exclusively, so the indicator surfaces on the
             // actual message bubble the agent is thinking about.
-            let shouldRouteToCard: Bool = isInAssistantBuilderFlow || (!targetVisible && !resultVisible)
+            let shouldRouteToCard: Bool = isInAssistantBuilderFlow
+                || targetInBundle
+                || (!targetVisible && !resultVisible)
             if shouldRouteToCard {
                 contactCardDescriptorsBySender[session.senderInboxId] = descriptor
                 continue
