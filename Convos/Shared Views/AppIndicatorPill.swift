@@ -68,7 +68,7 @@ struct AppIndicatorPill: View {
                 .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
-        case .symbol(let systemName, let tint, _):
+        case let .symbol(systemName, tint, _):
             Image(systemName: systemName)
                 .font(.caption)
                 .foregroundStyle(tint)
