@@ -8,9 +8,10 @@ import Foundation
 /// a non-breaking expansion — the reverse hides a previously-shown option, so
 /// keep the rollout intentional.
 public enum SupportedConnections {
-    public static let supportedDeviceKinds: Set<ConnectionKind> = [
-        .health,
-    ]
+    // v1 ships cloud-only (Google Calendar via Composio). Device kinds stay
+    // compiled but unsurfaced - re-add entries (e.g. `.health`) to bring them
+    // back into the picker and conversation-info connections UI.
+    public static let supportedDeviceKinds: Set<ConnectionKind> = []
 
     public static let supportedCloudServiceIds: Set<String> = [
         "googlecalendar",

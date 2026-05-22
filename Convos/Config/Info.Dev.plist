@@ -27,6 +27,8 @@
 	<string>Convos uses your Apple Music library when an assistant asks about what you've been listening to.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Convos uses your location when an assistant asks where you are or to plan something nearby.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Convos uses your location when an assistant asks where you are or to plan something nearby.</string>
 	<key>NSHomeKitUsageDescription</key>
 	<string>Convos uses HomeKit when an assistant asks to check or control your home accessories.</string>
 	<key>NSHealthShareUsageDescription</key>
