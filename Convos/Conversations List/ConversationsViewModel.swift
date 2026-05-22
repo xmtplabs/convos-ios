@@ -314,13 +314,22 @@ final class ConversationsViewModel {
                 onApplyAdoptedProfile: { [weak self] displayName, imageAssetIdentifier in
                     // The joiner just adopted the initiator's identity, so
                     // it shouldn't be asked to onboard a profile from
-                    // scratch. We seed DBMyProfile first, then flip the
-                    // global onboarding flags. Reversing this order would
-                    // mean a torn-down `self` permanently suppresses the
-                    // onboarding prompt while never actually writing the
-                    // profile data, leaving the user in an unrecoverable
-                    // half-onboarded state.
+                    // scratch. Three side-effects in order:
+                    //   1. Seed DBMyProfile from the share payload (may fail).
+                    //   2. Re-bind the shared profile VM unconditionally.
+                    //      Identity adoption already happened, so the
+                    //      VM's cached writer / repository for the
+                    //      placeholder session are stale either way — a
+                    //      failed seed doesn't reverse the adoption, and
+                    //      leaving the VM bound to the now-stopped
+                    //      MessagingService risks crashes on subsequent
+                    //      profile operations.
+                    //   3. Flip global onboarding flags *only* on a
+                    //      successful seed, so a failed save doesn't
+                    //      permanently suppress prompts under an empty
+                    //      DBMyProfile.
                     guard let session = self?.session else { return }
+                    var seeded: Bool = false
                     do {
                         try await session.messagingService().myGlobalProfileWriter().save(
                             name: displayName,
@@ -328,22 +337,14 @@ final class ConversationsViewModel {
                             imageAssetIdentifier: imageAssetIdentifier,
                             metadata: nil
                         )
+                        seeded = true
                     } catch {
-                        // Bail before flipping onboarding flags — otherwise
-                        // a failed save leaves the user in the half-onboarded
-                        // state with no DBMyProfile and prompts permanently
-                        // suppressed.
                         Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
-                        return
                     }
-                    ConversationOnboardingCoordinator.markCompletedForPairedDevice()
-                    // Re-bind the shared profile VM so its writer /
-                    // repository point at the *new* session's
-                    // sessionStateManager; otherwise `profileSettings`
-                    // still pulls from the placeholder inbox and
-                    // `isDefault` stays true, leaving the in-convo
-                    // "Add your name and pic" CTA on screen.
                     ProfileSettingsViewModel.shared.rebind(session: session)
+                    if seeded {
+                        ConversationOnboardingCoordinator.markCompletedForPairedDevice()
+                    }
                 },
                 onDeleteExistingData: { [weak self] in
                     try await self?.session.deleteAllInboxes()
