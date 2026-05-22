@@ -11,8 +11,10 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
+    @Environment(\.scenePhase) private var scenePhase: ScenePhase
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var staleDeviceSheetDismissed: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -134,16 +136,7 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private var sidebarContent: some View {
-        VStack(spacing: 0) {
-            if viewModel.staleDeviceObserver.isDeviceRemoved {
-                StaleDeviceBanner(
-                    onReset: { viewModel.resetForStaleDevice() },
-                    isResetting: viewModel.appSettingsViewModel.isDeleting
-                )
-                .padding(.vertical, DesignConstants.Spacing.step2x)
-            }
-            innerSidebarContent
-        }
+        innerSidebarContent
     }
 
     @ViewBuilder
@@ -279,8 +272,21 @@ struct ConversationsView: View {
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
+            staleDeviceSheetDismissed: $staleDeviceSheetDismissed,
             namespace: namespace
         ))
+        .onChange(of: viewModel.staleDeviceObserver.isDeviceRemoved) { _, isRemoved in
+            // If a fresh revoke arrives while the user has previously
+            // dismissed the sheet (e.g. after a separate device re-revokes
+            // them post-reset), clear the dismissal so the sheet returns.
+            if isRemoved { staleDeviceSheetDismissed = false }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-present the stale-device sheet on each foreground entry so
+            // a previously-dismissed banner doesn't permanently hide the
+            // fact that the device is in a terminal state.
+            if newPhase == .active { staleDeviceSheetDismissed = false }
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)
@@ -297,7 +303,17 @@ private struct ConversationsSheetModifier: ViewModifier {
     @Bindable var viewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
+    @Binding var staleDeviceSheetDismissed: Bool
     var namespace: Namespace.ID
+
+    private var staleDeviceSheetBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.staleDeviceObserver.isDeviceRemoved && !staleDeviceSheetDismissed },
+            set: { newValue in
+                if !newValue { staleDeviceSheetDismissed = true }
+            }
+        )
+    }
 
     func body(content: Content) -> some View {
         content
@@ -348,6 +364,13 @@ private struct ConversationsSheetModifier: ViewModifier {
             }
             .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
                 PinLimitInfoView()
+            }
+            .selfSizingSheet(isPresented: staleDeviceSheetBinding) {
+                StaleDeviceSheet(
+                    onDelete: { viewModel.resetForStaleDevice() },
+                    onContinue: { staleDeviceSheetDismissed = true },
+                    isDeleting: viewModel.appSettingsViewModel.isDeleting
+                )
             }
             .background {
                 Color.clear
