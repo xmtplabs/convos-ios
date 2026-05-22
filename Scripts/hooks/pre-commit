@@ -49,10 +49,19 @@ else
     echo -e "${YELLOW}⚠ SwiftFormat not found, skipping formatting${NC}"
 fi
 
-# Check if SwiftLint is available
+# Run SwiftLint on the staged files in a single batch invocation. We pass
+# paths positionally (not via --use-stdin) so file-path-dependent rules
+# like sorted_imports actually fire; --use-stdin used to be the local
+# mode and silently let those slip through to CI. With the glob-free
+# `.swiftlint.yml` excludes a full-tree lint takes ~1.2s, so per-commit
+# lint of a handful of staged files is well under a second.
 if command -v swiftlint &> /dev/null; then
-    echo "🔎 Running SwiftLint..."
-    echo -e "${YELLOW}⚠ Skipping SwiftLint in pre-commit (run /lint manually; pre-push still lints)${NC}"
+    echo "🔎 Running SwiftLint on ${#STAGED_SWIFT_FILES[@]} staged file(s)..."
+    if ! swiftlint lint --strict --quiet "${STAGED_SWIFT_FILES[@]}"; then
+        echo -e "${RED}✗ SwiftLint violations found. Fix them before committing.${NC}"
+        echo "  Try: swiftlint --fix \"${STAGED_SWIFT_FILES[0]}\""
+        exit 1
+    fi
 else
     echo -e "${YELLOW}⚠ SwiftLint not found, skipping lint check${NC}"
 fi

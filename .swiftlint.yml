@@ -136,16 +136,35 @@ custom_rules:
     severity: warning
 
 excluded:
-  - .build/
-  - "**/.build"
-  - "**/.build/**"
-  - .derivedData/
-  - .derivedData-device/
-  - .claude/worktrees/
+  # SPM .build directories and DerivedData. Listed individually because
+  # glob patterns like `**/.build/**` in this section trigger pathological
+  # O(N×M) matching against every walked file -- locally that turned a
+  # 1.2-second lint into a 7-minute lint AND serialized work onto a single
+  # core. Keep this list flat. Add a new entry when a new package gets
+  # added under this repo.
+  - .build
+  - .derivedData
+  - .derivedData-device
+  - .claude/worktrees
+  - ConvosCore/.build
+  - ConvosCoreiOS/.build
+  - ConvosConnections/.build
+  - ConvosAppData/.build
+  - ConvosInvites/.build
+  - ConvosProfiles/.build
+  # Test targets and ad-hoc helpers we don't lint
   - ConvosCore/Tests
+  - ConvosConnections/Tests
+  - ConvosAppData/Tests
+  - ConvosInvites/Tests
+  - ConvosProfiles/Tests
   - ConvosTests
   - ConvosTests/Helpers
   - ConvosAppClipTests
   - ConvosAppClipUITests
   - AgentServer
-  - "**/*.pb.swift"  # Generated protobuf files
+  # Generated protobuf files - listed by full path because the previous
+  # `**/*.pb.swift` glob fell into the same pathological-matching trap.
+  - ConvosAppData/Sources/ConvosAppData/Proto/conversation_custom_metadata.pb.swift
+  - ConvosCore/Sources/ConvosCore/Profiles/Proto/profile_messages.pb.swift
+  - ConvosInvites/Sources/ConvosInvitesCore/Core/Proto/invite.pb.swift
