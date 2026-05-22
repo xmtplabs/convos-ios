@@ -172,4 +172,3 @@ struct StuffTabView: View {
         static let interRowSpacing: CGFloat = 12.0
     }
 }
-

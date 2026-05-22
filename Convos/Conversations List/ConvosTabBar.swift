@@ -18,7 +18,7 @@ import SwiftUI
 struct ConvosTabBar: View {
     @Binding var activeTab: ConvosTab
 
-    @Namespace private var selectionNamespace
+    @Namespace private var selectionNamespace: Namespace.ID
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {

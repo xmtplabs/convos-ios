@@ -46,7 +46,7 @@ struct ConversationPresenter<Content: View>: View {
     /// capsule. The `.bouncy(duration: 0.4, extraBounce: 0.15)` animation
     /// the surrounding VStack carries on `viewModel != nil` drives both
     /// the matched-geometry interpolation and the blur transition.
-    @Namespace private var indicatorNamespace
+    @Namespace private var indicatorNamespace: Namespace.ID
 
     private var isShowingShareOverlay: Bool {
         guard let viewModel else { return false }
