@@ -3255,6 +3255,10 @@ extension ConversationViewModel {
 
             let stateManager: any ConversationStateManagerProtocol
             if let existingConversationId {
+                // The Convos-button conversation goes straight into invite
+                // generation — there's no compose-then-commit cycle, so the
+                // claimed row should be visible immediately.
+                await session.commitClaimedConversation(id: existingConversationId)
                 stateManager = messagingService.conversationStateManager(for: existingConversationId)
             } else {
                 stateManager = messagingService.conversationStateManager()

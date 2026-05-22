@@ -24,6 +24,7 @@ struct AgentBuilderView: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var sidebarWidth: CGFloat = 0
     @State private var presentingDiscardConfirmation: Bool = false
@@ -133,11 +134,16 @@ struct AgentBuilderView: View {
     /// (typically a sheet over the chats tab).
     @ViewBuilder
     private var inlineBody: some View {
-        Group {
-            if viewModel.hasCommitted {
-                Color.clear
-            } else {
-                composerRect(focusState: $inlineFocusState)
+        VStack(spacing: 0) {
+            Group {
+                if viewModel.hasCommitted {
+                    Color.clear
+                } else {
+                    composerRect(focusState: $inlineFocusState)
+                }
+            }
+            if !viewModel.hasCommitted {
+                inlineLegalFooter
             }
         }
         .onAppear {
@@ -149,6 +155,53 @@ struct AgentBuilderView: View {
         .onChange(of: inlineFocusState) { _, newFocus in
             focusCoordinator.syncFocusState(newFocus)
         }
+    }
+
+    /// "Secured by XMTP" + "Terms & Privacy Policy" links rendered under
+    /// the inline composer. Lifted from the deleted "Pop-up private
+    /// convos" CTA so first-run users still have entry points to the
+    /// XMTP and legal pages on the chats-list empty state.
+    private var inlineLegalFooter: some View {
+        HStack(spacing: DesignConstants.Spacing.step4x) {
+            Button {
+                if let url = URL(string: "https://xmtp.org") {
+                    openURL(url, prefersInApp: true)
+                }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
+                    Text("Secured by ")
+                    Image("xmtpIcon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .frame(width: 10.0, height: 10.0)
+                        .padding(.leading, 2.0)
+                        .padding(.trailing, 1.0)
+                        .offset(y: 0.5)
+                    Text("XMTP")
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.colorTextTertiary)
+                        .padding(.leading, DesignConstants.Spacing.stepX)
+                }
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+            }
+            Button {
+                if let url = URL(string: "https://convos.org/terms-and-privacy") {
+                    openURL(url, prefersInApp: true)
+                }
+            } label: {
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    Text("Terms & Privacy Policy")
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.colorTextTertiary)
+                }
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+            }
+        }
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
     @ViewBuilder

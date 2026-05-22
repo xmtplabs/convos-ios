@@ -338,6 +338,19 @@ final class AgentBuilderViewModel: Identifiable {
         let textToSend = composerText
         composerText = ""
 
+        // Promote the claimed cache row into a visible conversation now
+        // that the user has confirmed intent. The `.newAgent` mode of
+        // `NewConversationViewModel.acquireInbox` deliberately leaves the
+        // row hidden (isUnused = true) so it doesn't flash in the chats
+        // list during compose — this is the matching commit. Read the
+        // real claimed id from the inner VM rather than the current
+        // `conversation.id` (which may still be a draft placeholder
+        // until the state machine resolves `.ready`).
+        if let claimedId = newConversationViewModel.claimedConversationId {
+            let sessionForCommit = session
+            Task { await sessionForCommit.commitClaimedConversation(id: claimedId) }
+        }
+
         if let innerVM = newConversationViewModel.conversationViewModel {
             // Allocate the bundle's `clientMessageId`s synchronously so they
             // can land in `AgentBuilderSummary.bundledMessageIds` BEFORE

@@ -423,7 +423,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return (service, conversationId)
     }
 
+    public func commitClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.commitClaimedConversation(
+            id: conversationId,
+            databaseWriter: databaseWriter
+        )
+    }
+
+    public func releaseClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.releaseClaimedConversationId(conversationId)
+    }
+
     public func discardClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.releaseClaimedConversationId(conversationId)
         guard !DBConversation.isDraft(id: conversationId) else { return }
         do {
             try await databaseWriter.write { db in

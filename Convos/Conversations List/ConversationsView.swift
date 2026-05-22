@@ -75,22 +75,22 @@ struct ConversationsView: View {
                 mode: .inline,
                 onCommitted: handleInlineBuilderCommit(_:)
             )
-        } else {
-            // Fallback for surfaces where the inline builder isn't
-            // wired up — primarily the iPad detail pane when no
-            // conversation is selected. The inline builder is gated
-            // on the compact-size-class sidebar (see `sidebarContent`),
-            // so iPad keeps the original "Pop-up private convos" card
-            // with its working Start / Join buttons.
-            ConversationsListEmptyCTA(
-                onStartConvo: viewModel.onStartConvo,
-                onJoinConvo: viewModel.onJoinConvo
-            )
         }
+        // Until the inline builder VM has been spun up by
+        // `ensureInlineBuilder()`, the empty state renders nothing.
+        // The previous "Pop-up private convo" fallback CTA caused a
+        // visible flash on cold launch and has been removed in favor
+        // of a blank empty state for that one frame.
     }
 
     private func ensureInlineBuilder() {
-        if inlineBuilderViewModel == nil {
+        // Recreate the VM not just when it's nil but also when the
+        // previous one has already committed — once committed,
+        // `AgentBuilderView.inlineBody` renders `Color.clear`, so a
+        // user who commits, leaves, then deletes the last convo would
+        // see a blank empty state. Spinning up a fresh VM here gets
+        // them an interactive composer again.
+        if inlineBuilderViewModel == nil || inlineBuilderViewModel?.hasCommitted == true {
             inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
         }
     }
@@ -207,7 +207,6 @@ struct ConversationsView: View {
     private var sidebarContent: some View {
         if viewModel.isEmptyCTAActive && horizontalSizeClass == .compact {
             emptyConversationsViewScrollable
-                .task { ensureInlineBuilder() }
         } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
             ScrollView {
                 filteredEmptyStateView
@@ -246,6 +245,22 @@ struct ConversationsView: View {
             }
             .onAppear {
                 viewModel.onAppear()
+                if viewModel.isEmptyCTAActive {
+                    ensureInlineBuilder()
+                }
+            }
+            .onChange(of: viewModel.isEmptyCTAActive) { _, isActive in
+                // Re-fire whenever the chats list flips back to empty
+                // (e.g. user just deleted the last conversation, or a
+                // post-commit sheet just dismissed and the new convo
+                // hasn't landed in the list yet). `.task` attached to
+                // the conditional empty view branch doesn't reliably
+                // fire when the branch's `if let` body is empty
+                // (committed VM or nil VM), so the trigger lives here
+                // on the parent body where firing is deterministic.
+                if isActive {
+                    ensureInlineBuilder()
+                }
             }
             .task {
                 // Refresh credits + subscription on every conversations-list

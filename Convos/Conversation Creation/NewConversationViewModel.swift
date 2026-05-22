@@ -131,6 +131,15 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
+    /// The id returned by `session.prepareNewConversation()` when this VM
+    /// claimed a row from the unused-conversation cache, or `nil` if the
+    /// pool was empty (and the state machine created one on demand). Kept
+    /// here so wrapping VMs (e.g. `AgentBuilderViewModel`) can call
+    /// `session.commitClaimedConversation(id:)` at their own commit
+    /// moment without re-deriving the id from the draft-vs-real
+    /// `conversationViewModel.conversation.id`.
+    private(set) var claimedConversationId: String?
+
     private(set) var isCreatingConversation: Bool = false
     private(set) var currentError: Error?
     private(set) var conversationState: ConversationStateMachine.State = .uninitialized {
@@ -308,6 +317,23 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
+                claimedConversationId = existingConversationId
+                // `.newAgent` defers commit until the user actually taps Make
+                // in the Agent Builder (`AgentBuilderViewModel.commit`) so the
+                // claimed cache row stays hidden from the chats list during
+                // compose. The other modes drop straight into a chat composer
+                // — committing here mirrors the previous behavior of making
+                // the conversation visible the moment it's claimed.
+                let shouldCommitNow: Bool
+                switch mode {
+                case .newAgent:
+                    shouldCommitNow = false
+                default:
+                    shouldCommitNow = true
+                }
+                if shouldCommitNow, let existingConversationId {
+                    await session.commitClaimedConversation(id: existingConversationId)
+                }
                 configureWithMessagingService(
                     messagingService,
                     existingConversationId: existingConversationId
@@ -318,6 +344,10 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
+                claimedConversationId = existingConversationId
+                if let existingConversationId {
+                    await session.commitClaimedConversation(id: existingConversationId)
+                }
                 configureWithMessagingService(
                     messagingService,
                     existingConversationId: existingConversationId,
