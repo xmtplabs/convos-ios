@@ -1,5 +1,5 @@
-import Testing
 @testable import ConvosCore
+import Testing
 
 struct AgentTemplateMetadataTests {
     private func makeProfile(
