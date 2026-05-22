@@ -171,8 +171,8 @@ private final class StubCreditBalanceAPIClient: ConvosAPIClientProtocol, @unchec
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
         try await delegate.renewAssetsBatch(assetKeys: assetKeys)
     }
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
-        try await delegate.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+        try await delegate.requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: forceErrorCode)
     }
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         try await delegate.initiateCloudConnection(serviceId: serviceId, redirectUri: redirectUri)
