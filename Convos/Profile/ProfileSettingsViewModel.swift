@@ -40,6 +40,30 @@ class ProfileSettingsViewModel {
 
     func bind(session: any SessionManagerProtocol) {
         guard self.session == nil else { return }
+        bindInternal(session: session)
+    }
+
+    /// Re-binds the singleton to a freshly-built `MessagingService` after a
+    /// session-level reset (e.g. the joiner just adopted a paired
+    /// identity and `SessionManager.refreshAfterPairingCompleted()`
+    /// dropped the placeholder service + wiped its GRDB rows). Without
+    /// this the existing `writer` / `repository` still reference the
+    /// placeholder inbox id, so the post-pair seed never reaches the
+    /// `profileSettings` getters that gate the in-conversation
+    /// onboarding prompt.
+    func rebind(session: any SessionManagerProtocol) {
+        cancellables.removeAll()
+        self.session = nil
+        writer = nil
+        repository = nil
+        editingDisplayName = ""
+        profileImage = nil
+        profileImageAssetIdentifier = nil
+        profileImageContentDigest = nil
+        bindInternal(session: session)
+    }
+
+    private func bindInternal(session: any SessionManagerProtocol) {
         self.session = session
         let messagingService = session.messagingServiceSync()
         self.writer = messagingService.myGlobalProfileWriter()

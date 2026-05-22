@@ -69,6 +69,10 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         // No-op for mock
     }
 
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        []
+    }
+
     public func deleteLocalDatabase() throws {
         // No-op for mock
     }

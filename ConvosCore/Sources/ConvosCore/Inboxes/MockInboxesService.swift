@@ -49,6 +49,19 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         mockMessagingService
     }
 
+    public func joinerPairingService() -> any PairingServiceProtocol {
+        MockPairingService()
+    }
+
+    public func refreshAfterPairingCompleted() async {
+    }
+
+    public var mockHasAnyUsedConversations: Bool = false
+
+    public func hasAnyUsedConversations() async -> Bool {
+        mockHasAnyUsedConversations
+    }
+
     // MARK: - Factory methods for repositories
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {

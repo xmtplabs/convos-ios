@@ -46,6 +46,7 @@ struct AppSettingsView: View {
                 contactsSection
                 assistantsSection
                 connectionsSection
+                devicesSection
                 customizeSection
                 linksSection
                 deleteSection
@@ -101,6 +102,33 @@ struct AppSettingsView: View {
             .accessibilityIdentifier("my-info-row")
         } footer: {
             Text("Private unless you choose to share")
+        }
+    }
+
+    @ViewBuilder
+    private var devicesSection: some View {
+        Section {
+            NavigationLink {
+                DevicesView(
+                    viewModel: DevicesViewModel(
+                        pairingServiceFactory: { [session] in
+                            DeferredInitiatorPairingService(session: session)
+                        },
+                        session: session,
+                        appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+                    )
+                )
+            } label: {
+                HStack {
+                    Image(systemName: "iphone.gen3.sizes")
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Devices")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .accessibilityIdentifier("devices-row")
+        } footer: {
+            Text("Manage and pair other devices")
         }
     }
 

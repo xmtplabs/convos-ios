@@ -234,6 +234,25 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
+        // Pre-conversation-lookup fast path: `DeviceRemovedContent`
+        // doesn't need a conversation context — it's a system signal
+        // from the user's other installation saying "you've been
+        // revoked". Check it before the (potentially failing)
+        // findConversation call so a missing-conversation race doesn't
+        // suppress the banner trigger.
+        if let typeId = try? message.encodedContent.type.typeID,
+           typeId == ContentTypeDeviceRemoved.typeID,
+           let removal = try? message.content() as DeviceRemovedContent,
+           removal.revokedInstallationId == params.client.installationId {
+            Log.info("StreamProcessor: received DeviceRemoved for our own installation \(params.client.installationId) — posting revocation notification")
+            NotificationCenter.default.post(
+                name: .installationWasRevokedByPeer,
+                object: nil,
+                userInfo: ["revokedInstallationId": removal.revokedInstallationId]
+            )
+            return
+        }
+
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
             guard let conversation = try await params.client.conversationsProvider.findConversation(

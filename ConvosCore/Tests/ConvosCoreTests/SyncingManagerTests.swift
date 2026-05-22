@@ -84,6 +84,10 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 
+    func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        []
+    }
+
     func deleteLocalDatabase() throws {
     }
 

@@ -350,4 +350,127 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         }
         try await sender.sendTypingIndicator(isTyping: isTyping)
     }
+
+    func initiatorPairingService() async throws -> any PairingServiceProtocol {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxId = result.client.inboxId
+        let myProfile = try? await databaseReader.read { db in
+            try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db)
+        }
+        return LivePairingService(
+            role: .initiator(
+                client: result.client,
+                identityStore: identityStore,
+                environment: environment,
+                initiatorProfile: myProfile.map { profile in
+                    LivePairingService.InitiatorProfile(
+                        displayName: profile.name,
+                        imageAssetIdentifier: profile.imageAssetIdentifier
+                    )
+                }
+            )
+        )
+    }
+
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let installations = try await result.client.listInstallations(refreshFromNetwork: refreshFromNetwork)
+        return InstallationsSnapshot(
+            inboxId: result.client.inboxId,
+            currentInstallationId: result.client.installationId,
+            installations: installations.sorted { lhs, rhs in
+                switch (lhs.createdAt, rhs.createdAt) {
+                case let (l?, r?): return l < r
+                case (nil, _?): return false
+                case (_?, nil): return true
+                case (nil, nil): return lhs.id < rhs.id
+                }
+            }
+        )
+    }
+
+    func revokeOtherInstallations() async throws -> [String] {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+        let installations = try await result.client.listInstallations(refreshFromNetwork: true)
+        let currentId = result.client.installationId
+        let others = installations.map(\.id).filter { $0 != currentId }
+        guard !others.isEmpty else { return [] }
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: others
+        )
+        return others
+    }
+
+    func revokeInstallation(installationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard installationId != result.client.installationId else {
+            throw MessagingServiceError.cannotRevokeCurrentDevice
+        }
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+
+        // Best-effort: notify the target installation BEFORE the revoke API
+        // call so it can transition to `.error(DeviceReplacedError)` and
+        // surface the `StaleDeviceBanner` in real time. libxmtp refuses
+        // `findOrCreateDm(with: ownInboxId)` (GroupError.memberCannotBeSelf),
+        // so instead we send the `DeviceRemovedContent` into the most
+        // recent existing conversation the inbox is in — both
+        // installations under the inbox are members of every such
+        // conversation, so the target receives the message via its
+        // shared message stream. Other inboxes in the conversation
+        // ignore the codec (it's a no-op for them).
+        //
+        // Falls through silently if the inbox has no conversations yet
+        // (rare edge case); the receiver still picks up the change on
+        // next session bootstrap or foreground entry.
+        await sendDeviceRemovedSignal(installationId: installationId, client: result.client)
+
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: [installationId]
+        )
+    }
+}
+
+enum MessagingServiceError: Error {
+    case noIdentity
+    case cannotRevokeCurrentDevice
+}
+
+private extension MessagingService {
+    /// Sends a `DeviceRemovedContent` into the most recent existing
+    /// conversation under the inbox. Best-effort: any failure (no
+    /// conversations, send error, etc.) is logged and swallowed so the
+    /// caller's revoke flow still proceeds.
+    func sendDeviceRemovedSignal(installationId: String, client: any XMTPClientProvider) async {
+        do {
+            let conversations = try await client.conversationsProvider.list(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: 1,
+                consentStates: nil,
+                orderBy: .createdAt
+            )
+            guard let target = conversations.first else {
+                Log.warning("MessagingService: no conversations to send DeviceRemoved into — receiver will catch up on next foreground")
+                return
+            }
+            try await target.send(
+                content: DeviceRemovedContent(revokedInstallationId: installationId),
+                options: SendOptions(contentType: ContentTypeDeviceRemoved)
+            )
+            Log.info("MessagingService: sent DeviceRemoved for \(installationId) into conversation \(target.id)")
+        } catch {
+            Log.warning("MessagingService: failed to send DeviceRemoved signal (proceeding with revoke): \(error)")
+        }
+    }
 }

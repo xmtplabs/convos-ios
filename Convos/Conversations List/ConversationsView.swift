@@ -134,6 +134,20 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private var sidebarContent: some View {
+        VStack(spacing: 0) {
+            if viewModel.staleDeviceObserver.isDeviceRemoved {
+                StaleDeviceBanner(
+                    onReset: { viewModel.resetForStaleDevice() },
+                    isResetting: viewModel.appSettingsViewModel.isDeleting
+                )
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+            }
+            innerSidebarContent
+        }
+    }
+
+    @ViewBuilder
+    private var innerSidebarContent: some View {
         if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
             emptyConversationsViewScrollable
         } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
@@ -307,6 +321,17 @@ private struct ConversationsSheetModifier: ViewModifier {
                 )
                 .presentationDetents([.medium])
             }
+            .selfSizingSheet(
+                item: $viewModel.pendingJoinerPairing,
+                onDismiss: {
+                    viewModel.pendingPairDevice = nil
+                    viewModel.pendingJoinerPairing = nil
+                },
+                content: { pairingVM in
+                    JoinerPairingSheetView(viewModel: pairingVM)
+                        .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            )
             .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
                 ExplodeInfoView()
             }

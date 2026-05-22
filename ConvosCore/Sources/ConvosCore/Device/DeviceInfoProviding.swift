@@ -20,6 +20,12 @@ public protocol DeviceInfoProviding: Sendable {
 
     /// Returns the current OS string (e.g., "ios", "macos").
     var osString: String { get }
+
+    /// Returns the user-visible name for this device (e.g. "Jarod's iPhone"
+    /// on iOS, derived from `UIDevice.current.name`). Used by the pairing
+    /// flow to populate the joiner's "X is requesting to pair" copy and
+    /// the post-pair device list label.
+    var deviceName: String { get }
 }
 
 // MARK: - Shared Instance Access
@@ -76,6 +82,11 @@ public enum DeviceInfo {
     /// Convenience accessor for `DeviceInfo.shared.osString`
     public static var osString: String {
         shared.osString
+    }
+
+    /// Convenience accessor for `DeviceInfo.shared.deviceName`.
+    public static var deviceName: String {
+        shared.deviceName
     }
 
     /// Resets the configuration state. Only for use in tests.

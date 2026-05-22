@@ -26,7 +26,7 @@ public protocol SessionStateManagerProtocol: AnyObject, Sendable {
 public final class ClosureStateObserver: SessionStateObserver, @unchecked Sendable {
     private let handler: (SessionStateMachine.State) -> Void
 
-    init(handler: @escaping (SessionStateMachine.State) -> Void) {
+    public init(handler: @escaping (SessionStateMachine.State) -> Void) {
         self.handler = handler
     }
 

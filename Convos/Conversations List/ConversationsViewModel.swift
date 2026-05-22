@@ -80,6 +80,9 @@ final class ConversationsViewModel {
     }
 
     var pendingGrantRequest: PendingGrantRequest?
+    var pendingPairDevice: PendingPairDevice?
+    var pendingJoinerPairing: JoinerPairingSheetViewModel?
+    let staleDeviceObserver: StaleDeviceObserver = .init()
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
@@ -209,6 +212,14 @@ final class ConversationsViewModel {
         self.conversationsRepository = session.conversationsRepository(
             for: .allowed
         )
+        // Bind the stale-device observer to the session's state manager
+        // so the banner appears when this device's installation is
+        // revoked from the network. Done asynchronously because
+        // messagingService() may need to construct the service.
+        let stale = staleDeviceObserver
+        Task { @MainActor in
+            stale.bind(to: session.messagingService().sessionStateManager)
+        }
         self.conversationsCountRepository = session.conversationsCountRepo(
             for: .allowed,
             kinds: .groups
@@ -285,6 +296,54 @@ final class ConversationsViewModel {
                 serviceId: serviceId,
                 conversationId: conversationId
             )
+        case let .pairDevice(pairingId, expiresAt, initiatorName):
+            pendingPairDevice = PendingPairDevice(
+                pairingId: pairingId,
+                expiresAt: expiresAt,
+                initiatorName: initiatorName
+            )
+            let capturedSession = session
+            pendingJoinerPairing = JoinerPairingSheetViewModel(
+                pairingId: pairingId,
+                expiresAt: expiresAt,
+                initiatorName: initiatorName,
+                pairingService: capturedSession.joinerPairingService(),
+                onPairingAdopted: { [weak self] in
+                    await self?.session.refreshAfterPairingCompleted()
+                },
+                onApplyAdoptedProfile: { [weak self] displayName, imageAssetIdentifier in
+                    // The joiner just adopted the initiator's identity, so
+                    // it shouldn't be asked to onboard a profile from
+                    // scratch. Set the global flags + seed DBMyProfile
+                    // from the data we received in the IdentityShare DM.
+                    ConversationOnboardingCoordinator.markCompletedForPairedDevice()
+                    guard let session = self?.session else { return }
+                    do {
+                        try await session.messagingService().myGlobalProfileWriter().save(
+                            name: displayName,
+                            imageData: nil,
+                            imageAssetIdentifier: imageAssetIdentifier,
+                            metadata: nil
+                        )
+                    } catch {
+                        Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
+                    }
+                    // Re-bind the shared profile VM so its writer /
+                    // repository point at the *new* session's
+                    // sessionStateManager; otherwise `profileSettings`
+                    // still pulls from the placeholder inbox and
+                    // `isDefault` stays true, leaving the in-convo
+                    // "Add your name and pic" CTA on screen.
+                    ProfileSettingsViewModel.shared.rebind(session: session)
+                },
+                onDeleteExistingData: { [weak self] in
+                    try await self?.session.deleteAllInboxes()
+                },
+                checkHasExistingData: { [weak self] in
+                    guard let session = self?.session else { return false }
+                    return await session.hasAnyUsedConversations()
+                }
+            )
         }
     }
 
@@ -312,6 +371,26 @@ final class ConversationsViewModel {
     func deleteAllData() {
         selectedConversation = nil
         appSettingsViewModel.deleteAllData {}
+    }
+
+    /// Called by `StaleDeviceBanner` when the user holds "Hold to reset"
+    /// on a session that has landed in `.error(DeviceReplacedError)`.
+    /// Same underlying action as "Delete all app data" (no confirmation
+    /// sheet — the hold itself is the confirmation, and the banner copy
+    /// is the explanation). After the delete completes we rebind the
+    /// stale-device observer to the freshly-built state manager so the
+    /// banner doesn't linger past the reset.
+    func resetForStaleDevice() {
+        staleDeviceObserver.dismiss()
+        selectedConversation = nil
+        let session = self.session
+        let observer = staleDeviceObserver
+        appSettingsViewModel.deleteAllData { [weak self] in
+            guard self != nil else { return }
+            Task { @MainActor in
+                observer.bind(to: session.messagingService().sessionStateManager)
+            }
+        }
     }
 
     func leave(conversation: Conversation) {

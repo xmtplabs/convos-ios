@@ -11,6 +11,33 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 }
 
 public protocol SessionManagerProtocol: AnyObject, Sendable {
+    // MARK: Pairing
+
+    /// Constructs a joiner-side pairing service backed by an ephemeral
+    /// XMTP client. The host app calls this when the joiner deep link
+    /// arrives (`/pair/<slug>`) to present `JoinerPairingSheetView` on a
+    /// fresh install. The ephemeral client lives only inside the returned
+    /// service; on `stop()` (or successful pairing) the underlying libxmtp
+    /// db directory is wiped.
+    func joinerPairingService() -> any PairingServiceProtocol
+
+    /// Called after a successful pairing on the joiner side. Drops any
+    /// cached `MessagingService` so the next access reads the (now-paired)
+    /// keychain entry. If silent identity creation had already produced a
+    /// placeholder inbox before the pairing deep link landed, this also
+    /// stops that placeholder service.
+    func refreshAfterPairingCompleted() async
+
+    /// Returns true if the local database holds at least one conversation
+    /// that the user has actually engaged with (`isUnused == false`). The
+    /// pairing flow uses this — not "is there *any* keychain identity?" —
+    /// to decide whether the joiner has real data that would be lost on
+    /// pair. Silent identity creation + the pre-warmed unused-conversation
+    /// cache means every fresh install has an identity and one unused
+    /// conversation; that combination should still let the user pair
+    /// without a destructive warning.
+    func hasAnyUsedConversations() async -> Bool
+
     // MARK: Inbox Management
 
     /// Returns the shared messaging service and an optional conversation id
