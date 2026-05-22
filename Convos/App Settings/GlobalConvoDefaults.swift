@@ -30,18 +30,6 @@ final class GlobalConvoDefaults: @unchecked Sendable {
         }
     }
 
-    var agentsEnabled: Bool {
-        get {
-            access(keyPath: \.agentsEnabled)
-            return UserDefaults.standard.object(forKey: Constant.agentsEnabledKey) as? Bool ?? true
-        }
-        set {
-            withMutation(keyPath: \.agentsEnabled) {
-                UserDefaults.standard.set(newValue, forKey: Constant.agentsEnabledKey)
-            }
-        }
-    }
-
     var sendReadReceipts: Bool {
         get {
             access(keyPath: \.sendReadReceipts)
@@ -61,9 +49,6 @@ final class GlobalConvoDefaults: @unchecked Sendable {
         withMutation(keyPath: \.includeInfoWithInvites) {
             UserDefaults.standard.removeObject(forKey: Constant.includeInfoWithInvitesKey)
         }
-        withMutation(keyPath: \.agentsEnabled) {
-            UserDefaults.standard.removeObject(forKey: Constant.agentsEnabledKey)
-        }
         withMutation(keyPath: \.sendReadReceipts) {
             UserDefaults.standard.removeObject(forKey: Constant.sendReadReceiptsKey)
         }
@@ -72,7 +57,6 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     private enum Constant {
         static let autoRevealPhotosKey: String = "globalAutoRevealPhotos"
         static let includeInfoWithInvitesKey: String = "globalIncludeInfoWithInvites"
-        static let agentsEnabledKey: String = "globalAssistantsEnabled"
         static let sendReadReceiptsKey: String = "globalSendReadReceipts"
     }
 }

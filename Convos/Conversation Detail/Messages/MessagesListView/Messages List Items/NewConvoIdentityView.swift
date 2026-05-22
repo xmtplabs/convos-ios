@@ -6,7 +6,6 @@ struct NewConvoIdentityView: View {
     var onInviteAgent: (() -> Void)?
     var hasAgent: Bool = false
     var isAgentJoinPending: Bool = false
-    var isAgentEnabled: Bool = false
 
     private var showInviteMenu: Bool { onCopyLink != nil }
 
@@ -53,15 +52,13 @@ struct NewConvoIdentityView: View {
                     }
                     .accessibilityIdentifier("new-convo-add-from-contacts")
 
-                    if isAgentEnabled {
-                        let agentAction: () -> Void = { onInviteAgent?() }
-                        Button(action: agentAction) {
-                            Text("Instant agent")
-                            Text(agentSubtitle)
-                            Image(systemName: "a.circle")
-                        }
-                        .disabled(isAgentActionDisabled)
+                    let agentAction: () -> Void = { onInviteAgent?() }
+                    Button(action: agentAction) {
+                        Text("Instant agent")
+                        Text(agentSubtitle)
+                        Image(systemName: "a.circle")
                     }
+                    .disabled(isAgentActionDisabled)
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Image(systemName: "plus")
@@ -87,8 +84,7 @@ struct NewConvoIdentityView: View {
     NewConvoIdentityView(
         onCopyLink: {},
         onConvoCode: {},
-        onInviteAgent: {},
-        isAgentEnabled: true
+        onInviteAgent: {}
     )
 }
 

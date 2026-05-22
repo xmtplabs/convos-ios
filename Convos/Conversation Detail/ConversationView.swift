@@ -51,10 +51,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private var showPullToAddAgent: Bool {
-        !viewModel.conversation.hasAgent
-            && !viewModel.isAgentJoinPending
-            && FeatureFlags.shared.isAgentEnabled
-            && GlobalConvoDefaults.shared.agentsEnabled
+        !viewModel.conversation.hasAgent && !viewModel.isAgentJoinPending
     }
 
     private var messagesView: some View {
@@ -154,7 +151,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             memberContactOverride: contactOverride,
             hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            isAgentEnabled: FeatureFlags.shared.isAgentEnabled && GlobalConvoDefaults.shared.agentsEnabled,
             headerMode: headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,

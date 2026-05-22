@@ -46,7 +46,6 @@ struct AppSettingsView: View {
                 myInfoSection
                 subscriptionSection
                 contactsSection
-                agentsSection
                 connectionsSection
                 customizeSection
                 linksSection
@@ -173,36 +172,29 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
-    private var agentsSection: some View {
-        if FeatureFlags.shared.isAgentEnabled {
-            Section {
-                NavigationLink {
-                    AgentSettingsView()
-                } label: {
-                    Text("Agents")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-            } footer: {
-                Text("Optional AI for groups")
+    private var connectionsSection: some View {
+        Section {
+            NavigationLink {
+                ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+            } label: {
+                connectionsRowLabel
             }
+            .accessibilityIdentifier("connections-row")
+        } footer: {
+            Text("Enable services on this device and share them with agents")
         }
     }
 
     @ViewBuilder
-    private var connectionsSection: some View {
-        if FeatureFlags.shared.isAgentEnabled {
-            Section {
-                NavigationLink {
-                    ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
-                } label: {
-                    Text("Connections")
-                        .foregroundStyle(.colorTextPrimary)
-                }
-                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-            } footer: {
-                Text("Enable services on this device and share them with agents")
-            }
+    private var connectionsRowLabel: some View {
+        HStack {
+            Image(systemName: "batteryblock.fill")
+                .foregroundStyle(.colorTextPrimary)
+
+            Text("Connections")
+                .foregroundStyle(.colorTextPrimary)
+
+            Spacer()
         }
     }
 

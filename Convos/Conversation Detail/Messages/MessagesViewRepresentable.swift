@@ -37,7 +37,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let memberContactOverride: (String) -> Contact?
     let hasAgent: Bool
     let isAgentJoinPending: Bool
-    let isAgentEnabled: Bool
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
     var agentBuilderTransitionNamespace: Namespace.ID?
@@ -130,7 +129,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.memberContactOverride = memberContactOverride
         messagesViewController.hasAgent = hasAgent
         messagesViewController.isAgentJoinPending = isAgentJoinPending
-        messagesViewController.isAgentEnabled = isAgentEnabled
 let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -193,7 +191,6 @@ let menuPresented = contextMenuState.isPresented
         memberContactOverride: { _ in nil },
         hasAgent: false,
         isAgentJoinPending: false,
-        isAgentEnabled: true,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         onBottomOverscrollReleased: { _ in },

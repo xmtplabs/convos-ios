@@ -538,7 +538,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             memberContactOverride: { _ in nil },
             hasAgent: false,
             isAgentJoinPending: false,
-            isAgentEnabled: true,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             onBottomOverscrollReleased: { _ in },

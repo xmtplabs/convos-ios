@@ -41,7 +41,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var memberContactOverride: ((String) -> Contact?)?
     var hasAgent: Bool = false
     var isAgentJoinPending: Bool = false
-    var isAgentEnabled: Bool = false
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderTransitionNamespace: Namespace.ID?
     var hidesInviteCard: Bool = false
@@ -160,7 +159,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
             hasAgent: hasAgent,
             isAgentJoinPending: isAgentJoinPending,
-            isAgentEnabled: isAgentEnabled,
             headerMode: headerMode,
             hidesInviteCard: hidesInviteCard,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,

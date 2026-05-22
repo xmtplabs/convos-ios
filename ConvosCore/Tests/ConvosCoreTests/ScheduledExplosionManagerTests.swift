@@ -6,7 +6,6 @@ import UserNotifications
 
 @Suite("ScheduledExplosionManager Tests", .serialized)
 struct ScheduledExplosionManagerTests {
-
     @Test("Schedules reminder notification for future explosion > 1 hour away")
     func testSchedulesReminderNotification() async throws {
         let fixtures = ScheduledExplosionTestFixtures()
@@ -166,7 +165,6 @@ struct ScheduledExplosionManagerTests {
         #expect(removedIds.contains("explosion-reminder-\(conversationId)"))
         #expect(removedIds.contains("explosion-\(conversationId)"))
     }
-
 
     @Test("Notification content has correct format")
     func testNotificationContentFormat() async throws {

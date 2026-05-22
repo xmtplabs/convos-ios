@@ -5,7 +5,6 @@ import Testing
 
 @Suite("IncomingMessageWriter ExplodeSettings Tests", .serialized)
 struct IncomingMessageWriterExplodeTests {
-
     @Test("Returns fromSelf when sender is current user")
     func testFromSelfReturnsFromSelf() async throws {
         let fixtures = ExplodeTestFixtures()

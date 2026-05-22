@@ -27,7 +27,6 @@ struct MessagesListView: View {
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let hasAgent: Bool
     let isAgentJoinPending: Bool
-    let isAgentEnabled: Bool
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -60,8 +59,7 @@ var body: some View {
                     onConvoCode: onConvoCode,
                     onInviteAgent: onInviteAgent,
                     hasAgent: hasAgent,
-                    isAgentJoinPending: isAgentJoinPending,
-                    isAgentEnabled: isAgentEnabled
+                    isAgentJoinPending: isAgentJoinPending
                 )
             }
             .id("invite")

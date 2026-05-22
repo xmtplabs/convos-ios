@@ -16,7 +16,6 @@ struct AddToConversationMenu: View {
     /// that's bound to that modifier's `isPresented`.
     let onAddFromContacts: () -> Void
 
-    private var isAgentEnabled: Bool { FeatureFlags.shared.isAgentEnabled && GlobalConvoDefaults.shared.agentsEnabled }
     private var isAgentActionDisabled: Bool { hasAgent || isAgentJoinPending }
 
     private var agentSubtitle: String {
@@ -55,15 +54,13 @@ struct AddToConversationMenu: View {
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
-            if isAgentEnabled {
-                Button(action: onInviteAgent) {
-                    Text("Instant agent")
-                    Text(agentSubtitle)
-                    Image(systemName: "a.circle")
-                }
-                .disabled(isAgentActionDisabled)
-                .accessibilityIdentifier("context-menu-add-agent")
+            Button(action: onInviteAgent) {
+                Text("Instant agent")
+                Text(agentSubtitle)
+                Image(systemName: "a.circle")
             }
+            .disabled(isAgentActionDisabled)
+            .accessibilityIdentifier("context-menu-add-agent")
         } label: {
             Image(systemName: "plus")
                 .foregroundStyle(labelColor)

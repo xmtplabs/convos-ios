@@ -188,7 +188,6 @@ struct ThinkingDetailView: View {
             memberContactOverride: { _ in nil },
             hasAgent: conversation.hasAgent,
             isAgentJoinPending: false,
-            isAgentEnabled: false,
             bottomBarHeight: bottomBarHeight,
             hasBottomBar: true,
             topContentInset: topBarHeight,

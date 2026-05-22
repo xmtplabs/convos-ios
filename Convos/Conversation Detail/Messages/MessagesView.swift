@@ -76,7 +76,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let memberContactOverride: (String) -> Contact?
     let hasAgent: Bool
     let isAgentJoinPending: Bool
-    let isAgentEnabled: Bool
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderSummary: AgentBuilderSummary?
     var agentBuilderTransitionNamespace: Namespace.ID?
@@ -134,7 +133,6 @@ struct MessagesView<BottomBarContent: View>: View {
             memberContactOverride: memberContactOverride,
             hasAgent: hasAgent,
             isAgentJoinPending: isAgentJoinPending,
-            isAgentEnabled: isAgentEnabled,
             headerMode: headerMode,
             agentBuilderSummary: agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,

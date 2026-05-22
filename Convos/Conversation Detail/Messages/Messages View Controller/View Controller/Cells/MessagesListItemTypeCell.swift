@@ -102,8 +102,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                             onConvoCode: config.onConvoCode,
                             onInviteAgent: config.onInviteAgent,
                             hasAgent: config.hasAgent,
-                            isAgentJoinPending: config.isAgentJoinPending,
-                            isAgentEnabled: config.isAgentEnabled
+                            isAgentJoinPending: config.isAgentJoinPending
                         )
                     }
                     .padding(.vertical, DesignConstants.Spacing.step4x)

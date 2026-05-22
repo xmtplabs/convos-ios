@@ -294,9 +294,6 @@ final class MessagesViewController: UIViewController {
     var isAgentJoinPending: Bool = false {
         didSet { dataSource.isAgentJoinPending = isAgentJoinPending }
     }
-    var isAgentEnabled: Bool = false {
-        didSet { dataSource.isAgentEnabled = isAgentEnabled }
-    }
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }

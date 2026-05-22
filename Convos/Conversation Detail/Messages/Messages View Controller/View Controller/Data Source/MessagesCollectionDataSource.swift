@@ -34,7 +34,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var memberContactOverride: ((String) -> Contact?)? { get set }
     var hasAgent: Bool { get set }
     var isAgentJoinPending: Bool { get set }
-    var isAgentEnabled: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var hidesInviteCard: Bool { get set }

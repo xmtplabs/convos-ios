@@ -69,8 +69,6 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var featuresSection: some View {
         Section("Features") {
-            Toggle("Agent enabled", isOn: Bindable(FeatureFlags.shared).isAgentEnabled)
-
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
 
             let showInfoAction = { showingAgentsInfoSheet = true }

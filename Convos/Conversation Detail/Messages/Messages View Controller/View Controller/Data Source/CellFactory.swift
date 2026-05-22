@@ -37,7 +37,6 @@ struct CellConfig {
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let hasAgent: Bool
     let isAgentJoinPending: Bool
-    let isAgentEnabled: Bool
     let headerMode: MessagesHeaderMode
     /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`
     /// cell renders the invite menu without the QR card above it.
