@@ -18,18 +18,15 @@ struct StuffPreviewCell: View {
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
             preview
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Text(conversationName)
-                    .font(.caption2)
-                    .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
-                if item.conversation.isUnread {
-                    Circle()
-                        .fill(Color.colorTextPrimary)
-                        .frame(width: Constant.unreadDotSize, height: Constant.unreadDotSize)
-                }
-            }
-            .frame(maxWidth: .infinity)
+            // Unread dot intentionally hidden for now — tapping a Stuff
+            // cell pushes the file detail view, which doesn't mark the
+            // underlying conversation as read. Re-enable once the tap
+            // either marks-as-read or routes through the messages list.
+            Text(conversationName)
+                .font(.caption2)
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
         }
     }
 
