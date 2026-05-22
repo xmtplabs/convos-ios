@@ -1,3 +1,4 @@
+@testable import ConvosConnectionsHomeKit
 @testable import ConvosConnections
 import Testing
 

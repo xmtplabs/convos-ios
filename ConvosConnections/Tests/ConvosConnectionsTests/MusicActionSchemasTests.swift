@@ -1,3 +1,4 @@
+@testable import ConvosConnectionsMusic
 @testable import ConvosConnections
 import Testing
 

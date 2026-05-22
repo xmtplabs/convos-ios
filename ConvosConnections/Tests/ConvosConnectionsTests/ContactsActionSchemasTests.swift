@@ -1,3 +1,4 @@
+@testable import ConvosConnectionsContacts
 @testable import ConvosConnections
 import Testing
 
