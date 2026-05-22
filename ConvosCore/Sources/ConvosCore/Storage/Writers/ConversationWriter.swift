@@ -203,7 +203,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 conversationEmoji: signedInvite.emoji,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAgent: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -510,7 +510,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let expiresAt: Date?
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
-        let hasHadVerifiedAssistant: Bool
+        let hasHadVerifiedAgent: Bool
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -535,7 +535,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAgent: false
         )
     }
 
@@ -579,7 +579,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAssistant: metadata.hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt
         )
     }
@@ -633,7 +633,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Preserve fields from the existing row that the caller did not
         // explicitly carry forward:
-        //   - `hasHadVerifiedAssistant` is sticky-on (once true, stays true).
+        //   - `hasHadVerifiedAgent` is sticky-on (once true, stays true).
         //   - `quarantinedAt` / `quarantineReleasedAt`: sync paths
         //     (`store(...)`, push-driven `storeWithLatestMessages`) pass
         //     `quarantinedAt: nil`, and `createDBConversation` does not
@@ -643,11 +643,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         //     quarantine path; the sweeper writes release timestamps
         //     directly to the DB and never flows through this writer.
         if let existingConversation {
-            let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
+            let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             let preservedQuarantinedAt: Date? = dbConversation.quarantinedAt ?? existingConversation.quarantinedAt
             let preservedQuarantineReleasedAt: Date? = dbConversation.quarantineReleasedAt ?? existingConversation.quarantineReleasedAt
             conversationToSave = conversationToSave
-                .with(hasHadVerifiedAssistant: mergedHasAgent)
+                .with(hasHadVerifiedAgent: mergedHasAgent)
                 .with(
                     quarantinedAt: preservedQuarantinedAt,
                     quarantineReleasedAt: preservedQuarantineReleasedAt
@@ -691,11 +691,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             // reasons documented above: this row is replacing
             // `localConversation`, so its sticky-on agent flag and
             // quarantine timestamps must carry forward.
-            let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
+            let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             let preservedQuarantinedAtByTag: Date? = conversationToSave.quarantinedAt ?? localConversation.quarantinedAt
             let preservedQuarantineReleasedAtByTag: Date? = conversationToSave.quarantineReleasedAt ?? localConversation.quarantineReleasedAt
             conversationToSave = conversationToSave
-                .with(hasHadVerifiedAssistant: mergedHasAgentByTag)
+                .with(hasHadVerifiedAgent: mergedHasAgentByTag)
                 .with(
                     quarantinedAt: preservedQuarantinedAtByTag,
                     quarantineReleasedAt: preservedQuarantineReleasedAtByTag
@@ -1036,8 +1036,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         if profile.agentVerification.isConvosAgent,
            let conversation = try DBConversation.fetchOne(db, id: conversationId),
-           !conversation.hasHadVerifiedAssistant {
-            try conversation.with(hasHadVerifiedAssistant: true).save(db)
+           !conversation.hasHadVerifiedAgent {
+            try conversation.with(hasHadVerifiedAgent: true).save(db)
         }
     }
 

@@ -80,7 +80,7 @@ struct ConnectionGrantWriterTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             )
             try databaseManager.dbWriter.write { db in
                 try conversation.save(db)

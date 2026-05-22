@@ -375,7 +375,7 @@ struct ExpiredConversationsWorkerTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             )
             try conversation.upsert(db)
         }
@@ -596,7 +596,7 @@ private class ExpiredWorkerTestFixtures {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false,
+                hasHadVerifiedAgent: false,
             )
             try conversation.upsert(db)
         }

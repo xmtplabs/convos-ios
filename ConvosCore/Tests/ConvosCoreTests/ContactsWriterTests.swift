@@ -34,7 +34,7 @@ struct ContactsWriterTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAgent: false
         ).insert(db)
     }
 

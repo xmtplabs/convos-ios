@@ -629,8 +629,8 @@ actor StreamProcessor: StreamProcessorProtocol {
     ) throws {
         guard profile.agentVerification.isConvosAgent,
               let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAssistant else { return }
-        try conversation.with(hasHadVerifiedAssistant: true).save(db)
+              !conversation.hasHadVerifiedAgent else { return }
+        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {

@@ -291,7 +291,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                     conversationEmoji: nil,
                     imageLastRenewed: nil,
                     isUnused: true,
-                    hasHadVerifiedAssistant: false
+                    hasHadVerifiedAgent: false
                 )
                 try dbConversation.save(db)
             }

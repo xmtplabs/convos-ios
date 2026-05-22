@@ -890,7 +890,7 @@ private extension LightweightConversationDetails {
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
             agentJoinStatus: nil,
-            hasHadVerifiedAssistant: conversation.hasHadVerifiedAssistant
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent
         )
     }
 }

@@ -445,7 +445,7 @@ private extension AssetRenewalManagerTests {
             conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
         )
     }
 }

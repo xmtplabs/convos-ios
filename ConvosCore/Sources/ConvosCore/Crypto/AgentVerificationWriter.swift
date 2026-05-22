@@ -24,8 +24,8 @@ public enum AgentVerificationWriter {
 
                 if updated.agentVerification.isConvosAgent,
                    let conversation = try DBConversation.fetchOne(db, id: updated.conversationId),
-                   !conversation.hasHadVerifiedAssistant {
-                    try conversation.with(hasHadVerifiedAssistant: true).save(db)
+                   !conversation.hasHadVerifiedAgent {
+                    try conversation.with(hasHadVerifiedAgent: true).save(db)
                 }
             }
             updatedCount += 1

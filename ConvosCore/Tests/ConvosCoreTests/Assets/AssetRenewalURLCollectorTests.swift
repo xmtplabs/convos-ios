@@ -243,7 +243,7 @@ private extension AssetRenewalURLCollectorTests {
             conversationEmoji: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
         )
     }
 }

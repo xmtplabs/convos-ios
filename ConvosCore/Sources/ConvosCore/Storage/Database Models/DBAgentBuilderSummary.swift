@@ -7,7 +7,7 @@ import GRDB
 /// natural pre-Make agent hello + their own prompt messages instead of
 /// the polished summary card.
 public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord, Hashable, Sendable {
-    public static let databaseTableName: String = "assistantBuilderSummary"
+    public static let databaseTableName: String = "agentBuilderSummary"
 
     public enum Columns {
         public static let conversationId: Column = Column(CodingKeys.conversationId)

@@ -53,7 +53,7 @@ public extension Conversation {
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAssistant: mockMembers.contains(where: \.agentVerification.isConvosAgent)
+            hasHadVerifiedAgent: mockMembers.contains(where: \.agentVerification.isConvosAgent)
         )
     }
 
@@ -99,7 +99,7 @@ public extension Conversation {
             debugInfo: .empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAgent: false
         )
     }
 
@@ -144,7 +144,7 @@ public extension Conversation {
             debugInfo: .empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            hasHadVerifiedAgent: false
         )
     }
 }

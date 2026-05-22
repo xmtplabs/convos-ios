@@ -72,7 +72,7 @@ extension DBConversationDetails {
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
             agentJoinStatus: agentJoinStatus,
-            hasHadVerifiedAssistant: conversation.hasHadVerifiedAssistant
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent
         )
     }
 }

@@ -164,7 +164,7 @@ struct ContactsRepositoryTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAgent: false
             ).insert(db)
             try DBConversation(
                 id: "convo-group",
@@ -188,7 +188,7 @@ struct ContactsRepositoryTests {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAssistant: false
+                hasHadVerifiedAgent: false
             ).insert(db)
         }
 

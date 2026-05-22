@@ -53,7 +53,7 @@ struct ConversationsRepositoryFindOneToOneTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         ).insert(db)

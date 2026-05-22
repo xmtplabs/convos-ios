@@ -35,7 +35,7 @@ struct QuarantineSweeperTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )

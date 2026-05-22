@@ -200,8 +200,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
 
                 if dbProfile.agentVerification.isConvosAgent,
                    let conversation = try DBConversation.fetchOne(db, id: result.conversationId),
-                   !conversation.hasHadVerifiedAssistant {
-                    try conversation.with(hasHadVerifiedAssistant: true).save(db)
+                   !conversation.hasHadVerifiedAgent {
+                    try conversation.with(hasHadVerifiedAgent: true).save(db)
                 }
             }
             Log.debug("Persisted join request profile for \(result.joinerInboxId) in \(result.conversationId)")

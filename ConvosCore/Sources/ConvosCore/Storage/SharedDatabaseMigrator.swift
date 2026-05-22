@@ -147,13 +147,15 @@ extension SharedDatabaseMigrator {
 
         Self.registerContactsMVPMigrations(on: &migrator)
 
-        migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAgentBuilderSummary)
+        migrator.registerMigration("createAgentBuilderSummary", migrate: Self.createAgentBuilderSummary)
 
-        migrator.registerMigration("addAssistantBuilderSummaryBundledMessageIds", migrate: Self.addAgentBuilderSummaryBundledMessageIds)
+        migrator.registerMigration("addAgentBuilderSummaryBundledMessageIds", migrate: Self.addAgentBuilderSummaryBundledMessageIds)
 
         migrator.registerMigration("createThinkingSession", migrate: Self.createThinkingSession)
 
         migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
+
+        migrator.registerMigration("renameConversationHasHadVerifiedAssistantToAgent", migrate: Self.renameConversationHasHadVerifiedAssistantToAgent)
 
         return migrator
     }
@@ -193,7 +195,7 @@ extension SharedDatabaseMigrator {
     /// messages list. One row per conversation; cascade-deleted when the
     /// conversation is.
     private static func createAgentBuilderSummary(_ db: Database) throws {
-        try db.create(table: "assistantBuilderSummary") { t in
+        try db.create(table: "agentBuilderSummary") { t in
             t.column("conversationId", .text).notNull().primaryKey()
                 .references("conversation", onDelete: .cascade)
             t.column("summaryId", .text).notNull()
@@ -212,8 +214,20 @@ extension SharedDatabaseMigrator {
     /// for rows written before this column existed; the hydrate path treats
     /// an empty / malformed JSON the same as "no ids tracked".
     private static func addAgentBuilderSummaryBundledMessageIds(_ db: Database) throws {
-        try db.alter(table: "assistantBuilderSummary") { t in
+        try db.alter(table: "agentBuilderSummary") { t in
             t.add(column: "bundledMessageIdsJSON", .text).notNull().defaults(to: "[]")
+        }
+    }
+
+    /// Rename `conversation.hasHadVerifiedAssistant` -> `hasHadVerifiedAgent`
+    /// for naming consistency with the Assistant -> Agent rename. The
+    /// original column was introduced on the conversation table create
+    /// migration that has already shipped to dev, so this rename has to
+    /// happen via a new migration rather than editing the original column
+    /// definition in place.
+    private static func renameConversationHasHadVerifiedAssistantToAgent(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.rename(column: "hasHadVerifiedAssistant", to: "hasHadVerifiedAgent")
         }
     }
 
