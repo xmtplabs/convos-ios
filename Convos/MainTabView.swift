@@ -78,10 +78,10 @@ struct MainTabView: View {
     @State private var presentingCommittedConversation: ConversationViewModel?
     @State private var committedConversationFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var committedConversationSidebarWidth: CGFloat = 0
-    /// Live credit balance + subscription drive the app-indicator subtitle.
-    /// Seeded from the services' current values so the first render doesn't
-    /// flicker, then kept in sync via `.onReceive` on their publishers.
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    /// Live subscription drives the app-indicator subtitle (plan name,
+    /// or "Free" when not subscribed). Seeded from the service's current
+    /// value so the first render doesn't flicker, then kept in sync via
+    /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
@@ -117,12 +117,6 @@ struct MainTabView: View {
     }
 
     private var indicatorSubtitle: AppIndicatorSubtitle {
-        if let creditBalance, creditBalance.isDepleted {
-            return .symbol(systemName: "battery.0percent", tint: .colorRed, accessibilityLabel: "Out of credits")
-        }
-        if let creditBalance, creditBalance.isLow {
-            return .symbol(systemName: "battery.25percent", tint: .colorRed, accessibilityLabel: "Low credits")
-        }
         if let userSubscription {
             return .text(SubscriptionCopy.displayName(for: userSubscription.tier))
         }
@@ -197,9 +191,6 @@ struct MainTabView: View {
         }
         .animation(.smooth(duration: 0.35), value: isConversationSelected)
         .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
-            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
-                creditBalance = newBalance
-            }
             .onChange(of: stuffPushedItems) { _, newItems in
                 syncStuffPushedConvoVM(with: newItems)
             }
