@@ -178,7 +178,7 @@ private struct SentDateFormatter {
 
 // MARK: - HTML content
 
-private struct AttachmentHTMLContent: UIViewRepresentable {
+struct AttachmentHTMLContent: UIViewRepresentable {
     let fileURL: URL
     var onBodyBackgroundColor: ((Color?) -> Void)?
 

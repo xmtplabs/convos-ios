@@ -1,3 +1,4 @@
+import ConvosCore
 import PhotosUI
 import SwiftUI
 
@@ -22,6 +23,10 @@ struct MainTabView: View {
     /// when a conversation is selected (and can sit it in the same
     /// `GlassEffectContainer` chrome as the builder bar).
     @State private var activeTab: ConvosTab = .chats
+    /// NavigationStack path for the Stuff tab. Lifted to this shell so
+    /// the bottom chrome can hide when Stuff has a detail pushed, same
+    /// way it hides when Chats has a conversation selected.
+    @State private var stuffPushedItems: [StuffOverviewItem] = []
     /// Drives the `AssistantBuilderBar` between expanded (capsule) and
     /// collapsed (glass circle) states. Held in state with hysteresis
     /// thresholds rather than derived purely from scroll offset so that
@@ -31,6 +36,12 @@ struct MainTabView: View {
     /// user has scrolled `Constant.collapseScrollThreshold` past the
     /// top.
     @State private var isBuilderBarExpanded: Bool = true
+    /// Latest scroll content offset from each tab's primary scroll view.
+    /// Tracked per-tab so swapping tabs can re-evaluate the builder bar
+    /// state against the new tab's scroll position immediately, instead
+    /// of waiting for the user to scroll.
+    @State private var chatsScrollOffset: CGFloat = 0
+    @State private var stuffScrollOffset: CGFloat = 0
     /// Measured height of the bottom chrome (builder bar + tab bar
     /// stack) published via a `PreferenceKey` from inside the chrome.
     /// Used to push an explicit additional bottom inset down into
@@ -78,6 +89,16 @@ struct MainTabView: View {
     /// selection model lives there.
     private var isConversationSelected: Bool {
         conversationsViewModel.selectedConversationViewModel != nil
+            || !stuffPushedItems.isEmpty
+    }
+
+    /// Scroll offset for whichever tab is currently active.
+    private var activeTabScrollOffset: CGFloat {
+        switch activeTab {
+        case .chats: chatsScrollOffset
+        case .stuff: stuffScrollOffset
+        case .search: 0
+        }
     }
 
     /// Apply hysteresis to the bar expansion state in response to a
@@ -104,6 +125,30 @@ struct MainTabView: View {
     }
 
     var body: some View {
+        tabView
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !isConversationSelected {
+                    bottomChrome
+                        .transition(.blurReplace)
+                }
+            }
+            .animation(.smooth(duration: 0.35), value: isConversationSelected)
+            .modifier(MainTabSheetsModifier(
+                conversationsViewModel: conversationsViewModel,
+                profileSettingsViewModel: profileSettingsViewModel,
+                presentingAppSettings: $presentingAppSettings,
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                isCameraPresented: $isCameraPresented,
+                selectedPhotos: $selectedPhotos,
+                namespace: namespace,
+                onPhotosChanged: handleSelectedPhotosChanged(to:),
+                onCameraImageCaptured: handleCameraImageCaptured,
+                onCameraVideoCaptured: handleCameraVideoCaptured
+            ))
+    }
+
+    @ViewBuilder
+    private var tabView: some View {
         TabView(selection: $activeTab) {
             Tab(value: ConvosTab.chats) {
                 ConversationsView(
@@ -112,7 +157,10 @@ struct MainTabView: View {
                     appIndicatorContext: appIndicatorContext,
                     sidebarBottomAccessory: nil,
                     onScrollOffsetChange: { offset in
-                        updateBuilderBarExpansion(forOffset: offset)
+                        chatsScrollOffset = offset
+                        if activeTab == .chats {
+                            updateBuilderBarExpansion(forOffset: offset)
+                        }
                     },
                     bottomChromeInset: bottomChromeHeight
                 )
@@ -122,7 +170,14 @@ struct MainTabView: View {
             Tab(value: ConvosTab.stuff) {
                 StuffTabView(
                     appIndicatorContext: appIndicatorContext,
-                    conversationsViewModel: conversationsViewModel
+                    conversationsViewModel: conversationsViewModel,
+                    pushedItems: $stuffPushedItems,
+                    onScrollOffsetChange: { offset in
+                        stuffScrollOffset = offset
+                        if activeTab == .stuff {
+                            updateBuilderBarExpansion(forOffset: offset)
+                        }
+                    }
                 )
                 .toolbarVisibility(.hidden, for: .tabBar)
             }
@@ -132,62 +187,8 @@ struct MainTabView: View {
                     .toolbarVisibility(.hidden, for: .tabBar)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !isConversationSelected {
-                bottomChrome
-                    .transition(.blurReplace)
-            }
-        }
-        .animation(.smooth(duration: 0.35), value: isConversationSelected)
-        .sheet(item: $conversationsViewModel.assistantBuilderViewModel) { builderViewModel in
-            AssistantBuilderView(
-                viewModel: builderViewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
-            .presentationSizing(.page)
-            .navigationTransition(
-                .zoom(sourceID: Constant.builderTransitionId, in: namespace)
-            )
-        }
-        .photosPicker(
-            isPresented: $isPhotoPickerPresented,
-            selection: $selectedPhotos,
-            maxSelectionCount: maxPendingMediaAttachments,
-            matching: .any(of: [.images, .videos])
-        )
-        .onChange(of: selectedPhotos) { _, newValue in
-            handleSelectedPhotosChanged(to: newValue)
-        }
-        .fullScreenCover(isPresented: $isCameraPresented) {
-            CameraPickerView(
-                onImageCaptured: handleCameraImageCaptured,
-                onVideoCaptured: handleCameraVideoCaptured
-            )
-            .ignoresSafeArea()
-        }
-        .sheet(isPresented: $presentingAppSettings) {
-            AppSettingsView(
-                viewModel: conversationsViewModel.appSettingsViewModel,
-                profileSettingsViewModel: profileSettingsViewModel,
-                session: conversationsViewModel.session,
-                onDeleteAllData: conversationsViewModel.deleteAllData
-            )
-            .navigationTransition(
-                .zoom(sourceID: Constant.appSettingsTransitionId, in: namespace)
-            )
-            .interactiveDismissDisabled(conversationsViewModel.appSettingsViewModel.isDeleting)
-        }
-        .sheet(item: $conversationsViewModel.newConversationViewModel) { newConvoViewModel in
-            NewConversationView(
-                viewModel: newConvoViewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
-            .presentationSizing(.page)
-            .navigationTransition(
-                .zoom(sourceID: Constant.composerTransitionId, in: namespace)
-            )
+        .onChange(of: activeTab) { _, _ in
+            updateBuilderBarExpansion(forOffset: activeTabScrollOffset)
         }
     }
 
@@ -309,5 +310,75 @@ private struct BottomChromeHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+/// All the sheets / covers / pickers that the `MainTabView` shell hosts,
+/// extracted into a `ViewModifier` so the host's `body` stays within the
+/// `warn-long-expression-type-checking` budget.
+private struct MainTabSheetsModifier: ViewModifier {
+    @Bindable var conversationsViewModel: ConversationsViewModel
+    let profileSettingsViewModel: ProfileSettingsViewModel
+    @Binding var presentingAppSettings: Bool
+    @Binding var isPhotoPickerPresented: Bool
+    @Binding var isCameraPresented: Bool
+    @Binding var selectedPhotos: [PhotosPickerItem]
+    let namespace: Namespace.ID
+    let onPhotosChanged: ([PhotosPickerItem]) -> Void
+    let onCameraImageCaptured: (UIImage) -> Void
+    let onCameraVideoCaptured: (URL) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $conversationsViewModel.assistantBuilderViewModel) { builderViewModel in
+                AssistantBuilderView(
+                    viewModel: builderViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel
+                )
+                .background(.colorBackgroundSurfaceless)
+                .presentationSizing(.page)
+                .navigationTransition(
+                    .zoom(sourceID: "assistant-builder-transition-source", in: namespace)
+                )
+            }
+            .photosPicker(
+                isPresented: $isPhotoPickerPresented,
+                selection: $selectedPhotos,
+                maxSelectionCount: maxPendingMediaAttachments,
+                matching: .any(of: [.images, .videos])
+            )
+            .onChange(of: selectedPhotos) { _, newValue in
+                onPhotosChanged(newValue)
+            }
+            .fullScreenCover(isPresented: $isCameraPresented) {
+                CameraPickerView(
+                    onImageCaptured: onCameraImageCaptured,
+                    onVideoCaptured: onCameraVideoCaptured
+                )
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $presentingAppSettings) {
+                AppSettingsView(
+                    viewModel: conversationsViewModel.appSettingsViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    session: conversationsViewModel.session,
+                    onDeleteAllData: conversationsViewModel.deleteAllData
+                )
+                .navigationTransition(
+                    .zoom(sourceID: "app-settings-transition-source", in: namespace)
+                )
+                .interactiveDismissDisabled(conversationsViewModel.appSettingsViewModel.isDeleting)
+            }
+            .sheet(item: $conversationsViewModel.newConversationViewModel) { newConvoViewModel in
+                NewConversationView(
+                    viewModel: newConvoViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel
+                )
+                .background(.colorBackgroundSurfaceless)
+                .presentationSizing(.page)
+                .navigationTransition(
+                    .zoom(sourceID: "composer-transition-source", in: namespace)
+                )
+            }
     }
 }
