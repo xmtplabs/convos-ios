@@ -329,7 +329,12 @@ final class ConversationsViewModel {
                             metadata: nil
                         )
                     } catch {
+                        // Bail before flipping onboarding flags — otherwise
+                        // a failed save leaves the user in the half-onboarded
+                        // state with no DBMyProfile and prompts permanently
+                        // suppressed.
                         Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
+                        return
                     }
                     ConversationOnboardingCoordinator.markCompletedForPairedDevice()
                     // Re-bind the shared profile VM so its writer /

@@ -118,6 +118,11 @@ public actor PairingCoordinator {
         guard let initiatorInboxId else { throw PairingError.notConnected }
         let emojis = Self.emojiFingerprint(inboxA: initiatorInboxId, inboxB: joinerInboxId, pin: generatedPin)
         updateState(.waitingForEmojiConfirmation(emojis: emojis, joinerInboxId: joinerInboxId))
+        // Restart the timer for the emoji-confirmation phase — handleExpiration
+        // explicitly handles this state, but without the restart the coordinator
+        // would sit in `.waitingForEmojiConfirmation` forever if the user never
+        // taps confirm. receivedJoinRequest does the same after its transition.
+        startExpirationTimer()
     }
 
     public func confirmEmoji() async throws {

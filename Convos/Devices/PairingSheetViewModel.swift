@@ -125,25 +125,34 @@ final class PairingSheetViewModel {
     func onJoinRequestReceived(deviceName: String, joinerInboxId: String) async {
         guard let coordinator else { return }
 
-        // Sync the VM-side countdown with `PairingCoordinator.receivedJoinRequest`,
-        // which resets its internal expiration timer for the PIN/emoji
-        // confirmation window. Without this rebase, a join request arriving
-        // late in the invite window would leave the VM's countdownTask
-        // firing `.expired` while the coordinator is still mid-handshake.
-        expiresAt = Date().addingTimeInterval(timeoutInterval)
-        secondsRemaining = Int(timeoutInterval)
-
-        joinerDeviceName = deviceName
-        self.joinerInboxId = joinerInboxId
         do {
+            // Let the coordinator validate first — it rejects duplicate
+            // join requests when already mid-handshake. Only after the
+            // coordinator transitions to `.showingPin` for *this* joiner
+            // do we adopt their identity into VM state. Without this
+            // ordering, a second join request would overwrite the VM
+            // fields before validation; the coordinator would then reject
+            // the duplicate, leaving the VM pointing at the wrong inbox so
+            // cancel()/confirmEmoji() routed to the rejected joiner.
             try await coordinator.receivedJoinRequest(joinerInboxId: joinerInboxId, deviceName: deviceName)
             let state = await coordinator.currentState
-            if case let .showingPin(pin, _, expectedJoiner) = state,
-               expectedJoiner == joinerInboxId {
-                try await pairingService.sendPinToJoiner(pin, joinerInboxId: joinerInboxId)
-                flowState = .showingPin(pin: pin, deviceName: deviceName)
-                startCountdown()
+            guard case let .showingPin(pin, _, expectedJoiner) = state,
+                  expectedJoiner == joinerInboxId else {
+                return
             }
+            // Sync the VM-side countdown with the coordinator's reset of
+            // its internal expiration timer for the PIN/emoji confirmation
+            // window. Without this rebase, a join request arriving late
+            // in the invite window would leave the VM's countdownTask
+            // firing `.expired` while the coordinator is still
+            // mid-handshake.
+            expiresAt = Date().addingTimeInterval(timeoutInterval)
+            secondsRemaining = Int(timeoutInterval)
+            joinerDeviceName = deviceName
+            self.joinerInboxId = joinerInboxId
+            try await pairingService.sendPinToJoiner(pin, joinerInboxId: joinerInboxId)
+            flowState = .showingPin(pin: pin, deviceName: deviceName)
+            startCountdown()
         } catch {
             Log.error("Pairing join request failed: \(error)")
             flowState = .failed(error.localizedDescription)
