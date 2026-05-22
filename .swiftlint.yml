@@ -140,8 +140,10 @@ excluded:
   # glob patterns like `**/.build/**` in this section trigger pathological
   # O(N×M) matching against every walked file -- locally that turned a
   # 1.2-second lint into a 7-minute lint AND serialized work onto a single
-  # core. Keep this list flat. Add a new entry when a new package gets
-  # added under this repo.
+  # core. Keep this list flat. Add a new entry when a new SPM package gets
+  # added under this repo, and remember that convos-task worktrees keep
+  # their own `.build/` under each package (already covered here because
+  # they're nested inside the same package paths).
   - .build
   - .derivedData
   - .derivedData-device

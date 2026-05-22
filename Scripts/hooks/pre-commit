@@ -36,7 +36,9 @@ fi
 
 echo "📝 Checking ${#STAGED_SWIFT_FILES[@]} Swift file(s)"
 
-# Check if SwiftFormat is available
+# Format first, then lint. SwiftFormat can introduce changes that themselves
+# trigger SwiftLint violations (e.g. import reordering -> sorted_imports);
+# running format last would let those slip back into the commit.
 if command -v swiftformat &> /dev/null; then
     echo "🎨 Running SwiftFormat..."
     for file in "${STAGED_SWIFT_FILES[@]}"; do
