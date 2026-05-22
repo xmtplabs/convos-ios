@@ -44,7 +44,7 @@ public struct PairingInvite: Codable, Sendable, Equatable {
         expiresAt: Int64
     ) -> Data {
         var payload = Data()
-        payload.append("convos-pair-invite-v1\n".data(using: .utf8) ?? Data())
+        payload.append(Data("convos-pair-invite-v1\n".utf8))
         payload.append(initiatorInboxId.data(using: .utf8) ?? Data())
         payload.append(0x0A)
         payload.append(initiatorAddress.lowercased().data(using: .utf8) ?? Data())

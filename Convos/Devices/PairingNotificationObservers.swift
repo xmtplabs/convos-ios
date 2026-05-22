@@ -6,7 +6,7 @@ import Foundation
 /// `deinit` over isolated state — which Swift 6 forbids.
 final class PairingNotificationObservers: @unchecked Sendable {
     private var tokens: [any NSObjectProtocol] = []
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
 
     func add(
         for name: Notification.Name,

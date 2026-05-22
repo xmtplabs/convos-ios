@@ -57,5 +57,5 @@ public extension Notification.Name {
     /// Posted by the pairing flow after a successful pair completes on
     /// either side, so observers like `DevicesViewModel` can refresh
     /// installations (and claim any pending name).
-    static let pairingDidCompleteSuccessfully = Notification.Name("convos.pairing.didCompleteSuccessfully")
+    static let pairingDidCompleteSuccessfully: Notification.Name = Notification.Name("convos.pairing.didCompleteSuccessfully")
 }

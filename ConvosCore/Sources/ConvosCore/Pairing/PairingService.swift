@@ -3,26 +3,26 @@ import Foundation
 public extension Notification.Name {
     /// Posted by the joiner-side PairingService when the initiator's PIN
     /// arrives. `userInfo` contains `pin: String` and `initiatorInboxId: String`.
-    static let pairingDidReceivePin = Notification.Name("convos.pairing.didReceivePin")
+    static let pairingDidReceivePin: Notification.Name = Notification.Name("convos.pairing.didReceivePin")
 
     /// Posted by the joiner-side PairingService when the initiator's
     /// IdentityShare DM arrives and has been validated. The actual save
     /// happens in PairingService before this notification fires.
     /// `userInfo` contains `inboxId: String`.
-    static let pairingDidReceiveIdentityShare = Notification.Name("convos.pairing.didReceiveIdentityShare")
+    static let pairingDidReceiveIdentityShare: Notification.Name = Notification.Name("convos.pairing.didReceiveIdentityShare")
 
     /// Posted by either side when an error DM is received from the peer.
     /// `userInfo` contains `message: String`.
-    static let pairingDidReceiveError = Notification.Name("convos.pairing.didReceiveError")
+    static let pairingDidReceiveError: Notification.Name = Notification.Name("convos.pairing.didReceiveError")
 
     /// Posted by the initiator-side PairingService when a joiner sends
     /// a `PairingJoinRequest` DM. `userInfo` contains `joinerInboxId: String`,
     /// `deviceName: String`, and `slug: String`.
-    static let pairingDidReceiveJoinRequest = Notification.Name("convos.pairing.didReceiveJoinRequest")
+    static let pairingDidReceiveJoinRequest: Notification.Name = Notification.Name("convos.pairing.didReceiveJoinRequest")
 
     /// Posted by the initiator-side PairingService when the joiner echoes
     /// the PIN back. `userInfo` contains `pin: String` and `joinerInboxId: String`.
-    static let pairingDidReceivePinEcho = Notification.Name("convos.pairing.didReceivePinEcho")
+    static let pairingDidReceivePinEcho: Notification.Name = Notification.Name("convos.pairing.didReceivePinEcho")
 }
 
 /// Carried in `PairingService.pairingJoinRequestStream` for the initiator

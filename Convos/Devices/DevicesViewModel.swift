@@ -152,8 +152,10 @@ final class DevicesViewModel {
             // row labelled with the "Device <hex>" fallback forever.
             if let appGroupIdentifier {
                 let unnamedNonSelf = snapshot.installations
-                    .filter { $0.id != currentId }
-                    .first { PairedDeviceNameStore.name(forInstallationId: $0.id, appGroup: appGroupIdentifier) == nil }
+                    .first { installation in
+                        installation.id != currentId
+                            && PairedDeviceNameStore.name(forInstallationId: installation.id, appGroup: appGroupIdentifier) == nil
+                    }
                 if let target = unnamedNonSelf,
                    let pendingName = PairedDeviceNameStore.consumePending(appGroup: appGroupIdentifier) {
                     PairedDeviceNameStore.setName(pendingName, forInstallationId: target.id, appGroup: appGroupIdentifier)

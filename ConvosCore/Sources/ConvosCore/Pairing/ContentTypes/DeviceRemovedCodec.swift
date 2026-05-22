@@ -86,5 +86,5 @@ public extension Notification.Name {
     /// installation. `SessionStateMachine` observes this and transitions
     /// to `.error(DeviceReplacedError)` so the `StaleDeviceBanner`
     /// surfaces immediately — no polling required.
-    static let installationWasRevokedByPeer = Notification.Name("convos.session.installationWasRevokedByPeer")
+    static let installationWasRevokedByPeer: Notification.Name = Notification.Name("convos.session.installationWasRevokedByPeer")
 }
