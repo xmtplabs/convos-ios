@@ -53,6 +53,14 @@ struct AppIndicatorContext {
     let onTap: () -> Void
     let transitionNamespace: Namespace.ID?
     let transitionId: String?
+    /// Shared namespace for the AppIndicatorPill ↔ centered conversation
+    /// indicator matched-geometry effect when the pill is rendered
+    /// outside of `ConversationPresenter` (e.g. lifted to
+    /// `MainTabView.sharedTopBar`). The per-tab presenter uses this
+    /// for its conversation-indicator matched geometry so SwiftUI can
+    /// morph between the two even though they live in different
+    /// subtrees.
+    let sharedIndicatorNamespace: Namespace.ID?
 
     init(
         profileImage: UIImage?,
@@ -60,6 +68,7 @@ struct AppIndicatorContext {
         subtitle: AppIndicatorSubtitle = .text("Free"),
         transitionNamespace: Namespace.ID? = nil,
         transitionId: String? = nil,
+        sharedIndicatorNamespace: Namespace.ID? = nil,
         onTap: @escaping () -> Void = {}
     ) {
         self.profileImage = profileImage
@@ -67,6 +76,7 @@ struct AppIndicatorContext {
         self.subtitle = subtitle
         self.transitionNamespace = transitionNamespace
         self.transitionId = transitionId
+        self.sharedIndicatorNamespace = sharedIndicatorNamespace
         self.onTap = onTap
     }
 }

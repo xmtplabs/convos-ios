@@ -113,6 +113,46 @@ struct ConversationsView: View {
     /// `conversations` yet), swap the committed inline builder VM out
     /// for a fresh one so the user sees an interactive composer
     /// instead of a stuck post-commit gray rect.
+    /// Bridges `selectedConversationViewModel` (driven by the
+    /// `selectedConversationId` setter) to a `navigationDestination(item:)`
+    /// Binding so SwiftUI pushes / pops the `ConversationView` onto the
+    /// outer `NavigationStack` whenever the user selects / deselects a
+    /// conversation.
+    private var chatsDetailBinding: Binding<ConversationViewModel?> {
+        Binding(
+            get: { viewModel.selectedConversationViewModel },
+            set: { newValue in
+                viewModel.selectedConversationId = newValue?.conversation.id
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
+        ConversationPresenter(
+            viewModel: convoVM,
+            focusCoordinator: focusCoordinator,
+            insetsTopSafeArea: true,
+            sidebarColumnWidth: $sidebarWidth,
+            appIndicatorContext: nil,
+            sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
+            rendersConversationIndicator: false
+        ) { focusState, coordinator in
+            ConversationView(
+                viewModel: convoVM,
+                profileSettingsViewModel: profileSettingsViewModel,
+                focusState: focusState,
+                focusCoordinator: coordinator,
+                onScanInviteCode: {},
+                onDeleteConversation: {},
+                messagesTopBarTrailingItem: .share,
+                messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
+                messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
+                bottomBarContent: { EmptyView() }
+            )
+        }
+    }
+
     private func handleCommittedSheetDidDismiss() {
         guard viewModel.isEmptyCTAActive else { return }
         inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
@@ -179,70 +219,32 @@ struct ConversationsView: View {
 
     @ToolbarContentBuilder
     private var sidebarToolbar: some ToolbarContent {
-        // The top-leading slot used to hold a settings button; that surface
-        // is now owned by `AppIndicatorPill`, which renders as an overlay
-        // from `ConversationPresenter` and routes its tap to the same
-        // settings sheet via `onAppInfoTap`. Keeping the toolbar slot empty
-        // preserves the navigation-bar height the indicator overlay sits
-        // on top of.
-        ToolbarItem(placement: .topBarTrailing) {
-            composeToolbarButton(
-                viewModel: viewModel,
-                transitionNamespace: appIndicatorContext.transitionNamespace,
-                fallbackNamespace: namespace
-            )
-        }
+        // The AppIndicatorPill and compose button are now rendered once
+        // by `MainTabView.sharedTopBar` (a `safeAreaInset(.top)` custom
+        // view) so they persist across tab swaps without flickering.
+        // Empty slot kept here so the NavigationSplitView sidebar's
+        // toolbar layout slot is still allocated.
+        ToolbarItem(placement: .topBarTrailing) { EmptyView() }
     }
 
     var body: some View {
         let resolver = contactOverride
-        return ConversationPresenter(
-            viewModel: viewModel.selectedConversationViewModel,
-            focusCoordinator: focusCoordinator,
-            insetsTopSafeArea: true,
-            sidebarColumnWidth: $sidebarWidth,
-            appIndicatorContext: appIndicatorContext
-        ) { focusState, coordinator in
-            NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-                sidebarContent
-                    .onGeometryChange(for: CGSize.self) {
-                        $0.size
-                    } action: { newValue in
-                        sidebarWidth = newValue.width
-                    }
-                .background(.colorBackgroundSurfaceless)
-                .toolbarTitleDisplayMode(.inline)
-                .toolbar { sidebarToolbar }
-                .toolbar(removing: .sidebarToggle)
-                .overlay(alignment: .bottom) {
-                    if let sidebarBottomAccessory {
-                        sidebarBottomAccessory
-                    }
-                }
-            } detail: {
-                if let conversationViewModel = viewModel.selectedConversationViewModel {
-                    ConversationView(
-                        viewModel: conversationViewModel,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        focusState: focusState,
-                        focusCoordinator: coordinator,
-                        onScanInviteCode: {},
-                        onDeleteConversation: {},
-                        messagesTopBarTrailingItem: .share,
-                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite,
-                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite,
-                        bottomBarContent: { EmptyView() }
-                    )
-                } else if horizontalSizeClass != .compact {
-                    emptyConversationsViewScrollable
-                } else {
-                    EmptyView()
+        return sidebarContent
+            .onGeometryChange(for: CGSize.self) {
+                $0.size
+            } action: { newValue in
+                sidebarWidth = newValue.width
+            }
+            .background(.colorBackgroundSurfaceless)
+            .overlay(alignment: .bottom) {
+                if let sidebarBottomAccessory {
+                    sidebarBottomAccessory
                 }
             }
+            .navigationDestination(item: chatsDetailBinding) { vm in
+                pushedConversationDestination(viewModel: vm)
+            }
             .onAppear {
-                if viewModel.selectedConversationViewModel != nil {
-                    preferredColumn = .detail
-                }
                 viewModel.onAppear()
             }
             .task {
@@ -255,9 +257,6 @@ struct ConversationsView: View {
             .onDisappear {
                 viewModel.onDisappear()
             }
-            .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
-                preferredColumn = isNil ? .sidebar : .detail
-            }
             .onChange(of: presentingCommittedConversation == nil) { wasNil, isNil in
                 guard !wasNil, isNil else { return }
                 handleCommittedSheetDidDismiss()
@@ -265,14 +264,7 @@ struct ConversationsView: View {
             .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
                 guard let newState, case .exploded = newState else { return }
                 viewModel.selectedConversationId = nil
-                preferredColumn = .sidebar
             }
-            .onChange(of: preferredColumn) { _, newColumn in
-                if newColumn == .sidebar && horizontalSizeClass == .compact {
-                    viewModel.selectedConversationId = nil
-                }
-            }
-        }
         .focusable(false)
         .focusEffectDisabled()
         .memberContactOverride(resolver)

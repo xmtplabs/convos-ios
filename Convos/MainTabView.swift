@@ -27,6 +27,11 @@ struct MainTabView: View {
     /// the bottom chrome can hide when Stuff has a detail pushed, same
     /// way it hides when Chats has a conversation selected.
     @State private var stuffPushedItems: [StuffOverviewItem] = []
+    /// Hydrated VM for the topmost pushed Stuff item, so the shared
+    /// overlay can render the centered conversation indicator for it
+    /// (same morph as a chats push). Synced via `.onChange` on
+    /// `stuffPushedItems` — created lazily, cleared on pop.
+    @State private var stuffPushedConvoVM: ConversationViewModel?
     /// Drives the `AgentBuilderBar` between expanded (capsule) and
     /// collapsed (glass circle) states. Held in state with hysteresis
     /// thresholds rather than derived purely from scroll offset so that
@@ -86,6 +91,19 @@ struct MainTabView: View {
     /// to get the same source-to-sheet morph the compose button uses in
     /// `ConversationsView`.
     @Namespace private var namespace: Namespace.ID
+    /// Dedicated namespace for the AppIndicatorPill ↔ centered
+    /// conversation indicator matched-geometry effect. The shared
+    /// pill lives in `sharedTopBar` (above the TabView) while the
+    /// centered conv pill lives inside a per-tab `ConversationPresenter`,
+    /// so the morph needs a namespace that spans both surfaces.
+    @Namespace private var sharedIndicatorNamespace: Namespace.ID
+    @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
+    /// Focus state for the lifted centered conversation indicator. The
+    /// indicator's tap-to-edit-name action opens the quick editor via
+    /// this binding; it's separate from the pushed conversation view's
+    /// own focus chain (which still drives the message text field).
+    @FocusState private var liftedIndicatorFocus: MessagesViewInputFocus?
+    @State private var liftedIndicatorFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
 
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
@@ -93,6 +111,7 @@ struct MainTabView: View {
             subtitle: indicatorSubtitle,
             transitionNamespace: namespace,
             transitionId: Constant.appSettingsTransitionId,
+            sharedIndicatorNamespace: sharedIndicatorNamespace,
             onTap: { presentingAppSettings = true }
         )
     }
@@ -161,17 +180,28 @@ struct MainTabView: View {
     }
 
     var body: some View {
-        tabView
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !isConversationSelected && !isInlineBuilderActive {
-                    bottomChrome
-                        .transition(.blurReplace)
-                }
+        ZStack {
+            NavigationStack {
+                tabView
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if !isConversationSelected && !isInlineBuilderActive {
+                            bottomChrome
+                                .transition(.blurReplace)
+                        }
+                    }
+                    .toolbar { sharedToolbar }
+                    .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
             }
-            .animation(.smooth(duration: 0.35), value: isConversationSelected)
-            .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
+
+            sharedAppIndicatorOverlay
+        }
+        .animation(.smooth(duration: 0.35), value: isConversationSelected)
+        .animation(.smooth(duration: 0.35), value: isInlineBuilderActive)
             .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
                 creditBalance = newBalance
+            }
+            .onChange(of: stuffPushedItems) { _, newItems in
+                syncStuffPushedConvoVM(with: newItems)
             }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
                 userSubscription = newSubscription
@@ -274,6 +304,125 @@ struct MainTabView: View {
         .onChange(of: activeTab) { _, _ in
             updateBuilderBarExpansion(forOffset: activeTabScrollOffset)
         }
+    }
+
+    /// Shared toolbar rendered once by the outer `NavigationStack` so
+    /// the compose button persists across Chats / Stuff / Search tab
+    /// swaps with iOS 26 native nav-bar styling. The AppIndicatorPill
+    /// is *not* a toolbar item — native toolbars clip the slot height
+    /// (~44pt) and the pill is taller. It's rendered as a SwiftUI
+    /// overlay anchored at top-leading instead (see `sharedAppIndicatorOverlay`).
+    @ToolbarContentBuilder
+    private var sharedToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Compose", systemImage: "square.and.pencil") {
+                conversationsViewModel.onStartConvo()
+            }
+            .matchedTransitionSource(id: Constant.composerTransitionId, in: namespace)
+            .accessibilityIdentifier("compose-button")
+        }
+    }
+
+    /// AppIndicatorPill rendered as an overlay above the entire app
+    /// (outside the `NavigationStack`) using the exact same structure
+    /// `ConversationPresenter` uses: a `VStack` that ignores the
+    /// safe area, with the pill padded down by `safeAreaInsets.top`
+    /// so it sits flush with the leading edge of the nav-bar zone.
+    /// Native toolbars clip ToolbarItem height to ~44pt; the pill is
+    /// taller than that, so it must be an overlay rather than a
+    /// ToolbarItem. Hidden when a conversation / Stuff detail is
+    /// pushed onto the outer NavigationStack — the centered
+    /// conversation indicator inside the pushed view's
+    /// `ConversationPresenter` morphs into place via the
+    /// `sharedIndicatorNamespace` matched-geometry pair.
+    @ViewBuilder
+    private var sharedAppIndicatorOverlay: some View {
+        VStack(spacing: 0) {
+            if let activeConvoVM = activeConvoVM {
+                centeredConversationIndicator(for: activeConvoVM)
+            } else {
+                leadingAppIndicatorPill
+            }
+            Spacer()
+        }
+        .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: activeConvoVM != nil)
+        .ignoresSafeArea()
+        .allowsHitTesting(true)
+        .zIndex(1000)
+    }
+
+    @ViewBuilder
+    private var leadingAppIndicatorPill: some View {
+        HStack {
+            AppIndicatorPill(
+                profileImage: profileSettingsViewModel.profileImage,
+                subtitle: indicatorSubtitle,
+                action: { presentingAppSettings = true }
+            )
+            .hoverEffect(.lift)
+            .matchedTransitionSource(id: Constant.appSettingsTransitionId, in: namespace)
+            .matchedGeometryEffect(
+                id: AdaptiveAppIndicatorConstant.indicatorShellId,
+                in: sharedIndicatorNamespace,
+                properties: .position
+            )
+            Spacer(minLength: 0)
+        }
+        .padding(.top, safeAreaInsets.top)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .transition(.blurReplace)
+    }
+
+    @ViewBuilder
+    private func centeredConversationIndicator(for convoVM: ConversationViewModel) -> some View {
+        let pendingAgentOverride: AgentVerification? = convoVM.shouldRenderAsPendingAgent
+            ? .verified(.convos)
+            : nil
+        HStack {
+            ConversationIndicatorWrapper(
+                viewModel: convoVM,
+                placeholderOverride: nil,
+                subtitleOverride: nil,
+                allowsEditing: true,
+                focusState: $liftedIndicatorFocus,
+                focusCoordinator: liftedIndicatorFocusCoordinator
+            )
+            .environment(\.forcedAgentVerification, pendingAgentOverride)
+            .hoverEffect(.lift)
+            .matchedGeometryEffect(
+                id: AdaptiveAppIndicatorConstant.indicatorShellId,
+                in: sharedIndicatorNamespace,
+                properties: .position
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, safeAreaInsets.top)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .transition(.blurReplace)
+    }
+
+    /// Resolves the currently-displayed conversation across tabs: chats
+    /// `selectedConversationViewModel` if a chat row is selected, else
+    /// a VM hydrated for the topmost Stuff push, else nil. Drives the
+    /// shared overlay's morph between leading pill (when nil) and
+    /// centered conversation indicator (when non-nil).
+    private var activeConvoVM: ConversationViewModel? {
+        conversationsViewModel.selectedConversationViewModel ?? stuffPushedConvoVM
+    }
+
+    /// Keeps `stuffPushedConvoVM` aligned with `stuffPushedItems.last`
+    /// so the shared indicator overlay can render its centered
+    /// conversation pill for the pushed Stuff item.
+    private func syncStuffPushedConvoVM(with items: [StuffOverviewItem]) {
+        guard let item = items.last else {
+            stuffPushedConvoVM = nil
+            return
+        }
+        guard stuffPushedConvoVM?.conversation.id != item.conversation.id else { return }
+        stuffPushedConvoVM = ConversationViewModel.createSync(
+            conversation: item.conversation,
+            session: conversationsViewModel.session
+        )
     }
 
     /// The shared bottom chrome — agent builder bar stacked above the

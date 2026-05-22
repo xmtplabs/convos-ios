@@ -32,6 +32,20 @@ struct ConversationPresenter<Content: View>: View {
     /// (used by surfaces that don't want any app-level chrome, e.g. the
     /// share overlay).
     var appIndicatorContext: AppIndicatorContext?
+    /// Shared namespace for the AppIndicatorPill ↔ centered conversation
+    /// indicator matched-geometry effect when those two surfaces aren't
+    /// in the same view subtree (the pill is rendered once at the
+    /// `MainTabView` level and morphs into a per-tab presenter's
+    /// centered conv pill on selection). Falls back to the presenter's
+    /// private namespace when nil.
+    var sharedIndicatorNamespace: Namespace.ID?
+    /// When `false`, the presenter skips rendering its centered
+    /// conversation-indicator overlay. Used by hosts that lift the
+    /// indicator to a parent surface (e.g. `MainTabView` showing the
+    /// pill ↔ conv-indicator morph in a single overlay outside the
+    /// `NavigationStack`) so both branches share one SwiftUI animation
+    /// context. Focus and share-overlay handling stay active either way.
+    var rendersConversationIndicator: Bool = true
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
     @FocusState private var focusState: MessagesViewInputFocus?
@@ -119,7 +133,7 @@ struct ConversationPresenter<Content: View>: View {
 
     @ViewBuilder
     private var indicatorOverlay: some View {
-        if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
+        if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay, rendersConversationIndicator {
             conversationIndicatorView(for: viewModel)
         } else if viewModel == nil, !isShowingShareOverlay, let appContext = appIndicatorContext {
             appIndicatorView(for: appContext)
@@ -143,7 +157,7 @@ struct ConversationPresenter<Content: View>: View {
         .hoverEffect(.lift)
         .matchedGeometryEffect(
             id: AdaptiveAppIndicatorConstant.indicatorShellId,
-            in: indicatorNamespace,
+            in: sharedIndicatorNamespace ?? indicatorNamespace,
             properties: .position
         )
         .padding(.top, indicatorTopInset)
@@ -185,11 +199,11 @@ struct ConversationPresenter<Content: View>: View {
     }
 }
 
-private enum AdaptiveAppIndicatorConstant {
+enum AdaptiveAppIndicatorConstant {
     static let indicatorShellId: String = "adaptive-app-indicator-shell"
 }
 
-private struct ConversationIndicatorWrapper: View {
+struct ConversationIndicatorWrapper: View {
     @Bindable var viewModel: ConversationViewModel
     let placeholderOverride: String?
     let subtitleOverride: String?

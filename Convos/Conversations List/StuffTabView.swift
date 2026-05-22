@@ -61,31 +61,41 @@ struct StuffTabView: View {
     }
 
     var body: some View {
-        ConversationPresenter(
-            viewModel: pushedConvoVM,
-            focusCoordinator: focusCoordinator,
-            insetsTopSafeArea: true,
-            sidebarColumnWidth: $sidebarColumnWidth,
-            appIndicatorContext: appIndicatorContext
-        ) { _, _ in
-            NavigationStack(path: $pushedItems) {
-                content
-                    .toolbar { trailingToolbar }
-                    .navigationDestination(for: StuffOverviewItem.self) { item in
-                        StuffDetailView(item: item)
-                    }
+        content
+            .navigationDestination(item: stuffPushedItemBinding) { item in
+                StuffDetailView(item: item)
             }
-        }
-        .onChange(of: pushedItems) { _, newPath in
-            syncPushedConvoVM(with: newPath)
-        }
-        .onAppear {
-            focusCoordinator.horizontalSizeClass = horizontalSizeClass
-            syncPushedConvoVM(with: pushedItems)
-        }
-        .onChange(of: horizontalSizeClass) { _, newValue in
-            focusCoordinator.horizontalSizeClass = newValue
-        }
+            .onChange(of: pushedItems) { _, newPath in
+                syncPushedConvoVM(with: newPath)
+            }
+            .onAppear {
+                focusCoordinator.horizontalSizeClass = horizontalSizeClass
+                syncPushedConvoVM(with: pushedItems)
+            }
+            .onChange(of: horizontalSizeClass) { _, newValue in
+                focusCoordinator.horizontalSizeClass = newValue
+            }
+    }
+
+    /// Single-optional bridge from `pushedItems` (array used by parent
+    /// shell to track "is something pushed?") to SwiftUI's
+    /// `navigationDestination(item:)`. Push by appending; pop happens
+    /// when SwiftUI sets the binding back to nil (back swipe / button).
+    private var stuffPushedItemBinding: Binding<StuffOverviewItem?> {
+        Binding(
+            get: { pushedItems.last },
+            set: { newValue in
+                if let newValue {
+                    if pushedItems.last?.id != newValue.id {
+                        pushedItems.append(newValue)
+                    }
+                } else {
+                    if !pushedItems.isEmpty {
+                        pushedItems.removeLast()
+                    }
+                }
+            }
+        )
     }
 
     /// Keep `pushedConvoVM` in lockstep with the navigation stack so the
@@ -151,16 +161,7 @@ struct StuffTabView: View {
         .background(.colorBackgroundSurfaceless)
     }
 
-    @ToolbarContentBuilder
-    private var trailingToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            ComposeToolbarButton(
-                viewModel: conversationsViewModel,
-                transitionNamespace: appIndicatorContext.transitionNamespace,
-                fallbackNamespace: localNamespace
-            )
-        }
-    }
+    // Compose button now lives in `MainTabView.sharedTopBar`.
 
     private enum Constant {
         static let outerHorizontalPadding: CGFloat = 24.0

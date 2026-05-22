@@ -143,9 +143,17 @@ enum ExplodeDuration: CaseIterable {
 
 @MainActor
 @Observable
-class ConversationViewModel: Identifiable { // swiftlint:disable:this type_body_length
+class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this type_body_length
     nonisolated var id: String { _identifiableId }
     private let _identifiableId: String = UUID().uuidString
+
+    nonisolated static func == (lhs: ConversationViewModel, rhs: ConversationViewModel) -> Bool {
+        lhs._identifiableId == rhs._identifiableId
+    }
+
+    nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(_identifiableId)
+    }
 
     /// Set by `AgentBuilderViewModel.commit` at the moment of Make. Drives
     /// the in-stream summary cell at the top of the messages list and filters
