@@ -4,9 +4,20 @@ import SwiftUI
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    /// App-level indicator context plumbed from `MainTabView`. Carries the
+    /// shared namespace + transition id used for the pill -> app settings
+    /// sheet zoom; passed through to `ConversationPresenter` so the pill
+    /// overlay renders with the right matched-transition source.
+    let appIndicatorContext: AppIndicatorContext
+    /// Optional inset rendered above the NavigationSplitView's sidebar
+    /// — used by `MainTabView` to attach the `AssistantBuilderBar` only
+    /// to the conversation list, not the conversation detail. Putting
+    /// the inset on the sidebar means pushing a conversation detail
+    /// doesn't inherit the bar's safe-area inset, so the detail's bottom
+    /// bar can't briefly jump to "above" the (about-to-disappear) bar.
+    var sidebarBottomAccessory: AnyView?
 
     @Namespace private var namespace: Namespace.ID
-    @State private var presentingAppSettings: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -108,29 +119,22 @@ struct ConversationsView: View {
         // preserves the navigation-bar height the indicator overlay sits
         // on top of.
         ToolbarItem(placement: .topBarTrailing) {
-            Button("Compose", systemImage: "square.and.pencil") {
-                viewModel.onStartConvo()
-            }
-            .accessibilityLabel("Start a new conversation")
-            .accessibilityIdentifier("compose-button")
+            composeToolbarButton(
+                viewModel: viewModel,
+                transitionNamespace: appIndicatorContext.transitionNamespace,
+                fallbackNamespace: namespace
+            )
         }
-        .matchedTransitionSource(id: "composer-transition-source", in: namespace)
     }
 
     var body: some View {
         let nameOverride = contactNameOverride
-        let appContext = AppIndicatorContext(
-            profileImage: profileSettingsViewModel.profileImage,
-            transitionNamespace: namespace,
-            transitionId: "app-settings-transition-source",
-            onTap: { presentingAppSettings = true }
-        )
         return ConversationPresenter(
             viewModel: viewModel.selectedConversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: true,
             sidebarColumnWidth: $sidebarWidth,
-            appIndicatorContext: appContext
+            appIndicatorContext: appIndicatorContext
         ) { focusState, coordinator in
             NavigationSplitView(preferredCompactColumn: $preferredColumn) {
                 sidebarContent
@@ -143,6 +147,11 @@ struct ConversationsView: View {
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar { sidebarToolbar }
                 .toolbar(removing: .sidebarToggle)
+                .overlay(alignment: .bottom) {
+                    if let sidebarBottomAccessory {
+                        sidebarBottomAccessory
+                    }
+                }
             } detail: {
                 if let conversationViewModel = viewModel.selectedConversationViewModel {
                     ConversationView(
@@ -190,7 +199,6 @@ struct ConversationsView: View {
         .focusEffectDisabled()
         .memberNameOverride(nameOverride)
         .modifier(ConversationsSheetModifier(
-            presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
@@ -204,17 +212,10 @@ struct ConversationsView: View {
         .onOpenURL { url in
             viewModel.handleURL(url)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .contactsRequestedNewConversation)) { _ in
-            // Dismiss the contacts settings sheet stack so the user lands on
-            // the newly-routed conversation. ConversationsViewModel handles
-            // the actual conversation selection on the same notification.
-            presentingAppSettings = false
-        }
     }
 }
 
 private struct ConversationsSheetModifier: ViewModifier {
-    @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
@@ -222,40 +223,10 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $presentingAppSettings) {
-                AppSettingsView(
-                    viewModel: viewModel.appSettingsViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    session: viewModel.session,
-                    onDeleteAllData: viewModel.deleteAllData
-                )
-                .navigationTransition(
-                    .zoom(sourceID: "app-settings-transition-source", in: namespace)
-                )
-                .interactiveDismissDisabled(viewModel.appSettingsViewModel.isDeleting)
-            }
-            .sheet(item: $viewModel.newConversationViewModel) { newConvoViewModel in
-                NewConversationView(
-                    viewModel: newConvoViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "composer-transition-source", in: namespace)
-                )
-            }
-            .sheet(item: $viewModel.assistantBuilderViewModel) { builderViewModel in
-                AssistantBuilderView(
-                    viewModel: builderViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "assistant-builder-transition-source", in: namespace)
-                )
-            }
+            // The `NewConversationView` and `AssistantBuilderView` sheets
+            // are both presented from `MainTabView` so the compose
+            // button (top-trailing on every tab) and the assistant
+            // builder bar can zoom into them with a shared namespace.
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }
                 CloudConnectionGrantRequestSheet(
@@ -319,7 +290,10 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     ConversationsView(
         viewModel: viewModel,
-        profileSettingsViewModel: profileSettingsViewModel
+        profileSettingsViewModel: profileSettingsViewModel,
+        appIndicatorContext: AppIndicatorContext(
+            profileImage: profileSettingsViewModel.profileImage
+        )
     )
 }
 
@@ -329,6 +303,9 @@ private struct ConversationsSheetModifier: ViewModifier {
     let profileSettingsViewModel = ProfileSettingsViewModel.shared
     ConversationsView(
         viewModel: viewModel,
-        profileSettingsViewModel: profileSettingsViewModel
+        profileSettingsViewModel: profileSettingsViewModel,
+        appIndicatorContext: AppIndicatorContext(
+            profileImage: profileSettingsViewModel.profileImage
+        )
     )
 }
