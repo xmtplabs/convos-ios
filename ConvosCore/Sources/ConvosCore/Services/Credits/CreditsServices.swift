@@ -47,7 +47,19 @@ public enum CreditsServices {
         if let stored = UserDefaults.standard.object(forKey: Constant.useRealBackendKey) as? Bool {
             return stored
         }
-        return environment.buildEnvironment == .distribution
+        // The previous `buildEnvironment == .distribution` check relied on
+        // `hasEmbeddedMobileProvision()` returning `false`, but TestFlight
+        // builds also ship `embedded.mobileprovision` — so they were being
+        // classified as `.development` and silently falling back to the
+        // mock. Use the build configuration instead: Debug builds are local
+        // engineering runs (default to mock so HTTP isn't hit during
+        // iteration); Release builds are TestFlight / App Store / Ad-Hoc
+        // (default to the real backend so testers see production behavior).
+        #if DEBUG
+        return false
+        #else
+        return true
+        #endif
     }
 
     public static func setUseRealBackend(_ value: Bool) {
