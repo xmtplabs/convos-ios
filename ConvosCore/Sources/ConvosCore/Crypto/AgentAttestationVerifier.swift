@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import os
 
-public enum AssistantAttestationVerifier {
+public enum AgentAttestationVerifier {
     /// Memoizes negative verdicts keyed by inputs that uniquely determine
     /// the result. Staleness fails monotonically (age only grows for a
     /// fixed `attestationTimestamp`) and signature verification is

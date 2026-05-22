@@ -33,17 +33,17 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
-    var onRetryAssistantJoin: (() -> Void)?
+    var onRetryAgentJoin: (() -> Void)?
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAssistant: (() -> Void)?
+    var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var memberContactOverride: ((String) -> Contact?)?
-    var hasAssistant: Bool = false
-    var isAssistantJoinPending: Bool = false
-    var isAssistantEnabled: Bool = false
+    var hasAgent: Bool = false
+    var isAgentJoinPending: Bool = false
+    var isAgentEnabled: Bool = false
     var headerMode: MessagesHeaderMode = .standard
-    var assistantBuilderTransitionNamespace: Namespace.ID?
+    var agentBuilderTransitionNamespace: Namespace.ID?
     var hidesInviteCard: Bool = false
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
@@ -127,8 +127,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 self?.onAgentOutOfCredits?()
             },
             creditsDepleted: creditsDepleted,
-            onRetryAssistantJoin: { [weak self] in
-                self?.onRetryAssistantJoin?()
+            onRetryAgentJoin: { [weak self] in
+                self?.onRetryAgentJoin?()
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
@@ -151,19 +151,19 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onConvoCode: { [weak self] in
                 self?.onConvoCode?()
             },
-            onInviteAssistant: { [weak self] in
-                self?.onInviteAssistant?()
+            onInviteAgent: { [weak self] in
+                self?.onInviteAgent?()
             },
             onRetryTranscript: { [weak self] item in
                 self?.onRetryTranscript?(item)
             },
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
-            hasAssistant: hasAssistant,
-            isAssistantJoinPending: isAssistantJoinPending,
-            isAssistantEnabled: isAssistantEnabled,
+            hasAgent: hasAgent,
+            isAgentJoinPending: isAgentJoinPending,
+            isAgentEnabled: isAgentEnabled,
             headerMode: headerMode,
             hidesInviteCard: hidesInviteCard,
-            assistantBuilderTransitionNamespace: assistantBuilderTransitionNamespace,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in
                 self?.memberContactOverride?(inboxId)
             }

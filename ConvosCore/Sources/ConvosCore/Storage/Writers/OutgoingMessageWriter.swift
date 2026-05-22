@@ -8,8 +8,8 @@ import UniformTypeIdentifiers
 /// One entry in a `MultiRemoteAttachment` bundle. Eager photo/video variants
 /// reference an upload that was already kicked off by the composer; voice
 /// memo and file variants point at a local URL the writer encrypts + uploads
-/// at send time. Used by the assistant builder so the whole batch — text +
-/// photos + videos + voice memo + file — lands at the assistant as a single
+/// at send time. Used by the agent builder so the whole batch — text +
+/// photos + videos + voice memo + file — lands at the agent as a single
 /// delivery rather than a stream of independent messages.
 public enum MultiAttachmentBundleItem: Sendable {
     case eagerPhoto(trackingKey: String)
@@ -23,7 +23,7 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     func send(text: String) async throws
     func send(text: String, afterPhoto trackingKey: String?) async throws
     /// Variant that accepts a caller-supplied `clientMessageId`. The
-    /// Assistant Builder uses this so it can persist a summary whose
+    /// Agent Builder uses this so it can persist a summary whose
     /// `bundledMessageIds` references the row before the writer ever
     /// touches the network — the filter then catches the row the instant
     /// it lands in the DB, with no `sentAt` race.
@@ -64,8 +64,8 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// single-shot continuation `processEagerPhoto` consumes when the queue
     /// finally flushes the send — multiple callers can wait concurrently
     /// without interfering with each other or with the send pipeline. Used by
-    /// the assistant builder to gate its commit-time sends on every media
-    /// upload finishing first, so the assistant receives the whole batch as a
+    /// the agent builder to gate its commit-time sends on every media
+    /// upload finishing first, so the agent receives the whole batch as a
     /// single delivery burst rather than trickling messages over the duration
     /// of the slowest upload.
     func awaitEagerUpload(trackingKey: String) async throws
@@ -78,13 +78,13 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// `xmtp.org/multiRemoteStaticAttachment:1.0` and one local DB row whose
     /// `attachmentUrls` holds an ordered JSON array of `StoredRemoteAttachment`
     /// — mirroring the shape `handleMultiRemoteAttachmentContent` produces on
-    /// the receive path. The assistant builder uses this so the whole media
+    /// the receive path. The agent builder uses this so the whole media
     /// bundle lands at the agent in a single delivery.
     func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String
 
     /// Variant that accepts a caller-supplied `clientMessageId`. See the
     /// matching `send(text:clientMessageId:)` overload — same motivation
-    /// for the Assistant Builder commit path.
+    /// for the Agent Builder commit path.
     func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String
 
     // MARK: - Replies
@@ -2296,7 +2296,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         if message.contentType == .attachments {
-            // Multi-remote bundles (Assistant Builder) store every item as
+            // Multi-remote bundles (Agent Builder) store every item as
             // its own entry in `attachmentUrls`; `retryFailedPhoto` only
             // knows how to re-queue a single attachment, so retrying a
             // bundle would silently re-send just the first item. Bail out

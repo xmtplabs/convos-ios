@@ -63,7 +63,7 @@ private struct ReadByRowView: View {
 
     let members: [ConversationMember] = [
         .mock(name: "Alice"),
-        .mock(name: "Convos Assistant", isAgent: true, agentVerification: .verified(.convos)),
+        .mock(name: "Convos Agent", isAgent: true, agentVerification: .verified(.convos)),
         .mock(name: "Bob"),
         .mock(name: "OAuth Agent", isAgent: true, agentVerification: .verified(.userOAuth))
     ]

@@ -4,7 +4,7 @@ import SwiftUI
 /// Mode discriminator for [[AdaptiveAppIndicator]]. Tells the indicator
 /// whether to render the leading app-info pill (no conversation selected)
 /// or the centered conversation pill (a conversation is in focus, including
-/// draft states inside the AssistantBuilder, NewConversationView, and the
+/// draft states inside the AgentBuilder, NewConversationView, and the
 /// ContactsPicker which all wrap the indicator around a draft VM).
 enum AdaptiveAppIndicatorMode {
     /// No conversation in focus. Renders [[AppIndicatorPill]] at the leading

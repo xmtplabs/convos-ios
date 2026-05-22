@@ -12,8 +12,8 @@ enum StuffFilter: String, CaseIterable, Identifiable {
 }
 
 enum StuffItem: Identifiable {
-    case file(AssistantFile)
-    case link(AssistantLink)
+    case file(AgentFile)
+    case link(AgentLink)
 
     var id: String {
         switch self {
@@ -32,11 +32,11 @@ enum StuffItem: Identifiable {
 
 @MainActor
 @Observable
-class AssistantFilesLinksViewModel {
+class AgentFilesLinksViewModel {
     var filter: StuffFilter = .all
     var searchText: String = ""
-    var files: [AssistantFile] = []
-    var links: [AssistantLink] = []
+    var files: [AgentFile] = []
+    var links: [AgentLink] = []
     var isLoading: Bool = true
     var fileOpenError: String?
 
@@ -46,7 +46,7 @@ class AssistantFilesLinksViewModel {
     /// view-facing state, and resubscribes. Safe to call repeatedly — the view
     /// drives this from `.onChange(of: conversationId)` so the same view model
     /// instance follows the active conversation.
-    func observe(_ repository: AssistantFilesLinksRepository) {
+    func observe(_ repository: AgentFilesLinksRepository) {
         cancellables.removeAll()
         files = []
         links = []
@@ -110,7 +110,7 @@ class AssistantFilesLinksViewModel {
         searchText = ""
     }
 
-    private func matches(file: AssistantFile, query: String) -> Bool {
+    private func matches(file: AgentFile, query: String) -> Bool {
         guard !query.isEmpty else { return true }
         if file.displayName.lowercased().contains(query) {
             return true
@@ -122,7 +122,7 @@ class AssistantFilesLinksViewModel {
         return false
     }
 
-    private func matches(link: AssistantLink, query: String) -> Bool {
+    private func matches(link: AgentLink, query: String) -> Bool {
         guard !query.isEmpty else { return true }
         return link.displayTitle.lowercased().contains(query)
             || link.url.lowercased().contains(query)
@@ -137,15 +137,15 @@ struct AttachmentPreviewPresentation: Identifiable {
     let sentAt: Date
 }
 
-struct AssistantFilesLinksView: View {
+struct AgentFilesLinksView: View {
     let conversationId: String
-    let repository: AssistantFilesLinksRepository
+    let repository: AgentFilesLinksRepository
     let members: [ConversationMember]
     var usesInlineHeader: Bool = false
     var profileSheetContent: ((ConversationMember) -> AnyView)?
     var focusBinding: FocusState<MessagesViewInputFocus?>.Binding?
 
-    @State private var viewModel: AssistantFilesLinksViewModel = .init()
+    @State private var viewModel: AgentFilesLinksViewModel = .init()
     @State private var presentingPreview: AttachmentPreviewPresentation?
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
@@ -275,7 +275,7 @@ struct AssistantFilesLinksView: View {
         }
     }
 
-    private func fileRow(_ file: AssistantFile) -> some View {
+    private func fileRow(_ file: AgentFile) -> some View {
         FileRow(
             file: file,
             subtitle: relativeDate(for: file.date),
@@ -283,7 +283,7 @@ struct AssistantFilesLinksView: View {
         )
     }
 
-    private func openFile(_ file: AssistantFile) {
+    private func openFile(_ file: AgentFile) {
         Task {
             do {
                 let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
@@ -306,7 +306,7 @@ struct AssistantFilesLinksView: View {
                     )
                 }
             } catch {
-                Log.error("Failed to open assistant file: \(error)")
+                Log.error("Failed to open agent file: \(error)")
                 await MainActor.run {
                     viewModel.fileOpenError = "This file is no longer available on this device."
                 }
@@ -314,7 +314,7 @@ struct AssistantFilesLinksView: View {
         }
     }
 
-    private func linkRow(_ link: AssistantLink) -> some View {
+    private func linkRow(_ link: AgentLink) -> some View {
         let action = {
             if let url = link.resolvedURL {
                 InAppBrowser.open(url)
@@ -332,7 +332,7 @@ struct AssistantFilesLinksView: View {
     }
 
     @ViewBuilder
-    private func linkThumbnail(_ link: AssistantLink) -> some View {
+    private func linkThumbnail(_ link: AgentLink) -> some View {
         if let imageURL = link.imageURL, let url = URL(string: imageURL) {
             AsyncImage(url: url) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
@@ -361,7 +361,7 @@ struct AssistantFilesLinksView: View {
 }
 
 private struct FileRow: View {
-    let file: AssistantFile
+    let file: AgentFile
     let subtitle: String
     let onTap: () -> Void
 

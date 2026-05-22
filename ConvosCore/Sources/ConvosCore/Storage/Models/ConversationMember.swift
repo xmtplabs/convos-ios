@@ -45,8 +45,8 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
     }
 
-    public var isVerifiedAssistant: Bool {
-        agentVerification.isConvosAssistant
+    public var isVerifiedConvosAgent: Bool {
+        agentVerification.isConvosAgent
     }
 
     public var isVerifiedAgent: Bool {

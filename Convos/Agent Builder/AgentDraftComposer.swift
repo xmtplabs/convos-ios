@@ -5,20 +5,20 @@ import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let maxAssistantFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
+private let maxAgentFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
 
-/// Shared identifier used by `AssistantDraftComposer`'s glass rect and the
-/// in-stream `AssistantBuilderSummaryView` so they can match-geometry into
+/// Shared identifier used by `AgentDraftComposer`'s glass rect and the
+/// in-stream `AgentBuilderSummaryView` so they can match-geometry into
 /// each other on commit. Kept in one place to avoid stringly-typed drift.
-enum AssistantBuilderTransition {
-    static let glassEffectId: String = "assistantBuilderCard"
+enum AgentBuilderTransition {
+    static let glassEffectId: String = "agentBuilderCard"
 }
 
-struct AssistantDraftComposer: View {
-    @Bindable var viewModel: AssistantBuilderViewModel
+struct AgentDraftComposer: View {
+    @Bindable var viewModel: AgentBuilderViewModel
     var focusState: FocusState<MessagesViewInputFocus?>.Binding
-    /// Namespace owned by `AssistantBuilderView`; the composer's outer glass
-    /// rect applies `glassEffectID("assistantBuilderCard", in:)` so it can
+    /// Namespace owned by `AgentBuilderView`; the composer's outer glass
+    /// rect applies `glassEffectID("agentBuilderCard", in:)` so it can
     /// morph into the in-stream summary cell on Make.
     let transitionNamespace: Namespace.ID
     let onMakeTap: () -> Void
@@ -54,13 +54,13 @@ struct AssistantDraftComposer: View {
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
-        .glassEffectID(AssistantBuilderTransition.glassEffectId, in: transitionNamespace)
+        .glassEffectID(AgentBuilderTransition.glassEffectId, in: transitionNamespace)
         .glassEffectTransition(.matchedGeometry)
         .clipShape(.rect(cornerRadius: 24))
         .contentShape(RoundedRectangle(cornerRadius: 24))
         .onTapGesture {
             if !viewModel.isRecordingVoiceMemo {
-                focusState.wrappedValue = .assistantBuilder
+                focusState.wrappedValue = .agentBuilder
             }
         }
         .opacity(viewModel.isCommitting ? 0 : 1)
@@ -95,8 +95,8 @@ struct AssistantDraftComposer: View {
         }
         .selfSizingSheet(
             isPresented: $isConnectionsSheetPresented,
-            onDismiss: { focusState.wrappedValue = .assistantBuilder },
-            content: { AssistantBuilderConnectionsSheet(viewModel: viewModel) }
+            onDismiss: { focusState.wrappedValue = .agentBuilder },
+            content: { AgentBuilderConnectionsSheet(viewModel: viewModel) }
         )
     }
 
@@ -106,12 +106,12 @@ struct AssistantDraftComposer: View {
             onImageCaptured: { image in
                 viewModel.addPhotoAttachment(image)
                 isCameraPresented = false
-                focusState.wrappedValue = .assistantBuilder
+                focusState.wrappedValue = .agentBuilder
             },
             onVideoCaptured: { url in
                 viewModel.addVideoAttachment(url: url)
                 isCameraPresented = false
-                focusState.wrappedValue = .assistantBuilder
+                focusState.wrappedValue = .agentBuilder
             }
         )
         .ignoresSafeArea()
@@ -129,9 +129,9 @@ struct AssistantDraftComposer: View {
             for url in toStage {
                 stageFile(at: url)
             }
-            focusState.wrappedValue = .assistantBuilder
+            focusState.wrappedValue = .agentBuilder
         case .failure(let error):
-            Log.error("Assistant builder file picker error: \(error.localizedDescription)")
+            Log.error("Agent builder file picker error: \(error.localizedDescription)")
         }
     }
 
@@ -145,10 +145,10 @@ struct AssistantDraftComposer: View {
         let attributes = try? FileManager.default.attributesOfItem(atPath: sourceURL.path)
         let fileSize: Int = (attributes?[.size] as? NSNumber)?.intValue ?? 0
         guard fileSize > 0 else {
-            Log.error("Assistant builder file picker: failed to read size for \(sourceURL.lastPathComponent)")
+            Log.error("Agent builder file picker: failed to read size for \(sourceURL.lastPathComponent)")
             return
         }
-        guard fileSize <= maxAssistantFileAttachmentSizeBytes else {
+        guard fileSize <= maxAgentFileAttachmentSizeBytes else {
             showFileTooLargeAlert = true
             return
         }
@@ -157,7 +157,7 @@ struct AssistantDraftComposer: View {
         do {
             try FileManager.default.copyItem(at: sourceURL, to: tempURL)
         } catch {
-            Log.error("Assistant builder file picker: failed to copy file to temp: \(error.localizedDescription)")
+            Log.error("Agent builder file picker: failed to copy file to temp: \(error.localizedDescription)")
             return
         }
         let mimeType: String = UTType(filenameExtension: sourceURL.pathExtension)?.preferredMIMEType
@@ -175,7 +175,7 @@ struct AssistantDraftComposer: View {
         let items = newValue
         selectedPhotos = []
         isPhotoPickerPresented = false
-        focusState.wrappedValue = .assistantBuilder
+        focusState.wrappedValue = .agentBuilder
         Task {
             for item in items {
                 if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
@@ -224,13 +224,13 @@ struct AssistantDraftComposer: View {
             text: $viewModel.composerText,
             axis: .vertical
         )
-        .focused(focusState, equals: .assistantBuilder)
+        .focused(focusState, equals: .agentBuilder)
         .font(.body)
         .foregroundStyle(.colorTextPrimary)
         .tint(.colorTextPrimary)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityLabel("Assistant prompt")
-        .accessibilityIdentifier("assistant-composer-text-field")
+        .accessibilityLabel("Agent prompt")
+        .accessibilityIdentifier("agent-composer-text-field")
     }
 
     private var attachmentsRow: some View {
@@ -281,7 +281,7 @@ struct AssistantDraftComposer: View {
                 isPhotoPickerPresented: $isPhotoPickerPresented,
                 isCameraPresented: $isCameraPresented,
                 onVoiceMemoTap: {
-                    let composerWasFocused = focusState.wrappedValue == .assistantBuilder
+                    let composerWasFocused = focusState.wrappedValue == .agentBuilder
                     focusState.wrappedValue = nil
                     viewModel.startVoiceMemoRecording(restoreComposerFocusAfter: composerWasFocused)
                 },
@@ -337,8 +337,8 @@ struct AssistantDraftComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(!makeButtonEnabled)
-        .accessibilityLabel("Make assistant")
-        .accessibilityIdentifier("assistant-make-button")
+        .accessibilityLabel("Make agent")
+        .accessibilityIdentifier("agent-make-button")
     }
 }
 
@@ -435,14 +435,14 @@ struct PendingMediaAttachmentChip: View {
             }
         }
         .accessibilityLabel(isVideo ? "Video attachment preview" : "Photo attachment preview")
-        .accessibilityIdentifier("assistant-attachment-preview")
+        .accessibilityIdentifier("agent-attachment-preview")
     }
 
     @ViewBuilder
     private func fileChip(file: PendingFileAttachment) -> some View {
         FileAttachmentChipPreview(file: file, size: chipSize)
             .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("assistant-file-attachment-preview")
+            .accessibilityIdentifier("agent-file-attachment-preview")
     }
 
     private var removeButton: some View {
@@ -460,12 +460,12 @@ struct PendingMediaAttachmentChip: View {
         .padding(.top, DesignConstants.Spacing.step2x)
         .padding(.trailing, DesignConstants.Spacing.step2x)
         .accessibilityLabel("Remove attachment")
-        .accessibilityIdentifier("remove-assistant-attachment-button")
+        .accessibilityIdentifier("remove-agent-attachment-button")
     }
 }
 
 private struct ConnectionAttachmentChip: View {
-    let connection: AssistantBuilderConnection
+    let connection: AgentBuilderConnection
     let onRemove: () -> Void
 
     @State private var isPoofing: Bool = false
@@ -570,12 +570,12 @@ private struct FileAttachmentChipPreview: View {
 }
 
 #Preview {
-    @Previewable @State var viewModel: AssistantBuilderViewModel = .init(
+    @Previewable @State var viewModel: AgentBuilderViewModel = .init(
         session: ConvosClient.mock().session
     )
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @Namespace var namespace: Namespace.ID
-    AssistantDraftComposer(
+    AgentDraftComposer(
         viewModel: viewModel,
         focusState: $focusState,
         transitionNamespace: namespace,

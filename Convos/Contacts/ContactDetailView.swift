@@ -21,13 +21,13 @@ import SwiftUI
 //   - Subtitle - "Invited X ago by Y" in scoped mode when the member has a
 //     `joinedAt`; otherwise "Added X ago" from `contact.addedAt`
 //   - Pill below the subtitle - "You" for the current user's own card,
-//     the agent role label ("Assistant", "Verified by ...") for verified
+//     the agent role label ("Agent", "Verified by ...") for verified
 //     agents, otherwise nothing
 //   - Chat - hidden for the current user; disabled for verified agents
 //     (no DMs yet); calls `contactsWriter.upsertContact(...)` before
 //     opening the picker so a synthetic / non-yet-stored contact is
 //     promoted to a real one
-//   - Get skills / Learn about assistants - verified agents only, inline
+//   - Get skills / Learn about agents - verified agents only, inline
 //     in the action stack after Chat
 //   - Remove - scoped mode only, when the viewer is an admin
 //     (`canRemoveMembers`) and the tapped member is not the current user
@@ -451,7 +451,7 @@ private struct ContactDetailHeader: View {
 }
 
 /// Small capsule pill rendered below the subtitle. Used for the
-/// verified-agent role label ("Assistant", "Verified by ...") and for
+/// verified-agent role label ("Agent", "Verified by ...") and for
 /// the "You" indicator on the current user's own card - same shape so
 /// the spacing around the pill mirrors the surrounding label spacing
 /// regardless of which one is showing.
@@ -580,13 +580,13 @@ private struct ContactDetailActions: View {
             action: { openURL(AgentLinks.getSkillsURL) }
         )
         ContactDetailActionRow(
-            label: "Learn about assistants",
+            label: "Learn about agents",
             footer: "Capabilities, privacy and security",
             color: .colorTextPrimary,
             isDisabled: false,
-            accessibilityLabel: "Learn about assistants",
-            accessibilityIdentifier: "contact-detail-learn-about-assistants",
-            action: { openURL(AgentLinks.learnAboutAssistantsURL) }
+            accessibilityLabel: "Learn about agents",
+            accessibilityIdentifier: "contact-detail-learn-about-agents",
+            action: { openURL(AgentLinks.learnAboutAgentsURL) }
         )
     }
 
@@ -855,7 +855,7 @@ extension Contact {
     NavigationStack {
         ContactDetailView(
             contact: .mock(
-                displayName: "Convos Assistant",
+                displayName: "Convos Agent",
                 agentVerification: .verified(.convos)
             ),
             contactsWriter: MockContactsWriter(),

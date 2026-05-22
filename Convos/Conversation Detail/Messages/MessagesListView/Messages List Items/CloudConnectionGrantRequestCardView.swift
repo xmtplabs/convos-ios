@@ -17,7 +17,7 @@ struct CloudConnectionGrantRequestCardView: View {
     }
 
     private var isTrustedSender: Bool {
-        sender.isVerifiedAssistant && request.requestedByInboxId == sender.profile.inboxId
+        sender.isVerifiedConvosAgent && request.requestedByInboxId == sender.profile.inboxId
     }
 
     var body: some View {
@@ -74,7 +74,7 @@ struct CloudConnectionGrantRequestCardView: View {
             }
             .buttonStyle(.plain)
         } else {
-            Text("This request was not sent by a verified assistant.")
+            Text("This request was not sent by a verified agent.")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

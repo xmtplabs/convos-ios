@@ -249,9 +249,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
             ]
         )
 
-    nonisolated(unsafe) static let latestAssistantJoinRequestCTE: CommonTableExpression<DBAssistantJoinRequest> =
-        CommonTableExpression<DBAssistantJoinRequest>(
-            named: "conversationAssistantJoinRequest",
+    nonisolated(unsafe) static let latestAgentJoinRequestCTE: CommonTableExpression<DBAgentJoinRequest> =
+        CommonTableExpression<DBAgentJoinRequest>(
+            named: "conversationAgentJoinRequest",
             sql: """
                 SELECT m.conversationId, m.text AS status, m.date
                 FROM message m

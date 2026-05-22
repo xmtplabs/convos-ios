@@ -70,7 +70,7 @@ struct PendingVideoAttachment: Identifiable, Equatable {
     }
 }
 
-/// Snapshot of a recorded voice memo handed from the assistant builder to
+/// Snapshot of a recorded voice memo handed from the agent builder to
 /// `sendBuilderBundle`. Carries the source URL, duration, and waveform
 /// levels so the builder can release its recorder state before the bundle
 /// finishes uploading.
@@ -144,16 +144,16 @@ enum ExplodeDuration: CaseIterable {
 @MainActor
 @Observable
 class ConversationViewModel { // swiftlint:disable:this type_body_length
-    /// Set by `AssistantBuilderViewModel.commit` at the moment of Make. Drives
+    /// Set by `AgentBuilderViewModel.commit` at the moment of Make. Drives
     /// the in-stream summary cell at the top of the messages list and filters
     /// out any messages with `sentAt < summary.cutoffDate` (so the user's
-    /// prompt messages and any pre-Make assistant chatter don't double-up
-    /// alongside the card). Persisted via `AssistantBuilderSummaryWriter`
-    /// and rehydrated on init via `AssistantBuilderSummaryRepository` so the
+    /// prompt messages and any pre-Make agent chatter don't double-up
+    /// alongside the card). Persisted via `AgentBuilderSummaryWriter`
+    /// and rehydrated on init via `AgentBuilderSummaryRepository` so the
     /// card survives quitting the app or navigating away and back.
-    var assistantBuilderSummary: AssistantBuilderSummary? {
+    var agentBuilderSummary: AgentBuilderSummary? {
         didSet {
-            messagesListRepository.assistantBuilderSummary = assistantBuilderSummary
+            messagesListRepository.agentBuilderSummary = agentBuilderSummary
         }
     }
 
@@ -233,9 +233,9 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     private var observedThinkingSessionsConversationId: String?
     @ObservationIgnored
-    private var assistantBuilderSummaryCancellable: AnyCancellable?
+    private var agentBuilderSummaryCancellable: AnyCancellable?
     @ObservationIgnored
-    private var observedAssistantBuilderSummaryConversationId: String?
+    private var observedAgentBuilderSummaryConversationId: String?
     @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
@@ -255,7 +255,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private(set) var conversation: Conversation {
         didSet {
             messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
-            syncVerifiedAssistantToRepo()
+            syncVerifiedAgentToRepo()
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
                 // Keep the draft include-info override until remote metadata changes propagate.
@@ -272,7 +272,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
 
-    /// Set to `false` by the Assistant Builder right before `Make` is tapped
+    /// Set to `false` by the Agent Builder right before `Make` is tapped
     /// so the contact card stays hidden while the chat settles in, then
     /// flipped back to `true` after a short delay so the card slides in with
     /// presence. Defaults to `true` — existing conversations opened from the
@@ -280,16 +280,16 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var allowsContactCard: Bool = true {
         didSet {
             guard oldValue != allowsContactCard else { return }
-            syncVerifiedAssistantToRepo()
+            syncVerifiedAgentToRepo()
         }
     }
 
-    /// Forwards the verified Convos assistant from the conversation members
+    /// Forwards the verified Convos agent from the conversation members
     /// to the messages-list repository — gated by `allowsContactCard` so the
     /// caller can defer the card without changing the underlying conversation.
-    private func syncVerifiedAssistantToRepo() {
-        let assistant: ConversationMember? = conversation.members.first(where: \.isVerifiedAssistant)
-        messagesListRepository.verifiedAssistant = allowsContactCard ? assistant : nil
+    private func syncVerifiedAgentToRepo() {
+        let agent: ConversationMember? = conversation.members.first(where: \.isVerifiedConvosAgent)
+        messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
     }
 
     private func applyPendingDraftEdits() {
@@ -318,24 +318,24 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
     var untitledConversationPlaceholder: String {
-        if shouldRenderAsPendingAssistant {
-            return "Assistant"
+        if shouldRenderAsPendingAgent {
+            return "Agent"
         }
         return conversation.computedDisplayName(memberNameOverride: contactNameLookup)
     }
 
-    /// `true` while the conversation is in (or was created via) the assistant
-    /// builder UX and no verified assistant has joined yet. Surfaces a
-    /// stand-in identity for the indicator — "Assistant" placeholder name
+    /// `true` while the conversation is in (or was created via) the agent
+    /// builder UX and no verified agent has joined yet. Surfaces a
+    /// stand-in identity for the indicator — "Agent" placeholder name
     /// and the Convos-verified monogram avatar via `forcedAgentVerification`
     /// — so the chat header doesn't fall back to the generic "New Convo"
     /// label + emoji circle while the agent is still provisioning. Flips
-    /// false the moment the verified assistant actually appears in
+    /// false the moment the verified agent actually appears in
     /// `conversation.members`, at which point the regular member-driven
     /// avatar / display name path takes over naturally.
-    var shouldRenderAsPendingAssistant: Bool {
-        guard isInAssistantBuilderFlow || assistantBuilderSummary != nil else { return false }
-        return !conversation.members.contains(where: \.isVerifiedAssistant)
+    var shouldRenderAsPendingAgent: Bool {
+        guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
+        return !conversation.members.contains(where: \.isVerifiedConvosAgent)
     }
 
     /// Inbox-to-contact-name lookup used for auto-generated unnamed-group
@@ -351,7 +351,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         if let expiresAt = scheduledExplosionDate {
             return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
-        if shouldRenderAsPendingAssistant {
+        if shouldRenderAsPendingAgent {
             return "Joining..."
         }
         if isWaitingForInviteAcceptance {
@@ -431,7 +431,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var typingThrottleDate: Date?
 
     var pendingMediaAttachments: [PendingMediaAttachment] = []
-    /// True while the Assistant Builder commit is mid-flight — i.e. between
+    /// True while the Agent Builder commit is mid-flight — i.e. between
     /// `Make` being tapped and `sendBuilderBundle` finishing. The composer
     /// hides staged chips while this is set so the user doesn't see the
     /// pre-Make staging state lingering during the upload/publish window.
@@ -439,19 +439,19 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     /// window so the per-attachment eager-upload start tasks can still
     /// write back their `eagerUploadKey` instead of cancelling.
     var isAwaitingBuilderBundleSend: Bool = false
-    /// True while the user is interacting with the Assistant Builder for
+    /// True while the user is interacting with the Agent Builder for
     /// this conversation — set on builder appear, cleared on disappear (or
     /// when the agent actually joins). Used by
-    /// `ConversationViewModel+ThinkingIndicators` to route assistant
+    /// `ConversationViewModel+ThinkingIndicators` to route agent
     /// thinking sessions under the contact card instead of the inline
     /// footer, and forwarded to the messages-list repo so the processor
-    /// can suppress the legacy "Assistant joined" update row for the
+    /// can suppress the legacy "Agent joined" update row for the
     /// duration of the builder UX. Independent of whether the conversation
     /// was created via the builder — the same flow will run when adding
     /// an agent to an existing conversation.
-    var isInAssistantBuilderFlow: Bool = false {
+    var isInAgentBuilderFlow: Bool = false {
         didSet {
-            messagesListRepository.isInAssistantBuilderFlow = isInAssistantBuilderFlow
+            messagesListRepository.isInAgentBuilderFlow = isInAgentBuilderFlow
         }
     }
     @ObservationIgnored
@@ -560,7 +560,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
-    var presentingAssistantConfirmation: Bool = false
+    var presentingAgentConfirmation: Bool = false
     var presentingExplodedInviteInfo: Bool = false
     /// Drives the upsell sheet shown when the user taps the
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
@@ -572,16 +572,16 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
     var activeToast: IndicatorToastStyle?
 
-    var assistantJoinForceErrorCode: Int?
+    var agentJoinForceErrorCode: Int?
 
-    var isAssistantJoinPending: Bool {
-        assistantJoinTask != nil || conversation.assistantJoinStatus == .pending
+    var isAgentJoinPending: Bool {
+        agentJoinTask != nil || conversation.agentJoinStatus == .pending
     }
 
     @ObservationIgnored
-    private var assistantJoinTask: Task<Void, Never>?
+    private var agentJoinTask: Task<Void, Never>?
     @ObservationIgnored
-    private var assistantJoinTaskId: String?
+    private var agentJoinTaskId: String?
 
     var autoRevealPhotos: Bool = false
     var sendReadReceipts: Bool = true
@@ -593,10 +593,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownAssistantConfirmationKey: String = "hasShownAssistantConfirmation"
-    private var hasShownAssistantConfirmation: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownAssistantConfirmationKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownAssistantConfirmationKey) }
+    private static let hasShownAgentConfirmationKey: String = "hasShownAgentConfirmation"
+    private var hasShownAgentConfirmation: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownAgentConfirmationKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownAgentConfirmationKey) }
     }
 
     private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
@@ -617,7 +617,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownAssistantConfirmationKey)
+        defaults.removeObject(forKey: hasShownAgentConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
@@ -630,13 +630,13 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         presentingPhotosInfoSheet = true
     }
 
-    func onRequestAssistantJoin() {
-        guard !hasShownAssistantConfirmation else {
-            requestAssistantJoin()
+    func onRequestAgentJoin() {
+        guard !hasShownAgentConfirmation else {
+            requestAgentJoin()
             return
         }
-        hasShownAssistantConfirmation = true
-        presentingAssistantConfirmation = true
+        hasShownAgentConfirmation = true
+        presentingAgentConfirmation = true
     }
 
     var shouldBlurPhotos: Bool {
@@ -670,7 +670,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         pendingTypingIndicatorTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
-        assistantJoinTask?.cancel()
+        agentJoinTask?.cancel()
         convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
     }
@@ -728,15 +728,15 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
-        messagesListRepo.verifiedAssistant = conversation.members.first(where: \.isVerifiedAssistant)
+        messagesListRepo.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
         // Hydrate the persisted summary *before* `fetchInitial()` so the first
-        // emission already includes the `.assistantBuilderSummary` card and the
+        // emission already includes the `.agentBuilderSummary` card and the
         // cutoff-filtered messages. The publisher subscription below picks up
         // any subsequent writes.
-        let initialSummary: AssistantBuilderSummary? = session.assistantBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo.assistantBuilderSummary = initialSummary
+        let initialSummary: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
+        messagesListRepo.agentBuilderSummary = initialSummary
         self.messagesListRepository = messagesListRepo
-        self.assistantBuilderSummary = initialSummary
+        self.agentBuilderSummary = initialSummary
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -785,7 +785,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
-        observeAssistantBuilderSummary()
+        observeAgentBuilderSummary()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
 
@@ -822,11 +822,11 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
-        messagesListRepo2.verifiedAssistant = conversation.members.first(where: \.isVerifiedAssistant)
-        let initialSummary2: AssistantBuilderSummary? = session.assistantBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo2.assistantBuilderSummary = initialSummary2
+        messagesListRepo2.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
+        let initialSummary2: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
+        messagesListRepo2.agentBuilderSummary = initialSummary2
         self.messagesListRepository = messagesListRepo2
-        self.assistantBuilderSummary = initialSummary2
+        self.agentBuilderSummary = initialSummary2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -864,7 +864,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
-        observeAssistantBuilderSummary()
+        observeAgentBuilderSummary()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         self.editingConversationName = conversation.name ?? ""
@@ -889,24 +889,24 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         }
     }
 
-    /// Subscribe to the AssistantBuilderSummary row for this conversation —
+    /// Subscribe to the AgentBuilderSummary row for this conversation —
     /// emits the persisted summary (if any) on first delivery and any future
     /// inserts/updates from the writer. Without this, returning to the
     /// conversation later would show the raw pre-Make message history
     /// instead of the polished summary card.
-    private func observeAssistantBuilderSummary() {
-        observeAssistantBuilderSummary(for: conversation.id)
+    private func observeAgentBuilderSummary() {
+        observeAgentBuilderSummary(for: conversation.id)
     }
 
-    private func observeAssistantBuilderSummary(for conversationId: String) {
-        guard conversationId != observedAssistantBuilderSummaryConversationId else { return }
-        observedAssistantBuilderSummaryConversationId = conversationId
-        assistantBuilderSummaryCancellable?.cancel()
-        assistantBuilderSummaryCancellable = session.assistantBuilderSummaryRepository()
+    private func observeAgentBuilderSummary(for conversationId: String) {
+        guard conversationId != observedAgentBuilderSummaryConversationId else { return }
+        observedAgentBuilderSummaryConversationId = conversationId
+        agentBuilderSummaryCancellable?.cancel()
+        agentBuilderSummaryCancellable = session.agentBuilderSummaryRepository()
             .summaryPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] summary in
-                self?.assistantBuilderSummary = summary
+                self?.agentBuilderSummary = summary
             }
     }
 
@@ -1004,7 +1004,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
                     self.loadPhotoPreferences()
                     self.observeCapabilityRequests(for: conversation.id)
                     self.observeThinkingSessions(for: conversation.id)
-                    self.observeAssistantBuilderSummary(for: conversation.id)
+                    self.observeAgentBuilderSummary(for: conversation.id)
                     if wasViewingConversation {
                         self.isViewingConversation = true
                         self.sendReadReceiptIfNeeded()
@@ -1879,7 +1879,7 @@ extension ConversationViewModel {
     /// Iterates every pending attachment and runs the same cleanup as the
     /// per-attachment X-button path: cancels in-flight uploads, removes temp
     /// files left in `FileManager.default.temporaryDirectory`. Used by the
-    /// Assistant Builder's discard flow so file picks (which copy into temp
+    /// Agent Builder's discard flow so file picks (which copy into temp
     /// at stage-time) don't accumulate after the user cancels the draft.
     func cleanupPendingMediaAttachments() {
         let attachments: [PendingMediaAttachment] = pendingMediaAttachments
@@ -1974,7 +1974,7 @@ extension ConversationViewModel {
     /// start uploading the moment the user picks them in the composer, so
     /// `pendingMediaAttachments[*].eagerUploadKey` is populated long before
     /// Send is tapped. Callers that want to enqueue a batch of related sends
-    /// in one tight burst — the assistant builder, primarily — use this to
+    /// in one tight burst — the agent builder, primarily — use this to
     /// hold off until every payload is on the wire; once `onSendMessage`
     /// runs, the state-machine FIFO queue can flush each message without
     /// stalling on per-message upload waits. Throws if any upload fails or
@@ -2006,14 +2006,14 @@ extension ConversationViewModel {
         }
     }
 
-    /// Send the assistant builder's commit payload as a synchronized burst:
+    /// Send the agent builder's commit payload as a synchronized burst:
     /// the prompt text as one XMTP message, every media item — voice memo +
     /// photos + videos + files — bundled into a single `MultiRemoteAttachment`
     /// message. The state-machine FIFO queue preserves ordering, so the
-    /// assistant receives the text immediately followed by the bundle once
+    /// agent receives the text immediately followed by the bundle once
     /// the agent reaches `.ready`. Pending media attachments and the voice
     /// memo recorder are cleared after the bundle is queued. Used only by
-    /// the assistant builder — the normal conversation send path
+    /// the agent builder — the normal conversation send path
     /// (`onSendMessage`) keeps its per-attachment messages so per-item
     /// reactions and replies continue to work.
     func sendBuilderBundle(
@@ -2063,7 +2063,7 @@ extension ConversationViewModel {
                     _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
                 }
             } catch {
-                Log.error("AssistantBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
+                Log.error("AgentBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
                 // Restore pending attachments so the user can retry from the
                 // chat composer. The eager-upload state inside the writer may
                 // already be partially consumed; in practice this only fires
@@ -2081,7 +2081,7 @@ extension ConversationViewModel {
                     try await writer.send(text: text)
                 }
             } catch {
-                Log.error("AssistantBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
+                Log.error("AgentBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
             }
         }
     }
@@ -2609,14 +2609,14 @@ extension ConversationViewModel {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
-        assistantJoinTask?.cancel()
+        agentJoinTask?.cancel()
 
-        let forceErrorCode = assistantJoinForceErrorCode
+        let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let requestId = UUID().uuidString
         let taskId = requestId
-        assistantJoinTask = Task { [weak self, session] in
-            await Self.broadcastAssistantJoinRequest(
+        agentJoinTask = Task { [weak self, session] in
+            await Self.broadcastAgentJoinRequest(
                 status: .pending, requestId: requestId,
                 conversationId: conversationId, session: session
             )
@@ -2629,46 +2629,46 @@ extension ConversationViewModel {
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
-                await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
+                await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
                 return
             } catch let error as APIError {
-                Log.error("requestAssistantJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
-                let status: AssistantJoinStatus
+                Log.error("requestAgentJoin: agents/join APIError: \(error) - \(error.localizedDescription)")
+                let status: AgentJoinStatus
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
-                await Self.broadcastAssistantJoinRequest(
+                await Self.broadcastAgentJoinRequest(
                     status: status, requestId: requestId,
                     conversationId: conversationId, session: session
                 )
                 await MainActor.run {
-                    self?.clearAssistantJoinTask(id: taskId)
-                    self?.onAssistantJoinError()
+                    self?.clearAgentJoinTask(id: taskId)
+                    self?.onAgentJoinError()
                 }
                 return
             } catch {
-                Log.error("requestAssistantJoin: agents/join unknown error: \(error.localizedDescription)")
-                await Self.broadcastAssistantJoinRequest(
+                Log.error("requestAgentJoin: agents/join unknown error: \(error.localizedDescription)")
+                await Self.broadcastAgentJoinRequest(
                     status: .failed, requestId: requestId,
                     conversationId: conversationId, session: session
                 )
                 await MainActor.run {
-                    self?.clearAssistantJoinTask(id: taskId)
-                    self?.onAssistantJoinError()
+                    self?.clearAgentJoinTask(id: taskId)
+                    self?.onAgentJoinError()
                 }
                 return
             }
-            await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
+            await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
         }
-        assistantJoinTaskId = taskId
+        agentJoinTaskId = taskId
     }
 
-    /// Bare-join convenience for the in-conversation "add an assistant"
+    /// Bare-join convenience for the in-conversation "add an agent"
     /// affordances. Kept so their call sites don't change.
-    func requestAssistantJoin() {
+    func requestAgentJoin() {
         requestAgentJoin(templateId: nil)
     }
 
-    private static func broadcastAssistantJoinRequest(
-        status: AssistantJoinStatus,
+    private static func broadcastAgentJoinRequest(
+        status: AgentJoinStatus,
         requestId: String,
         conversationId: String,
         session: any SessionManagerProtocol
@@ -2677,31 +2677,31 @@ extension ConversationViewModel {
             let messagingService = session.messagingService()
             let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
             guard let xmtpConversation = try await inboxResult.client.conversation(with: conversationId) else {
-                Log.warning("Could not find XMTP conversation to broadcast assistant join request")
+                Log.warning("Could not find XMTP conversation to broadcast agent join request")
                 return
             }
             // Derive requestedBy from the ready inbox rather than accepting it
             // as a parameter. An earlier draft fell back to "" when the session
             // wasn't ready yet; that empty string would land in the XMTP
             // message payload as `requestedByInboxId`.
-            let request = AssistantJoinRequest(
+            let request = AgentJoinRequest(
                 status: status,
                 requestedByInboxId: inboxResult.client.inboxId,
                 requestId: requestId
             )
-            try await xmtpConversation.sendAssistantJoinRequest(request)
+            try await xmtpConversation.sendAgentJoinRequest(request)
         } catch {
-            Log.warning("Failed to broadcast assistant join request: \(error.localizedDescription)")
+            Log.warning("Failed to broadcast agent join request: \(error.localizedDescription)")
         }
     }
 
-    private func clearAssistantJoinTask(id: String) {
-        guard assistantJoinTaskId == id else { return }
-        assistantJoinTask = nil
-        assistantJoinTaskId = nil
+    private func clearAgentJoinTask(id: String) {
+        guard agentJoinTaskId == id else { return }
+        agentJoinTask = nil
+        agentJoinTaskId = nil
     }
 
-    private func onAssistantJoinError() {
+    private func onAgentJoinError() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
@@ -2774,7 +2774,7 @@ extension ConversationViewModel {
         return try await inboxResult.client.hiddenMessagesDebugInfo(conversationId: conversation.id)
     }
 
-    var assistantInstanceId: String? {
+    var agentInstanceId: String? {
         guard let agent = conversation.members.first(where: \.isAgent),
               case .string(let value) = agent.profile.metadata?["instanceId"],
               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -2793,8 +2793,8 @@ extension ConversationViewModel {
             .displayName
     }
 
-    func makeAssistantFilesLinksRepository() -> AssistantFilesLinksRepository {
-        session.assistantFilesLinksRepository(for: conversation.id)
+    func makeAgentFilesLinksRepository() -> AgentFilesLinksRepository {
+        session.agentFilesLinksRepository(for: conversation.id)
     }
 
     func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {

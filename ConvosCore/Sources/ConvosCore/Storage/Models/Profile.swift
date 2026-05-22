@@ -94,11 +94,11 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Free-form description an assistant agent writes into its own profile
+    /// Free-form description an agent agent writes into its own profile
     /// metadata to describe what it's set up to do — surfaced on the
-    /// `AssistantContactCard` once the agent has decided.
-    public var assistantDescription: String? {
-        metadata?[Constant.assistantDescriptionMetadataKey]?.stringValue.flatMap { value in
+    /// `AgentContactCard` once the agent has decided.
+    public var agentDescription: String? {
+        metadata?[Constant.agentDescriptionMetadataKey]?.stringValue.flatMap { value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
@@ -122,7 +122,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             return .unverified
         }
         Log.info("[Attestation] verifying agent \(inboxId.prefix(8)) with kid=\(keyId)")
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: sig,
             attestationTimestamp: ts,
@@ -147,7 +147,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             Log.info("[Attestation] agent \(inboxId.prefix(8)) missing metadata (cached path) — keys: \(metadata?.keys.sorted() ?? [])")
             return .unverified
         }
-        let result = AssistantAttestationVerifier.verifyCached(
+        let result = AgentAttestationVerifier.verifyCached(
             inboxId: inboxId,
             attestation: sig,
             attestationTimestamp: ts,
@@ -205,7 +205,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     private enum Constant {
         static let emojiMetadataKey: String = "emoji"
-        static let assistantDescriptionMetadataKey: String = "description"
+        static let agentDescriptionMetadataKey: String = "description"
         static let templateIdKey: String = "templateId"
         static let publishedURLKey: String = "publishedUrl"
     }

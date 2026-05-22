@@ -94,7 +94,7 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    var assistantBuilderViewModel: AssistantBuilderViewModel? {
+    var agentBuilderViewModel: AgentBuilderViewModel? {
         didSet {
             updateListVisibility()
         }
@@ -255,7 +255,7 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
-            && assistantBuilderViewModel == nil
+            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -310,8 +310,8 @@ final class ConversationsViewModel {
         )
     }
 
-    func onStartAssistant() {
-        assistantBuilderViewModel = AssistantBuilderViewModel(session: session)
+    func onStartAgent() {
+        agentBuilderViewModel = AgentBuilderViewModel(session: session)
     }
 
     private func join(from inviteCode: String) {

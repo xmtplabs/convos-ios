@@ -1,13 +1,13 @@
 import ConvosCore
 import SwiftUI
 
-/// Self-sizing sheet content presented from the Assistant Builder's
+/// Self-sizing sheet content presented from the Agent Builder's
 /// `batteryblock.fill` connections button. Each row reuses
 /// `FeatureRowItem` (same styling as `ConversationConnectionsSection`'s
 /// list) and toggling drives the corresponding chip in the composer's
 /// attachments row.
-struct AssistantBuilderConnectionsSheet: View {
-    @Bindable var viewModel: AssistantBuilderViewModel
+struct AgentBuilderConnectionsSheet: View {
+    @Bindable var viewModel: AgentBuilderViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -18,7 +18,7 @@ struct AssistantBuilderConnectionsSheet: View {
                 .padding(.bottom, DesignConstants.Spacing.step2x)
 
             VStack(spacing: 0) {
-                ForEach(Array(AssistantBuilderConnection.allCases.enumerated()), id: \.element.id) { index, connection in
+                ForEach(Array(AgentBuilderConnection.allCases.enumerated()), id: \.element.id) { index, connection in
                     if index > 0 {
                         Divider()
                             .padding(.leading, DesignConstants.Spacing.step10x + DesignConstants.Spacing.step4x)
@@ -50,11 +50,11 @@ struct AssistantBuilderConnectionsSheet: View {
 
 #Preview {
     @Previewable @State var presented: Bool = true
-    @Previewable @State var viewModel: AssistantBuilderViewModel = .init(
+    @Previewable @State var viewModel: AgentBuilderViewModel = .init(
         session: ConvosClient.mock().session
     )
     VStack {}
         .selfSizingSheet(isPresented: $presented) {
-            AssistantBuilderConnectionsSheet(viewModel: viewModel)
+            AgentBuilderConnectionsSheet(viewModel: viewModel)
         }
 }

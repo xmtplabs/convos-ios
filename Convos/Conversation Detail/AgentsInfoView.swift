@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct AssistantsInfoView: View {
+struct AgentsInfoView: View {
     var isConfirmation: Bool = false
     var onConfirm: (() -> Void)?
 
@@ -17,9 +17,9 @@ struct AssistantsInfoView: View {
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
 
-                TightLineHeightText(text: "Assistants help groups do things", fontSize: 40, lineHeight: 40)
+                TightLineHeightText(text: "Agents help groups do things", fontSize: 40, lineHeight: 40)
 
-                Text("Ask them anything. Assistants join your groupchat and learn by listening.")
+                Text("Ask them anything. Agents join your groupchat and learn by listening.")
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
 
@@ -39,7 +39,7 @@ struct AssistantsInfoView: View {
                         dismiss()
                     }
                     Button(action: confirmAction) {
-                        Text("Add an instant assistant")
+                        Text("Add an instant agent")
                             .font(.body)
                     }
                     .convosButtonStyle(.rounded(fullWidth: true))
@@ -266,13 +266,13 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
 #Preview("Info") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { AssistantsInfoView().padding(.top, 20) }
+        .selfSizingSheet(isPresented: $isPresented) { AgentsInfoView().padding(.top, 20) }
 }
 
 #Preview("Confirmation") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) {
-            AssistantsInfoView(isConfirmation: true, onConfirm: { }).padding(.top, 20)
+            AgentsInfoView(isConfirmation: true, onConfirm: { }).padding(.top, 20)
         }
 }

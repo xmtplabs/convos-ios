@@ -139,7 +139,7 @@ private extension HiddenMessageDebugEntry {
         ContentTypeRemoteAttachment,
         ContentTypeGroupUpdated,
         ContentTypeExplodeSettings,
-        ContentTypeAssistantJoinRequest,
+        ContentTypeAgentJoinRequest,
         ContentTypeCloudConnectionGrantRequest,
     ]
 

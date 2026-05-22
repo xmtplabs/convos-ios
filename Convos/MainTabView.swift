@@ -27,7 +27,7 @@ struct MainTabView: View {
     /// the bottom chrome can hide when Stuff has a detail pushed, same
     /// way it hides when Chats has a conversation selected.
     @State private var stuffPushedItems: [StuffOverviewItem] = []
-    /// Drives the `AssistantBuilderBar` between expanded (capsule) and
+    /// Drives the `AgentBuilderBar` between expanded (capsule) and
     /// collapsed (glass circle) states. Held in state with hysteresis
     /// thresholds rather than derived purely from scroll offset so that
     /// a bouncy scroll near the boundary doesn't flicker the bar back
@@ -49,7 +49,7 @@ struct MainTabView: View {
     /// chain doesn't reliably propagate to the UIKit collection view.
     @State private var bottomChromeHeight: CGFloat = 0
     /// Photo / camera / voice-memo entry points for the
-    /// `AssistantBuilderBar`. Tapping the photo or camera icon presents
+    /// `AgentBuilderBar`. Tapping the photo or camera icon presents
     /// the matching picker first; only once the user has actually picked
     /// (or captured) media do we open the builder sheet, so abandoning
     /// the picker leaves the user where they were. Voice memo skips the
@@ -69,7 +69,7 @@ struct MainTabView: View {
     /// flicker, then kept in sync via `.onReceive` on their publishers.
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
-    /// Shared namespace for the assistant-builder bar -> sheet zoom
+    /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
     /// `.matchedTransitionSource(id: ..., in: namespace)` and the
@@ -217,7 +217,7 @@ struct MainTabView: View {
         }
     }
 
-    /// The shared bottom chrome — assistant builder bar stacked above the
+    /// The shared bottom chrome — agent builder bar stacked above the
     /// custom `ConvosTabBar`. Lives in one VStack so when the chrome
     /// hides (because a conversation got selected) the builder bar and
     /// the tab pills disappear together. The system tab bar is hidden
@@ -226,7 +226,7 @@ struct MainTabView: View {
     @ViewBuilder
     private var bottomChrome: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            assistantBuilderBar
+            agentBuilderBar
             ConvosTabBar(activeTab: $activeTab)
                 .padding(.horizontal, DesignConstants.Spacing.step6x)
         }
@@ -242,8 +242,8 @@ struct MainTabView: View {
     }
 
     @ViewBuilder
-    private var assistantBuilderBar: some View {
-        AssistantBuilderBar(
+    private var agentBuilderBar: some View {
+        AgentBuilderBar(
             isExpanded: isBuilderBarExpanded,
             onTap: openBuilder,
             onTapPhotos: { isPhotoPickerPresented = true },
@@ -256,7 +256,7 @@ struct MainTabView: View {
     }
 
     private func openBuilder() {
-        conversationsViewModel.onStartAssistant()
+        conversationsViewModel.onStartAgent()
     }
 
     /// Open the builder and immediately start voice-memo recording. The
@@ -264,8 +264,8 @@ struct MainTabView: View {
     /// path, so we schedule the start call on the next runloop tick to
     /// give the VM a moment to wire up before we call `startRecording`.
     private func openBuilderInVoiceMemoMode() {
-        conversationsViewModel.onStartAssistant()
-        guard let builderViewModel = conversationsViewModel.assistantBuilderViewModel else { return }
+        conversationsViewModel.onStartAgent()
+        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(50))
             builderViewModel.startVoiceMemoRecording(restoreComposerFocusAfter: true)
@@ -279,15 +279,15 @@ struct MainTabView: View {
     /// cover with no visible flash.
     private func handleCameraImageCaptured(_ image: UIImage) {
         isCameraPresented = false
-        conversationsViewModel.onStartAssistant()
-        guard let builderViewModel = conversationsViewModel.assistantBuilderViewModel else { return }
+        conversationsViewModel.onStartAgent()
+        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
         builderViewModel.addPhotoAttachment(image)
     }
 
     private func handleCameraVideoCaptured(_ url: URL) {
         isCameraPresented = false
-        conversationsViewModel.onStartAssistant()
-        guard let builderViewModel = conversationsViewModel.assistantBuilderViewModel else { return }
+        conversationsViewModel.onStartAgent()
+        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
         builderViewModel.addVideoAttachment(url: url)
     }
 
@@ -301,8 +301,8 @@ struct MainTabView: View {
         let items = newValue
         selectedPhotos = []
         isPhotoPickerPresented = false
-        conversationsViewModel.onStartAssistant()
-        guard let builderViewModel = conversationsViewModel.assistantBuilderViewModel else { return }
+        conversationsViewModel.onStartAgent()
+        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
         Task {
             for item in items {
                 if let videoFile = try? await item.loadTransferable(type: VideoFile.self) {
@@ -316,7 +316,7 @@ struct MainTabView: View {
     }
 
     private enum Constant {
-        static let builderTransitionId: String = "assistant-builder-transition-source"
+        static let builderTransitionId: String = "agent-builder-transition-source"
         static let appSettingsTransitionId: String = "app-settings-transition-source"
         static let composerTransitionId: String = "composer-transition-source"
         /// Hysteresis thresholds for the builder bar expansion. The gap
@@ -355,15 +355,15 @@ private struct MainTabSheetsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $conversationsViewModel.assistantBuilderViewModel) { builderViewModel in
-                AssistantBuilderView(
+            .sheet(item: $conversationsViewModel.agentBuilderViewModel) { builderViewModel in
+                AgentBuilderView(
                     viewModel: builderViewModel,
                     profileSettingsViewModel: profileSettingsViewModel
                 )
                 .background(.colorBackgroundSurfaceless)
                 .presentationSizing(.page)
                 .navigationTransition(
-                    .zoom(sourceID: "assistant-builder-transition-source", in: namespace)
+                    .zoom(sourceID: "agent-builder-transition-source", in: namespace)
                 )
             }
             .photosPicker(

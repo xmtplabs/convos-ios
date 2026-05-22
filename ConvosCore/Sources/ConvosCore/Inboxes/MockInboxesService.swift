@@ -121,16 +121,16 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     private static let mockDatabase: DatabaseQueue = MockDatabaseManager.shared.dbPool
 
-    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
     }
 
-    public func assistantBuilderSummaryWriter() -> any AssistantBuilderSummaryWriterProtocol {
-        AssistantBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
     }
 
-    public func assistantBuilderSummaryRepository() -> any AssistantBuilderSummaryRepositoryProtocol {
-        AssistantBuilderSummaryRepository(databaseReader: Self.mockDatabase)
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: Self.mockDatabase)
     }
 
     public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {

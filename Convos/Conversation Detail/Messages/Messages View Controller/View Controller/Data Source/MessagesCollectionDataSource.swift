@@ -26,16 +26,16 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
-    var onRetryAssistantJoin: (() -> Void)? { get set }
+    var onRetryAgentJoin: (() -> Void)? { get set }
     var onCopyInviteLink: (() -> Void)? { get set }
     var onConvoCode: (() -> Void)? { get set }
-    var onInviteAssistant: (() -> Void)? { get set }
+    var onInviteAgent: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
     var memberContactOverride: ((String) -> Contact?)? { get set }
-    var hasAssistant: Bool { get set }
-    var isAssistantJoinPending: Bool { get set }
-    var isAssistantEnabled: Bool { get set }
+    var hasAgent: Bool { get set }
+    var isAgentJoinPending: Bool { get set }
+    var isAgentEnabled: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
-    var assistantBuilderTransitionNamespace: Namespace.ID? { get set }
+    var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var hidesInviteCard: Bool { get set }
 }

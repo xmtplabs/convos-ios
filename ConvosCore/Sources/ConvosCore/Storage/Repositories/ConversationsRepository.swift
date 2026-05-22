@@ -169,12 +169,12 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             }
         ).forKey("conversationLastMessageWithSource")
 
-        let assistantJoinRequest = DBConversation.association(
-            to: DBConversation.latestAssistantJoinRequestCTE,
+        let agentJoinRequest = DBConversation.association(
+            to: DBConversation.latestAgentJoinRequestCTE,
             on: { conversation, cte in
                 conversation.id == cte[Column("conversationId")]
             }
-        ).forKey("conversationAssistantJoinRequest")
+        ).forKey("conversationAgentJoinRequest")
 
         return self
             .including(all: DBConversation.invites)
@@ -191,8 +191,8 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             .including(required: DBConversation.localState)
             .with(DBConversation.lastMessageWithSourceCTE)
             .including(optional: lastMessageWithSource)
-            .with(DBConversation.latestAssistantJoinRequestCTE)
-            .including(optional: assistantJoinRequest)
+            .with(DBConversation.latestAgentJoinRequestCTE)
+            .including(optional: agentJoinRequest)
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")

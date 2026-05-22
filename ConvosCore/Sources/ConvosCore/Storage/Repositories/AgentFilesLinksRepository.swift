@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 import UniformTypeIdentifiers
 
-public struct AssistantFile: Sendable, Hashable, Identifiable {
+public struct AgentFile: Sendable, Hashable, Identifiable {
     public let id: String
     public let senderInboxId: String
     public let filename: String?
@@ -21,7 +21,7 @@ public struct AssistantFile: Sendable, Hashable, Identifiable {
     }
 }
 
-public struct AssistantLink: Sendable, Hashable, Identifiable {
+public struct AgentLink: Sendable, Hashable, Identifiable {
     public let id: String
     public let senderInboxId: String
     public let url: String
@@ -47,7 +47,7 @@ public struct AssistantLink: Sendable, Hashable, Identifiable {
     }
 }
 
-public final class AssistantFilesLinksRepository: Sendable {
+public final class AgentFilesLinksRepository: Sendable {
     private let dbReader: any DatabaseReader
     private let conversationId: String
 
@@ -56,7 +56,7 @@ public final class AssistantFilesLinksRepository: Sendable {
         self.conversationId = conversationId
     }
 
-    public func filesPublisher() -> AnyPublisher<[AssistantFile], Never> {
+    public func filesPublisher() -> AnyPublisher<[AgentFile], Never> {
         let conversationId = conversationId
         return ValueObservation
             .tracking { db in
@@ -67,7 +67,7 @@ public final class AssistantFilesLinksRepository: Sendable {
             .eraseToAnyPublisher()
     }
 
-    public func linksPublisher() -> AnyPublisher<[AssistantLink], Never> {
+    public func linksPublisher() -> AnyPublisher<[AgentLink], Never> {
         let conversationId = conversationId
         return ValueObservation
             .tracking { db in
@@ -78,7 +78,7 @@ public final class AssistantFilesLinksRepository: Sendable {
             .eraseToAnyPublisher()
     }
 
-    private static func loadFiles(db: Database, conversationId: String) throws -> [AssistantFile] {
+    private static func loadFiles(db: Database, conversationId: String) throws -> [AgentFile] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT m.id, m.date, m.attachmentUrls, m.senderId
             FROM message m
@@ -96,7 +96,7 @@ public final class AssistantFilesLinksRepository: Sendable {
             arguments: [conversationId]
         )
 
-        let files: [AssistantFile] = rows.compactMap { row -> AssistantFile? in
+        let files: [AgentFile] = rows.compactMap { row -> AgentFile? in
             guard let id: String = row["id"],
                   let date: Date = row["date"],
                   let senderInboxId: String = row["senderId"],
@@ -106,7 +106,7 @@ public final class AssistantFilesLinksRepository: Sendable {
             else { return nil }
 
             let parsed = parseAttachmentKey(firstKey)
-            return AssistantFile(
+            return AgentFile(
                 id: id,
                 senderInboxId: senderInboxId,
                 filename: parsed.filename,
@@ -121,7 +121,7 @@ public final class AssistantFilesLinksRepository: Sendable {
         // most recent send. Files with no filename pass through individually since
         // we can't tell duplicates apart.
         var seenFilenames: Set<String> = []
-        var deduped: [AssistantFile] = []
+        var deduped: [AgentFile] = []
         for file in files {
             if let filename = file.filename {
                 if seenFilenames.insert(filename).inserted {
@@ -134,7 +134,7 @@ public final class AssistantFilesLinksRepository: Sendable {
         return deduped
     }
 
-    private static func loadLinks(db: Database, conversationId: String) throws -> [AssistantLink] {
+    private static func loadLinks(db: Database, conversationId: String) throws -> [AgentLink] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT m.id, m.date, m.linkPreview, m.senderId
             FROM message m
@@ -152,7 +152,7 @@ public final class AssistantFilesLinksRepository: Sendable {
             arguments: [conversationId]
         )
 
-        return rows.compactMap { row -> AssistantLink? in
+        return rows.compactMap { row -> AgentLink? in
             guard let id: String = row["id"],
                   let date: Date = row["date"],
                   let senderInboxId: String = row["senderId"],
@@ -160,7 +160,7 @@ public final class AssistantFilesLinksRepository: Sendable {
                   let data = linkPreviewJson.data(using: .utf8),
                   let preview = try? JSONDecoder().decode(LinkPreview.self, from: data)
             else { return nil }
-            return AssistantLink(
+            return AgentLink(
                 id: id,
                 senderInboxId: senderInboxId,
                 url: preview.url,

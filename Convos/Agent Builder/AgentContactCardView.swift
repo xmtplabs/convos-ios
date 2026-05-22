@@ -1,31 +1,31 @@
 import ConvosCore
 import SwiftUI
 
-/// Per-conversation "contact card" for a verified Convos assistant. Renders as
-/// the body of the assistant's first message group — the surrounding
+/// Per-conversation "contact card" for a verified Convos agent. Renders as
+/// the body of the agent's first message group — the surrounding
 /// `MessagesGroupView` already provides the sender label and avatar, so this
-/// view only owns the rounded-rect card itself: the assistant's avatar,
-/// display name, and `description` subtitle. While the assistant hasn't yet
+/// view only owns the rounded-rect card itself: the agent's avatar,
+/// display name, and `description` subtitle. While the agent hasn't yet
 /// written a `description` into its profile metadata, the subtitle reads
 /// "Learning more about my job" with a pulse highlight matching
-/// `AssistantJoinStatusView`. Once the value arrives, the subtitle
+/// `AgentJoinStatusView`. Once the value arrives, the subtitle
 /// blur-replaces to the real text.
-struct AssistantContactCardView: View {
+struct AgentContactCardView: View {
     let profile: Profile
-    let assistantDescription: String?
+    let agentDescription: String?
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
     private var displayedSubtitle: String {
-        if let assistantDescription, !assistantDescription.isEmpty {
-            return assistantDescription
+        if let agentDescription, !agentDescription.isEmpty {
+            return agentDescription
         }
-        return AssistantContactCardView.placeholderSubtitle
+        return AgentContactCardView.placeholderSubtitle
     }
 
-    private var hasAssistantDescription: Bool {
-        assistantDescription?.isEmpty == false
+    private var hasAgentDescription: Bool {
+        agentDescription?.isEmpty == false
     }
 
     var body: some View {
@@ -72,7 +72,7 @@ struct AssistantContactCardView: View {
 
     @ViewBuilder
     private var subtitleText: some View {
-        if hasAssistantDescription {
+        if hasAgentDescription {
             Text(displayedSubtitle)
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
@@ -93,7 +93,7 @@ struct AssistantContactCardView: View {
     static let placeholderSubtitle: String = "Learning more about my job"
 }
 
-/// Opacity pulse that matches `AssistantJoinStatusView`'s "Assistant is
+/// Opacity pulse that matches `AgentJoinStatusView`'s "Agent is
 /// joining…" pacing — fades the secondary subtitle between 0.5 and 1.0 on a
 /// 1.2s ease-in-out loop. Animating opacity (instead of `foregroundStyle`)
 /// keeps the text's layout metrics fixed, so the pulse doesn't nudge the
@@ -116,7 +116,7 @@ private struct PulsingSubtitle: View {
 }
 
 #Preview("Placeholder (no description)") {
-    AssistantContactCardView(
+    AgentContactCardView(
         profile: Profile(
             inboxId: "preview-inbox-1",
             conversationId: "preview-conv-1",
@@ -125,14 +125,14 @@ private struct PulsingSubtitle: View {
             isAgent: true,
             metadata: ["emoji": .string("🚴")]
         ),
-        assistantDescription: nil
+        agentDescription: nil
     )
     .padding()
     .background(Color.colorBackgroundSurfaceless)
 }
 
 #Preview("Loaded description") {
-    AssistantContactCardView(
+    AgentContactCardView(
         profile: Profile(
             inboxId: "preview-inbox-2",
             conversationId: "preview-conv-2",
@@ -141,7 +141,7 @@ private struct PulsingSubtitle: View {
             isAgent: true,
             metadata: ["emoji": .string("🚴")]
         ),
-        assistantDescription: "I'll help you plan your next ride, log mileage, and remember your favorite routes."
+        agentDescription: "I'll help you plan your next ride, log mileage, and remember your favorite routes."
     )
     .padding()
     .background(Color.colorBackgroundSurfaceless)

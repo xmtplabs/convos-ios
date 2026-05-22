@@ -24,8 +24,8 @@ struct MockAgentKeyset: AgentKeysetProviding {
     }
 }
 
-@Suite("AssistantAttestationVerifier")
-struct AssistantAttestationVerifierTests {
+@Suite("AgentAttestationVerifier")
+struct AgentAttestationVerifierTests {
     let privateKey = Curve25519.Signing.PrivateKey()
     let kid = "test-key-2026"
 
@@ -45,7 +45,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let signature = try sign(inboxId: inboxId, timestamp: timestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -61,7 +61,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let signature = try sign(inboxId: "correct-inbox", timestamp: timestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: "wrong-inbox",
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -79,7 +79,7 @@ struct AssistantAttestationVerifierTests {
         let fakeTimestamp = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-100))
         let signature = try sign(inboxId: inboxId, timestamp: realTimestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: fakeTimestamp,
@@ -101,7 +101,7 @@ struct AssistantAttestationVerifierTests {
         sigBytes[1] ^= 0xFF
         let tampered = sigBytes.base64URLEncoded()
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: tampered,
             attestationTimestamp: timestamp,
@@ -121,7 +121,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let signature = try sign(inboxId: inboxId, timestamp: timestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -138,7 +138,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let signature = try sign(inboxId: inboxId, timestamp: timestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -156,7 +156,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: oldDate)
         let signature = try sign(inboxId: inboxId, timestamp: timestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -174,7 +174,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: futureDate)
         let signature = try sign(inboxId: inboxId, timestamp: timestamp)
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -187,7 +187,7 @@ struct AssistantAttestationVerifierTests {
 
     @Test("Invalid base64 signature fails gracefully")
     func invalidBase64() async {
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: "test",
             attestation: "!!!not-base64!!!",
             attestationTimestamp: ISO8601DateFormatter().string(from: Date()),
@@ -203,7 +203,7 @@ struct AssistantAttestationVerifierTests {
         let inboxId = "test-inbox"
         let signature = try sign(inboxId: inboxId, timestamp: "not-a-date")
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: "not-a-date",
@@ -220,7 +220,7 @@ struct AssistantAttestationVerifierTests {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let signature = try sign(inboxId: inboxId, timestamp: timestamp)
 
-        let result = AssistantAttestationVerifier.verifyCached(
+        let result = AgentAttestationVerifier.verifyCached(
             inboxId: inboxId,
             attestation: signature,
             attestationTimestamp: timestamp,
@@ -333,7 +333,7 @@ struct CLICrossImplementationTests {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let referenceDate = try #require(formatter.date(from: attestationTs))
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: attestation,
             attestationTimestamp: attestationTs,
@@ -361,7 +361,7 @@ struct CLICrossImplementationTests {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let referenceDate = try #require(formatter.date(from: attestationTs))
 
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: "wrong-inbox-id",
             attestation: attestation,
             attestationTimestamp: attestationTs,
@@ -390,7 +390,7 @@ struct CLICrossImplementationTests {
         let referenceDate = try #require(formatter.date(from: attestationTs))
 
         let oauthKeyset = MockAgentKeyset(keys: [attestationKid: publicKey], issuer: .userOAuth)
-        let oauthResult = await AssistantAttestationVerifier.verify(
+        let oauthResult = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: attestation,
             attestationTimestamp: attestationTs,
@@ -401,7 +401,7 @@ struct CLICrossImplementationTests {
         #expect(oauthResult == .verified(.userOAuth))
         #expect(oauthResult.isVerified)
         #expect(oauthResult.isUserOAuthAgent)
-        #expect(!oauthResult.isConvosAssistant)
+        #expect(!oauthResult.isConvosAgent)
     }
 
     @Test("CLI JWKS entry parses correctly")

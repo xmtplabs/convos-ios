@@ -1030,7 +1030,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
-                AssistantJoinRequestCodec(),
+                AgentJoinRequestCodec(),
                 CloudConnectionGrantRequestCodec(),
                 ConnectionEventCodec(),
                 CapabilityRequestCodec(),

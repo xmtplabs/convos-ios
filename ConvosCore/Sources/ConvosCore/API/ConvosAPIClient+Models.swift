@@ -182,7 +182,7 @@ public enum ConvosAPI {
     /// Per-request hints to the agent pool. Currently the only knob is
     /// `onboarding`, which signals which client flow is requesting the
     /// join. The backend uses it to pick the right system prompt /
-    /// behavior set — e.g. the Assistant Builder asks for the
+    /// behavior set — e.g. the Agent Builder asks for the
     /// builder-specific onboarding so the agent introduces itself in
     /// the contact-card "Learning more about my job" voice rather than
     /// the generic chat persona.
@@ -193,7 +193,7 @@ public enum ConvosAPI {
             self.onboarding = onboarding
         }
 
-        public static let assistantBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "assistant-builder")
+        public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
     }
 
     public struct AgentJoinResponse: Codable {

@@ -26,7 +26,7 @@ struct IdentifiableError: Identifiable {
 
 enum NewConversationMode {
     case newConversation
-    case newAssistant
+    case newAgent
     /// Same flow as `.newConversation`: placeholder VM up front, real VM
     /// swapped in at `.ready`. The create sequence inside
     /// `ConversationStateMachine` additionally folds in
@@ -61,13 +61,13 @@ class NewConversationViewModel: Identifiable {
     private(set) var conversationViewModel: ConversationViewModel? {
         didSet {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
-            conversationViewModel?.isInAssistantBuilderFlow = isInAssistantBuilderFlow
+            conversationViewModel?.isInAgentBuilderFlow = isInAgentBuilderFlow
         }
     }
     /// When `true`, every `conversationViewModel` we vend (the initial
     /// placeholder, and any replacement created by
     /// `configureWithMessagingService`) has its `allowsContactCard` set to
-    /// `false`. The Assistant Builder flips this on so the contact card stays
+    /// `false`. The Agent Builder flips this on so the contact card stays
     /// hidden during the entire builder lifetime — including across the
     /// inbox-acquisition VM swap — and only flips back to visible after the
     /// post-Make reveal delay. Regular `NewConversationViewModel` callers
@@ -78,17 +78,17 @@ class NewConversationViewModel: Identifiable {
             conversationViewModel?.allowsContactCard = !suppressesContactCard
         }
     }
-    /// Mirrors `ConversationViewModel.isInAssistantBuilderFlow` at the wrapper
+    /// Mirrors `ConversationViewModel.isInAgentBuilderFlow` at the wrapper
     /// level so the value survives the inbox-acquisition VM swap. The
-    /// Assistant Builder sets this on appear and clears it on disappear; the
+    /// Agent Builder sets this on appear and clears it on disappear; the
     /// `didSet` on `conversationViewModel` forwards it onto the current inner
     /// VM, which in turn forwards it onto the messages-list repo so the
-    /// processor can suppress the "Assistant joined" update row for the
+    /// processor can suppress the "Agent joined" update row for the
     /// duration of the builder UI.
-    var isInAssistantBuilderFlow: Bool = false {
+    var isInAgentBuilderFlow: Bool = false {
         didSet {
-            guard oldValue != isInAssistantBuilderFlow else { return }
-            conversationViewModel?.isInAssistantBuilderFlow = isInAssistantBuilderFlow
+            guard oldValue != isInAgentBuilderFlow else { return }
+            conversationViewModel?.isInAgentBuilderFlow = isInAgentBuilderFlow
         }
     }
     let qrScannerViewModel: QRScannerViewModel
@@ -149,8 +149,8 @@ class NewConversationViewModel: Identifiable {
     }
 
     /// Fires exactly once when the state machine first reaches `.ready`.
-    /// Wrappers (e.g. `AssistantBuilderViewModel`) use this to kick off
-    /// follow-on work like inviting an assistant once the conversation
+    /// Wrappers (e.g. `AgentBuilderViewModel`) use this to kick off
+    /// follow-on work like inviting an agent once the conversation
     /// has an invite slug.
     var onReachedReady: (() -> Void)?
     private var cachedInviteCode: String?
@@ -211,7 +211,7 @@ class NewConversationViewModel: Identifiable {
         }
 
         switch mode {
-        case .newConversation, .newAssistant, .newConversationWithMembers, .newConversationWithTemplate:
+        case .newConversation, .newAgent, .newConversationWithMembers, .newConversationWithTemplate:
             self.autoCreateConversation = true
             self.startedWithFullscreenScanner = false
             self.showingFullScreenScanner = false
@@ -303,7 +303,7 @@ class NewConversationViewModel: Identifiable {
             guard let self else { return }
 
             switch mode {
-            case .newConversation, .newAssistant, .newConversationWithTemplate:
+            case .newConversation, .newAgent, .newConversationWithTemplate:
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -593,7 +593,7 @@ class NewConversationViewModel: Identifiable {
     }
 
     /// Send a first message through the state machine. Used by wrapping
-    /// flows (e.g. AssistantBuilderViewModel) that commit a draft before
+    /// flows (e.g. AgentBuilderViewModel) that commit a draft before
     /// the user sees the chat view. If the state machine hasn't reached
     /// `.ready` yet, the existing message-stream queue inside
     /// `ConversationStateMachine.sendMessage` holds the send until it does.
@@ -996,7 +996,7 @@ extension NewConversationViewModel {
 private extension NewConversationMode {
     var isNewConversation: Bool {
         switch self {
-        case .newConversation, .newAssistant, .newConversationWithMembers, .newConversationWithTemplate:
+        case .newConversation, .newAgent, .newConversationWithMembers, .newConversationWithTemplate:
             return true
         case .existingConversation, .scanner, .joinInvite:
             return false

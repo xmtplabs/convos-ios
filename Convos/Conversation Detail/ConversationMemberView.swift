@@ -147,9 +147,9 @@ struct ConversationMemberView: View {
             }
 
             Section {
-                let action = { openURL(Constant.learnAboutAssistantsURL) }
+                let action = { openURL(Constant.learnAboutAgentsURL) }
                 Button(action: action) {
-                    cardRow(title: "Learn about assistants")
+                    cardRow(title: "Learn about agents")
                 }
             } footer: {
                 Text("Capabilities, privacy and security")
@@ -277,7 +277,7 @@ struct ConversationMemberView: View {
         // swiftlint:disable:next force_unwrapping
         static let getSkillsURL: URL = URL(string: "https://convos.org/assistants")!
         // swiftlint:disable:next force_unwrapping
-        static let learnAboutAssistantsURL: URL = URL(string: "https://learn.convos.org/assistants")!
+        static let learnAboutAgentsURL: URL = URL(string: "https://learn.convos.org/assistants")!
     }
 }
 

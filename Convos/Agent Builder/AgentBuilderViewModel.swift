@@ -6,10 +6,10 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// User-toggleable connections offered by the Assistant Builder's connection
+/// User-toggleable connections offered by the Agent Builder's connection
 /// sheet. v1 surfaces Apple Health (device) and Google Calendar (cloud); the
-/// grant fires post-commit once the assistant has joined the conversation.
-enum AssistantBuilderConnection: String, CaseIterable, Identifiable {
+/// grant fires post-commit once the agent has joined the conversation.
+enum AgentBuilderConnection: String, CaseIterable, Identifiable {
     case appleHealth
     case googleCalendar
 
@@ -62,7 +62,7 @@ enum AssistantBuilderConnection: String, CaseIterable, Identifiable {
 
 @MainActor
 @Observable
-final class AssistantBuilderViewModel: Identifiable {
+final class AgentBuilderViewModel: Identifiable {
     let id: UUID = UUID()
     let session: any SessionManagerProtocol
 
@@ -102,8 +102,8 @@ final class AssistantBuilderViewModel: Identifiable {
 
     /// Connection toggles set in the connections sheet. Drives chip rendering
     /// in the attachments row pre-commit; the actual grants fan out post-Make
-    /// (see `commit(focusCoordinator:)`) once the assistant has joined.
-    var enabledConnections: Set<AssistantBuilderConnection> = []
+    /// (see `commit(focusCoordinator:)`) once the agent has joined.
+    var enabledConnections: Set<AgentBuilderConnection> = []
 
     /// `true` while a cloud OAuth flow is in flight (e.g. tapping Google
     /// Calendar without an existing global `CloudConnection`). The sheet
@@ -129,10 +129,10 @@ final class AssistantBuilderViewModel: Identifiable {
     /// `.receive(on:.main)` hop (which leaves `cloudRows` empty for one
     /// runloop tick).
     @ObservationIgnored
-    private var capturedCloudConnectionIds: [AssistantBuilderConnection: String] = [:]
+    private var capturedCloudConnectionIds: [AgentBuilderConnection: String] = [:]
 
     @ObservationIgnored
-    private var assistantJoinTask: Task<Void, Never>?
+    private var agentJoinTask: Task<Void, Never>?
     @ObservationIgnored
     private var didRequestAgentJoin: Bool = false
     @ObservationIgnored
@@ -149,7 +149,7 @@ final class AssistantBuilderViewModel: Identifiable {
         self.session = session
         self.newConversationViewModel = NewConversationViewModel(
             session: session,
-            mode: .newAssistant
+            mode: .newAgent
         )
         // Suppress the contact card for the entire builder lifetime. The
         // agent may join while the user is still drafting (state machine
@@ -173,7 +173,7 @@ final class AssistantBuilderViewModel: Identifiable {
     }
 
     deinit {
-        assistantJoinTask?.cancel()
+        agentJoinTask?.cancel()
         pendingConnectionGrantTask?.cancel()
     }
 
@@ -206,7 +206,7 @@ final class AssistantBuilderViewModel: Identifiable {
             try recorder.startRecording()
             restoreComposerFocusAfterRecording = restoreComposerFocusAfter
         } catch {
-            Log.error("AssistantBuilder: failed to start voice memo recording: \(error.localizedDescription)")
+            Log.error("AgentBuilder: failed to start voice memo recording: \(error.localizedDescription)")
         }
     }
 
@@ -231,7 +231,7 @@ final class AssistantBuilderViewModel: Identifiable {
     /// pre-existing global `CloudConnection`; if absent, we kick off the
     /// OAuth flow now and only flip the toggle once it succeeds. Cancelled
     /// or failed OAuth leaves the toggle off.
-    func toggleConnection(_ connection: AssistantBuilderConnection) {
+    func toggleConnection(_ connection: AgentBuilderConnection) {
         if enabledConnections.contains(connection) {
             enabledConnections.remove(connection)
             capturedCloudConnectionIds.removeValue(forKey: connection)
@@ -242,7 +242,7 @@ final class AssistantBuilderViewModel: Identifiable {
         case .appleHealth:
             enabledConnections.insert(connection)
         case .googleCalendar:
-            let serviceId: String = AssistantBuilderConnection.googleCalendarServiceId
+            let serviceId: String = AgentBuilderConnection.googleCalendarServiceId
             if let existing = cloudConnections.first(where: { $0.serviceId == serviceId }) {
                 capturedCloudConnectionIds[connection] = existing.id
                 enabledConnections.insert(connection)
@@ -252,12 +252,12 @@ final class AssistantBuilderViewModel: Identifiable {
         }
     }
 
-    func removeConnection(_ connection: AssistantBuilderConnection) {
+    func removeConnection(_ connection: AgentBuilderConnection) {
         enabledConnections.remove(connection)
         capturedCloudConnectionIds.removeValue(forKey: connection)
     }
 
-    private func startCloudOAuth(for connection: AssistantBuilderConnection) {
+    private func startCloudOAuth(for connection: AgentBuilderConnection) {
         guard let serviceId = connection.cloudServiceId else { return }
         isConnectingCloud = true
         let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
@@ -269,9 +269,9 @@ final class AssistantBuilderViewModel: Identifiable {
                 self?.enabledConnections.insert(connection)
             } catch let oauthError as OAuthError {
                 if case .cancelled = oauthError { return }
-                Log.error("AssistantBuilder: OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
+                Log.error("AgentBuilder: OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
             } catch {
-                Log.error("AssistantBuilder: connect failed for \(serviceId): \(error.localizedDescription)")
+                Log.error("AgentBuilder: connect failed for \(serviceId): \(error.localizedDescription)")
             }
         }
     }
@@ -281,7 +281,7 @@ final class AssistantBuilderViewModel: Identifiable {
     /// Make button is enabled as soon as the composer has any content.
     /// Tapping Make before the state machine reaches `.ready` is fine —
     /// the morph animates the user into `ConversationView`, which surfaces
-    /// its own "Assistant is joining…" state, and the message is queued
+    /// its own "Agent is joining…" state, and the message is queued
     /// via `ConversationStateMachine.sendMessage` (which already
     /// serializes against `.ready`).
     var isMakeEnabled: Bool {
@@ -340,7 +340,7 @@ final class AssistantBuilderViewModel: Identifiable {
 
         if let innerVM = newConversationViewModel.conversationViewModel {
             // Allocate the bundle's `clientMessageId`s synchronously so they
-            // can land in `AssistantBuilderSummary.bundledMessageIds` BEFORE
+            // can land in `AgentBuilderSummary.bundledMessageIds` BEFORE
             // the writer ever touches the DB. `MessagesListProcessor` then
             // filters by id, not by timestamp — a slow multi-remote upload
             // can no longer leak a bare bundle bubble past the summary card.
@@ -361,7 +361,7 @@ final class AssistantBuilderViewModel: Identifiable {
             if let textMessageId { bundledMessageIds.insert(textMessageId) }
             if let bundleMessageId { bundledMessageIds.insert(bundleMessageId) }
 
-            let summary: AssistantBuilderSummary = buildSummary(
+            let summary: AgentBuilderSummary = buildSummary(
                 prompt: textToSend,
                 voiceMemo: recordedVoiceMemo,
                 voiceMemoLevels: voiceMemoAudioLevels,
@@ -369,7 +369,7 @@ final class AssistantBuilderViewModel: Identifiable {
                 connections: enabledConnections,
                 bundledMessageIds: bundledMessageIds
             )
-            innerVM.assistantBuilderSummary = summary
+            innerVM.agentBuilderSummary = summary
             // Hide the staged-chip strip on the chat composer for the
             // duration of the post-commit upload + publish window. Without
             // this the chat view emerges (under the fading-out builder)
@@ -384,11 +384,11 @@ final class AssistantBuilderViewModel: Identifiable {
             //
             // Defer the sends until every pending eager photo/video upload
             // has finished, then ship the whole builder payload to the
-            // assistant as a synchronized burst: every media item — voice
+            // agent as a synchronized burst: every media item — voice
             // memo + photos + videos + files — bundled into a single
             // `MultiRemoteAttachment` message, followed by the prompt text
             // as one XMTP message. `sendBuilderBundle` `await`s the bundle
-            // send before the text send, so the assistant resolves
+            // send before the text send, so the agent resolves
             // attachment references before processing the prompt. The UI
             // commit (composer fade, contact-card reveal timer) runs
             // synchronously below regardless — the contact card's pulsing
@@ -396,7 +396,7 @@ final class AssistantBuilderViewModel: Identifiable {
             // conversation send path stays per-attachment so per-item
             // reactions / replies keep working there; the bundle path is
             // builder-only.
-            let summaryToPersist: AssistantBuilderSummary = summary
+            let summaryToPersist: AgentBuilderSummary = summary
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
             Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
@@ -410,15 +410,15 @@ final class AssistantBuilderViewModel: Identifiable {
                 // window would leave bundle bubbles rendering bare under
                 // no summary card.
                 do {
-                    try await sessionForPersist.assistantBuilderSummaryWriter()
+                    try await sessionForPersist.agentBuilderSummaryWriter()
                         .save(summaryToPersist, for: conversationIdForPersist)
                 } catch {
-                    Log.error("AssistantBuilder: failed to persist summary for \(conversationIdForPersist): \(error.localizedDescription)")
+                    Log.error("AgentBuilder: failed to persist summary for \(conversationIdForPersist): \(error.localizedDescription)")
                 }
                 do {
                     try await innerVM.awaitPendingMediaUploads()
                 } catch {
-                    Log.error("AssistantBuilder: pending media upload await failed: \(error.localizedDescription)")
+                    Log.error("AgentBuilder: pending media upload await failed: \(error.localizedDescription)")
                     // Fall through and attempt the bundle anyway — partial
                     // failures surface inside `sendBuilderBundle` and we'd
                     // rather try to deliver than leave the user with a
@@ -453,7 +453,7 @@ final class AssistantBuilderViewModel: Identifiable {
         scheduleConnectionGrants()
     }
 
-    /// Build the AssistantBuilderSummary that renders as the first cell of the
+    /// Build the AgentBuilderSummary that renders as the first cell of the
     /// post-Make conversation. Captures chip-ready data (thumbnails encoded as
     /// PNG, file metadata, voice memo levels, connection identifiers) so the
     /// summary view can render the same chips the composer just had — minus
@@ -463,10 +463,10 @@ final class AssistantBuilderViewModel: Identifiable {
         voiceMemo: (url: URL, duration: TimeInterval)?,
         voiceMemoLevels: [Float],
         mediaAttachments: [PendingMediaAttachment],
-        connections: Set<AssistantBuilderConnection>,
+        connections: Set<AgentBuilderConnection>,
         bundledMessageIds: Set<String>
-    ) -> AssistantBuilderSummary {
-        var attachments: [AssistantBuilderSummaryAttachment] = []
+    ) -> AgentBuilderSummary {
+        var attachments: [AgentBuilderSummaryAttachment] = []
         if let voiceMemo {
             attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemoLevels))
         }
@@ -488,12 +488,12 @@ final class AssistantBuilderViewModel: Identifiable {
         for connection in connections.sorted(by: { $0.id < $1.id }) {
             attachments.append(.connection(id: UUID(), identifier: connection.rawValue))
         }
-        // `cutoffDate` still gates assistant-side groups (pre-Make hello
+        // `cutoffDate` still gates agent-side groups (pre-Make hello
         // messages from the agent) — we don't control the agent's send
         // timing so timestamps are the only signal there. User-side filtering
         // is by-id via `bundledMessageIds`, which doesn't suffer the
         // upload-stretch race that the old user-side cutoff pad did.
-        return AssistantBuilderSummary(
+        return AgentBuilderSummary(
             prompt: prompt,
             attachments: attachments,
             cutoffDate: Date(),
@@ -517,7 +517,7 @@ final class AssistantBuilderViewModel: Identifiable {
                 try? await Task.sleep(for: .milliseconds(Constant.agentPollIntervalMs))
             }
             guard !Task.isCancelled else { return }
-            Log.error("AssistantBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for assistant to join — \(connections.count) connection grant(s) skipped")
+            Log.error("AgentBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for agent to join — \(connections.count) connection grant(s) skipped")
         }
     }
 
@@ -531,8 +531,8 @@ final class AssistantBuilderViewModel: Identifiable {
     /// directly via the messaging service's writers, mirroring what
     /// `ConversationConnectionsViewModel.grant(connectionId:providerId:)` does.
     private func fireConnectionGrants(
-        _ connections: Set<AssistantBuilderConnection>,
-        capturedIds: [AssistantBuilderConnection: String],
+        _ connections: Set<AgentBuilderConnection>,
+        capturedIds: [AgentBuilderConnection: String],
         in convoVM: ConversationViewModel
     ) {
         let connectionsVM = convoVM.makeConversationConnectionsViewModel()
@@ -542,12 +542,12 @@ final class AssistantBuilderViewModel: Identifiable {
                 connectionsVM.toggleDeviceConnection(.health)
             case .googleCalendar:
                 guard let connectionId = capturedIds[connection] else {
-                    Log.warning("AssistantBuilder: no captured CloudConnection.id for \(connection.id) — grant skipped")
+                    Log.warning("AgentBuilder: no captured CloudConnection.id for \(connection.id) — grant skipped")
                     continue
                 }
                 fireCloudGrant(
                     connectionId: connectionId,
-                    serviceId: AssistantBuilderConnection.googleCalendarServiceId,
+                    serviceId: AgentBuilderConnection.googleCalendarServiceId,
                     in: convoVM
                 )
             }
@@ -575,7 +575,7 @@ final class AssistantBuilderViewModel: Identifiable {
                     try await grantWriter.grantConnection(connectionId, to: conversationId, grantedToInboxId: agent)
                     grantedAgents.append(agent)
                 } catch {
-                    Log.error("AssistantBuilder: grantConnection failed for \(serviceId) agent \(agent): \(error.localizedDescription)")
+                    Log.error("AgentBuilder: grantConnection failed for \(serviceId) agent \(agent): \(error.localizedDescription)")
                 }
             }
             if let representative = grantedAgents.first {
@@ -600,7 +600,7 @@ final class AssistantBuilderViewModel: Identifiable {
         /// from the list bypass this entirely.
         static let contactCardRevealDelayMs: Int = 1500
         /// Pixel size used to bake summary chip thumbnails into the persisted
-        /// `DBAssistantBuilderSummary` row. The summary card renders chips at
+        /// `DBAgentBuilderSummary` row. The summary card renders chips at
         /// 80pt; 240px (3x Retina) keeps them crisp without persisting a
         /// multi-megabyte full-resolution PNG inside the JSON column — that
         /// was the main-thread bottleneck on later `summarySync` reads.
@@ -631,13 +631,13 @@ final class AssistantBuilderViewModel: Identifiable {
 
     /// Tear down the in-flight draft. Cancels conversation-creation tasks
     /// and the agent-join request, and — if the conversation became real
-    /// and the assistant has already joined — sets consent to denied so
-    /// the assistant sees us depart. Local conversation row cleanup is
+    /// and the agent has already joined — sets consent to denied so
+    /// the agent sees us depart. Local conversation row cleanup is
     /// handled by the draft repository when this VM deallocates.
     func discard() {
         guard !didDiscard else { return }
         didDiscard = true
-        assistantJoinTask?.cancel()
+        agentJoinTask?.cancel()
         pendingConnectionGrantTask?.cancel()
         didRequestAgentJoin = true // suppress any late retries
         voiceMemoRecorder?.cancelRecording()
@@ -664,36 +664,36 @@ final class AssistantBuilderViewModel: Identifiable {
                 let writer = session.messagingService().conversationConsentWriter()
                 try await writer.delete(conversation: conversation)
             } catch {
-                Log.error("AssistantBuilder discard: failed to leave conversation \(conversation.id): \(error.localizedDescription)")
+                Log.error("AgentBuilder discard: failed to leave conversation \(conversation.id): \(error.localizedDescription)")
             }
         }
     }
 
-    // MARK: - Assistant join
+    // MARK: - Agent join
 
     private func requestAgentJoinIfNeeded() {
         guard !didRequestAgentJoin else { return }
         guard let conversation = newConversationViewModel.conversationViewModel?.conversation else {
-            Log.warning("AssistantBuilderViewModel: reached .ready but no conversation available")
+            Log.warning("AgentBuilderViewModel: reached .ready but no conversation available")
             return
         }
         let slug = conversation.invite?.urlSlug ?? ""
         guard !slug.isEmpty else {
-            Log.warning("AssistantBuilderViewModel: reached .ready but invite slug is empty")
+            Log.warning("AgentBuilderViewModel: reached .ready but invite slug is empty")
             return
         }
         didRequestAgentJoin = true
 
-        assistantJoinTask?.cancel()
-        assistantJoinTask = Task { [session] in
+        agentJoinTask?.cancel()
+        agentJoinTask = Task { [session] in
             do {
-                _ = try await session.requestAgentJoin(slug: slug, options: .assistantBuilder)
+                _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)
             } catch is CancellationError {
                 return
             } catch let urlError as URLError where urlError.code == .cancelled {
                 return
             } catch {
-                Log.error("AssistantBuilderViewModel: requestAgentJoin failed: \(error.localizedDescription)")
+                Log.error("AgentBuilderViewModel: requestAgentJoin failed: \(error.localizedDescription)")
             }
         }
     }

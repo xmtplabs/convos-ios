@@ -1,12 +1,12 @@
 import Foundation
 import GRDB
 
-/// Local-only record. Persists the AssistantBuilderSummary the iOS app
+/// Local-only record. Persists the AgentBuilderSummary the iOS app
 /// captured at Make time so it survives navigating away from the conversation
 /// or quitting the app — without this row, a returning user would see the
-/// natural pre-Make assistant hello + their own prompt messages instead of
+/// natural pre-Make agent hello + their own prompt messages instead of
 /// the polished summary card.
-public struct DBAssistantBuilderSummary: Codable, FetchableRecord, PersistableRecord, Hashable, Sendable {
+public struct DBAgentBuilderSummary: Codable, FetchableRecord, PersistableRecord, Hashable, Sendable {
     public static let databaseTableName: String = "assistantBuilderSummary"
 
     public enum Columns {
@@ -22,7 +22,7 @@ public struct DBAssistantBuilderSummary: Codable, FetchableRecord, PersistableRe
     public let conversationId: String
     public let summaryId: String
     public let prompt: String
-    /// JSON-encoded `[AssistantBuilderSummaryAttachment]`. Photo / video
+    /// JSON-encoded `[AgentBuilderSummaryAttachment]`. Photo / video
     /// thumbnails are base64-encoded `Data` inside the JSON — base64 inflates
     /// payload by ~33% but keeps the schema flat. Per-row cap is ~8
     /// attachments so a worst-case row stays under a megabyte.

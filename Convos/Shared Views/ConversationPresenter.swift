@@ -9,11 +9,11 @@ struct ConversationPresenter<Content: View>: View {
     /// Overrides the indicator's placeholder name (otherwise falls back to
     /// `ConversationViewModel.untitledConversationPlaceholder`). Used by
     /// flows where the underlying conversation is a draft and the indicator
-    /// wants a flow-specific label (e.g. "New assistant").
+    /// wants a flow-specific label (e.g. "New agent").
     var indicatorPlaceholderOverride: String?
     /// Overrides the indicator's subtitle (otherwise falls back to
     /// `ConversationViewModel.conversationInfoSubtitle`). E.g. "Draft" for
-    /// the assistant builder.
+    /// the agent builder.
     var indicatorSubtitleOverride: String?
     /// When false, taps still register on the indicator (so the liquid-glass
     /// touch feedback fires) but the expand-to-QuickEditor and info-view
@@ -22,7 +22,7 @@ struct ConversationPresenter<Content: View>: View {
     var allowsIndicatorEditing: Bool = true
     /// Replaces `FocusCoordinator.defaultFocus` for the `task(id:)` reset
     /// that fires whenever the conversation id changes. Lets flows like the
-    /// Assistant Builder pin focus on their composer field even after the
+    /// Agent Builder pin focus on their composer field even after the
     /// underlying conversation flips from `draft-...` to a real XMTP id.
     var defaultFocusOverride: MessagesViewInputFocus?
     /// Context for the leading app-mode indicator. When non-nil and there
@@ -128,7 +128,7 @@ struct ConversationPresenter<Content: View>: View {
 
     @ViewBuilder
     private func conversationIndicatorView(for viewModel: ConversationViewModel) -> some View {
-        let pendingAssistantOverride: AgentVerification? = viewModel.shouldRenderAsPendingAssistant
+        let pendingAgentOverride: AgentVerification? = viewModel.shouldRenderAsPendingAgent
             ? .verified(.convos)
             : nil
         ConversationIndicatorWrapper(
@@ -139,7 +139,7 @@ struct ConversationPresenter<Content: View>: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator
         )
-        .environment(\.forcedAgentVerification, pendingAssistantOverride)
+        .environment(\.forcedAgentVerification, pendingAgentOverride)
         .hoverEffect(.lift)
         .matchedGeometryEffect(
             id: AdaptiveAppIndicatorConstant.indicatorShellId,

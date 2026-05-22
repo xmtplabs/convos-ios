@@ -9,7 +9,7 @@ import SwiftUI
 /// Used for the standalone inline-indicator case (the message is NOT the
 /// last sent message). When the message would normally show a read
 /// receipt, `MessagesGroupView` swaps this view for a merged row that
-/// folds the thinking caption + assistant avatar into the read-receipt
+/// folds the thinking caption + agent avatar into the read-receipt
 /// row. `showsLeadingAvatar` is therefore typically true here — the
 /// agent's avatar identifies "who is thinking" since this row stands on
 /// its own. It only flips off when the thinker is the message's own
@@ -43,7 +43,7 @@ struct ThinkingIndicatorFooterView: View {
                     .font(.caption2)
                     .foregroundStyle(.colorTextTertiary)
             }
-            // Opacity pulse matches `AssistantContactCardView.PulsingSubtitle`
+            // Opacity pulse matches `AgentContactCardView.PulsingSubtitle`
             // (0.5 ↔ 1.0 on a 1.2s ease-in-out loop) so a thinking session
             // reads as the same "still working" cadence as "Learning more
             // about my job". Animating opacity keeps text metrics fixed so

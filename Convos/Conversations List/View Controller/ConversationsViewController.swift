@@ -110,7 +110,7 @@ final class ConversationsViewController: UIViewController {
     var onJoinConvo: (() -> Void)?
     var onShowAllFilter: (() -> Void)?
     /// Fired on every scroll tick with the latest content offset Y. Used
-    /// by the host SwiftUI shell (`MainTabView`) to flip the assistant
+    /// by the host SwiftUI shell (`MainTabView`) to flip the agent
     /// builder bar between expanded and collapsed states based on whether
     /// the list is at the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?

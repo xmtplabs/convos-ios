@@ -22,7 +22,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     /// Drops a conversation that was claimed via `prepareNewConversation()` but
     /// never engaged with by the user — typically called from the new-
-    /// conversation / Assistant Builder X-cancel path when no messages have
+    /// conversation / Agent Builder X-cancel path when no messages have
     /// been sent. Deletes the local `DBConversation` row and its dependent
     /// rows (members, profiles, local state) so the conversation disappears
     /// from the conversations list. The single-inbox refactor turned the
@@ -61,9 +61,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing
 
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
-    func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository
-    func assistantBuilderSummaryWriter() -> any AssistantBuilderSummaryWriterProtocol
-    func assistantBuilderSummaryRepository() -> any AssistantBuilderSummaryRepositoryProtocol
+    func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository
+    func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol
+    func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol
     func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol

@@ -1,8 +1,8 @@
 import ConvosCore
 import SwiftUI
 
-struct AssistantJoinStatusView: View {
-    let status: AssistantJoinStatus
+struct AgentJoinStatusView: View {
+    let status: AgentJoinStatus
     var requesterName: String?
     var onRetry: (() -> Void)?
 
@@ -13,13 +13,13 @@ struct AssistantJoinStatusView: View {
         case .noAgentsAvailable:
             errorView(
                 icon: "xmark",
-                text: "No assistants are available",
+                text: "No agents are available",
                 tappable: false
             )
         case .failed:
             errorView(
                 icon: "arrow.clockwise",
-                text: "Assistant could not join",
+                text: "Agent could not join",
                 tappable: true
             )
         }
@@ -29,9 +29,9 @@ struct AssistantJoinStatusView: View {
 
     private var pendingView: some View {
         let text = if let requesterName {
-            "\(requesterName) invited an assistant to join"
+            "\(requesterName) invited an agent to join"
         } else {
-            "Assistant is joining…"
+            "Agent is joining…"
         }
         return Text(text)
             .lineLimit(1)
@@ -76,17 +76,17 @@ struct AssistantJoinStatusView: View {
 }
 
 #Preview("Pending - Self") {
-    AssistantJoinStatusView(status: .pending)
+    AgentJoinStatusView(status: .pending)
 }
 
 #Preview("Pending - Other Member") {
-    AssistantJoinStatusView(status: .pending, requesterName: "Louis")
+    AgentJoinStatusView(status: .pending, requesterName: "Louis")
 }
 
 #Preview("No Agents") {
-    AssistantJoinStatusView(status: .noAgentsAvailable)
+    AgentJoinStatusView(status: .noAgentsAvailable)
 }
 
 #Preview("Failed") {
-    AssistantJoinStatusView(status: .failed, onRetry: {})
+    AgentJoinStatusView(status: .failed, onRetry: {})
 }

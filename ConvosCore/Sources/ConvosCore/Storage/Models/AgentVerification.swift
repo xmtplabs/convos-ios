@@ -15,7 +15,7 @@ public enum AgentVerification: Codable, Hashable, Sendable {
         return false
     }
 
-    public var isConvosAssistant: Bool {
+    public var isConvosAgent: Bool {
         self == .verified(.convos)
     }
 

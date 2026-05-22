@@ -1,10 +1,10 @@
 import SwiftUI
 
-struct AssistantJoinedInfoView: View {
+struct AgentJoinedInfoView: View {
     @State private var safariURL: URL?
 
     var body: some View {
-        let action = { safariURL = URL(string: Constant.assistantsURLString) }
+        let action = { safariURL = URL(string: Constant.agentsURLString) }
         Button(action: action) {
             Text("See its skills")
                 .font(.footnote)
@@ -18,10 +18,10 @@ struct AssistantJoinedInfoView: View {
     }
 
     private enum Constant {
-        static let assistantsURLString: String = "https://www.convos.org/assistants"
+        static let agentsURLString: String = "https://www.convos.org/assistants"
     }
 }
 
 #Preview {
-    AssistantJoinedInfoView()
+    AgentJoinedInfoView()
 }

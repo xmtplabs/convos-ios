@@ -538,7 +538,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                 }
 
                 try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -613,7 +613,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                    try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
@@ -622,12 +622,12 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
     }
 
-    private static func markConversationHasVerifiedAssistantIfNeeded(
+    private static func markConversationHasVerifiedAgentIfNeeded(
         profile: DBMemberProfile,
         conversationId: String,
         db: Database
     ) throws {
-        guard profile.agentVerification.isConvosAssistant,
+        guard profile.agentVerification.isConvosAgent,
               let conversation = try DBConversation.fetchOne(db, id: conversationId),
               !conversation.hasHadVerifiedAssistant else { return }
         try conversation.with(hasHadVerifiedAssistant: true).save(db)

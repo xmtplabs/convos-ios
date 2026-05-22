@@ -2,15 +2,15 @@ import AVFoundation
 import ConvosCore
 import SwiftUI
 
-/// The "summary card" cell that replaces the user's prompt + early assistant
-/// chatter at the top of a post-Make assistant conversation. Reproduces the
-/// AssistantDraftComposer's rounded-rect liquid-glass styling (no bottom
+/// The "summary card" cell that replaces the user's prompt + early agent
+/// chatter at the top of a post-Make agent conversation. Reproduces the
+/// AgentDraftComposer's rounded-rect liquid-glass styling (no bottom
 /// buttons, no Make button) and the same attachment chips minus their X
-/// buttons. Footer reads "You created an assistant" in the group-update text
+/// buttons. Footer reads "You created an agent" in the group-update text
 /// style.
-struct AssistantBuilderSummaryView: View {
-    let summary: AssistantBuilderSummary
-    /// Namespace owned by `AssistantBuilderView`. When non-nil the card pairs
+struct AgentBuilderSummaryView: View {
+    let summary: AgentBuilderSummary
+    /// Namespace owned by `AgentBuilderView`. When non-nil the card pairs
     /// with the composer's glass rect via `glassEffectID +
     /// glassEffectTransition(.matchedGeometry)`, producing the morph on Make.
     /// Nil for the "returning later" case where the card simply renders
@@ -30,7 +30,7 @@ struct AssistantBuilderSummaryView: View {
             GlassEffectContainer {
                 card
             }
-            Text("You created an assistant")
+            Text("You created an agent")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
@@ -40,7 +40,7 @@ struct AssistantBuilderSummaryView: View {
     @ViewBuilder private var card: some View {
         if let transitionNamespace {
             cardContent
-                .glassEffectID(AssistantBuilderTransition.glassEffectId, in: transitionNamespace)
+                .glassEffectID(AgentBuilderTransition.glassEffectId, in: transitionNamespace)
                 .glassEffectTransition(.matchedGeometry)
         } else {
             cardContent
@@ -76,7 +76,7 @@ struct AssistantBuilderSummaryView: View {
     }
 
     @ViewBuilder
-    private func chipView(for attachment: AssistantBuilderSummaryAttachment) -> some View {
+    private func chipView(for attachment: AgentBuilderSummaryAttachment) -> some View {
         switch attachment {
         case .photo(_, let thumbnailData):
             photoVideoChip(thumbnailData: thumbnailData, isVideo: false)
@@ -166,7 +166,7 @@ struct AssistantBuilderSummaryView: View {
 
     @ViewBuilder
     private func connectionChip(identifier: String) -> some View {
-        let imageName: String? = AssistantBuilderConnection(rawValue: identifier)?.chipImageName
+        let imageName: String? = AgentBuilderConnection(rawValue: identifier)?.chipImageName
         if let imageName {
             Image(imageName)
                 .resizable()
@@ -189,7 +189,7 @@ struct AssistantBuilderSummaryView: View {
 }
 
 #Preview {
-    let summary = AssistantBuilderSummary(
+    let summary = AgentBuilderSummary(
         prompt: "Help me plan a backpacking trip across Patagonia. I want to camp 4 nights and finish in El Chaltén.",
         attachments: [
             .photo(id: UUID(), thumbnailData: nil),
@@ -199,6 +199,6 @@ struct AssistantBuilderSummaryView: View {
         ],
         cutoffDate: Date()
     )
-    return AssistantBuilderSummaryView(summary: summary)
+    return AgentBuilderSummaryView(summary: summary)
         .padding()
 }

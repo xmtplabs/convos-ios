@@ -10,7 +10,7 @@ import SwiftUI
 /// Each agent `start` event is its own moment and renders as its own
 /// one-message `MessagesGroup`. The groups carry `hidesAvatar = true`
 /// except the most recent one, so the visual reading is "one grouped run
-/// from the assistant with a single avatar at the bottom". DifferenceKit
+/// from the agent with a single avatar at the bottom". DifferenceKit
 /// treats the new groups as item insertions on the underlying
 /// `UICollectionView`, so each moment animates in.
 ///
@@ -33,7 +33,7 @@ struct ThinkingDetailView: View {
     /// signal the agent, post a system message). Defaults to a no-op so
     /// the view stays usable in previews or contexts that don't wire it.
     var onStop: () -> Void = {}
-    /// Factory for the assistant's profile sheet — same shape used by
+    /// Factory for the agent's profile sheet — same shape used by
     /// `MessagesView` so callers can reuse their existing builder.
     /// Tapping the top indicator capsule presents the result.
     var profileSheetForMember: (ConversationMember) -> AnyView = { _ in AnyView(EmptyView()) }
@@ -42,7 +42,7 @@ struct ThinkingDetailView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var topBarHeight: CGFloat = 0.0
-    @State private var presentingAssistantProfile: Bool = false
+    @State private var presentingAgentProfile: Bool = false
 
     /// Resolved descriptor for this render: prefers the matching session in
     /// the VM's live `thinkingSessions` feed so new moments propagate, falls
@@ -94,7 +94,7 @@ struct ThinkingDetailView: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
         .presentationBackground(.colorBackgroundRaisedSecondary)
-        .sheet(isPresented: $presentingAssistantProfile) {
+        .sheet(isPresented: $presentingAgentProfile) {
             profileSheetForMember(descriptor.sender)
         }
     }
@@ -104,7 +104,7 @@ struct ThinkingDetailView: View {
             ThinkingDetailIndicator(
                 descriptor: liveDescriptor,
                 subtitle: subtitle,
-                onTap: { presentingAssistantProfile = true }
+                onTap: { presentingAgentProfile = true }
             )
             HStack {
                 Spacer()
@@ -179,16 +179,16 @@ struct ThinkingDetailView: View {
             onTapUpdateMember: { _ in },
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },
-            onRetryAssistantJoin: {},
+            onRetryAgentJoin: {},
             onCopyInviteLink: {},
             onConvoCode: {},
-            onInviteAssistant: {},
+            onInviteAgent: {},
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
             memberContactOverride: { _ in nil },
-            hasAssistant: conversation.hasAgent,
-            isAssistantJoinPending: false,
-            isAssistantEnabled: false,
+            hasAgent: conversation.hasAgent,
+            isAgentJoinPending: false,
+            isAgentEnabled: false,
             bottomBarHeight: bottomBarHeight,
             hasBottomBar: true,
             topContentInset: topBarHeight,
@@ -209,12 +209,12 @@ struct ThinkingDetailView: View {
 /// Capsule indicator at the top of `ThinkingDetailView`. Parallel to
 /// `ConversationIndicator` but keyed off a `ThinkingSessionDescriptor` — the
 /// conversation indicator's editable name / members shape doesn't fit a
-/// thinking session (always one assistant, fixed "Thinking"/"Done thinking"
+/// thinking session (always one agent, fixed "Thinking"/"Done thinking"
 /// subtitle), so this is a sibling component rather than a configuration of
 /// the same one.
 ///
 /// Tapping the capsule fires `onTap`, which the parent wires to present
-/// the assistant's profile sheet — same affordance as
+/// the agent's profile sheet — same affordance as
 /// `ConversationIndicator`. The pill uses an interactive glass effect so
 /// the press state matches the rest of the floating chrome.
 struct ThinkingDetailIndicator: View {
@@ -250,7 +250,7 @@ struct ThinkingDetailIndicator: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(descriptor.sender.profile.displayName), \(subtitle)")
-        .accessibilityHint("Tap to see assistant profile")
+        .accessibilityHint("Tap to see agent profile")
     }
 
     private enum Constant {

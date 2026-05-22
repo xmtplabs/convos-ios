@@ -1086,7 +1086,7 @@ public enum ConversationStateMachineError: Error {
     case addMembersFailed(underlying: Error)
     /// Caller invoked `send(text:)` before the new-conversation flow had
     /// configured a `ConversationStateManager`. Surfaces in wrapping flows
-    /// (e.g. Assistant Builder) that send through the unwrapped
+    /// (e.g. Agent Builder) that send through the unwrapped
     /// `NewConversationViewModel`; without this, a `try await send` would
     /// look like a successful no-op and the prompt would silently vanish.
     case noConversationStateManager

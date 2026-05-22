@@ -28,7 +28,7 @@ struct StuffOverviewItem: Identifiable, Hashable {
 
 /// View model for the Stuff tab's cross-conversation grid. Subscribes to
 /// the conversations list and, for each conversation, to that convo's
-/// `AssistantFilesLinksRepository.filesPublisher` so we can pull out the
+/// `AgentFilesLinksRepository.filesPublisher` so we can pull out the
 /// latest HTML file. Builds a deduped, date-sorted array of
 /// [[StuffOverviewItem]] for the grid to render.
 ///
@@ -46,7 +46,7 @@ final class StuffOverviewViewModel {
     @ObservationIgnored private var conversationsCancellable: AnyCancellable?
     @ObservationIgnored private var filesCancellables: [String: AnyCancellable] = [:]
     @ObservationIgnored private var conversationsById: [String: Conversation] = [:]
-    @ObservationIgnored private var latestHTMLPerConvo: [String: AssistantFile] = [:]
+    @ObservationIgnored private var latestHTMLPerConvo: [String: AgentFile] = [:]
     @ObservationIgnored private let conversationsRepository: any ConversationsRepositoryProtocol
 
     init(session: any SessionManagerProtocol) {
@@ -79,7 +79,7 @@ final class StuffOverviewViewModel {
     }
 
     private func subscribeToFiles(for conversationId: String) {
-        let repo = session.assistantFilesLinksRepository(for: conversationId)
+        let repo = session.agentFilesLinksRepository(for: conversationId)
         filesCancellables[conversationId] = repo.filesPublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] files in
@@ -94,7 +94,7 @@ final class StuffOverviewViewModel {
             }
     }
 
-    private func isHTML(_ file: AssistantFile) -> Bool {
+    private func isHTML(_ file: AgentFile) -> Bool {
         if file.mimeType?.lowercased() == "text/html" { return true }
         return file.filename?.lowercased().hasSuffix(".html") ?? false
     }

@@ -67,7 +67,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
          attachments([HydratedAttachment]),
          update(ConversationUpdate),
          linkPreview(LinkPreview),
-         assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String),
+         assistantJoinRequest(status: AgentJoinStatus, requestedByInboxId: String),
          connectionGrantRequest(CloudConnectionGrantRequest),
          connectionEvent(summary: ConnectionEventSummary),
          connectionInvocation(summary: ConnectionEventSummary),
@@ -116,7 +116,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
         }
     }
 
-    public var isAssistantJoinRequest: Bool {
+    public var isAgentJoinRequest: Bool {
         switch self {
         case .assistantJoinRequest:
             true

@@ -1034,7 +1034,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         try profile.save(db)
 
-        if profile.agentVerification.isConvosAssistant,
+        if profile.agentVerification.isConvosAgent,
            let conversation = try DBConversation.fetchOne(db, id: conversationId),
            !conversation.hasHadVerifiedAssistant {
             try conversation.with(hasHadVerifiedAssistant: true).save(db)

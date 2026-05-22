@@ -105,7 +105,7 @@ public struct CloudConnectionGrantRequestCodec: ContentCodec {
     }
 
     public func fallback(content: CloudConnectionGrantRequest) throws -> String? {
-        "The assistant asked to connect \(content.service)"
+        "The agent asked to connect \(content.service)"
     }
 
     public func shouldPush(content: CloudConnectionGrantRequest) throws -> Bool {

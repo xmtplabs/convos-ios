@@ -9,7 +9,7 @@ struct CellConfig {
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     /// Fired when an avatar / sender label is tapped on a group that has no
-    /// concrete `AnyMessage` to attach (e.g. the synthesized assistant
+    /// concrete `AnyMessage` to attach (e.g. the synthesized agent
     /// contact-card group). Routes to the same profile sheet
     /// `onTapAvatar` resolves to, just without needing a message.
     let onTapSender: (ConversationMember) -> Void
@@ -24,7 +24,7 @@ struct CellConfig {
     let onPhotoHidden: (String) -> Void
     let onAgentOutOfCredits: () -> Void
     let creditsDepleted: Bool
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
     let onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
@@ -32,22 +32,22 @@ struct CellConfig {
     let onDeleteMessage: (AnyMessage) -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let hasAgent: Bool
+    let isAgentJoinPending: Bool
+    let isAgentEnabled: Bool
     let headerMode: MessagesHeaderMode
     /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`
     /// cell renders the invite menu without the QR card above it.
     let hidesInviteCard: Bool
-    /// Shared SwiftUI namespace used to morph the Assistant Builder's
+    /// Shared SwiftUI namespace used to morph the Agent Builder's
     /// composer card into the summary cell on Make via
-    /// `glassEffectID("assistantBuilderCard", in:) +
+    /// `glassEffectID("agentBuilderCard", in:) +
     /// glassEffectTransition(.matchedGeometry)`. Nil when the messages list
     /// isn't part of a builder commit (regular chats).
-    let assistantBuilderTransitionNamespace: Namespace.ID?
+    let agentBuilderTransitionNamespace: Namespace.ID?
     /// Maps an inbox to the user's full `Contact` when the inbox is a
     /// known contact. Cells use it for both the display-name override
     /// (via `?.displayName`) and avatar substitution (so a system-

@@ -39,14 +39,14 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: estimatedHeight(for: group, width: width)))
             case .agentOutOfCredits:
                 return .estimated(CGSize(width: width, height: 48.0))
-            case .assistantJoinStatus:
+            case .agentJoinStatus:
                 return .estimated(CGSize(width: width, height: 48.0))
-            case .assistantPresentInfo:
+            case .agentPresentInfo:
                 return .estimated(CGSize(width: width, height: 48.0))
             case .connectionEvent:
                 return .estimated(CGSize(width: width, height: 48.0))
-            case .assistantBuilderSummary:
-                // Composer-card height plus "You created an assistant" footer.
+            case .agentBuilderSummary:
+                // Composer-card height plus "You created an agent" footer.
                 return .estimated(CGSize(width: width, height: 320.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))

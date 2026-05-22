@@ -46,7 +46,7 @@ struct AppSettingsView: View {
                 myInfoSection
                 subscriptionSection
                 contactsSection
-                assistantsSection
+                agentsSection
                 connectionsSection
                 customizeSection
                 linksSection
@@ -173,13 +173,13 @@ struct AppSettingsView: View {
     }
 
     @ViewBuilder
-    private var assistantsSection: some View {
-        if FeatureFlags.shared.isAssistantEnabled {
+    private var agentsSection: some View {
+        if FeatureFlags.shared.isAgentEnabled {
             Section {
                 NavigationLink {
-                    AssistantSettingsView()
+                    AgentSettingsView()
                 } label: {
-                    Text("Assistants")
+                    Text("Agents")
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
@@ -191,7 +191,7 @@ struct AppSettingsView: View {
 
     @ViewBuilder
     private var connectionsSection: some View {
-        if FeatureFlags.shared.isAssistantEnabled {
+        if FeatureFlags.shared.isAgentEnabled {
             Section {
                 NavigationLink {
                     ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
@@ -201,7 +201,7 @@ struct AppSettingsView: View {
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
             } footer: {
-                Text("Enable services on this device and share them with assistants")
+                Text("Enable services on this device and share them with agents")
             }
         }
     }

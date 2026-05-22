@@ -28,19 +28,19 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let hasAgent: Bool
+    let isAgentJoinPending: Bool
+    let isAgentEnabled: Bool
     var headerMode: MessagesHeaderMode = .standard
-    var assistantBuilderSummary: AssistantBuilderSummary?
-    var assistantBuilderTransitionNamespace: Namespace.ID?
+    var agentBuilderSummary: AgentBuilderSummary?
+    var agentBuilderTransitionNamespace: Namespace.ID?
     let bottomBarHeight: CGFloat
     /// Hosts that intentionally have no composer (the thinking detail sheet)
     /// pass `false` so the controller doesn't wait for a non-existent bottom
@@ -121,16 +121,16 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onDeleteMessage = { message in
             self.onDeleteMessage(message)
         }
-        messagesViewController.onRetryAssistantJoin = onRetryAssistantJoin
+        messagesViewController.onRetryAgentJoin = onRetryAgentJoin
         messagesViewController.onCopyInviteLink = onCopyInviteLink
         messagesViewController.onConvoCode = onConvoCode
-        messagesViewController.onInviteAssistant = onInviteAssistant
+        messagesViewController.onInviteAgent = onInviteAgent
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember
         messagesViewController.memberContactOverride = memberContactOverride
-        messagesViewController.hasAssistant = hasAssistant
-        messagesViewController.isAssistantJoinPending = isAssistantJoinPending
-        messagesViewController.isAssistantEnabled = isAssistantEnabled
+        messagesViewController.hasAgent = hasAgent
+        messagesViewController.isAgentJoinPending = isAgentJoinPending
+        messagesViewController.isAgentEnabled = isAgentEnabled
 let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -147,8 +147,8 @@ let menuPresented = contextMenuState.isPresented
             invite: invite,
             hasLoadedAllMessages: hasLoadedAllMessages,
             headerMode: headerMode,
-            assistantBuilderSummary: assistantBuilderSummary,
-            assistantBuilderTransitionNamespace: assistantBuilderTransitionNamespace
+            agentBuilderSummary: agentBuilderSummary,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace
         )
     }
 }
@@ -184,16 +184,16 @@ let menuPresented = contextMenuState.isPresented
         onTapUpdateMember: { _ in },
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },
-        onRetryAssistantJoin: {},
+        onRetryAgentJoin: {},
         onCopyInviteLink: {},
         onConvoCode: {},
-        onInviteAssistant: {},
+        onInviteAgent: {},
         onRetryTranscript: { _ in },
         profileSheetForMember: { _ in AnyView(EmptyView()) },
         memberContactOverride: { _ in nil },
-        hasAssistant: false,
-        isAssistantJoinPending: false,
-        isAssistantEnabled: true,
+        hasAgent: false,
+        isAgentJoinPending: false,
+        isAgentEnabled: true,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         onBottomOverscrollReleased: { _ in },

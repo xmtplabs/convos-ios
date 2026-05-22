@@ -17,7 +17,7 @@ struct ConversationsView: View {
     var sidebarBottomAccessory: AnyView?
     /// Fired with the conversation list's current scroll content-offset Y
     /// on every scroll tick, forwarded from `ConversationsViewController`.
-    /// `MainTabView` uses this to flip the assistant builder bar between
+    /// `MainTabView` uses this to flip the agent builder bar between
     /// expanded and collapsed states.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
     /// Extra bottom inset (in points) for the conversation list to clear
@@ -242,9 +242,9 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // The `NewConversationView` and `AssistantBuilderView` sheets
+            // The `NewConversationView` and `AgentBuilderView` sheets
             // are both presented from `MainTabView` so the compose
-            // button (top-trailing on every tab) and the assistant
+            // button (top-trailing on every tab) and the agent
             // builder bar can zoom into them with a shared namespace.
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }

@@ -288,7 +288,7 @@ struct DefaultConversationDisplayTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
+            agentJoinStatus: nil,
             hasHadVerifiedAssistant: false
         )
         #expect(conversation.avatarType == .customImage)
@@ -330,7 +330,7 @@ struct DefaultConversationDisplayTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
+            agentJoinStatus: nil,
             hasHadVerifiedAssistant: false
         )
 

@@ -14,14 +14,14 @@ extension ConversationViewModel {
     /// isn't yet in the visible list are dropped — the indicator only shows
     /// once both anchors exist.
     ///
-    /// Build-flow special case: when the assistant has a thinking session
+    /// Build-flow special case: when the agent has a thinking session
     /// whose target is a user prompt sent during the build flow, the
     /// descriptor is routed to the contact card group's
     /// `contactCardThinkingDescriptor` instead of an inline footer. That
     /// happens both pre-Make (target prompt still visible but the card is
     /// the canonical anchor) and post-Make (target was filtered out by
-    /// `bundledMessageIds`). Gated on `isInAssistantBuilderFlow` —
-    /// ordinary assistant conversations (no builder involvement) skip
+    /// `bundledMessageIds`). Gated on `isInAgentBuilderFlow` —
+    /// ordinary agent conversations (no builder involvement) skip
     /// this routing and use inline footers exclusively.
     var messagesWithThinkingIndicators: [MessagesListItemType] {
         let base = messagesWithTypingIndicator
@@ -67,17 +67,17 @@ extension ConversationViewModel {
             // whenever the session's target lands inside that set so
             // the indicator never anchors on a now-filtered bundle
             // bubble.
-            let targetInBundle: Bool = assistantBuilderSummary?.bundledMessageIds
+            let targetInBundle: Bool = agentBuilderSummary?.bundledMessageIds
                 .contains(session.targetMessageId) ?? false
             // Builder-flow conversations route to the contact card when
             // the target/result aren't visible (filtered out by
             // `bundledMessageIds`) OR while the builder UI is up
             // (pre-Make — the card is the canonical anchor even though
-            // the user's prompt is still visible). Ordinary assistant
+            // the user's prompt is still visible). Ordinary agent
             // conversations skip the card path entirely and use inline
             // footers exclusively, so the indicator surfaces on the
             // actual message bubble the agent is thinking about.
-            let shouldRouteToCard: Bool = isInAssistantBuilderFlow
+            let shouldRouteToCard: Bool = isInAgentBuilderFlow
                 || targetInBundle
                 || (!targetVisible && !resultVisible)
             if shouldRouteToCard {
@@ -117,7 +117,7 @@ extension ConversationViewModel {
                 updated.thinkingByMessageId = attached
             }
 
-            if group.assistantContactCard != nil,
+            if group.agentContactCard != nil,
                let descriptor = contactCardDescriptorsBySender[group.sender.profile.inboxId] {
                 updated.contactCardThinkingDescriptor = descriptor
             }

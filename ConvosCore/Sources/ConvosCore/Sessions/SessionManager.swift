@@ -635,16 +635,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AttachmentLocalStateWriter(databaseWriter: databaseWriter)
     }
 
-    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        AssistantFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
     }
 
-    public func assistantBuilderSummaryWriter() -> any AssistantBuilderSummaryWriterProtocol {
-        AssistantBuilderSummaryWriter(databaseWriter: databaseWriter)
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: databaseWriter)
     }
 
-    public func assistantBuilderSummaryRepository() -> any AssistantBuilderSummaryRepositoryProtocol {
-        AssistantBuilderSummaryRepository(databaseReader: databaseReader)
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: databaseReader)
     }
 
     public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {

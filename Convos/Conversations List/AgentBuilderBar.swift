@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Bottom-accessory bar above the iOS 26 floating tab bar that lets the
-/// user kick off an assistant-builder draft. Renders one stable glass
+/// user kick off an agent-builder draft. Renders one stable glass
 /// capsule whose **width and tint** animate between two visual states:
 ///
 /// - **Expanded**: full-width capsule with the agent avatar leading, a
@@ -19,7 +19,7 @@ import SwiftUI
 /// surface across the morph — sheets presented from the bar can zoom
 /// out of the pill *or* the circle without their source anchor being
 /// invalidated by a view-tree teardown.
-struct AssistantBuilderBar: View {
+struct AgentBuilderBar: View {
     let isExpanded: Bool
     let onTap: () -> Void
     let onTapPhotos: () -> Void
@@ -68,7 +68,7 @@ struct AssistantBuilderBar: View {
             id: transitionSourceId
         ))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(isExpanded ? "assistant-builder-bar-expanded" : "assistant-builder-bar-collapsed")
+        .accessibilityIdentifier(isExpanded ? "agent-builder-bar-expanded" : "agent-builder-bar-collapsed")
     }
 
     private var currentGlass: Glass {
@@ -79,7 +79,7 @@ struct AssistantBuilderBar: View {
 
     private var expandedContent: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
-            assistantAvatar
+            agentAvatar
 
             Text("Make an agent")
                 .font(.subheadline)
@@ -94,7 +94,7 @@ struct AssistantBuilderBar: View {
     }
 
     private var collapsedContent: some View {
-        Image("addAssistantIcon")
+        Image("addAgentIcon")
             .renderingMode(.template)
             .resizable()
             .scaledToFit()
@@ -112,11 +112,11 @@ struct AssistantBuilderBar: View {
         .padding(.horizontal, Constant.attachmentGroupHorizontalPadding)
     }
 
-    private var assistantAvatar: some View {
+    private var agentAvatar: some View {
         ZStack {
             Circle()
                 .fill(Color.black)
-            Image("addAssistantIcon")
+            Image("addAgentIcon")
                 .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
@@ -171,7 +171,7 @@ private struct MatchedTransitionSourceModifier: ViewModifier {
 }
 
 #Preview("Expanded") {
-    AssistantBuilderBar(
+    AgentBuilderBar(
         isExpanded: true,
         onTap: {},
         onTapPhotos: {},
@@ -183,7 +183,7 @@ private struct MatchedTransitionSourceModifier: ViewModifier {
 }
 
 #Preview("Collapsed") {
-    AssistantBuilderBar(
+    AgentBuilderBar(
         isExpanded: false,
         onTap: {},
         onTapPhotos: {},

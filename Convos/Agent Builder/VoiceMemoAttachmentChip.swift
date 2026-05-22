@@ -2,8 +2,8 @@ import AVFoundation
 import ConvosCore
 import SwiftUI
 
-/// Voice-memo chip displayed in the Assistant Builder's attachments row
-/// once a recording has been captured. Matches the lava-red assistant
+/// Voice-memo chip displayed in the Agent Builder's attachments row
+/// once a recording has been captured. Matches the lava-red agent
 /// styling of the indicator avatar — same height as the photo/video
 /// chips, wider rect to fit the inline play button + waveform.
 struct VoiceMemoAttachmentChip: View {

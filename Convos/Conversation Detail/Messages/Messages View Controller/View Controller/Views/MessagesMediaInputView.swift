@@ -11,7 +11,7 @@ struct MessagesMediaButtonsView: View {
     var isSideConvoDisabled: Bool = false
     var showsSideConvoButton: Bool = true
     var buttonSpacing: CGFloat = DesignConstants.Spacing.step2x
-    /// Connections button (Assistant Builder only). Nil hides the button — the
+    /// Connections button (Agent Builder only). Nil hides the button — the
     /// regular chat composer doesn't surface a connections affordance here.
     var onConnectionsTap: (() -> Void)?
     /// Only rendered in DEBUG builds — the button is hidden when nil or in Release.

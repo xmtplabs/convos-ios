@@ -84,14 +84,14 @@ struct ConversationAvatarView: View {
     @State private var cachedImage: UIImage?
     @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
 
-    private var hasForcedAssistantStyle: Bool {
+    private var hasForcedAgentStyle: Bool {
         forcedVerification?.isVerified == true
     }
 
     var body: some View {
         Group {
-            if hasForcedAssistantStyle {
-                MonogramView(name: "Assistant", agentVerification: forcedVerification ?? .unverified)
+            if hasForcedAgentStyle {
+                MonogramView(name: "Agent", agentVerification: forcedVerification ?? .unverified)
             } else if let conversationImage {
                 Image(uiImage: conversationImage)
                     .resizable()

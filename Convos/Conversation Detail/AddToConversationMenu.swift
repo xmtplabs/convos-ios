@@ -3,12 +3,12 @@ import SwiftUI
 
 struct AddToConversationMenu: View {
     let isFull: Bool
-    var hasAssistant: Bool = false
-    var isAssistantJoinPending: Bool = false
+    var hasAgent: Bool = false
+    var isAgentJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     /// Opens the contacts picker scoped to the destination conversation.
     /// Every menu surface (chat header, info view, members list) offers
     /// this row. Pair the call site with `.addFromContactsPicker(...)` to
@@ -16,12 +16,12 @@ struct AddToConversationMenu: View {
     /// that's bound to that modifier's `isPresented`.
     let onAddFromContacts: () -> Void
 
-    private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
-    private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
+    private var isAgentEnabled: Bool { FeatureFlags.shared.isAgentEnabled && GlobalConvoDefaults.shared.agentsEnabled }
+    private var isAgentActionDisabled: Bool { hasAgent || isAgentJoinPending }
 
-    private var assistantSubtitle: String {
-        if hasAssistant { return "Already here" }
-        if isAssistantJoinPending { return "Joining…" }
+    private var agentSubtitle: String {
+        if hasAgent { return "Already here" }
+        if isAgentJoinPending { return "Joining…" }
         return "Helps the group do things"
     }
 
@@ -55,14 +55,14 @@ struct AddToConversationMenu: View {
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
-            if isAssistantEnabled {
-                Button(action: onInviteAssistant) {
-                    Text("Instant assistant")
-                    Text(assistantSubtitle)
+            if isAgentEnabled {
+                Button(action: onInviteAgent) {
+                    Text("Instant agent")
+                    Text(agentSubtitle)
                     Image(systemName: "a.circle")
                 }
-                .disabled(isAssistantActionDisabled)
-                .accessibilityIdentifier("context-menu-add-assistant")
+                .disabled(isAgentActionDisabled)
+                .accessibilityIdentifier("context-menu-add-agent")
             }
         } label: {
             Image(systemName: "plus")
@@ -84,7 +84,7 @@ struct AddToConversationMenu: View {
                         isEnabled: true,
                         onConvoCode: {},
                         onCopyLink: {},
-                        onInviteAssistant: {},
+                        onInviteAgent: {},
                         onAddFromContacts: {}
                     )
                 }

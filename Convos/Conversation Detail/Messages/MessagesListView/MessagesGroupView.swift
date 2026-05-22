@@ -8,7 +8,7 @@ struct MessagesGroupView: View {
     let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     /// Fires when the sender label or an avatar that has no concrete message
-    /// to attach (e.g. the synthesized assistant contact-card group) is
+    /// to attach (e.g. the synthesized agent contact-card group) is
     /// tapped. Routes to the same profile sheet `onTapAvatar` does, just
     /// without needing an `AnyMessage`. Defaults to a no-op so the preview /
     /// dead-code SwiftUI list don't have to wire it.
@@ -188,10 +188,10 @@ struct MessagesGroupView: View {
         let isFullWidthAttachment: Bool = message.content.isFullBleedAttachment
 
         // The sender label is hoisted to the body via `shouldShowSenderLabelAtTop`
-        // so it can sit above the assistant contact card prefix as well as the
+        // so it can sit above the agent contact card prefix as well as the
         // first message bubble.
         if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply
-            && group.assistantContactCard == nil && !group.hidesSenderLabel {
+            && group.agentContactCard == nil && !group.hidesSenderLabel {
             senderLabel
         }
 
@@ -227,8 +227,8 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func mergedThinkingStatusRow(message: AnyMessage, descriptor: ThinkingSessionDescriptor) -> some View {
-        let assistant: ConversationMember = descriptor.sender
-        let dedupedReaders: [ConversationMember] = group.readByMembers.filter { $0.profile.inboxId != assistant.profile.inboxId }
+        let agent: ConversationMember = descriptor.sender
+        let dedupedReaders: [ConversationMember] = group.readByMembers.filter { $0.profile.inboxId != agent.profile.inboxId }
         let hasOtherReaders: Bool = !dedupedReaders.isEmpty
         let tap: () -> Void = { onTapThinkingIndicator?(descriptor) }
 
@@ -238,7 +238,7 @@ struct MessagesGroupView: View {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
                     MergedThinkingCaption(descriptor: descriptor, showsLeadingAvatar: !hasOtherReaders)
                     if hasOtherReaders {
-                        ReadReceiptAvatarsView(members: [assistant] + dedupedReaders)
+                        ReadReceiptAvatarsView(members: [agent] + dedupedReaders)
                     }
                 }
                 .contentShape(Rectangle())
@@ -258,9 +258,9 @@ struct MessagesGroupView: View {
     }
 
     @ViewBuilder
-    private func contactCardRow(card: AssistantContactCardInfo) -> some View {
+    private func contactCardRow(card: AgentContactCardInfo) -> some View {
         // The card is the visual "last item" of the group only when the
-        // assistant hasn't sent any messages yet (synthesized empty group).
+        // agent hasn't sent any messages yet (synthesized empty group).
         // Otherwise the regular `messageRowContent` avatar overlay handles
         // the leading avatar on the last message — we don't want to double up.
         let cardIsLast: Bool = group.allMessages.isEmpty && !group.showsTypingIndicator && !group.showsThinkingIndicator
@@ -270,7 +270,7 @@ struct MessagesGroupView: View {
                     .frame(width: avatarSize, height: avatarSize)
             }
 
-            AssistantContactCardView(profile: card.profile, assistantDescription: card.assistantDescription)
+            AgentContactCardView(profile: card.profile, agentDescription: card.agentDescription)
                 .overlay(alignment: .bottomLeading) {
                     if cardIsLast && !group.sender.isCurrentUser {
                         avatarOverlay { onTapSender(group.sender) }
@@ -414,7 +414,7 @@ struct MessagesGroupView: View {
     }
 
     /// Inline thinking footer anchored to the contact card (not to a
-    /// specific message). The card row above already shows the assistant
+    /// specific message). The card row above already shows the agent
     /// avatar, so this footer suppresses its own leading avatar to avoid
     /// visual duplication. Tap forwards to the same detail sheet as the
     /// per-message inline footers.
@@ -535,7 +535,7 @@ struct MessagesGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            if let card = group.assistantContactCard {
+            if let card = group.agentContactCard {
                 senderLabel
                 contactCardRow(card: card)
                 if let descriptor = group.contactCardThinkingDescriptor {
@@ -589,10 +589,10 @@ struct MessagesGroupView: View {
 
 /// Caption used in the merged thinking + read-receipt row. Mirrors
 /// `ThinkingIndicatorFooterView`'s pulse cadence (0.5 ↔ 1.0 over 1.2s,
-/// matching `AssistantContactCardView.PulsingSubtitle`). When other
-/// members have already read the message, the assistant avatar lives in
+/// matching `AgentContactCardView.PulsingSubtitle`). When other
+/// members have already read the message, the agent avatar lives in
 /// the trailing avatars list so this caption only shows text + chevron.
-/// When the assistant is the only "reader", the avatar moves to the
+/// When the agent is the only "reader", the avatar moves to the
 /// leading edge of this caption — there's no avatars list on the
 /// trailing side, so leading the indicator makes "who is thinking"
 /// obvious without dangling avatar chrome to its right. The whole row

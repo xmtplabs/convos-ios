@@ -25,7 +25,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// Last-known agent verification for this contact. `nil` means we have
     /// not observed any agent signal for this inbox. The unified contact
     /// card surfaces verified-agent affordances (Get skills, Learn about
-    /// assistants) iff `agentVerification?.isVerified == true`.
+    /// agents) iff `agentVerification?.isVerified == true`.
     public let agentVerification: AgentVerification?
     /// The backend `AgentTemplate.id` a template-backed agent was
     /// provisioned from. `nil` for human contacts and for agents that do

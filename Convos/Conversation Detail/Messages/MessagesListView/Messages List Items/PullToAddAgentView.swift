@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct PullToAddAssistantView: View {
+struct PullToAddAgentView: View {
     let overscrollAmount: CGFloat
     let didReleasePastThreshold: Bool
     let onTriggered: () -> Void
@@ -44,7 +44,7 @@ struct PullToAddAssistantView: View {
                 .font(.caption)
                 .foregroundStyle(.colorTextTertiary)
 
-            Text("Invite an Assistant")
+            Text("Invite an Agent")
                 .font(.caption)
                 .foregroundStyle(.colorTextPrimary)
 
@@ -97,7 +97,7 @@ struct PullToAddAssistantView: View {
 #Preview("In Progress") {
     VStack {
         Spacer()
-        PullToAddAssistantView(
+        PullToAddAgentView(
             overscrollAmount: 50,
             didReleasePastThreshold: false,
             onTriggered: {}
@@ -108,7 +108,7 @@ struct PullToAddAssistantView: View {
 #Preview("Threshold Reached") {
     VStack {
         Spacer()
-        PullToAddAssistantView(
+        PullToAddAgentView(
             overscrollAmount: 100,
             didReleasePastThreshold: false,
             onTriggered: {}

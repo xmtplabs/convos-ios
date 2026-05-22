@@ -69,8 +69,8 @@ struct ContactAvatarView: View {
         ContactRowView(contact: .mock(displayName: "Bob"), subtitle: "DM")
         ContactRowView(contact: .mock(displayName: nil), subtitle: "")
         ContactRowView(
-            contact: .mock(displayName: "Convo Assistant", agentVerification: .verified(.convos)),
-            subtitle: "Convos Assistant"
+            contact: .mock(displayName: "Convo Agent", agentVerification: .verified(.convos)),
+            subtitle: "Convos Agent"
         )
         ContactRowView(
             contact: .mock(displayName: "Calendar Bot", agentVerification: .verified(.userOAuth)),

@@ -40,7 +40,7 @@ struct DebugViewSection: View {
     @State private var showingRenewalAlert: Bool = false
     @State private var presentingPhotosInfoSheet: Bool = false
     @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
-    @State private var showingAssistantsInfoSheet: Bool = false
+    @State private var showingAgentsInfoSheet: Bool = false
     @State private var showingSafariTestSheet: Bool = false
     @State private var presentingPaywall: Bool = false
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
@@ -69,16 +69,16 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var featuresSection: some View {
         Section("Features") {
-            Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+            Toggle("Agent enabled", isOn: Bindable(FeatureFlags.shared).isAgentEnabled)
 
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
 
-            let showInfoAction = { showingAssistantsInfoSheet = true }
+            let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
-                Text("Show Assistants Info Sheet")
+                Text("Show Agents Info Sheet")
             }
-            .selfSizingSheet(isPresented: $showingAssistantsInfoSheet) {
-                AssistantsInfoView(isConfirmation: true, onConfirm: {})
+            .selfSizingSheet(isPresented: $showingAgentsInfoSheet) {
+                AgentsInfoView(isConfirmation: true, onConfirm: {})
                     .padding(.top, 20)
             }
 

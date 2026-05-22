@@ -17,11 +17,11 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// `MessagesListProcessor` when it builds the group, so changes to the
     /// transcript state propagate through the existing diffing reload pipeline.
     public var voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
-    /// When non-nil, renders the assistant "contact card" (avatar + display
+    /// When non-nil, renders the agent "contact card" (avatar + display
     /// name + `description` subtitle) as the first item of this group. The
     /// surrounding `MessagesGroupView` reuses its existing sender-label and
     /// leading-avatar slots so the card doesn't have to duplicate them.
-    public var assistantContactCard: AssistantContactCardInfo?
+    public var agentContactCard: AgentContactCardInfo?
     /// Active `convos.org/thinking:1.0` sessions whose `targetMessageId`
     /// matches a message in this group, keyed by that message id. The view
     /// renders an inline footer (read-receipt-style) under each anchored
@@ -51,12 +51,12 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     /// thinking detail processor so the moments read as the agent's
     /// internal monologue rather than chat messages.
     public var usesThoughtBubbleStyle: Bool = false
-    /// When non-nil and `assistantContactCard != nil`, renders an inline
+    /// When non-nil and `agentContactCard != nil`, renders an inline
     /// thinking footer immediately below the contact card. Set by the
-    /// view-model layer when the assistant has a thinking session whose
+    /// view-model layer when the agent has a thinking session whose
     /// `targetMessageId` is a build-flow user prompt — either still
     /// visible (pre-Make) or filtered out by the builder summary cutoff
-    /// (post-Make). The card is the canonical anchor for "the assistant
+    /// (post-Make). The card is the canonical anchor for "the agent
     /// is thinking about your build input".
     public var contactCardThinkingDescriptor: ThinkingSessionDescriptor?
 
@@ -142,7 +142,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.adjacentToFullBleedAbove == rhs.adjacentToFullBleedAbove &&
         lhs.adjacentToFullBleedBelow == rhs.adjacentToFullBleedBelow &&
         lhs.voiceMemoTranscripts == rhs.voiceMemoTranscripts &&
-        lhs.assistantContactCard == rhs.assistantContactCard &&
+        lhs.agentContactCard == rhs.agentContactCard &&
         lhs.thinkingByMessageId == rhs.thinkingByMessageId &&
         lhs.hidesSenderLabel == rhs.hidesSenderLabel &&
         lhs.showsThinkingIndicator == rhs.showsThinkingIndicator &&
@@ -167,7 +167,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(adjacentToFullBleedAbove)
         hasher.combine(adjacentToFullBleedBelow)
         hasher.combine(voiceMemoTranscripts)
-        hasher.combine(assistantContactCard)
+        hasher.combine(agentContactCard)
         hasher.combine(thinkingByMessageId)
         hasher.combine(hidesSenderLabel)
         hasher.combine(showsThinkingIndicator)
@@ -221,19 +221,19 @@ public struct ThinkingSessionDescriptor: Equatable, Hashable, Sendable, Identifi
     }
 }
 
-/// Display-only payload threaded through `MessagesGroup.assistantContactCard`
-/// to render an assistant contact card as the leading item of the group. The
+/// Display-only payload threaded through `MessagesGroup.agentContactCard`
+/// to render an agent contact card as the leading item of the group. The
 /// `profile` reuses the group's sender profile (so the avatar + display name
 /// stay consistent with what the surrounding `MessagesGroupView` already
-/// shows); `assistantDescription` mirrors the latest `description` metadata
-/// published by the assistant, or `nil` while it's still being learned.
-public struct AssistantContactCardInfo: Equatable, Hashable, Sendable {
+/// shows); `agentDescription` mirrors the latest `description` metadata
+/// published by the agent, or `nil` while it's still being learned.
+public struct AgentContactCardInfo: Equatable, Hashable, Sendable {
     public let profile: Profile
-    public let assistantDescription: String?
+    public let agentDescription: String?
 
-    public init(profile: Profile, assistantDescription: String?) {
+    public init(profile: Profile, agentDescription: String?) {
         self.profile = profile
-        self.assistantDescription = assistantDescription
+        self.agentDescription = agentDescription
     }
 }
 

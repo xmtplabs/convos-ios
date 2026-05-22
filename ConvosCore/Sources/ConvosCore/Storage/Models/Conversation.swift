@@ -36,7 +36,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let expiresAt: Date?
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
-    public let assistantJoinStatus: AssistantJoinStatus?
+    public let agentJoinStatus: AgentJoinStatus?
     public let hasHadVerifiedAssistant: Bool
 }
 
@@ -135,19 +135,19 @@ public extension Conversation {
         members.filter(\.isAgent).count
     }
 
-    var verifiedAssistantCount: Int {
-        members.filter(\.agentVerification.isConvosAssistant).count
+    var verifiedConvosAgentCount: Int {
+        members.filter(\.agentVerification.isConvosAgent).count
     }
 
     var hasAgent: Bool {
         agentCount > 0
     }
 
-    var hasVerifiedAssistant: Bool {
-        members.contains(where: \.agentVerification.isConvosAssistant)
+    var hasVerifiedConvosAgent: Bool {
+        members.contains(where: \.agentVerification.isConvosAgent)
     }
 
-    var hasEverHadVerifiedAssistant: Bool {
+    var hasEverHadVerifiedConvosAgent: Bool {
         hasHadVerifiedAssistant
     }
 
@@ -156,11 +156,11 @@ public extension Conversation {
     }
 
     var agentCountString: String? {
-        let verified = verifiedAssistantCount
+        let verified = verifiedConvosAgentCount
         let unverified = agentCount - verified
         var parts: [String] = []
         if verified > 0 {
-            parts.append("\(verified) \(verified == 1 ? "Assistant" : "Assistants")")
+            parts.append("\(verified) \(verified == 1 ? "Agent" : "Agents")")
         }
         if unverified > 0 {
             parts.append("\(unverified) \(unverified == 1 ? "Agent" : "Agents")")

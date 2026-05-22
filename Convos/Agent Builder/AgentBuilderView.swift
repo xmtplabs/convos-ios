@@ -1,8 +1,8 @@
 import ConvosCore
 import SwiftUI
 
-struct AssistantBuilderView: View {
-    @Bindable var viewModel: AssistantBuilderViewModel
+struct AgentBuilderView: View {
+    @Bindable var viewModel: AgentBuilderViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -13,14 +13,14 @@ struct AssistantBuilderView: View {
     /// Shared SwiftUI namespace used to morph the draft composer's rounded-
     /// rect card into the post-commit summary cell. Threaded down to the
     /// composer (same SwiftUI tree) and into the messages collection view's
-    /// summary cell via `CellConfig.assistantBuilderTransitionNamespace`.
-    /// Both ends apply `glassEffectID("assistantBuilderCard", in:) +
+    /// summary cell via `CellConfig.agentBuilderTransitionNamespace`.
+    /// Both ends apply `glassEffectID("agentBuilderCard", in:) +
     /// glassEffectTransition(.matchedGeometry)`, letting the OS-level glass
     /// compositor handle the cross-tree geometry match.
     @Namespace private var transitionNamespace: Namespace.ID
 
     private var indicatorPlaceholder: String? {
-        viewModel.hasCommitted ? nil : "New Assistant"
+        viewModel.hasCommitted ? nil : "New Agent"
     }
 
     private var indicatorSubtitle: String? {
@@ -28,7 +28,7 @@ struct AssistantBuilderView: View {
     }
 
     /// Force the indicator/avatar to render with the Convos-verified
-    /// assistant style from the first frame — the conversation itself
+    /// agent style from the first frame — the conversation itself
     /// is still a draft with no members, so without this override the
     /// avatar would default to the unverified grey style.
     private var forcedVerification: AgentVerification? {
@@ -53,7 +53,7 @@ struct AssistantBuilderView: View {
             indicatorPlaceholderOverride: indicatorPlaceholder,
             indicatorSubtitleOverride: indicatorSubtitle,
             allowsIndicatorEditing: viewModel.hasCommitted,
-            defaultFocusOverride: viewModel.hasCommitted ? nil : .assistantBuilder
+            defaultFocusOverride: viewModel.hasCommitted ? nil : .agentBuilder
         ) { focusState, coordinator in
             content(focusState: focusState, coordinator: coordinator)
         }
@@ -64,18 +64,18 @@ struct AssistantBuilderView: View {
             // Flag the wrapper (which propagates onto the current inner
             // conversation VM and across any inbox-acquisition VM swap) as
             // "in builder flow". The flag drives two things:
-            //   - thinking-indicator routing pushes assistant sessions
+            //   - thinking-indicator routing pushes agent sessions
             //     under the contact card instead of the inline footer
             //   - the messages-list processor suppresses the legacy
-            //     "Assistant joined" update row for the duration of the
+            //     "Agent joined" update row for the duration of the
             //     builder UX, so it doesn't flash through the morph
             // Cleared when the builder dismisses (whether via Make morph
-            // or X cancel) so ordinary post-Make assistant chatter anchors
-            // inline like a normal assistant convo.
-            viewModel.newConversationViewModel.isInAssistantBuilderFlow = true
+            // or X cancel) so ordinary post-Make agent chatter anchors
+            // inline like a normal agent convo.
+            viewModel.newConversationViewModel.isInAgentBuilderFlow = true
         }
         .onDisappear {
-            viewModel.newConversationViewModel.isInAssistantBuilderFlow = false
+            viewModel.newConversationViewModel.isInAgentBuilderFlow = false
             if !viewModel.hasCommitted && !viewModel.isCommitting {
                 viewModel.discard()
             }
@@ -118,7 +118,7 @@ struct AssistantBuilderView: View {
                 }
                 .toolbarTitleDisplayMode(.inline)
                 .onAppear {
-                    coordinator.moveFocus(to: .assistantBuilder)
+                    coordinator.moveFocus(to: .agentBuilder)
                 }
         }
     }
@@ -144,7 +144,7 @@ struct AssistantBuilderView: View {
                 messagesTextFieldEnabled: viewModel.newConversationViewModel.messagesTextFieldEnabled,
                 topBarTrailingHidden: !viewModel.hasCommitted,
                 headerMode: .hidden,
-                assistantBuilderTransitionNamespace: transitionNamespace,
+                agentBuilderTransitionNamespace: transitionNamespace,
                 bottomBarContent: { EmptyView() }
             )
         } else {
@@ -156,7 +156,7 @@ struct AssistantBuilderView: View {
         focusState: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
         VStack(spacing: 0) {
-            AssistantDraftComposer(
+            AgentDraftComposer(
                 viewModel: viewModel,
                 focusState: focusState,
                 transitionNamespace: transitionNamespace,
@@ -165,7 +165,7 @@ struct AssistantBuilderView: View {
                     // collapsing the composer, so the keyboard stays up
                     // and MessagesBottomBar's expanded state animates in
                     // on the next focus-change tick.
-                    if focusState.wrappedValue == .assistantBuilder {
+                    if focusState.wrappedValue == .agentBuilder {
                         focusCoordinator.moveFocus(to: .message)
                     }
                     withAnimation(.easeInOut(duration: 0.35)) {
@@ -209,7 +209,7 @@ struct AssistantBuilderView: View {
             Button {
                 let shouldRestore = viewModel.stopVoiceMemoRecording()
                 if shouldRestore {
-                    focusState.wrappedValue = .assistantBuilder
+                    focusState.wrappedValue = .agentBuilder
                 }
             } label: {
                 ZStack {
@@ -223,7 +223,7 @@ struct AssistantBuilderView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Stop voice memo recording")
-            .accessibilityIdentifier("assistant-builder-stop-recording-button")
+            .accessibilityIdentifier("agent-builder-stop-recording-button")
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Text("What should this little agent do?")
@@ -254,7 +254,7 @@ struct AssistantBuilderView: View {
                 }
                 Button("Continue") {}
             }
-            .accessibilityIdentifier("close-assistant-builder")
+            .accessibilityIdentifier("close-agent-builder")
         }
     }
 
@@ -275,14 +275,14 @@ struct AssistantBuilderView: View {
 }
 
 #Preview {
-    @Previewable @State var viewModel: AssistantBuilderViewModel = .init(
+    @Previewable @State var viewModel: AgentBuilderViewModel = .init(
         session: ConvosClient.mock().session
     )
     @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
     @Previewable @State var presented: Bool = true
     VStack {}
         .sheet(isPresented: $presented) {
-            AssistantBuilderView(
+            AgentBuilderView(
                 viewModel: viewModel,
                 profileSettingsViewModel: profileSettingsViewModel
             )

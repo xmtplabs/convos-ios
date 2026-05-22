@@ -5,15 +5,15 @@ import Foundation
 final class FeatureFlags {
     static let shared: FeatureFlags = FeatureFlags()
 
-    var isAssistantEnabled: Bool {
+    var isAgentEnabled: Bool {
         get {
-            guard let stored = UserDefaults.standard.object(forKey: Constant.assistantEnabledKey) as? Bool else {
+            guard let stored = UserDefaults.standard.object(forKey: Constant.agentEnabledKey) as? Bool else {
                 return true
             }
             return stored
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: Constant.assistantEnabledKey)
+            UserDefaults.standard.set(newValue, forKey: Constant.agentEnabledKey)
         }
     }
 
@@ -46,7 +46,7 @@ final class FeatureFlags {
     }
 
     private enum Constant {
-        static let assistantEnabledKey: String = "featureFlags.assistantEnabled"
+        static let agentEnabledKey: String = "featureFlags.assistantEnabled"
         static let debugInjectorEnabledKey: String = "featureFlags.debugInjectorEnabled"
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
     }

@@ -5,7 +5,7 @@ import SwiftUI
 struct VoiceMemoRecordingView: View {
     @Bindable var recorder: VoiceMemoRecorder
     /// When false, hide the inline stop button so the caller can render
-    /// its own stop affordance elsewhere (used by the Assistant Builder,
+    /// its own stop affordance elsewhere (used by the Agent Builder,
     /// which renders a large stop button beneath the composer rect).
     var showsInlineStopButton: Bool = true
 

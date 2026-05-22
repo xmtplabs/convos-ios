@@ -40,8 +40,8 @@ struct ConversationMembersListView: View {
                 VStack(spacing: 0) {
                     Text(viewModel.conversation.membersCountStringCapitalized)
                         .font(.headline)
-                    if let assistantString = viewModel.conversation.agentCountString {
-                        Text(assistantString)
+                    if let agentString = viewModel.conversation.agentCountString {
+                        Text(agentString)
                             .font(.caption)
                             .foregroundStyle(.colorTextSecondary)
                     }
@@ -50,7 +50,7 @@ struct ConversationMembersListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 AddToConversationMenu(
                     isFull: viewModel.isFull,
-                    hasAssistant: viewModel.conversation.hasAgent,
+                    hasAgent: viewModel.conversation.hasAgent,
                     isEnabled: true,
                     onConvoCode: {
                         viewModel.presentingShareView = true
@@ -58,8 +58,8 @@ struct ConversationMembersListView: View {
                     onCopyLink: {
                         viewModel.copyInviteLink()
                     },
-                    onInviteAssistant: {
-                        viewModel.requestAssistantJoin()
+                    onInviteAgent: {
+                        viewModel.requestAgentJoin()
                     },
                     onAddFromContacts: {
                         presentingAddFromContactsPicker = true

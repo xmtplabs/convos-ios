@@ -147,9 +147,9 @@ extension SharedDatabaseMigrator {
 
         Self.registerContactsMVPMigrations(on: &migrator)
 
-        migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAssistantBuilderSummary)
+        migrator.registerMigration("createAssistantBuilderSummary", migrate: Self.createAgentBuilderSummary)
 
-        migrator.registerMigration("addAssistantBuilderSummaryBundledMessageIds", migrate: Self.addAssistantBuilderSummaryBundledMessageIds)
+        migrator.registerMigration("addAssistantBuilderSummaryBundledMessageIds", migrate: Self.addAgentBuilderSummaryBundledMessageIds)
 
         migrator.registerMigration("createThinkingSession", migrate: Self.createThinkingSession)
 
@@ -187,12 +187,12 @@ extension SharedDatabaseMigrator {
         )
     }
 
-    /// Snapshot of an Assistant Builder draft captured at the moment the user
-    /// tapped Make. Replaces the user's prompt sends + any pre-Make assistant
+    /// Snapshot of an Agent Builder draft captured at the moment the user
+    /// tapped Make. Replaces the user's prompt sends + any pre-Make agent
     /// chatter with a single summary card at the top of the post-commit
     /// messages list. One row per conversation; cascade-deleted when the
     /// conversation is.
-    private static func createAssistantBuilderSummary(_ db: Database) throws {
+    private static func createAgentBuilderSummary(_ db: Database) throws {
         try db.create(table: "assistantBuilderSummary") { t in
             t.column("conversationId", .text).notNull().primaryKey()
                 .references("conversation", onDelete: .cascade)
@@ -204,14 +204,14 @@ extension SharedDatabaseMigrator {
         }
     }
 
-    /// JSON-encoded `[String]` of the `clientMessageId`s that the Assistant
+    /// JSON-encoded `[String]` of the `clientMessageId`s that the Agent
     /// Builder issued on the user's behalf at commit. Replaces the
     /// timestamp-padded filter that used to swallow user-side bundle sends —
     /// uploads could stretch the multi-remote `sentAt` past the pad, leaking
     /// a bare bundle bubble underneath the summary card. Defaults to `"[]"`
     /// for rows written before this column existed; the hydrate path treats
     /// an empty / malformed JSON the same as "no ids tracked".
-    private static func addAssistantBuilderSummaryBundledMessageIds(_ db: Database) throws {
+    private static func addAgentBuilderSummaryBundledMessageIds(_ db: Database) throws {
         try db.alter(table: "assistantBuilderSummary") { t in
             t.add(column: "bundledMessageIdsJSON", .text).notNull().defaults(to: "[]")
         }
