@@ -765,7 +765,8 @@ extension Contact {
         addedViaConversationId: String?,
         agentVerification: AgentVerification?,
         agentTemplateId: String? = nil,
-        agentTemplatePublishedURL: String? = nil
+        agentTemplatePublishedURL: String? = nil,
+        profileEmoji: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -779,7 +780,8 @@ extension Contact {
             isBlocked: false,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji
         )
     }
 
@@ -805,10 +807,13 @@ extension Contact {
     ) -> Contact {
         let templateId: String? = member.profile.agentTemplateId
         let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
+        let emoji: String? = member.profile.profileEmoji
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             return stored
                 .with(agentTemplateId: templateId)
                 .with(agentTemplatePublishedURL: templatePublishedURL)
+                .with(profileEmoji: emoji)
+                .with(agentVerification: member.agentVerification)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -820,7 +825,8 @@ extension Contact {
             addedViaConversationId: conversationId,
             agentVerification: member.agentVerification,
             agentTemplateId: templateId,
-            agentTemplatePublishedURL: templatePublishedURL
+            agentTemplatePublishedURL: templatePublishedURL,
+            profileEmoji: emoji
         )
     }
 }

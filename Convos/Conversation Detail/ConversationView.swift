@@ -29,7 +29,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
-    @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAssistantsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
@@ -133,7 +132,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onVideoSelected: viewModel.addVideoAttachment(url:),
             onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
             onAboutAssistants: { showingAssistantsInfo = true },
-            onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onAgentOutOfCredits: { viewModel.presentingPaywall = true },
+            creditsDepleted: viewModel.creditsDepleted,
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
@@ -336,19 +336,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
-    @ViewBuilder
-    private var messagesPageContent: some View {
-        VStack(spacing: 0) {
-            LowBalanceBanner()
-            messagesView
-        }
-    }
-
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            messagesPage: { messagesPageContent },
+            messagesPage: { messagesView },
             stuffPage: { stuffPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -369,17 +361,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear { viewModel.onConversationAppeared() }
-        .task {
-            // Refresh credits on conversation appearance so the
-            // LowBalanceBanner above reflects current backend state. TTL-
-            // debounced; safe to fire on every nav.
-            await CreditsServices.shared.refresh()
-            // Future: once the agent runtime burns credits per turn via
-            // /v2/credits/consume (convos-assistants follow-up), hook into
-            // the XMTP message-arrival publisher here to refresh credits
-            // immediately after an agent reply lands — the highest-value
-            // freshness trigger we have without push notifications.
-        }
         .onDisappear {
             focusCoordinator.dismissStuffSearchIfNeeded()
             viewModel.onConversationDisappeared()
@@ -439,9 +420,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
             .padding(.top, 20)
         }
-        .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
-            AssistantProcessingPowerInfoView()
-                .padding(.top, 20)
+        .sheet(isPresented: $viewModel.presentingPaywall) {
+            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            PaywallView(viewModel: paywallViewModel)
         }
         .selfSizingSheet(isPresented: $showingAssistantsInfo) {
             AssistantsInfoView()

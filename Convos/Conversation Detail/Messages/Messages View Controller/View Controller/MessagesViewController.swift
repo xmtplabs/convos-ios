@@ -255,6 +255,19 @@ final class MessagesViewController: UIViewController {
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    /// Drives the in-stream out-of-credits cell. Set from
+    /// `MessagesViewRepresentable` off `ConversationViewModel.creditsDepleted`
+    /// (which mirrors `CreditsServices.shared.currentBalance?.isDepleted`).
+    /// When this flips while a state is already applied, we replay the
+    /// last processed state so the cell appears / disappears without
+    /// needing the messages publisher to emit again.
+    var creditsDepleted: Bool = false {
+        didSet {
+            dataSource.creditsDepleted = creditsDepleted
+            guard oldValue != creditsDepleted, isViewLoaded, let state else { return }
+            self.state = state
+        }
+    }
     var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
@@ -659,15 +672,15 @@ extension MessagesViewController {
             }
         }
 
-        if let agentMember = conversation.members.first(where: { $0.isAgent && $0.profile.isOutOfCredits }) {
+        if creditsDepleted, let agentMember = conversation.members.first(where: { $0.isAgent }) {
             let agentInboxId = agentMember.profile.inboxId
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
             }) {
-                cells.insert(.agentOutOfCredits(agentMember.profile), at: lastAgentIndex + 1)
+                cells.insert(.agentOutOfCredits(agentMember), at: lastAgentIndex + 1)
             } else {
-                cells.append(.agentOutOfCredits(agentMember.profile))
+                cells.append(.agentOutOfCredits(agentMember))
             }
         }
 

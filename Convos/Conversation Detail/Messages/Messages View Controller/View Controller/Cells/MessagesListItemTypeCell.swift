@@ -73,6 +73,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         conversationId: config.conversationId,
                         shouldBlurPhotos: config.shouldBlurPhotos,
                         onTapAvatar: config.onTapAvatar,
+                        onTapSender: config.onTapSender,
                         onTapInvite: config.onTapInvite,
                         onTapReactions: config.onTapReactions,
                         onTapReadReceipts: config.onTapReadReceipts,
@@ -87,7 +88,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onRetryMessage: config.onRetryMessage,
                         onDeleteMessage: config.onDeleteMessage,
                         onRetryTranscript: config.onRetryTranscript,
-                        allVoiceMemoTranscripts: config.allVoiceMemoTranscripts
+                        allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
+                        creditsDepleted: config.creditsDepleted
                     )
 
                 case .invite(let invite):
@@ -117,10 +119,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case .agentOutOfCredits(let profile):
+                case .agentOutOfCredits(let member):
                     TextTitleContentView(
-                        title: "\(profile.displayName) is out of processing power",
-                        profile: profile,
+                        title: "\(member.profile.displayName) is out of credits",
+                        profile: member.profile,
+                        agentVerification: member.agentVerification,
                         onTap: config.onAgentOutOfCredits
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)

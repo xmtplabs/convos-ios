@@ -8,19 +8,19 @@ import SwiftUI
 /// continuous — see `AdaptiveAppIndicator.swift` for the dispatch.
 ///
 /// Shows the user's profile avatar when set, otherwise falls back to the
-/// `convosOrangeIcon` asset. Title is currently the static "Convos" string;
-/// subtitle is the placeholder "Plus" stand-in for subscription state until
-/// a real subscription model is wired in.
+/// `convosOrangeIcon` asset. Title is the static "Convos" string; subtitle
+/// is the user's subscription tier label, or a battery glyph when credits
+/// are low / depleted — see [[AppIndicatorSubtitle]].
 struct AppIndicatorPill: View {
     let profileImage: UIImage?
     let title: String
-    let subtitle: String
+    let subtitle: AppIndicatorSubtitle
     let action: () -> Void
 
     init(
         profileImage: UIImage?,
         title: String = "Convos",
-        subtitle: String = "Plus",
+        subtitle: AppIndicatorSubtitle = .text("Free"),
         action: @escaping () -> Void = {}
     ) {
         self.profileImage = profileImage
@@ -38,7 +38,7 @@ struct AppIndicatorPill: View {
         .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityLabel("\(title), \(subtitle.accessibilityText)")
         .accessibilityIdentifier("app-indicator-pill")
     }
 
@@ -53,14 +53,26 @@ struct AppIndicatorPill: View {
                     .lineLimit(1)
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.colorTextPrimary)
-                Text(subtitle)
-                    .lineLimit(1)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
+                subtitleView
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
         }
         .padding(DesignConstants.Spacing.step2x)
+    }
+
+    @ViewBuilder
+    private var subtitleView: some View {
+        switch subtitle {
+        case .text(let value):
+            Text(value)
+                .lineLimit(1)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+        case .symbol(let systemName, let tint, _):
+            Image(systemName: systemName)
+                .font(.caption)
+                .foregroundStyle(tint)
+        }
     }
 
     @ViewBuilder
@@ -97,8 +109,26 @@ struct AppIndicatorPill: View {
         .background(Color.colorBackgroundSurfaceless)
 }
 
-#Preview("Fallback icon") {
-    AppIndicatorPill(profileImage: nil, title: "Convos", subtitle: "Plus")
+#Preview("Plan name") {
+    AppIndicatorPill(profileImage: nil, subtitle: .text("Pro"))
         .padding()
         .background(Color.colorBackgroundSurfaceless)
+}
+
+#Preview("Low credits") {
+    AppIndicatorPill(
+        profileImage: nil,
+        subtitle: .symbol(systemName: "battery.25percent", tint: .colorRed, accessibilityLabel: "Low credits")
+    )
+    .padding()
+    .background(Color.colorBackgroundSurfaceless)
+}
+
+#Preview("No credits") {
+    AppIndicatorPill(
+        profileImage: nil,
+        subtitle: .symbol(systemName: "battery.0percent", tint: .colorRed, accessibilityLabel: "Out of credits")
+    )
+    .padding()
+    .background(Color.colorBackgroundSurfaceless)
 }

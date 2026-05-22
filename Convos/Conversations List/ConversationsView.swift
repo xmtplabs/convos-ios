@@ -131,10 +131,6 @@ struct ConversationsView: View {
         // preserves the navigation-bar height the indicator overlay sits
         // on top of.
         ToolbarItem(placement: .topBarTrailing) {
-            CreditsBadge()
-        }
-
-        ToolbarItem(placement: .topBarTrailing) {
             composeToolbarButton(
                 viewModel: viewModel,
                 transitionNamespace: appIndicatorContext.transitionNamespace,

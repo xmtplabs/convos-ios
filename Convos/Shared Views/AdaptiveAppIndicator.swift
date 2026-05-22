@@ -18,6 +18,23 @@ enum AdaptiveAppIndicatorMode {
     case conversation
 }
 
+/// Subtitle for [[AppIndicatorPill]]. Either a plain string (typically the
+/// active subscription tier name) or an SF Symbol — currently used to
+/// surface low / depleted credit balance as a battery glyph.
+enum AppIndicatorSubtitle {
+    case text(String)
+    case symbol(systemName: String, tint: Color, accessibilityLabel: String)
+
+    var accessibilityText: String {
+        switch self {
+        case .text(let value):
+            return value
+        case .symbol(_, _, let label):
+            return label
+        }
+    }
+}
+
 /// Lightweight value type holding the bits the app-mode pill needs.
 /// Pulled into its own struct so the [[AdaptiveAppIndicatorMode]] enum
 /// doesn't have to enumerate every field at every callsite — the
@@ -32,7 +49,7 @@ enum AdaptiveAppIndicatorMode {
 struct AppIndicatorContext {
     let profileImage: UIImage?
     let title: String
-    let subtitle: String
+    let subtitle: AppIndicatorSubtitle
     let onTap: () -> Void
     let transitionNamespace: Namespace.ID?
     let transitionId: String?
@@ -40,7 +57,7 @@ struct AppIndicatorContext {
     init(
         profileImage: UIImage?,
         title: String = "Convos",
-        subtitle: String = "Plus",
+        subtitle: AppIndicatorSubtitle = .text("Free"),
         transitionNamespace: Namespace.ID? = nil,
         transitionId: String? = nil,
         onTap: @escaping () -> Void = {}

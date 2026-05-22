@@ -48,7 +48,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case messages(MessagesGroup)
     case invite(Invite)
     case conversationInfo(Conversation)
-    case agentOutOfCredits(Profile)
+    case agentOutOfCredits(ConversationMember)
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
     case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
@@ -67,8 +67,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "invite-\(invite.id)"
         case .conversationInfo(let conversation):
             return "conversation-info-\(conversation.id)"
-        case .agentOutOfCredits(let profile):
-            return "agent-out-of-credits-\(profile.inboxId)"
+        case .agentOutOfCredits(let member):
+            return "agent-out-of-credits-\(member.profile.inboxId)"
         case .assistantJoinStatus:
             return "assistant-join"
         case .assistantPresentInfo:

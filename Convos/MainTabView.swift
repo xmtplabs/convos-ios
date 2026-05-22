@@ -64,6 +64,11 @@ struct MainTabView: View {
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
+    /// Live credit balance + subscription drive the app-indicator subtitle.
+    /// Seeded from the services' current values so the first render doesn't
+    /// flicker, then kept in sync via `.onReceive` on their publishers.
+    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     /// Shared namespace for the assistant-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
@@ -76,10 +81,24 @@ struct MainTabView: View {
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
             profileImage: profileSettingsViewModel.profileImage,
+            subtitle: indicatorSubtitle,
             transitionNamespace: namespace,
             transitionId: Constant.appSettingsTransitionId,
             onTap: { presentingAppSettings = true }
         )
+    }
+
+    private var indicatorSubtitle: AppIndicatorSubtitle {
+        if let creditBalance, creditBalance.isDepleted {
+            return .symbol(systemName: "battery.0percent", tint: .colorRed, accessibilityLabel: "Out of credits")
+        }
+        if let creditBalance, creditBalance.isLow {
+            return .symbol(systemName: "battery.25percent", tint: .colorRed, accessibilityLabel: "Low credits")
+        }
+        if let userSubscription {
+            return .text(SubscriptionCopy.displayName(for: userSubscription.tier))
+        }
+        return .text("Free")
     }
 
     /// `true` once a conversation has been pushed onto the Chats tab's
@@ -133,6 +152,12 @@ struct MainTabView: View {
                 }
             }
             .animation(.smooth(duration: 0.35), value: isConversationSelected)
+            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
+                creditBalance = newBalance
+            }
+            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
+                userSubscription = newSubscription
+            }
             .modifier(MainTabSheetsModifier(
                 conversationsViewModel: conversationsViewModel,
                 profileSettingsViewModel: profileSettingsViewModel,

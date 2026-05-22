@@ -21,6 +21,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onPhotoHidden: ((String) -> Void)? { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
+    var creditsDepleted: Bool { get set }
     var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }

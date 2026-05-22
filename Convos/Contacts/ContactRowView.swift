@@ -52,20 +52,14 @@ struct ContactAvatarView: View {
     let contact: Contact
 
     var body: some View {
-        if contact.imageCacheURL != nil {
-            AvatarView(
-                fallbackName: contact.resolvedDisplayName,
-                cacheableObject: contact,
-                placeholderImage: nil,
-                placeholderImageName: nil,
-                agentVerification: contact.agentVerification ?? .unverified
-            )
-        } else {
-            MonogramView(
-                name: contact.resolvedDisplayName,
-                agentVerification: contact.agentVerification ?? .unverified
-            )
-        }
+        AvatarView(
+            fallbackName: contact.resolvedDisplayName,
+            cacheableObject: contact,
+            placeholderImage: nil,
+            placeholderEmoji: contact.profileEmoji,
+            placeholderImageName: nil,
+            agentVerification: contact.agentVerification ?? .unverified
+        )
     }
 }
 

@@ -7,6 +7,12 @@ struct MessagesGroupView: View {
     let conversationId: String
     let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
+    /// Fires when the sender label or an avatar that has no concrete message
+    /// to attach (e.g. the synthesized assistant contact-card group) is
+    /// tapped. Routes to the same profile sheet `onTapAvatar` does, just
+    /// without needing an `AnyMessage`. Defaults to a no-op so the preview /
+    /// dead-code SwiftUI list don't have to wire it.
+    var onTapSender: (ConversationMember) -> Void = { _ in }
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
@@ -22,6 +28,10 @@ struct MessagesGroupView: View {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    /// Mirrors `ConversationViewModel.creditsDepleted`. Drives the inline
+    /// `battery.0percent` glyph next to an agent sender's display name when
+    /// the global credit balance is depleted.
+    var creditsDepleted: Bool = false
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
@@ -56,12 +66,13 @@ struct MessagesGroupView: View {
     }
 
     private var senderLabelContent: some View {
-        let tapAction = { if let msg = group.allMessages.first { onTapAvatar(msg) } }
+        let tapAction = { onTapSender(group.sender) }
         return Button(action: tapAction) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Text(group.sender.profile.displayName)
-                if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                if group.sender.isAgent && creditsDepleted {
                     Image(systemName: "battery.0percent")
+                        .foregroundStyle(.colorRed)
                 }
             }
         }
@@ -262,7 +273,7 @@ struct MessagesGroupView: View {
             AssistantContactCardView(profile: card.profile, assistantDescription: card.assistantDescription)
                 .overlay(alignment: .bottomLeading) {
                     if cardIsLast && !group.sender.isCurrentUser {
-                        avatarOverlay()
+                        avatarOverlay { onTapSender(group.sender) }
                     }
                 }
 

@@ -562,6 +562,14 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var presentingPhotosInfoSheet: Bool = false
     var presentingAssistantConfirmation: Bool = false
     var presentingExplodedInviteInfo: Bool = false
+    /// Drives the upsell sheet shown when the user taps the
+    /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
+    /// against `SubscriptionServices.shared`.
+    var presentingPaywall: Bool = false
+    /// Mirrors `CreditsServices.shared.currentBalance?.isDepleted`, refreshed
+    /// via the balance publisher. Drives the in-stream out-of-credits cell
+    /// insertion in `MessagesViewController` and the inline status surfaces.
+    var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
     var activeToast: IndicatorToastStyle?
 
     var assistantJoinForceErrorCode: Int?
@@ -929,6 +937,12 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         observeThinkingSessions()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
+        CreditsServices.shared.balancePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] balance in
+                self?.creditsDepleted = balance?.isDepleted ?? false
+            }
+            .store(in: &cancellables)
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)

@@ -107,10 +107,11 @@ var body: some View {
             ConversationInfoPreview(conversation: conversation)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case .agentOutOfCredits(let profile):
+        case .agentOutOfCredits(let member):
             TextTitleContentView(
-                title: "\(profile.displayName) is out of processing power",
-                profile: profile,
+                title: "\(member.profile.displayName) is out of credits",
+                profile: member.profile,
+                agentVerification: member.agentVerification,
                 onTap: onAgentOutOfCredits
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)

@@ -8,6 +8,11 @@ struct CellConfig {
     let shouldBlurPhotos: Bool
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void
+    /// Fired when an avatar / sender label is tapped on a group that has no
+    /// concrete `AnyMessage` to attach (e.g. the synthesized assistant
+    /// contact-card group). Routes to the same profile sheet
+    /// `onTapAvatar` resolves to, just without needing a message.
+    let onTapSender: (ConversationMember) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onTapReadReceipts: (MessagesGroup) -> Void
     let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
@@ -18,6 +23,7 @@ struct CellConfig {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onAgentOutOfCredits: () -> Void
+    let creditsDepleted: Bool
     let onRetryAssistantJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void

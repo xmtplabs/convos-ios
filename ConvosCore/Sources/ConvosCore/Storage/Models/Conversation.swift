@@ -169,14 +169,6 @@ public extension Conversation {
         return parts.joined(separator: ", ")
     }
 
-    public var hasAgentOutOfCredits: Bool {
-        members.contains { $0.isAgent && $0.profile.isOutOfCredits }
-    }
-
-    public var agentOutOfCreditsProfile: Profile? {
-        members.first { $0.isAgent && $0.profile.isOutOfCredits }?.profile
-    }
-
     var shouldShowQuickEdit: Bool {
         (hasJoined && members.count <= 1) || isDraft
     }

@@ -24,6 +24,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
+    let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
@@ -110,6 +111,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onPhotoDimensionsLoaded(key, width, height)
         }
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
+        messagesViewController.creditsDepleted = creditsDepleted
         messagesViewController.onTapUpdateMember = { member in
             self.onTapUpdateMember(member)
         }
@@ -178,6 +180,7 @@ let menuPresented = contextMenuState.isPresented
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onAgentOutOfCredits: {},
+        creditsDepleted: false,
         onTapUpdateMember: { _ in },
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },

@@ -175,6 +175,7 @@ struct ThinkingDetailView: View {
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAgentOutOfCredits: {},
+            creditsDepleted: false,
             onTapUpdateMember: { _ in },
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },

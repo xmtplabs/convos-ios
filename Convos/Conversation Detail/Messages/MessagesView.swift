@@ -63,6 +63,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onFileSelected: (URL, String, String, Int) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
@@ -120,6 +121,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,
+            creditsDepleted: creditsDepleted,
             onTapUpdateMember: onTapUpdateMember,
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,

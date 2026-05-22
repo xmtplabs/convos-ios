@@ -28,6 +28,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var creditsDepleted: Bool = false
     var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -92,6 +93,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)
             },
+            onTapSender: { [weak self] member in
+                self?.onTapAvatar?(member)
+            },
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
             },
@@ -122,6 +126,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },
+            creditsDepleted: creditsDepleted,
             onRetryAssistantJoin: { [weak self] in
                 self?.onRetryAssistantJoin?()
             },

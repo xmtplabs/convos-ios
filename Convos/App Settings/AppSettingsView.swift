@@ -44,10 +44,10 @@ struct AppSettingsView: View {
             List {
                 headerSection
                 myInfoSection
+                subscriptionSection
                 contactsSection
                 assistantsSection
                 connectionsSection
-                subscriptionSection
                 customizeSection
                 linksSection
                 deleteSection
