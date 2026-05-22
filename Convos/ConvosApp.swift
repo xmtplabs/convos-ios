@@ -77,29 +77,6 @@ struct ConvosApp: App {
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
 
-        // Wire the real backend credits service to the local database now
-        // that `ConvosClient` is constructed. `BackendCreditsService` upserts
-        // refresh results into `credit_balance`; views observe the table via
-        // `CreditsRepository`. The mock fallback handles the non-production
-        // debug toggle.
-        CreditsServices.configure(
-            client: convos,
-            apiClient: ConvosAPIClientFactory.client(environment: environment)
-        )
-        // Seed the credit_balance table on cold launch. The scene-phase
-        // handler covers subsequent foreground transitions, but on first
-        // launch (or post-wipe) the table is empty until this refresh
-        // lands. Forced so the 15s TTL doesn't gate an empty cache. The
-        // unstructured Task is intentional: views default `@State` to
-        // `nil`, render gracefully during the brief window before the
-        // refresh completes, and update via `CreditsRepository`'s GRDB
-        // observation once the row is upserted. Bumping priority would
-        // be theatre on the launch path where everything is already
-        // foregrounded.
-        Task {
-            await CreditsServices.shared.refresh(force: true)
-        }
-
         // Sync the mock credits/subscription state from the persisted picker
         // preset so HOME pill + paywall reflect the operator's last selection.
         // Non-production only; production builds will swap in real services.
