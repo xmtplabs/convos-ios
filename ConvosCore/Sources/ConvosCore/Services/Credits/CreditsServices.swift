@@ -15,8 +15,14 @@ public enum CreditsServices {
     nonisolated(unsafe) private static var backendService: BackendCreditsService?
 
     public static var shared: any CreditsServiceProtocol {
-        if useRealBackend, let backendService { return backendService }
-        return MockCreditsService.shared
+        // Short-circuit to the mock when no backend service has been wired —
+        // `useRealBackend` reads `ConfigManager.shared.currentEnvironment`,
+        // which `fatalError`s if `ConfigManager.configure(overrides:)` has
+        // not run. SwiftUI previews and unit tests that touch
+        // `CreditsServices.shared` before the full app boot would otherwise
+        // crash, contradicting the documented preview/test fallback above.
+        guard let backendService else { return MockCreditsService.shared }
+        return useRealBackend ? backendService : MockCreditsService.shared
     }
 
     /// Wire the real backend service to the database + API client. Called
