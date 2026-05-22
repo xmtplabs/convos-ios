@@ -5,6 +5,7 @@ import SwiftUI
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
     let shouldBlurPhotos: Bool
+    var isReadOnly: Bool = false
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
@@ -136,14 +137,16 @@ struct MessageContextMenuOverlay: View {
             ZStack(alignment: .topLeading) {
                 backgroundDimming
 
-                reactionsBar(
-                    messageId: message.messageId,
-                    bubbleRect: activeBubble,
-                    sourceBubble: localBubble,
-                    keyboardAdjustment: keyboardAdjustment,
-                    minBarY: safeTop
-                )
-                .zIndex(1)
+                if !isReadOnly {
+                    reactionsBar(
+                        messageId: message.messageId,
+                        bubbleRect: activeBubble,
+                        sourceBubble: localBubble,
+                        keyboardAdjustment: keyboardAdjustment,
+                        minBarY: safeTop
+                    )
+                    .zIndex(1)
+                }
 
                 actionMenu(
                     message: message,
@@ -457,14 +460,16 @@ struct MessageContextMenuOverlay: View {
                         .padding(.bottom, 8)
                 }
 
-                let replyAction = {
-                    let msg = message
-                    dismissMenu()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                        onReply(msg)
+                if !isReadOnly {
+                    let replyAction = {
+                        let msg = message
+                        dismissMenu()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            onReply(msg)
+                        }
                     }
+                    ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
                 }
-                ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
                     let copyAction = {

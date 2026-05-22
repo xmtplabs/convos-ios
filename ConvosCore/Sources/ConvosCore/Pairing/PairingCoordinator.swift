@@ -174,7 +174,7 @@ public actor PairingCoordinator {
         cancelExpirationTimer()
         generatedPin = nil
         initiatorInboxId = nil
-        state = .idle
+        updateState(.idle)
     }
 
     private func updateState(_ newState: PairingState) {

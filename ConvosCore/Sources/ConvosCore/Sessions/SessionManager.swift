@@ -579,11 +579,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// `databaseKey`, which the keychain replace abandoned, so they are
     /// inert garbage until a "Delete All Data" sweep removes them.
     public func refreshAfterPairingCompleted() async {
-        let existing = cachedMessagingService.withLock { service -> MessagingService? in
-            let captured = service
-            service = nil
-            return captured
-        }
+        // Mirror `tearDownInbox`'s ordering: keep the cached reference live
+        // through stop + wipe so a concurrent `loadOrCreateService()` call
+        // observes the being-torn-down service rather than building a second
+        // one under the (just-replaced) paired keychain entry. If it ran
+        // simultaneously with `wipeResidualInboxRows()` we'd delete the
+        // freshly-written paired GRDB rows the new service just made.
+        let existing = cachedMessagingService.withLock { $0 }
         if let existing {
             Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
             await existing.stop()
@@ -594,6 +596,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         } catch {
             Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
         }
+        cachedMessagingService.withLock { $0 = nil }
     }
 
     /// Synchronous accessor for SwiftUI code paths that can't suspend (e.g.

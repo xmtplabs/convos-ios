@@ -102,6 +102,16 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
         }
         if alreadyStarted { return }
 
+        // Roll back `started` if any throwing path below fails, so callers
+        // can retry. Without this, a transient `createJoinerClient` failure
+        // leaves the service permanently un-startable.
+        var succeeded = false
+        defer {
+            if !succeeded {
+                state.withLock { $0.started = false }
+            }
+        }
+
         switch role {
         case let .initiator(client, _, _, _):
             let box = NonSendableBox(client)
@@ -122,6 +132,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             }
             startMessageStream(clientBox: NonSendableBox(bundle.client), isJoiner: true)
         }
+        succeeded = true
     }
 
     public func pairingInboxId() async -> String? {
@@ -271,9 +282,13 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             throw LivePairingServiceError.identityUnavailable
         }
         var nonce = Data(count: 16)
-        _ = nonce.withUnsafeMutableBytes { bytes in
+        let nonceStatus: OSStatus = nonce.withUnsafeMutableBytes { bytes in
             guard let baseAddress = bytes.baseAddress else { return errSecUnknownFormat }
             return SecRandomCopyBytes(kSecRandomDefault, 16, baseAddress)
+        }
+        guard nonceStatus == errSecSuccess else {
+            Log.warning("Pairing: nonce generation failed status=\(nonceStatus); refusing to sign invite")
+            throw LivePairingServiceError.xmtpUnavailable
         }
         let issuedAt = Int64(Date().timeIntervalSince1970)
         let expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
@@ -383,11 +398,15 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
 
     private func handleJoinRequest(message: XMTPiOS.DecodedMessage) {
         guard let content = try? message.content() as PairingJoinRequestContent else { return }
+        // Use the MLS-authenticated `senderInboxId` rather than the payload's
+        // `joinerInboxId` — the payload field is attacker-controlled, while
+        // the sender id is verified by libxmtp. Sending the PIN to the wrong
+        // inbox would let a spoofed payload divert the handshake.
         NotificationCenter.default.post(
             name: .pairingDidReceiveJoinRequest,
             object: nil,
             userInfo: [
-                "joinerInboxId": content.joinerInboxId,
+                "joinerInboxId": message.senderInboxId,
                 "deviceName": content.deviceName,
                 "slug": content.slug
             ]

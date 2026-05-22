@@ -12,6 +12,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
+    var isReadOnly: Bool = false
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -76,6 +77,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
+            isReadOnly: isReadOnly,
             onUserInteraction: {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
@@ -246,7 +248,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isFull: viewModel.isFull,
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled,
+            isEnabled: messagesTopBarTrailingItemEnabled && !isReadOnly,
             onConvoCode: {
                 if viewModel.isFull {
                     showingFullInfo = true
@@ -280,7 +282,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             Image(systemName: "viewfinder")
         }
         .buttonBorderShape(.circle)
-        .disabled(!messagesTopBarTrailingItemEnabled)
+        .disabled(!messagesTopBarTrailingItemEnabled || isReadOnly)
         .accessibilityLabel("Scan invite code")
         .accessibilityIdentifier("scan-invite-button")
     }

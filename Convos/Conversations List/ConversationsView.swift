@@ -182,6 +182,7 @@ struct ConversationsView: View {
             }
             .accessibilityLabel("Scan to join a conversation")
             .accessibilityIdentifier("scan-button")
+            .disabled(viewModel.staleDeviceObserver.isDeviceRemoved)
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
 
@@ -191,16 +192,19 @@ struct ConversationsView: View {
             }
             .accessibilityLabel("Start a new conversation")
             .accessibilityIdentifier("compose-button")
+            .disabled(viewModel.staleDeviceObserver.isDeviceRemoved)
         }
         .matchedTransitionSource(id: "composer-transition-source", in: namespace)
     }
 
     var body: some View {
         let resolver = contactOverride
+        let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
         return ConversationPresenter(
             viewModel: viewModel.selectedConversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: true,
+            isReadOnly: isReadOnly,
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
             NavigationSplitView(preferredCompactColumn: $preferredColumn) {
@@ -226,6 +230,7 @@ struct ConversationsView: View {
                         messagesTopBarTrailingItem: .share,
                         messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite,
                         messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite,
+                        isReadOnly: isReadOnly,
                         bottomBarContent: { EmptyView() }
                     )
                 } else if horizontalSizeClass != .compact {

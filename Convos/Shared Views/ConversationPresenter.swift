@@ -4,6 +4,7 @@ struct ConversationPresenter<Content: View>: View {
     let viewModel: ConversationViewModel?
     let focusCoordinator: FocusCoordinator
     let insetsTopSafeArea: Bool
+    var isReadOnly: Bool = false
     @Binding var sidebarColumnWidth: CGFloat
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
@@ -29,6 +30,7 @@ struct ConversationPresenter<Content: View>: View {
                         focusCoordinator: focusCoordinator
                     )
                     .hoverEffect(.lift)
+                    .disabled(isReadOnly)
                     .padding(.top, insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x)
                     .padding(.leading, horizontalSizeClass != .compact ? sidebarColumnWidth : 0.0)
                     .transition(.asymmetric(

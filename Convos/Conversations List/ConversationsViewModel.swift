@@ -314,9 +314,12 @@ final class ConversationsViewModel {
                 onApplyAdoptedProfile: { [weak self] displayName, imageAssetIdentifier in
                     // The joiner just adopted the initiator's identity, so
                     // it shouldn't be asked to onboard a profile from
-                    // scratch. Set the global flags + seed DBMyProfile
-                    // from the data we received in the IdentityShare DM.
-                    ConversationOnboardingCoordinator.markCompletedForPairedDevice()
+                    // scratch. We seed DBMyProfile first, then flip the
+                    // global onboarding flags. Reversing this order would
+                    // mean a torn-down `self` permanently suppresses the
+                    // onboarding prompt while never actually writing the
+                    // profile data, leaving the user in an unrecoverable
+                    // half-onboarded state.
                     guard let session = self?.session else { return }
                     do {
                         try await session.messagingService().myGlobalProfileWriter().save(
@@ -328,6 +331,7 @@ final class ConversationsViewModel {
                     } catch {
                         Log.warning("Pairing: failed to seed DBMyProfile after adoption: \(error)")
                     }
+                    ConversationOnboardingCoordinator.markCompletedForPairedDevice()
                     // Re-bind the shared profile VM so its writer /
                     // repository point at the *new* session's
                     // sessionStateManager; otherwise `profileSettings`

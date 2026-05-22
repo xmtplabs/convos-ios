@@ -125,6 +125,14 @@ final class PairingSheetViewModel {
     func onJoinRequestReceived(deviceName: String, joinerInboxId: String) async {
         guard let coordinator else { return }
 
+        // Sync the VM-side countdown with `PairingCoordinator.receivedJoinRequest`,
+        // which resets its internal expiration timer for the PIN/emoji
+        // confirmation window. Without this rebase, a join request arriving
+        // late in the invite window would leave the VM's countdownTask
+        // firing `.expired` while the coordinator is still mid-handshake.
+        expiresAt = Date().addingTimeInterval(timeoutInterval)
+        secondsRemaining = Int(timeoutInterval)
+
         joinerDeviceName = deviceName
         self.joinerInboxId = joinerInboxId
         do {
@@ -134,6 +142,7 @@ final class PairingSheetViewModel {
                expectedJoiner == joinerInboxId {
                 try await pairingService.sendPinToJoiner(pin, joinerInboxId: joinerInboxId)
                 flowState = .showingPin(pin: pin, deviceName: deviceName)
+                startCountdown()
             }
         } catch {
             Log.error("Pairing join request failed: \(error)")
@@ -180,18 +189,19 @@ final class PairingSheetViewModel {
                 )
                 title = "Device added"
                 flowState = .completed(deviceName: deviceName)
-                canDismiss = true
             } else if case let .failed(error) = state {
                 await pairingService.stop()
                 flowState = .failed(error.errorDescription ?? "Pairing failed")
-                canDismiss = true
             }
         } catch {
             Log.error("Pairing emoji confirm failed: \(error)")
             await pairingService.stop()
             flowState = .failed(error.localizedDescription)
-            canDismiss = true
         }
+        // Always re-enable dismissal once the await completes, regardless of
+        // which terminal state the coordinator landed in. Otherwise an
+        // unexpected state would leave the sheet wedged open.
+        canDismiss = true
     }
 
     func cancel() async {
