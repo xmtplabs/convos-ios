@@ -171,6 +171,10 @@ struct ConversationsView: View {
         .matchedTransitionSource(id: "app-settings-transition-source", in: namespace)
 
         ToolbarItem(placement: .topBarTrailing) {
+            CreditsBadge()
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
             filterMenu
         }
         .matchedTransitionSource(id: "filter-view-transition-source", in: namespace)
@@ -242,6 +246,13 @@ struct ConversationsView: View {
                     preferredColumn = .detail
                 }
                 viewModel.onAppear()
+            }
+            .task {
+                // Refresh credits + subscription on every conversations-list
+                // appearance. TTL-debounced inside the services (15s), so
+                // safe to fire here without storming the API on rapid nav.
+                await CreditsServices.shared.refresh()
+                await SubscriptionServices.shared.refresh()
             }
             .onDisappear {
                 viewModel.onDisappear()

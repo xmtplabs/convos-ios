@@ -15,6 +15,16 @@ public protocol SyncingManagerProtocol: Actor {
     func requestDiscovery() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
+
+    /// Drain the backlog of activity since `cursor` in one batched transaction,
+    /// before streams resume. Runs the message-side `BatchCatchUp` and the
+    /// invite-side `InviteJoinRequestsManager.processJoinRequestOutcomes`
+    /// sequentially, both keyed off the same cursor.
+    ///
+    /// Returns silently on best-effort failure — the stream path that follows
+    /// is the safety net (per-event handlers still pick up anything the batch
+    /// missed).
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async
 }
 
 /// Wrapper for client and API client parameters used in state transitions
@@ -133,6 +143,9 @@ actor SyncingManager: SyncingManagerProtocol {
     // MARK: - Initialization
 
     private let databaseReader: any DatabaseReader
+    /// Held for foreground batch catch-up construction; not used elsewhere
+    /// since the stream path's writers live inside `streamProcessor`.
+    private let databaseWriter: any DatabaseWriter
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
@@ -141,6 +154,7 @@ actor SyncingManager: SyncingManagerProtocol {
          notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
         self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
         let enablementStore: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
         let healthSubscriptionStore = GRDBHealthBackgroundSubscriptionStore(
             dbWriter: databaseWriter,
@@ -220,6 +234,52 @@ actor SyncingManager: SyncingManagerProtocol {
 
     func resume() async {
         enqueueAction(.resume)
+    }
+
+    /// `nonisolated` so the call doesn't enter the actor's isolation domain
+    /// — the only state it touches is the immutable `let identityStore` and
+    /// `let databaseWriter`, both safely shareable. This avoids strict-
+    /// concurrency tripping on the non-Sendable `AnyClientProvider` being
+    /// passed to BatchCatchUp / InviteJoinRequestsManager from inside an
+    /// actor. The stream-resume that follows is unaffected because it goes
+    /// through the actor's normal `enqueueAction(.resume)` path.
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
+        await runMessageBatch(client: client, since: since)
+        await runInviteBatch(client: client, since: since)
+    }
+
+    private nonisolated func runMessageBatch(client: AnyClientProvider, since: Date?) async {
+        do {
+            guard let identity = try await identityStore.load() else {
+                Log.debug("catchup.batch.messages: no identity, skipping")
+                return
+            }
+            let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
+            let conversationWriter = ConversationWriter(
+                identityStore: identityStore,
+                databaseWriter: databaseWriter,
+                messageWriter: messageWriter
+            )
+            let batch = BatchCatchUp(
+                conversationWriter: conversationWriter,
+                messageWriter: messageWriter,
+                databaseWriter: databaseWriter
+            )
+            _ = try await batch.run(client: client, inboxId: identity.inboxId, since: since)
+        } catch {
+            Log.error("catchup.batch.messages failed: \(error.localizedDescription)")
+        }
+    }
+
+    private nonisolated func runInviteBatch(client: AnyClientProvider, since: Date?) async {
+        let started = CFAbsoluteTimeGetCurrent()
+        let manager = InviteJoinRequestsManager(
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
+        )
+        let outcomes = await manager.processJoinRequestOutcomes(since: since, client: client)
+        let elapsed = CFAbsoluteTimeGetCurrent() - started
+        Log.info("[PERF] catchup.batch.invites: \(Int(elapsed * 1000))ms outcomes=\(outcomes.count)")
     }
 
     // MARK: - State Machine

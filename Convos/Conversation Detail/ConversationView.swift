@@ -297,6 +297,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var stuffPage: some View {
         AssistantFilesLinksView(
+            conversationId: viewModel.conversation.id,
             repository: viewModel.makeAssistantFilesLinksRepository(),
             members: viewModel.conversation.members,
             usesInlineHeader: true,
@@ -313,11 +314,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
+    @ViewBuilder
+    private var messagesPageContent: some View {
+        VStack(spacing: 0) {
+            LowBalanceBanner()
+            messagesView
+        }
+    }
+
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            messagesPage: { messagesView },
+            messagesPage: { messagesPageContent },
             stuffPage: { stuffPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -338,6 +347,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear { viewModel.onConversationAppeared() }
+        .task {
+            // Refresh credits on conversation appearance so the
+            // LowBalanceBanner above reflects current backend state. TTL-
+            // debounced; safe to fire on every nav.
+            await CreditsServices.shared.refresh()
+            // Future: once the agent runtime burns credits per turn via
+            // /v2/credits/consume (convos-assistants follow-up), hook into
+            // the XMTP message-arrival publisher here to refresh credits
+            // immediately after an agent reply lands — the highest-value
+            // freshness trigger we have without push notifications.
+        }
         .onDisappear {
             focusCoordinator.dismissStuffSearchIfNeeded()
             viewModel.onConversationDisappeared()

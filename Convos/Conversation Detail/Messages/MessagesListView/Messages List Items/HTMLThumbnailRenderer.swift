@@ -1,6 +1,5 @@
 import ConvosCore
 import ConvosLogging
-import PDFKit
 import UIKit
 import WebKit
 
@@ -11,7 +10,9 @@ final class HTMLThumbnailRenderer {
     private static let renderSize: CGSize = CGSize(width: 720, height: 1200)
     fileprivate static let paintDelay: TimeInterval = 0.5
     private static let loadTimeout: TimeInterval = 15.0
-    private static let cacheKeyPrefix: String = "html-thumb-v3-"
+    // v4: direct WKWebView.takeSnapshot via a shared off-screen window.
+    // v3 thumbnails (PDF -> PDFKit raster) get re-rendered when seen.
+    private static let cacheKeyPrefix: String = "html-thumb-v4-"
     private static let injectionScript: String = """
     (function() {
         var css = 'html, body { margin-top: 0 !important; padding-top: 0 !important; } ' +
@@ -23,6 +24,48 @@ final class HTMLThumbnailRenderer {
     """
 
     private var inflight: [String: Task<UIImage?, Never>] = [:]
+
+    /// Single off-screen `UIWindow` used as the host for every render
+    /// pass. We need *a* window so `WKWebView.takeSnapshot` actually
+    /// captures painted content (an unattached `WKWebView` snapshots to
+    /// blank). Allocating a fresh window per render historically leaked
+    /// a `UIWindowScene.keyboardLayoutGuide` reservation on each render
+    /// because the scene held onto each window across the lifetime of
+    /// the app; reusing one window means the scene sees the single
+    /// reservation forever and never accumulates new ones.
+    ///
+    /// Not `lazy` - a first access during early launch or a background
+    /// context would resolve to `nil` and that `nil` would get cached
+    /// permanently, sinking every subsequent render. Retry on each
+    /// access until a `UIWindowScene` is actually available, then cache.
+    private var offscreenWindow: UIWindow? {
+        if let existing = _offscreenWindow { return existing }
+        let created = Self.makeOffscreenWindow()
+        _offscreenWindow = created
+        return created
+    }
+    private var _offscreenWindow: UIWindow?
+
+    private static func makeOffscreenWindow() -> UIWindow? {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState != .unattached }
+        guard let scene else { return nil }
+        let window = UIWindow(windowScene: scene)
+        // Park well off-screen rather than `isHidden = true` or
+        // `alpha = 0` - UIKit can skip rendering for the latter two,
+        // which would defeat the point of having a host window at all.
+        window.frame = CGRect(
+            x: -100_000.0,
+            y: -100_000.0,
+            width: renderSize.width,
+            height: renderSize.height
+        )
+        window.windowLevel = .normal - 1
+        window.isUserInteractionEnabled = false
+        window.isHidden = false
+        return window
+    }
 
     static func cacheKey(for attachmentKey: String, appearance: UIUserInterfaceStyle) -> String {
         cacheKeyPrefix + attachmentKey + "-" + appearanceSuffix(for: appearance)
@@ -67,12 +110,20 @@ final class HTMLThumbnailRenderer {
         return result
     }
 
-    /// Renders the file at `fileURL` to a `UIImage` without ever attaching a
-    /// `WKWebView` to a `UIWindow`. The WebView lives only as an in-memory
-    /// object: it loads the HTML, hands a vector PDF to PDFKit on
-    /// `didFinish`, and is deallocated. There is no scene attachment and no
-    /// `UIWindowScene.keyboardLayoutGuide` reservation to leak.
+    /// Renders the file at `fileURL` directly into a `UIImage` via
+    /// `WKWebView.takeSnapshot`. The WebView is briefly attached to the
+    /// shared off-screen `offscreenWindow` so the snapshot actually
+    /// captures painted content (an unattached WebView snapshots blank),
+    /// and removed once we have the image. Reusing one host window
+    /// across renders avoids the `UIWindowScene.keyboardLayoutGuide`
+    /// reservation leak that bit the original one-window-per-render
+    /// implementation.
     private func renderSnapshot(fileURL: URL, appearance: UIUserInterfaceStyle) async -> UIImage? {
+        guard let window = offscreenWindow else {
+            Log.error("HTMLThumbnailRenderer: no offscreen window available; skipping render")
+            return nil
+        }
+
         let config = WKWebViewConfiguration()
         let userScript = WKUserScript(
             source: Self.injectionScript,
@@ -90,12 +141,15 @@ final class HTMLThumbnailRenderer {
         webView.isOpaque = true
         webView.isUserInteractionEnabled = false
         // Drives `@media (prefers-color-scheme: ...)` resolution inside the
-        // loaded HTML — the WebView's traitCollection determines what
+        // loaded HTML - the WebView's traitCollection determines what
         // matchMedia returns regardless of view-hierarchy attachment.
         webView.overrideUserInterfaceStyle = appearance
 
+        window.addSubview(webView)
+
         return await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
-            let coordinator = LoadCoordinator(renderSize: Self.renderSize) { result in
+            let coordinator = LoadCoordinator(renderSize: Self.renderSize) { [weak webView] result in
+                webView?.removeFromSuperview()
                 continuation.resume(returning: result)
             }
             // Retain coordinator for the duration of the load via objc association.
@@ -134,17 +188,14 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
                 self?.resume(image: nil)
                 return
             }
-            let pdfConfig = WKPDFConfiguration()
-            pdfConfig.rect = CGRect(origin: .zero, size: renderSize)
-            webView.createPDF(configuration: pdfConfig) { result in
-                switch result {
-                case .success(let data):
-                    let image = Self.rasterize(pdfData: data, at: renderSize)
-                    self.resume(image: image)
-                case .failure(let error):
-                    Log.error("HTMLThumbnailRenderer createPDF failed: \(error)")
-                    self.resume(image: nil)
+            let snapshotConfig = WKSnapshotConfiguration()
+            snapshotConfig.rect = CGRect(origin: .zero, size: renderSize)
+            snapshotConfig.afterScreenUpdates = true
+            webView.takeSnapshot(with: snapshotConfig) { image, error in
+                if let error {
+                    Log.error("HTMLThumbnailRenderer takeSnapshot failed: \(error)")
                 }
+                self.resume(image: image)
             }
         }
     }
@@ -161,18 +212,6 @@ private final class LoadCoordinator: NSObject, WKNavigationDelegate {
     ) {
         Log.error("HTMLThumbnailRenderer provisional load failed: \(error)")
         resume(image: nil)
-    }
-
-    private static func rasterize(pdfData: Data, at size: CGSize) -> UIImage? {
-        guard let document = PDFDocument(data: pdfData), let page = document.page(at: 0) else {
-            Log.error("HTMLThumbnailRenderer PDF had no first page")
-            return nil
-        }
-        // page.thumbnail draws onto an opaque white background, which matches
-        // the prior takeSnapshot behavior for HTML that doesn't set its own
-        // body background.
-        let image = page.thumbnail(of: size, for: .mediaBox)
-        return image
     }
 
     private func resume(image: UIImage?) {

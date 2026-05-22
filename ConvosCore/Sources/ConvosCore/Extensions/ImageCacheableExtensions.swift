@@ -1,12 +1,17 @@
 import Foundation
 
 extension Profile: ImageCacheable {
-    /// Conversation-scoped cache key. A member's display name, avatar, and
-    /// metadata are all per-conversation (`DBMemberProfile` is keyed on
-    /// `(conversationId, inboxId)`), so keying by bare `inboxId` would
-    /// collapse distinct per-conversation profiles into one entry.
+    /// User-scoped cache key. The avatar is logically one image per user
+    /// even though each conversation stores its own encrypted copy
+    /// (separate `imageEncryptionKey`, salt, nonce, URL per conversation —
+    /// because we have no centralized profile-photo store yet). Keying by
+    /// `inboxId` lets a successful fetch in any conversation satisfy
+    /// every other conversation's render of the same user, and collapses
+    /// what was previously N per-conversation cache entries into one.
+    /// Display name and metadata are still per-conversation; only the
+    /// avatar bytes are shared.
     public var imageCacheIdentifier: String {
-        "\(inboxId)@\(conversationId)"
+        inboxId
     }
 
     public var imageCacheURL: URL? {

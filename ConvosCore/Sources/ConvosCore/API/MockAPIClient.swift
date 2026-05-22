@@ -95,7 +95,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
     }
 
-    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 
@@ -121,4 +121,22 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func revokeCloudConnection(connectionId: String) async throws {}
+
+    func getCreditBalance() async throws -> CreditBalance {
+        CreditBalance(
+            balance: 0,
+            monthlyGrant: 0,
+            monthlyGrantUsed: 0,
+            nextRefreshAt: Date(),
+            periodLabel: ""
+        )
+    }
+
+    func getSubscription() async throws -> UserSubscription? {
+        nil
+    }
+
+    func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
+        throw MockAPIError.invalidURL
+    }
 }

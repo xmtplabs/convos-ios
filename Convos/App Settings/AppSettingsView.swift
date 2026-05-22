@@ -35,6 +35,7 @@ struct AppSettingsView: View {
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
+    @State private var subscriptionBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -47,9 +48,13 @@ struct AppSettingsView: View {
                 assistantsSection
                 connectionsSection
                 devicesSection
+                subscriptionSection
                 customizeSection
                 linksSection
                 deleteSection
+            }
+            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
+                subscriptionBalance = newBalance
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
@@ -225,6 +230,37 @@ struct AppSettingsView: View {
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
             } footer: {
                 Text("Enable services on this device and share them with assistants")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var subscriptionSection: some View {
+        if !ConfigManager.shared.currentEnvironment.isProduction {
+            Section {
+                NavigationLink {
+                    SubscriptionSettingsView()
+                } label: {
+                    subscriptionRowLabel
+                }
+                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                .accessibilityIdentifier("subscription-row")
+            } footer: {
+                Text("Power your agents with credits")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var subscriptionRowLabel: some View {
+        HStack {
+            Text("Subscription")
+                .foregroundStyle(.colorTextPrimary)
+            Spacer()
+            if let subscriptionBalance {
+                Text("\(subscriptionBalance.balance) credits")
+                    .foregroundStyle(.colorTextSecondary)
+                    .monospacedDigit()
             }
         }
     }

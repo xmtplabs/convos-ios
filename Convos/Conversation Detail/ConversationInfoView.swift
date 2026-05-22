@@ -117,6 +117,7 @@ struct ConversationInfoView: View {
     private var filesAndLinksRow: some View {
         NavigationLink {
             AssistantFilesLinksView(
+                conversationId: viewModel.conversation.id,
                 repository: viewModel.makeAssistantFilesLinksRepository(),
                 members: viewModel.conversation.members,
                 profileSheetContent: { member in

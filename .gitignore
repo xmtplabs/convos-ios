@@ -150,3 +150,10 @@ qa/cxdb/qa.sqlite-shm
 .direnv
 .direnv/**
 **/.direnv/**
+
+# codex
+.agents
+.agents/**
+.codex
+.codex/**
+AGENTS.md

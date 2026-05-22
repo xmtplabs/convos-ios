@@ -6,6 +6,7 @@ enum DeepLinkDestination {
     case joinConversation(inviteCode: String)
     case connectionGrant(serviceId: String, conversationId: String)
     case pairDevice(pairingId: String, expiresAt: Date?, initiatorName: String?)
+    case agentTemplate(templateId: String)
 }
 
 final class DeepLinkHandler {
@@ -30,6 +31,10 @@ final class DeepLinkHandler {
 
         if let connectionGrantDestination = parseConnectionGrant(from: url) {
             return connectionGrantDestination
+        }
+
+        if let agentTemplateDestination = parseAgentTemplate(from: url) {
+            return agentTemplateDestination
         }
 
         guard let inviteCode = url.convosInviteCode else {
@@ -94,6 +99,64 @@ final class DeepLinkHandler {
             return nil
         }
         return (service, conversationId)
+    }
+
+    // MARK: - Agent template deep links
+
+    /// Narrow agent-template check for callers (e.g. the QR scanner) that
+    /// already have a candidate URL and want only the template id.
+    /// Unlike `destination(for:)`, this does not fall through to invite
+    /// parsing and logs nothing when `url` is not a template link, so a
+    /// scanned conversation invite does not produce spurious warnings.
+    @MainActor
+    static func agentTemplateId(from url: URL) -> String? {
+        guard case .agentTemplate(let templateId)? = parseAgentTemplate(from: url) else {
+            return nil
+        }
+        return templateId
+    }
+
+    /// Parses agent-template deep links of the form
+    /// `convos[-{env}]://template/<templateId>`, where `<templateId>` is
+    /// the backend's `AgentTemplate.id` (a UUID).
+    ///
+    /// V1 handles the custom URL scheme only. A Universal Link form
+    /// (`https://.../<templateId>`) is a planned follow-up.
+    ///
+    /// See `docs/plans/agent-templates-phase-1-prd.md`.
+    @MainActor
+    private static func parseAgentTemplate(from url: URL) -> DeepLinkDestination? {
+        guard url.scheme == ConfigManager.shared.appUrlScheme,
+              let templateId = customSchemeAgentTemplateId(from: url),
+              isValidTemplateId(templateId) else {
+            return nil
+        }
+        return .agentTemplate(templateId: templateId)
+    }
+
+    /// `convos[-{env}]://template/<id>` — host is `template`, single
+    /// path component is the id.
+    private static func customSchemeAgentTemplateId(from url: URL) -> String? {
+        guard url.host == "template" else { return nil }
+        let components = url.pathComponents.filter { $0 != "/" }
+        guard components.count == 1 else { return nil }
+        return components[0]
+    }
+
+    private static let uuidPattern: NSRegularExpression? = {
+        // RFC 4122 v4 UUID, hex digits, case-insensitive — matches the
+        // template id format the backend's resolver uses
+        // (convos-backend/src/api/v2/agent-templates/lib/resolve-id-or-hashed-slug.ts).
+        try? NSRegularExpression(
+            pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            options: [.caseInsensitive]
+        )
+    }()
+
+    private static func isValidTemplateId(_ value: String) -> Bool {
+        guard let pattern = uuidPattern else { return false }
+        let range = NSRange(value.startIndex..., in: value)
+        return pattern.firstMatch(in: value, options: [], range: range) != nil
     }
 
     private static let maxConversationIdLength: Int = 256
