@@ -44,7 +44,9 @@ struct AgentBuilderView: View {
     @Namespace private var transitionNamespace: Namespace.ID
 
     private var indicatorPlaceholder: String? {
-        viewModel.hasCommitted ? nil : "New Agent"
+        if viewModel.hasCommitted { return nil }
+        if viewModel.isInRemixMode { return "Remix" }
+        return "New Agent"
     }
 
     private var indicatorSubtitle: String? {
@@ -139,7 +141,7 @@ struct AgentBuilderView: View {
                 if viewModel.hasCommitted {
                     Color.clear
                 } else {
-                    composerRect(focusState: $inlineFocusState)
+                    composerOrRemixCarousel(focusState: $inlineFocusState)
                 }
             }
             if !viewModel.hasCommitted {
@@ -155,6 +157,30 @@ struct AgentBuilderView: View {
         .onChange(of: inlineFocusState) { _, newFocus in
             focusCoordinator.syncFocusState(newFocus)
         }
+    }
+
+    /// Swap point between the composer and the Remix carousel. While
+    /// `isShowingRemixCarousel` is true the composer slides offscreen
+    /// downward and the random-agent picker takes its place; tapping
+    /// a card (sets `pickedRemixAgent`) or the X (clears
+    /// `isInRemixMode`) flips this back to the composer.
+    @ViewBuilder
+    private func composerOrRemixCarousel(
+        focusState: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
+        ZStack {
+            if viewModel.isShowingRemixCarousel {
+                RemixAgentCarouselView(
+                    viewModel: viewModel,
+                    agents: RandomAgent.mocks
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                composerRect(focusState: focusState)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.bouncy(duration: 0.4, extraBounce: 0.1), value: viewModel.isShowingRemixCarousel)
     }
 
     /// "Secured by XMTP" + "Terms & Privacy Policy" links rendered under
@@ -221,7 +247,7 @@ struct AgentBuilderView: View {
                     }
 
                     if !viewModel.hasCommitted {
-                        composerRect(focusState: focusState)
+                        composerOrRemixCarousel(focusState: focusState)
                             .transition(.asymmetric(
                                 insertion: .opacity,
                                 removal: .move(edge: .bottom)

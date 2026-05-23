@@ -196,12 +196,77 @@ struct AgentDraftComposer: View {
 
     private var standardLayout: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            topRow
             textField
             if hasAnyAttachment {
                 attachmentsRow
             }
             bottomRow
         }
+    }
+
+    /// Top-of-composer row that hosts the picked Remix agent in the
+    /// leading slot (after the user taps a card off the carousel) and
+    /// the dice button in the trailing slot (entry point to Remix mode).
+    /// Both slots only render when the builder isn't being committed
+    /// and there's room for them in the layout.
+    private var topRow: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            if let pickedAgent = viewModel.pickedRemixAgent {
+                remixAgentBadge(for: pickedAgent)
+                    .transition(.scale(scale: 1.4).combined(with: .opacity))
+            }
+            Spacer(minLength: 0)
+            diceButton
+                .transition(.opacity)
+        }
+    }
+
+    /// Shrunken `AgentContactCardView`-style chip that pins the picked
+    /// remix agent to the top-leading edge of the composer once chosen.
+    /// Tapping clears the pick and drops the user back into the
+    /// composer + Make flow without the remix context.
+    private func remixAgentBadge(for agent: RandomAgent) -> some View {
+        Button {
+            withAnimation(.smooth(duration: 0.3)) {
+                viewModel.clearPickedRemixAgent()
+            }
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Text(agent.emoji)
+                    .font(.system(size: 18))
+                Text(agent.displayName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .background(.colorFillMinimal, in: .capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remixing \(agent.displayName). Tap to remove.")
+        .accessibilityIdentifier("remix-picked-agent-badge")
+    }
+
+    private var diceButton: some View {
+        Button {
+            focusState.wrappedValue = nil
+            withAnimation(.smooth(duration: 0.35)) {
+                viewModel.enterRemixMode()
+            }
+        } label: {
+            Image(systemName: "dice.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remix from a random agent")
+        .accessibilityIdentifier("remix-dice-button")
     }
 
     @ViewBuilder
@@ -215,7 +280,13 @@ struct AgentDraftComposer: View {
     }
 
     private var textFieldPlaceholder: String {
-        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existance" : "Make a new agent"
+        if viewModel.isRecordingVoiceMemo {
+            return "Speaking an agent into existance"
+        }
+        if viewModel.pickedRemixAgent != nil {
+            return "Remix this agent"
+        }
+        return "Make a new agent"
     }
 
     private var textField: some View {
@@ -323,11 +394,15 @@ struct AgentDraftComposer: View {
         .padding(.leading, -DesignConstants.Spacing.step2x)
     }
 
+    private var makeButtonTitle: String {
+        viewModel.pickedRemixAgent != nil ? "Remix" : "Make"
+    }
+
     private var makeButton: some View {
         Button {
             onMakeTap()
         } label: {
-            Text("Make")
+            Text(makeButtonTitle)
                 .font(.callout)
                 .foregroundStyle(makeButtonEnabled ? .colorTextPrimaryInverted : .colorTextTertiary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -337,7 +412,7 @@ struct AgentDraftComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(!makeButtonEnabled)
-        .accessibilityLabel("Make agent")
+        .accessibilityLabel(viewModel.pickedRemixAgent != nil ? "Remix agent" : "Make agent")
         .accessibilityIdentifier("agent-make-button")
     }
 }
