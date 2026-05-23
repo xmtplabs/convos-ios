@@ -639,14 +639,17 @@ class NewConversationViewModel: Identifiable {
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         // Drop the conversation row claimed via `prepareNewConversation()`
-        // when the user backs out without engaging. The single-inbox refactor
-        // turned the old per-conversation `session.deleteInbox` cleanup into
-        // a no-op (it would destroy the user's account), so without this the
-        // warm-cached group would persist in the conversations list. Drafts
-        // skip — they don't have a visible row.
-        if let conversationId = conversationViewModel?.conversation.id {
+        // when the user backs out without engaging. Key off
+        // `claimedConversationId` so existing-conversation flows
+        // (`.existingConversation(...)`) don't accidentally delete the
+        // user's real conversation. The single-inbox refactor turned the
+        // old per-conversation `session.deleteInbox` cleanup into a no-op
+        // (it would destroy the user's account), so without this the
+        // warm-cached group would persist in the conversations list.
+        // Drafts skip — they don't have a visible row.
+        if let claimedId = claimedConversationId {
             Task { [session] in
-                await session.discardClaimedConversation(id: conversationId)
+                await session.discardClaimedConversation(id: claimedId)
             }
         }
     }

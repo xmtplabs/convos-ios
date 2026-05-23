@@ -338,19 +338,6 @@ final class AgentBuilderViewModel: Identifiable {
         let textToSend = composerText
         composerText = ""
 
-        // Promote the claimed cache row into a visible conversation now
-        // that the user has confirmed intent. The `.newAgent` mode of
-        // `NewConversationViewModel.acquireInbox` deliberately leaves the
-        // row hidden (isUnused = true) so it doesn't flash in the chats
-        // list during compose — this is the matching commit. Read the
-        // real claimed id from the inner VM rather than the current
-        // `conversation.id` (which may still be a draft placeholder
-        // until the state machine resolves `.ready`).
-        if let claimedId = newConversationViewModel.claimedConversationId {
-            let sessionForCommit = session
-            Task { await sessionForCommit.commitClaimedConversation(id: claimedId) }
-        }
-
         if let innerVM = newConversationViewModel.conversationViewModel {
             // Allocate the bundle's `clientMessageId`s synchronously so they
             // can land in `AgentBuilderSummary.bundledMessageIds` BEFORE
@@ -451,6 +438,20 @@ final class AgentBuilderViewModel: Identifiable {
             guard let self else { return }
             withAnimation(.easeInOut(duration: 0.35)) {
                 self.hasCommitted = true
+            }
+            // Promote the claimed cache row into a visible conversation
+            // AFTER `hasCommitted` flips. The `.onChange(of: hasCommitted)`
+            // inside `AgentBuilderView` fires the `onCommitted` callback,
+            // which the inline-builder host (`ConversationsView`) uses to
+            // present the committed conversation as a sheet. If we flip
+            // `isUnused = false` first, the chats list becomes non-empty,
+            // `isEmptyCTAActive` flips, the inline builder unmounts, and
+            // the onChange handler never fires — leaving no sheet.
+            // Sequencing the commit AFTER the state change keeps the
+            // host's callback intact, then the cache flip arrives once
+            // the sheet is already on its way up.
+            if let claimedId = self.newConversationViewModel.claimedConversationId {
+                await self.session.commitClaimedConversation(id: claimedId)
             }
         }
 

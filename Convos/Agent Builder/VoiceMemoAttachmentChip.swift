@@ -97,6 +97,7 @@ struct VoiceMemoAttachmentChip: View {
     }
 
     private func triggerRemoval() {
+        guard !isPoofing else { return }
         stopPlayback()
         withAnimation(.easeOut(duration: 0.2)) {
             isPoofing = true

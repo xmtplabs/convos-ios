@@ -390,6 +390,7 @@ struct PendingMediaAttachmentChip: View {
     }
 
     private func triggerRemoval() {
+        guard !isPoofing else { return }
         withAnimation(.easeOut(duration: 0.2)) {
             isPoofing = true
         }

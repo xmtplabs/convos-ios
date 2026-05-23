@@ -144,10 +144,15 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                     arguments: [false, now, conversationId]
                 )
             }
+            // Only drop the claim once the row is actually committed.
+            // If the write failed the row stays `isUnused = true` and
+            // dropping the claim here would let `consumeUnusedConversationId`
+            // hand the same id out to another caller while the original
+            // caller may still be using it.
+            claimedConversationIds.remove(conversationId)
         } catch {
             Log.error("Failed to commit claimed conversation \(conversationId): \(error)")
         }
-        claimedConversationIds.remove(conversationId)
     }
 
     public func releaseClaimedConversationId(_ conversationId: String) async {

@@ -437,6 +437,26 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     public func discardClaimedConversation(id conversationId: String) async {
         await unusedConversationCache.releaseClaimedConversationId(conversationId)
         guard !DBConversation.isDraft(id: conversationId) else { return }
+
+        // Leave the XMTP group BEFORE the local row goes away so we don't
+        // orphan it on the network. Cache-claimed conversations are
+        // published in `UnusedConversationCache.runPreparation`, so by
+        // the time the user discards, the group is live with us as the
+        // sole member. Without `leaveGroup`, every cache cycle the user
+        // discards leaves a stranded MLS group on the server — over
+        // time, syncs re-deliver those groups and the chats list can
+        // briefly flash empty rows before the consent filter catches
+        // up.
+        do {
+            let inboxReady = try await loadOrCreateService().sessionStateManager.waitForInboxReadyResult()
+            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId),
+               case .group(let group) = xmtpConversation {
+                try await group.leaveGroup()
+            }
+        } catch {
+            Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). The group may remain on the network.")
+        }
+
         do {
             try await databaseWriter.write { db in
                 try ConversationLocalState

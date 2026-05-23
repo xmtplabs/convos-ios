@@ -89,12 +89,11 @@ struct MessagesMediaButtonsView: View {
                 } label: {
                     Image(systemName: "batteryblock.fill")
                         .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(mediaTint)
+                        .foregroundStyle(.colorTextPrimary)
                         .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .disabled(isMediaCapacityFull)
                 .accessibilityLabel("Connections")
                 .accessibilityIdentifier("connections-button")
             }
