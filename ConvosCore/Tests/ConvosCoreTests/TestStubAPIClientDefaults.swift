@@ -28,4 +28,19 @@ extension ConvosAPIClientProtocol {
     func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription {
         throw CancellationError()
     }
+
+    /// Default for the post-`options:` `requestAgentJoin` signature so
+    /// pre-existing test mocks (which still carry the old
+    /// `slug:templateId:forceErrorCode:` shape) don't have to re-stub it
+    /// every time the protocol gains a parameter. Tests that exercise
+    /// `requestAgentJoin` specifically should still override this on
+    /// their fixture.
+    func requestAgentJoin(
+        slug: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        ConvosAPI.AgentJoinResponse(success: true, joined: true)
+    }
 }

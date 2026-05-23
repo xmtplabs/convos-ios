@@ -312,6 +312,10 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        ""
+    }
+
     func prepare(reply: Reply) async throws -> String {
         ""
     }
