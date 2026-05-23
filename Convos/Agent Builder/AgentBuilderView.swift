@@ -67,6 +67,12 @@ struct AgentBuilderView: View {
         if hasText && hasAttachment {
             return "The more info, the better"
         }
+        // When the user has already picked a remix agent, they're
+        // *adding* customizations on top of an existing template —
+        // not starting fresh — so swap the verb.
+        if viewModel.pickedRemixAgent != nil {
+            return "Add a pic, screenshot, voice note or connection"
+        }
         return "Start with a pic, screenshot, voice note or connection"
     }
 
@@ -103,6 +109,13 @@ struct AgentBuilderView: View {
             guard let convoVM = viewModel.newConversationViewModel.conversationViewModel else { return }
             didFireInlineCommit = true
             onCommitted?(convoVM)
+        }
+        .onChange(of: viewModel.pickedRemixAgent) { _, newPicked in
+            // After the user picks a card off the carousel, jump focus
+            // straight into the prompt field so they can start
+            // customizing without an extra tap.
+            guard newPicked != nil else { return }
+            focusCoordinator.moveFocus(to: .agentBuilder)
         }
     }
 
@@ -144,7 +157,11 @@ struct AgentBuilderView: View {
                     composerOrRemixCarousel(focusState: $inlineFocusState)
                 }
             }
-            if !viewModel.hasCommitted {
+            // Hide the legal footer while Remix mode owns the screen —
+            // the carousel + exit X already fill the bottom region,
+            // and the XMTP / Terms links don't make sense layered
+            // under the picker.
+            if !viewModel.hasCommitted && !viewModel.isInRemixMode {
                 inlineLegalFooter
             }
         }
@@ -180,7 +197,7 @@ struct AgentBuilderView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.bouncy(duration: 0.4, extraBounce: 0.1), value: viewModel.isShowingRemixCarousel)
+        .animation(.smooth(duration: 0.35), value: viewModel.isShowingRemixCarousel)
     }
 
     /// "Secured by XMTP" + "Terms & Privacy Policy" links rendered under
