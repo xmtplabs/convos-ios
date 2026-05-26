@@ -162,6 +162,8 @@ struct ContactDetailView: View {
                     showBlock: !mode.isCurrentUser,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentTemplateShareURL: agentTemplateShareURL,
+                    agentInstanceId: contact.agentInstanceId,
+                    showsInstanceIdRow: showsInstanceIdRow,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -196,6 +198,12 @@ struct ContactDetailView: View {
     /// without a published template, which hides the row.
     private var agentTemplateShareURL: URL? {
         contact.agentTemplatePublishedURL.flatMap { URL(string: $0) }
+    }
+
+    /// True on Dev/Local builds. Controls visibility of the instance id
+    /// row only - the id itself is always plumbed through.
+    private var showsInstanceIdRow: Bool {
+        ConfigManager.shared.currentEnvironment.isInternalBuild
     }
 
     /// Pill rendered below the subtitle. "You" for the current user's
@@ -538,6 +546,11 @@ private struct ContactDetailActions: View {
     let contactDisplayName: String
     /// Non-nil only for template-backed agents; drives the Share row.
     let agentTemplateShareURL: URL?
+    /// Always plumbed through when the contact has one. Display gate
+    /// is `showsInstanceIdRow`, not nullability of this field.
+    let agentInstanceId: String?
+    /// True on Dev/Local builds. Hides the row on production.
+    let showsInstanceIdRow: Bool
     let onSendMessage: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
@@ -563,6 +576,9 @@ private struct ContactDetailActions: View {
             }
             if showBlock {
                 blockRow
+            }
+            if showsInstanceIdRow, let agentInstanceId {
+                ContactDetailDebugInstanceIdRow(instanceId: agentInstanceId)
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -711,6 +727,59 @@ private struct ContactDetailShareRow: View {
     }
 }
 
+// MARK: - Debug instance id row (internal builds only)
+
+/// Internal-build-only row surfacing the agent runtime's `instanceId`
+/// for log correlation. Tap to copy. Gated by the call site in
+/// `ContactDetailView` via `AppEnvironment.isInternalBuild`.
+private struct ContactDetailDebugInstanceIdRow: View {
+    let instanceId: String
+
+    @State private var didCopy: Bool = false
+
+    var body: some View {
+        let labelText: String = didCopy ? "Copied" : "Tap to copy"
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            Button(action: copyToClipboard) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text("Instance ID (dev)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.colorTextSecondary)
+                    Text(instanceId)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.colorTextPrimary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .background(
+                    RoundedRectangle(cornerRadius: 12.0).fill(.colorFillMinimal)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Instance ID, \(instanceId)")
+            .accessibilityHint("Double tap to copy")
+            .accessibilityIdentifier("contact-detail-debug-instance-id")
+            Text(labelText)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+        }
+    }
+
+    private func copyToClipboard() {
+        UIPasteboard.general.string = instanceId
+        didCopy = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            didCopy = false
+        }
+    }
+}
+
 // MARK: - Modals modifier
 
 private struct ContactDetailModalsModifier<
@@ -765,7 +834,8 @@ extension Contact {
         addedViaConversationId: String?,
         agentVerification: AgentVerification?,
         agentTemplateId: String? = nil,
-        agentTemplatePublishedURL: String? = nil
+        agentTemplatePublishedURL: String? = nil,
+        agentInstanceId: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -779,7 +849,8 @@ extension Contact {
             isBlocked: false,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -792,12 +863,11 @@ extension Contact {
     /// and non-contact members. The synthetic fallback is promoted to a
     /// real contact when the user taps "Chat".
     ///
-    /// The agent-template `templateId` and `publishedUrl` live only in the
-    /// per-conversation member profile metadata (`DBContact` has no
-    /// template columns), so they are overlaid here onto whichever contact
-    /// is returned - stored or synthetic - from the freshest source. The
-    /// `templateId` is what enables the Chat button to spawn a fresh
-    /// instance; without this overlay `isAgentTemplate` is always false.
+    /// The agent-template `templateId`, `publishedUrl`, and `instanceId`
+    /// live only in the per-conversation member profile metadata
+    /// (`DBContact` has no template column), so they are overlaid here
+    /// onto whichever contact is returned. Without the `templateId`
+    /// overlay `isAgentTemplate` is always false.
     public static func resolved(
         member: ConversationMember,
         in conversationId: String,
@@ -805,10 +875,12 @@ extension Contact {
     ) -> Contact {
         let templateId: String? = member.profile.agentTemplateId
         let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
+        let instanceId: String? = member.profile.agentInstanceId
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             return stored
                 .with(agentTemplateId: templateId)
                 .with(agentTemplatePublishedURL: templatePublishedURL)
+                .with(agentInstanceId: instanceId)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -820,7 +892,8 @@ extension Contact {
             addedViaConversationId: conversationId,
             agentVerification: member.agentVerification,
             agentTemplateId: templateId,
-            agentTemplatePublishedURL: templatePublishedURL
+            agentTemplatePublishedURL: templatePublishedURL,
+            agentInstanceId: instanceId
         )
     }
 }
@@ -865,6 +938,21 @@ extension Contact {
                 displayName: "Tifoso",
                 agentVerification: .verified(.convos),
                 agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o"
+            ),
+            contactsWriter: MockContactsWriter(),
+            contactsRepository: MockContactsRepository()
+        )
+    }
+}
+
+#Preview("Agent template with instance id (dev)") {
+    NavigationStack {
+        ContactDetailView(
+            contact: .mock(
+                displayName: "Tifoso",
+                agentVerification: .verified(.convos),
+                agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o",
+                agentInstanceId: "inst_01HZQX0K7AYB5R8N3W2J6FQGCD"
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository()

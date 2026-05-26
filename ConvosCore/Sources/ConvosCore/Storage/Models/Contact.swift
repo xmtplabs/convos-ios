@@ -41,6 +41,10 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// member profile metadata (see `Contact.resolved(member:...)`), which
     /// is the freshest source. Drives the contact card's Share button.
     public let agentTemplatePublishedURL: String?
+    /// The agent runtime's `instanceId` for a specific provisioned agent.
+    /// Not persisted on `DBContact`; overlaid at resolution time from the
+    /// per-conversation member profile (see `Contact.resolved(member:...)`).
+    public let agentInstanceId: String?
 
     public init(
         inboxId: String,
@@ -54,7 +58,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil,
         agentTemplateId: String? = nil,
-        agentTemplatePublishedURL: String? = nil
+        agentTemplatePublishedURL: String? = nil,
+        agentInstanceId: String? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -68,6 +73,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.agentVerification = agentVerification
         self.agentTemplateId = agentTemplateId
         self.agentTemplatePublishedURL = agentTemplatePublishedURL
+        self.agentInstanceId = agentInstanceId
     }
 
     /// True when this contact has the full set of AES-256-GCM material
@@ -148,7 +154,8 @@ extension Contact {
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil,
         agentTemplateId: String? = nil,
-        agentTemplatePublishedURL: String? = nil
+        agentTemplatePublishedURL: String? = nil,
+        agentInstanceId: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -162,7 +169,8 @@ extension Contact {
             isBlocked: isBlocked,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -183,7 +191,8 @@ extension Contact {
             isBlocked: isBlocked,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -204,7 +213,27 @@ extension Contact {
             isBlocked: isBlocked,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentInstanceId: agentInstanceId
+        )
+    }
+
+    /// Returns a copy with `agentInstanceId` overlaid.
+    public func with(agentInstanceId: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentInstanceId: agentInstanceId
         )
     }
 }
