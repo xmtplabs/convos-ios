@@ -712,7 +712,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw error
         }
-        try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: jsonList)
+        do {
+            try await rewriteBundleMessageRow(clientMessageId: clientMessageId, messageId: messageId, jsonList: jsonList)
+        } catch {
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw error
+        }
         await migrateBundleAttachmentKeys(entries: entries, jsonList: jsonList)
 
         do {

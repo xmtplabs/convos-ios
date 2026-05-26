@@ -4,7 +4,9 @@ import ConvosCore
 import ConvosCoreiOS
 import Foundation
 import Observation
+import Sentry
 import SwiftUI
+import UIKit
 
 /// User-toggleable connections offered by the Agent Builder's connection
 /// sheet. v1 surfaces Apple Health (device) and Google Calendar (cloud); the
@@ -531,7 +533,15 @@ final class AgentBuilderViewModel: Identifiable {
                 try? await Task.sleep(for: .milliseconds(Constant.agentPollIntervalMs))
             }
             guard !Task.isCancelled else { return }
-            Log.error("AgentBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for agent to join — \(connections.count) connection grant(s) skipped")
+            let message: String = "AgentBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for agent to join — \(connections.count) connection grant(s) skipped"
+            Log.error(message)
+            SentrySDK.capture(message: message) { scope in
+                scope.setLevel(.warning)
+                scope.setTag(value: "agent_join_timeout", key: "agent_builder")
+                scope.setExtra(value: connections.count, key: "skipped_connection_count")
+                scope.setExtra(value: connections.map(\.id).sorted().joined(separator: ","), key: "skipped_connections")
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
     }
 
