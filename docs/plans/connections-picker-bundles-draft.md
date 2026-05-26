@@ -3,8 +3,7 @@
 **status:** draft
 **owner:** louis
 **date:** 2026-05-19
-
-Heads up: this is a notepad, not a real PRD.
+**related:** [capability-resolution-flows.md](capability-resolution-flows.md) (how the picker gets triggered — agent sends a capability request, device opens the sheet)
 
 ## The thing
 
