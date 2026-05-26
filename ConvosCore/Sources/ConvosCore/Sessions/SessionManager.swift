@@ -583,75 +583,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         loadOrCreateService()
     }
 
-    public func joinerPairingService() -> any PairingServiceProtocol {
-        LivePairingService(role: .joiner(identityStore: identityStore, environment: environment))
-    }
-
-    /// Called after a successful pairing handshake on the joiner side.
-    /// The paired secp256k1 key has already been saved to the keychain by
-    /// `LivePairingService`. We drop any cached `MessagingService` so the
-    /// next access reads the new keychain entry and bootstraps fresh
-    /// under the paired inboxId.
-    ///
-    /// Note: this does not delete the placeholder's libxmtp DB files from
-    /// disk. They're encrypted with the placeholder identity's
-    /// `databaseKey`, which the keychain replace just abandoned, so they
-    /// are inert garbage until a "Delete All Data" sweep removes them.
-    /// Acceptable for TestFlight beta; revisit if we see real disk-use
-    /// regressions.
-    public func hasAnyUsedConversations() async -> Bool {
-        do {
-            return try await databaseReader.read { db in
-                try DBConversation
-                    .filter(DBConversation.Columns.isUnused == false)
-                    .fetchCount(db) > 0
-            }
-        } catch {
-            Log.warning("SessionManager.hasAnyUsedConversations failed: \(error)")
-            return false
-        }
-    }
-
-    /// Called after a successful pairing on the joiner side. The paired
-    /// secp256k1 key was already saved to the keychain by
-    /// `LivePairingService.handleIdentityShare` before this runs. We:
-    ///
-    /// 1. Stop the placeholder `MessagingService` (the one silent-identity
-    ///    bootstrap may have stood up before the deep link arrived).
-    /// 2. Wipe the placeholder's GRDB rows. Without this, the local DB
-    ///    still has the placeholder marked as `isCurrentUser` and the
-    ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
-    ///    History-synced messages from the *paired* identity then come in
-    ///    as not-mine and render on the wrong side of the message list.
-    /// 3. Clear the cache. Next `messagingService()` call reads the new
-    ///    keychain entry and bootstraps a fresh service under the paired
-    ///    inboxId.
-    ///
-    /// Note: this does not delete the placeholder's libxmtp DB files from
-    /// disk. They're encrypted with the placeholder identity's
-    /// `databaseKey`, which the keychain replace abandoned, so they are
-    /// inert garbage until a "Delete All Data" sweep removes them.
-    public func refreshAfterPairingCompleted() async {
-        // Mirror `tearDownInbox`'s ordering: keep the cached reference live
-        // through stop + wipe so a concurrent `loadOrCreateService()` call
-        // observes the being-torn-down service rather than building a second
-        // one under the (just-replaced) paired keychain entry. If it ran
-        // simultaneously with `wipeResidualInboxRows()` we'd delete the
-        // freshly-written paired GRDB rows the new service just made.
-        let existing = cachedMessagingService.withLock { $0 }
-        if let existing {
-            Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
-            await existing.stop()
-        }
-        do {
-            try await wipeResidualInboxRows()
-            Log.info("SessionManager: wiped placeholder GRDB rows after pairing adoption")
-        } catch {
-            Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
-        }
-        cachedMessagingService.withLock { $0 = nil }
-    }
-
     /// Synchronous accessor for SwiftUI code paths that can't suspend (e.g.
     /// `ConversationsViewModel.updateSelectionState`). Cache hits are free;
     /// cache misses do a keychain `loadSync` plus `AuthorizeInboxOperation`
@@ -982,5 +913,72 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 }
             }
         }
+    }
+}
+
+// MARK: - Pairing
+
+public extension SessionManager {
+    func joinerPairingService() -> any PairingServiceProtocol {
+        LivePairingService(role: .joiner(identityStore: identityStore, environment: environment))
+    }
+
+    /// Returns true when the local DB contains at least one `DBConversation`
+    /// the user has actually engaged with (`isUnused == false`). Used by
+    /// the pairing flow to decide whether the joiner has real data that
+    /// would be lost on adoption. Silent identity creation + pre-warmed
+    /// unused conversation means every fresh install reports `false` here,
+    /// so the destructive-warning sheet stays out of the way.
+    func hasAnyUsedConversations() async -> Bool {
+        do {
+            return try await databaseReader.read { db in
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == false)
+                    .fetchCount(db) > 0
+            }
+        } catch {
+            Log.warning("SessionManager.hasAnyUsedConversations failed: \(error)")
+            return false
+        }
+    }
+
+    /// Called after a successful pairing on the joiner side. The paired
+    /// secp256k1 key was already saved to the keychain by
+    /// `LivePairingService.handleIdentityShare` before this runs. We:
+    ///
+    /// 1. Stop the placeholder `MessagingService` (the one silent-identity
+    ///    bootstrap may have stood up before the deep link arrived).
+    /// 2. Wipe the placeholder's GRDB rows. Without this, the local DB
+    ///    still has the placeholder marked as `isCurrentUser` and the
+    ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
+    ///    History-synced messages from the *paired* identity then come in
+    ///    as not-mine and render on the wrong side of the message list.
+    /// 3. Clear the cache. Next `messagingService()` call reads the new
+    ///    keychain entry and bootstraps a fresh service under the paired
+    ///    inboxId.
+    ///
+    /// Note: this does not delete the placeholder's libxmtp DB files from
+    /// disk. They're encrypted with the placeholder identity's
+    /// `databaseKey`, which the keychain replace abandoned, so they are
+    /// inert garbage until a "Delete All Data" sweep removes them.
+    func refreshAfterPairingCompleted() async {
+        // Mirror `tearDownInbox`'s ordering: keep the cached reference live
+        // through stop + wipe so a concurrent `loadOrCreateService()` call
+        // observes the being-torn-down service rather than building a second
+        // one under the (just-replaced) paired keychain entry. If it ran
+        // simultaneously with `wipeResidualInboxRows()` we'd delete the
+        // freshly-written paired GRDB rows the new service just made.
+        let existing = cachedMessagingService.withLock { $0 }
+        if let existing {
+            Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
+            await existing.stop()
+        }
+        do {
+            try await wipeResidualInboxRows()
+            Log.info("SessionManager: wiped placeholder GRDB rows after pairing adoption")
+        } catch {
+            Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
+        }
+        cachedMessagingService.withLock { $0 = nil }
     }
 }
