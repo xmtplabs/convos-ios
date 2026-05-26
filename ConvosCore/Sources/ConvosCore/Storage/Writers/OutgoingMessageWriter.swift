@@ -119,6 +119,7 @@ enum OutgoingMessageWriterError: Error, CustomStringConvertible {
     case eagerUploadNotFound
     case parentMessageNotFound
     case eagerUploadCancelled
+    case attachmentEncodingFailed
 
     var description: String {
         switch self {
@@ -130,6 +131,8 @@ enum OutgoingMessageWriterError: Error, CustomStringConvertible {
             return "Parent message not found"
         case .eagerUploadCancelled:
             return "Eager upload was cancelled"
+        case .attachmentEncodingFailed:
+            return "Failed to encode attachment URLs as JSON"
         }
     }
 }
@@ -774,12 +777,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     private func rewriteBundleMessageRow(clientMessageId: String, messageId: String, jsonList: [String]) async throws {
-        let attachmentUrlsJSONString: String
-        do {
-            let data = try JSONEncoder().encode(jsonList)
-            attachmentUrlsJSONString = String(data: data, encoding: .utf8) ?? "[]"
-        } catch {
-            attachmentUrlsJSONString = "[]"
+        let data = try JSONEncoder().encode(jsonList)
+        guard let attachmentUrlsJSONString = String(data: data, encoding: .utf8) else {
+            throw OutgoingMessageWriterError.attachmentEncodingFailed
         }
         try await databaseWriter.write { db in
             try db.execute(
