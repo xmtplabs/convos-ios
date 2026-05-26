@@ -49,7 +49,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let conversationEmoji: Column = Column(CodingKeys.conversationEmoji)
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
-        static let hasHadVerifiedAssistant: Column = Column(CodingKeys.hasHadVerifiedAssistant)
+        static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
         static let quarantinedAt: Column = Column(CodingKeys.quarantinedAt)
         static let quarantineReleasedAt: Column = Column(CodingKeys.quarantineReleasedAt)
     }
@@ -75,7 +75,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let conversationEmoji: String?
     let imageLastRenewed: Date?
     let isUnused: Bool
-    let hasHadVerifiedAssistant: Bool
+    let hasHadVerifiedAgent: Bool
     /// Non-nil when the inbound filter quarantined this conversation —
     /// persisted but hidden from the main feed until either promoted (sender
     /// becomes a contact) or swept past the TTL.
@@ -107,7 +107,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         conversationEmoji: String?,
         imageLastRenewed: Date?,
         isUnused: Bool,
-        hasHadVerifiedAssistant: Bool,
+        hasHadVerifiedAgent: Bool,
         quarantinedAt: Date? = nil,
         quarantineReleasedAt: Date? = nil
     ) {
@@ -132,7 +132,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.conversationEmoji = conversationEmoji
         self.imageLastRenewed = imageLastRenewed
         self.isUnused = isUnused
-        self.hasHadVerifiedAssistant = hasHadVerifiedAssistant
+        self.hasHadVerifiedAgent = hasHadVerifiedAgent
         self.quarantinedAt = quarantinedAt
         self.quarantineReleasedAt = quarantineReleasedAt
     }
@@ -249,9 +249,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
             ]
         )
 
-    nonisolated(unsafe) static let latestAssistantJoinRequestCTE: CommonTableExpression<DBAssistantJoinRequest> =
-        CommonTableExpression<DBAssistantJoinRequest>(
-            named: "conversationAssistantJoinRequest",
+    nonisolated(unsafe) static let latestAgentJoinRequestCTE: CommonTableExpression<DBAgentJoinRequest> =
+        CommonTableExpression<DBAgentJoinRequest>(
+            named: "conversationAgentJoinRequest",
             sql: """
                 SELECT m.conversationId, m.text AS status, m.date
                 FROM message m
@@ -321,7 +321,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -350,7 +350,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -379,7 +379,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -408,7 +408,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -437,7 +437,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -468,7 +468,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -497,7 +497,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -526,7 +526,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -555,7 +555,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -584,7 +584,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -613,7 +613,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -642,7 +642,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -671,7 +671,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -700,7 +700,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -729,7 +729,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -758,7 +758,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -787,13 +787,13 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
     }
 
-    func with(hasHadVerifiedAssistant: Bool) -> Self {
+    func with(hasHadVerifiedAgent: Bool) -> Self {
         .init(
             id: id,
             clientConversationId: clientConversationId,
@@ -816,7 +816,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )
@@ -845,7 +845,7 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAssistant: hasHadVerifiedAssistant,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             quarantinedAt: quarantinedAt,
             quarantineReleasedAt: quarantineReleasedAt
         )

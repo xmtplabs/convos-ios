@@ -67,8 +67,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleGroupUpdatedContent()
         case ContentTypeExplodeSettings:
             components = try handleExplodeSettingsContent()
-        case ContentTypeAssistantJoinRequest:
-            components = try handleAssistantJoinRequestContent()
+        case ContentTypeAgentJoinRequest:
+            components = try handleAgentJoinRequestContent()
         case ContentTypeCloudConnectionGrantRequest:
             components = try handleConnectionGrantRequestContent()
         case ContentTypeCapabilityRequest:
@@ -464,9 +464,9 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
-    private func handleAssistantJoinRequestContent() throws -> DBMessageComponents {
+    private func handleAgentJoinRequestContent() throws -> DBMessageComponents {
         let content = try content() as Any
-        guard let request = content as? AssistantJoinRequest else {
+        guard let request = content as? AgentJoinRequest else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         return DBMessageComponents(
@@ -506,8 +506,8 @@ extension XMTPiOS.DecodedMessage {
     /// Validates a `CloudConnectionGrantRequest` against its actual sender. Throws
     /// `untrustedSender` when the payload's `requestedByInboxId` does not match
     /// the XMTP-attested sender — a hostile member could otherwise attribute
-    /// the request to the assistant and trick the user into running a grant
-    /// flow for services the real assistant never asked for.
+    /// the request to the agent and trick the user into running a grant
+    /// flow for services the real agent never asked for.
     static func validateConnectionGrantRequest(
         _ request: CloudConnectionGrantRequest,
         senderInboxId: String,

@@ -89,7 +89,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         )
 
         // Defense against unverified or spoofed CloudConnectionGrantRequest senders:
-        // only persist grant requests whose sender is a verified Convos assistant
+        // only persist grant requests whose sender is a verified Convos agent
         // in this conversation. Anything else gets dropped silently with a warning
         // so the UI never has a chance to render the deep-link card.
         if encodedContentType == ContentTypeCloudConnectionGrantRequest, !senderVerified {
@@ -343,7 +343,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
     /// Ensures the sender has a row in `DBMember` and a `DBMemberProfile` for the
     /// conversation. Returns true when the existing profile is already marked as a
-    /// verified Convos assistant — used to gate persisting sensitive content types
+    /// verified Convos agent — used to gate persisting sensitive content types
     /// whose rendering assumes the sender is trusted.
     static func bootstrapSenderProfile(
         db: Database,
@@ -366,7 +366,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             )
             try? newProfile.insert(db)
         }
-        return existingProfile?.agentVerification.isConvosAssistant ?? false
+        return existingProfile?.agentVerification.isConvosAgent ?? false
     }
 
     /// Computes a sortId that places the message in chronological order within the conversation.

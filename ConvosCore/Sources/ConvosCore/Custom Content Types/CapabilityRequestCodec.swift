@@ -56,7 +56,7 @@ public struct CapabilityRequestCodec: ContentCodec {
     }
 
     public func fallback(content: CapabilityRequest) throws -> String? {
-        "The assistant is requesting access to your \(content.subject.displayName.lowercased())"
+        "The agent is requesting access to your \(content.subject.displayName.lowercased())"
     }
 
     public func shouldPush(content: CapabilityRequest) throws -> Bool {

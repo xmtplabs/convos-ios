@@ -36,8 +36,8 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let expiresAt: Date?
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
-    public let assistantJoinStatus: AssistantJoinStatus?
-    public let hasHadVerifiedAssistant: Bool
+    public let agentJoinStatus: AgentJoinStatus?
+    public let hasHadVerifiedAgent: Bool
 }
 
 public extension Conversation {
@@ -135,20 +135,20 @@ public extension Conversation {
         members.filter(\.isAgent).count
     }
 
-    var verifiedAssistantCount: Int {
-        members.filter(\.agentVerification.isConvosAssistant).count
+    var verifiedConvosAgentCount: Int {
+        members.filter(\.agentVerification.isConvosAgent).count
     }
 
     var hasAgent: Bool {
         agentCount > 0
     }
 
-    var hasVerifiedAssistant: Bool {
-        members.contains(where: \.agentVerification.isConvosAssistant)
+    var hasVerifiedConvosAgent: Bool {
+        members.contains(where: \.agentVerification.isConvosAgent)
     }
 
-    var hasEverHadVerifiedAssistant: Bool {
-        hasHadVerifiedAssistant
+    var hasEverHadVerifiedConvosAgent: Bool {
+        hasHadVerifiedAgent
     }
 
     var hasVerifiedAgent: Bool {
@@ -156,25 +156,17 @@ public extension Conversation {
     }
 
     var agentCountString: String? {
-        let verified = verifiedAssistantCount
+        let verified = verifiedConvosAgentCount
         let unverified = agentCount - verified
         var parts: [String] = []
         if verified > 0 {
-            parts.append("\(verified) \(verified == 1 ? "Assistant" : "Assistants")")
+            parts.append("\(verified) \(verified == 1 ? "Agent" : "Agents")")
         }
         if unverified > 0 {
             parts.append("\(unverified) \(unverified == 1 ? "Agent" : "Agents")")
         }
         guard !parts.isEmpty else { return nil }
         return parts.joined(separator: ", ")
-    }
-
-    public var hasAgentOutOfCredits: Bool {
-        members.contains { $0.isAgent && $0.profile.isOutOfCredits }
-    }
-
-    public var agentOutOfCreditsProfile: Profile? {
-        members.first { $0.isAgent && $0.profile.isOutOfCredits }?.profile
     }
 
     var shouldShowQuickEdit: Bool {

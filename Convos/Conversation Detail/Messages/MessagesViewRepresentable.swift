@@ -17,26 +17,39 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onTapReadReceipts: (MessagesGroup) -> Void
+    let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
+    let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let hasAgent: Bool
+    let isAgentJoinPending: Bool
+    var headerMode: MessagesHeaderMode = .standard
+    var agentBuilderSummary: AgentBuilderSummary?
+    var agentBuilderTransitionNamespace: Namespace.ID?
     let bottomBarHeight: CGFloat
+    /// Hosts that intentionally have no composer (the thinking detail sheet)
+    /// pass `false` so the controller doesn't wait for a non-existent bottom
+    /// bar measurement before applying its initial state.
+    var hasBottomBar: Bool = true
+    /// Top inset (in points) added to the controller's safe area for hosts
+    /// that float a bar over the collection view. See
+    /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
+    /// path on its existing layout.
+    var topContentInset: CGFloat = 0.0
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
@@ -68,6 +81,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
         Log.debug("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
+        messagesViewController.hasBottomBar = hasBottomBar
+        messagesViewController.topContentInset = topContentInset
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.focusCoordinator = focusCoordinator
 
@@ -78,6 +93,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onToggleReaction = onToggleReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onTapReadReceipts = onTapReadReceipts
+        messagesViewController.onTapThinkingIndicator = onTapThinkingIndicator
         messagesViewController.onReply = onReply
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
         messagesViewController.onPhotoRevealed = { key in
@@ -94,6 +110,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onPhotoDimensionsLoaded(key, width, height)
         }
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
+        messagesViewController.creditsDepleted = creditsDepleted
         messagesViewController.onTapUpdateMember = { member in
             self.onTapUpdateMember(member)
         }
@@ -103,16 +120,15 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onDeleteMessage = { message in
             self.onDeleteMessage(message)
         }
-        messagesViewController.onRetryAssistantJoin = onRetryAssistantJoin
+        messagesViewController.onRetryAgentJoin = onRetryAgentJoin
         messagesViewController.onCopyInviteLink = onCopyInviteLink
         messagesViewController.onConvoCode = onConvoCode
-        messagesViewController.onInviteAssistant = onInviteAssistant
+        messagesViewController.onInviteAgent = onInviteAgent
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember
         messagesViewController.memberContactOverride = memberContactOverride
-        messagesViewController.hasAssistant = hasAssistant
-        messagesViewController.isAssistantJoinPending = isAssistantJoinPending
-        messagesViewController.isAssistantEnabled = isAssistantEnabled
+        messagesViewController.hasAgent = hasAgent
+        messagesViewController.isAgentJoinPending = isAgentJoinPending
 let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -127,7 +143,10 @@ let menuPresented = contextMenuState.isPresented
             conversation: conversation,
             messages: messages,
             invite: invite,
-            hasLoadedAllMessages: hasLoadedAllMessages
+            hasLoadedAllMessages: hasLoadedAllMessages,
+            headerMode: headerMode,
+            agentBuilderSummary: agentBuilderSummary,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace
         )
     }
 }
@@ -152,25 +171,26 @@ let menuPresented = contextMenuState.isPresented
         onToggleReaction: { _, _ in },
         onTapReactions: { _ in },
         onTapReadReceipts: { _ in },
+        onTapThinkingIndicator: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         onAgentOutOfCredits: {},
+        creditsDepleted: false,
         onTapUpdateMember: { _ in },
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },
-        onRetryAssistantJoin: {},
+        onRetryAgentJoin: {},
         onCopyInviteLink: {},
         onConvoCode: {},
-        onInviteAssistant: {},
+        onInviteAgent: {},
         onRetryTranscript: { _ in },
         profileSheetForMember: { _ in AnyView(EmptyView()) },
         memberContactOverride: { _ in nil },
-        hasAssistant: false,
-        isAssistantJoinPending: false,
-        isAssistantEnabled: true,
+        hasAgent: false,
+        isAgentJoinPending: false,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         onBottomOverscrollReleased: { _ in },

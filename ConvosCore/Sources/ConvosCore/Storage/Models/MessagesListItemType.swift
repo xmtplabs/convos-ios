@@ -48,10 +48,11 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case messages(MessagesGroup)
     case invite(Invite)
     case conversationInfo(Conversation)
-    case agentOutOfCredits(Profile)
-    case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
-    case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
+    case agentOutOfCredits(ConversationMember)
+    case agentJoinStatus(AgentJoinStatus, requesterName: String?, date: Date)
+    case agentPresentInfo(agent: ConversationMember, inviterName: String?)
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)
+    case agentBuilderSummary(AgentBuilderSummary)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -66,14 +67,16 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "invite-\(invite.id)"
         case .conversationInfo(let conversation):
             return "conversation-info-\(conversation.id)"
-        case .agentOutOfCredits(let profile):
-            return "agent-out-of-credits-\(profile.inboxId)"
-        case .assistantJoinStatus:
-            return "assistant-join"
-        case .assistantPresentInfo:
-            return "assistant-present-info"
+        case .agentOutOfCredits(let member):
+            return "agent-out-of-credits-\(member.profile.inboxId)"
+        case .agentJoinStatus:
+            return "agent-join"
+        case .agentPresentInfo:
+            return "agent-present-info"
         case .connectionEvent(let id, _, _):
             return "connection-event-\(id)"
+        case .agentBuilderSummary(let summary):
+            return "agent-builder-summary-\(summary.id.uuidString)"
         case .typingIndicator:
             return "typing-indicator"
         }
@@ -112,7 +115,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -125,7 +128,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo:
+        case .invite, .conversationInfo, .agentBuilderSummary:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -148,12 +151,14 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-conversationInfo"
         case .agentOutOfCredits:
             return "MessagesListItemTypeCell-agentOutOfCredits"
-        case .assistantJoinStatus:
-            return "MessagesListItemTypeCell-assistantJoinStatus"
-        case .assistantPresentInfo:
-            return "MessagesListItemTypeCell-assistantPresentInfo"
+        case .agentJoinStatus:
+            return "MessagesListItemTypeCell-agentJoinStatus"
+        case .agentPresentInfo:
+            return "MessagesListItemTypeCell-agentPresentInfo"
         case .connectionEvent:
             return "MessagesListItemTypeCell-connectionEvent"
+        case .agentBuilderSummary:
+            return "MessagesListItemTypeCell-agentBuilderSummary"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
         }
@@ -167,9 +172,10 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-invite",
             "MessagesListItemTypeCell-conversationInfo",
             "MessagesListItemTypeCell-agentOutOfCredits",
-            "MessagesListItemTypeCell-assistantJoinStatus",
-            "MessagesListItemTypeCell-assistantPresentInfo",
+            "MessagesListItemTypeCell-agentJoinStatus",
+            "MessagesListItemTypeCell-agentPresentInfo",
             "MessagesListItemTypeCell-connectionEvent",
+            "MessagesListItemTypeCell-agentBuilderSummary",
             "TypingIndicatorCollectionCell",
         ]
     }

@@ -6,13 +6,17 @@ import GRDB
 
 /// Pre-creates an XMTP group on the authorized messaging service so the first
 /// "new conversation" a user taps into is already published. The pre-created
-/// group lives as a `DBConversation` row with `isUnused = true`; callers either
-/// consume one via `consumeUnusedConversationId` or get `nil` and create a
-/// conversation on demand.
+/// group lives as a `DBConversation` row with `isUnused = true` (hidden from
+/// the chats list). Callers claim one via `consumeUnusedConversationId`,
+/// then either `commitClaimedConversation` to make it visible, or
+/// `releaseClaimedConversationId` to drop the claim if the row is being
+/// discarded. The DB row stays `isUnused = true` for the entire claim
+/// window so it never surfaces in the conversations list before the user
+/// has committed.
 public protocol UnusedConversationCacheProtocol: Actor {
-    /// Schedules pre-creation of an unused conversation on `service`. Idempotent:
-    /// no-op if a preparation task is already in flight or an unused row already
-    /// exists in the DB.
+    /// Schedules pre-creation of an unused conversation on `service`.
+    /// Idempotent: no-op if a preparation task is already in flight or an
+    /// unclaimed unused row already exists in the DB.
     func prepareUnusedConversation(
         service: any MessagingServiceProtocol,
         databaseWriter: any DatabaseWriter,
@@ -20,11 +24,28 @@ public protocol UnusedConversationCacheProtocol: Actor {
         environment: AppEnvironment
     ) async
 
-    /// Atomically claims any available unused conversation: flips `isUnused`
-    /// to `false` and returns its id, or returns `nil` if no unused row exists.
+    /// Claims the next available pre-warmed conversation. Returns its id
+    /// or `nil` if the pool is empty. Does NOT change the row — the row
+    /// stays `isUnused = true` so the chats list keeps hiding it. The id
+    /// is tracked in memory so subsequent claims skip it and so the
+    /// prewarmer treats the pool as drained.
     func consumeUnusedConversationId(
         databaseWriter: any DatabaseWriter
     ) async -> String?
+
+    /// Promotes a previously-claimed row into a real visible conversation:
+    /// flips `isUnused` to `false`, refreshes `createdAt` to now (so the
+    /// row sorts at the top of the chats list), and drops the in-memory
+    /// claim. Idempotent for ids that aren't currently claimed.
+    func commitClaimedConversation(
+        id conversationId: String,
+        databaseWriter: any DatabaseWriter
+    ) async
+
+    /// Drops the in-memory claim without writing to the DB. Pairs with
+    /// `SessionManager.discardClaimedConversation`, which deletes the row
+    /// itself — the claim must be cleared so a fresh prewarm can run.
+    func releaseClaimedConversationId(_ conversationId: String) async
 
     /// Cancels any in-flight preparation task and awaits its unwind. Call
     /// during inbox teardown so a late-resolving prewarm can't land a stale
@@ -38,6 +59,12 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     private let identityStore: any KeychainIdentityStoreProtocol
     private var backgroundCreationTask: Task<Void, Never>?
     private var lastPreparationFailure: Date?
+    /// Conversation ids handed out by `consumeUnusedConversationId` that
+    /// haven't yet been committed or released. Excluded from subsequent
+    /// `consume` and `hasUnusedConversationInDatabase` queries so the
+    /// same row isn't handed to two callers and the prewarmer correctly
+    /// treats them as drained (prepares a replacement).
+    private var claimedConversationIds: Set<String> = []
     private static let preparationCooldown: TimeInterval = 30
 
     public init(identityStore: any KeychainIdentityStoreProtocol) {
@@ -85,24 +112,51 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     public func consumeUnusedConversationId(
         databaseWriter: any DatabaseWriter
     ) async -> String? {
-        let now = Date()
+        let claimedSnapshot = claimedConversationIds
         do {
-            return try await databaseWriter.write { db -> String? in
-                guard let row = try DBConversation
+            let claimedId: String? = try await databaseWriter.read { db -> String? in
+                var request = DBConversation
                     .filter(DBConversation.Columns.isUnused == true)
-                    .fetchOne(db) else {
-                    return nil
+                if !claimedSnapshot.isEmpty {
+                    request = request.filter(!claimedSnapshot.contains(DBConversation.Columns.id))
                 }
-                try db.execute(
-                    sql: "UPDATE conversation SET isUnused = ?, createdAt = ? WHERE id = ?",
-                    arguments: [false, now, row.id]
-                )
-                return row.id
+                return try request.fetchOne(db)?.id
             }
+            if let claimedId {
+                claimedConversationIds.insert(claimedId)
+            }
+            return claimedId
         } catch {
             Log.error("Failed to consume unused conversation: \(error)")
             return nil
         }
+    }
+
+    public func commitClaimedConversation(
+        id conversationId: String,
+        databaseWriter: any DatabaseWriter
+    ) async {
+        let now = Date()
+        do {
+            try await databaseWriter.write { db in
+                try db.execute(
+                    sql: "UPDATE conversation SET isUnused = ?, createdAt = ? WHERE id = ?",
+                    arguments: [false, now, conversationId]
+                )
+            }
+            // Only drop the claim once the row is actually committed.
+            // If the write failed the row stays `isUnused = true` and
+            // dropping the claim here would let `consumeUnusedConversationId`
+            // hand the same id out to another caller while the original
+            // caller may still be using it.
+            claimedConversationIds.remove(conversationId)
+        } catch {
+            Log.error("Failed to commit claimed conversation \(conversationId): \(error)")
+        }
+    }
+
+    public func releaseClaimedConversationId(_ conversationId: String) async {
+        claimedConversationIds.remove(conversationId)
     }
 
     public func cancel() async {
@@ -117,11 +171,15 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     private func hasUnusedConversationInDatabase(
         databaseReader: any DatabaseReader
     ) async -> Bool {
+        let claimedSnapshot = claimedConversationIds
         do {
             return try await databaseReader.read { db in
-                try DBConversation
+                var request = DBConversation
                     .filter(DBConversation.Columns.isUnused == true)
-                    .fetchCount(db) > 0
+                if !claimedSnapshot.isEmpty {
+                    request = request.filter(!claimedSnapshot.contains(DBConversation.Columns.id))
+                }
+                return try request.fetchCount(db) > 0
             }
         } catch {
             Log.error("Failed to query existing unused conversation: \(error)")
@@ -291,7 +349,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                     conversationEmoji: nil,
                     imageLastRenewed: nil,
                     isUnused: true,
-                    hasHadVerifiedAssistant: false
+                    hasHadVerifiedAgent: false
                 )
                 try dbConversation.save(db)
             }

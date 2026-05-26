@@ -71,6 +71,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let pushTopicSubscriptionManager: any PushTopicSubscriptionManaging
+    private let thinkingSessionWriter: any ThinkingSessionWriterProtocol
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let notificationCenter: any UserNotificationCenterProtocol
@@ -116,6 +117,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             identityStore: identityStore,
             databaseWriter: databaseWriter
         )
+        self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
         self.inboundFilter = InboundConversationFilter(
             contactsRepository: ContactsRepository(databaseReader: databaseReader)
         )
@@ -317,6 +319,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if await processThinking(message, conversationId: conversation.id, params: params) {
+                        return
+                    }
+
                     await invocationRuntime?.process(
                         message: message,
                         conversationId: conversation.id,
@@ -440,6 +446,36 @@ actor StreamProcessor: StreamProcessorProtocol {
         return true
     }
 
+    private func processThinking(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) async -> Bool {
+        guard message.isThinking else {
+            return false
+        }
+
+        guard message.senderInboxId != params.client.inboxId else {
+            return true
+        }
+
+        guard let content = try? ThinkingCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode Thinking from message \(message.id)")
+            return true
+        }
+
+        Log.info("[Thinking] received state=\(content.state.rawValue) target=\(content.targetMessageId) sender=\(message.senderInboxId) conversation=\(conversationId)")
+
+        await thinkingSessionWriter.apply(
+            event: content,
+            momentId: message.id,
+            conversationId: conversationId,
+            senderInboxId: message.senderInboxId,
+            sentAtNs: message.sentAtNs
+        )
+        return true
+    }
+
     private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
         guard let contentType = try? message.encodedContent.type else {
             return false
@@ -521,7 +557,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                 }
 
                 try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -596,7 +632,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: profile, receivedAt: receivedAt)
-                    try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
+                    try Self.markConversationHasVerifiedAgentIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
@@ -605,15 +641,15 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
     }
 
-    private static func markConversationHasVerifiedAssistantIfNeeded(
+    private static func markConversationHasVerifiedAgentIfNeeded(
         profile: DBMemberProfile,
         conversationId: String,
         db: Database
     ) throws {
-        guard profile.agentVerification.isConvosAssistant,
+        guard profile.agentVerification.isConvosAgent,
               let conversation = try DBConversation.fetchOne(db, id: conversationId),
-              !conversation.hasHadVerifiedAssistant else { return }
-        try conversation.with(hasHadVerifiedAssistant: true).save(db)
+              !conversation.hasHadVerifiedAgent else { return }
+        try conversation.with(hasHadVerifiedAgent: true).save(db)
     }
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {

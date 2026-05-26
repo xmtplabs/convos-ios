@@ -15,20 +15,20 @@ public struct MemberProfileInfo: Sendable {
     public let conversationId: String
     public let name: String?
     public let avatar: String?
-    public let isVerifiedAssistant: Bool
+    public let isVerifiedConvosAgent: Bool
 
     public init(
         inboxId: String,
         conversationId: String,
         name: String?,
         avatar: String?,
-        isVerifiedAssistant: Bool = false
+        isVerifiedConvosAgent: Bool = false
     ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
-        self.isVerifiedAssistant = isVerifiedAssistant
+        self.isVerifiedConvosAgent = isVerifiedConvosAgent
     }
 }
 
@@ -411,7 +411,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 conversationId: conversationId,
                 name: row.name,
                 avatar: row.avatar,
-                isVerifiedAssistant: row.agentVerification.isConvosAssistant
+                isVerifiedConvosAgent: row.agentVerification.isConvosAgent
             )
         }
         return result
@@ -513,7 +513,7 @@ extension Array where Element == DBMessage {
         case .update:
             return resolveUpdateContent(for: dbMessage, currentInboxId: currentInboxId, memberProfileCache: memberProfileCache)
         case .assistantJoinRequest:
-            let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
+            let status = AgentJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
             return .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
         case .connectionGrantRequest:
             if let jsonText = dbMessage.text,
@@ -889,8 +889,8 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: conversation.hasHadVerifiedAssistant
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent
         )
     }
 }

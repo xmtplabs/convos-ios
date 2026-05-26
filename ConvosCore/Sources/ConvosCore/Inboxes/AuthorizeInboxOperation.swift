@@ -115,7 +115,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager,
-            notificationCenter: platformProviders.notificationCenter
+            notificationCenter: platformProviders.notificationCenter,
+            deviceConnections: platformProviders.deviceConnections
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
         stateMachine = SessionStateMachine(

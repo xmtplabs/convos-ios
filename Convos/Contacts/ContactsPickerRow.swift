@@ -104,8 +104,8 @@ private struct ContactsPickerRowAccessory: View {
     let alice = Contact.mock(displayName: "Alice")
     let bob = Contact.mock(displayName: "Bob")
     let carol = Contact.mock(displayName: "Carol")
-    let assistant = Contact.mock(
-        displayName: "Convo Assistant",
+    let agent = Contact.mock(
+        displayName: "Convo Agent",
         agentVerification: .verified(.convos)
     )
     return VStack(alignment: .leading, spacing: 12.0) {
@@ -125,7 +125,7 @@ private struct ContactsPickerRowAccessory: View {
             onTap: {}
         )
         ContactsPickerRow(
-            row: .init(id: assistant.inboxId, contact: assistant, isAlreadyInChat: false, subtitle: "Convos Assistant"),
+            row: .init(id: agent.inboxId, contact: agent, isAlreadyInChat: false, subtitle: "Convos Agent"),
             isSelected: false,
             onTap: {}
         )

@@ -73,9 +73,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         conversationId: config.conversationId,
                         shouldBlurPhotos: config.shouldBlurPhotos,
                         onTapAvatar: config.onTapAvatar,
+                        onTapSender: config.onTapSender,
                         onTapInvite: config.onTapInvite,
                         onTapReactions: config.onTapReactions,
                         onTapReadReceipts: config.onTapReadReceipts,
+                        onTapThinkingIndicator: config.onTapThinkingIndicator,
                         onReaction: config.onReaction,
                         onToggleReaction: config.onToggleReaction,
                         onReply: config.onReply,
@@ -86,21 +88,21 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onRetryMessage: config.onRetryMessage,
                         onDeleteMessage: config.onDeleteMessage,
                         onRetryTranscript: config.onRetryTranscript,
-                        allVoiceMemoTranscripts: config.allVoiceMemoTranscripts
+                        allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
+                        creditsDepleted: config.creditsDepleted
                     )
 
                 case .invite(let invite):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
-                        if !config.hidesInviteCard {
+                        if config.headerMode == .standard, !config.hidesInviteCard {
                             InviteView(invite: invite)
                         }
                         NewConvoIdentityView(
                             onCopyLink: config.onCopyInviteLink,
                             onConvoCode: config.onConvoCode,
-                            onInviteAssistant: config.onInviteAssistant,
-                            hasAssistant: config.hasAssistant,
-                            isAssistantJoinPending: config.isAssistantJoinPending,
-                            isAssistantEnabled: config.isAssistantEnabled
+                            onInviteAgent: config.onInviteAgent,
+                            hasAgent: config.hasAgent,
+                            isAgentJoinPending: config.isAgentJoinPending
                         )
                     }
                     .padding(.vertical, DesignConstants.Spacing.step4x)
@@ -116,48 +118,40 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case .agentOutOfCredits(let profile):
+                case .agentOutOfCredits(let member):
                     TextTitleContentView(
-                        title: "\(profile.displayName) is out of processing power",
-                        profile: profile,
+                        title: "\(member.profile.displayName) is out of credits",
+                        profile: member.profile,
+                        agentVerification: member.agentVerification,
                         onTap: config.onAgentOutOfCredits
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case let .assistantJoinStatus(status, requesterName, _):
-                    AssistantJoinStatusView(
+                case let .agentJoinStatus(status, requesterName, _):
+                    AgentJoinStatusView(
                         status: status,
                         requesterName: requesterName,
-                        onRetry: config.onRetryAssistantJoin
+                        onRetry: config.onRetryAgentJoin
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case let .assistantPresentInfo(agent, inviterName):
-                    let isVerified = agent.agentVerification.isVerified
-                    let label = isVerified ? "Assistant" : "Agent"
-                    let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
-                    VStack(spacing: 0) {
-                        TextTitleContentView(
-                            title: title,
-                            profile: agent.profile,
-                            agentVerification: agent.agentVerification,
-                            onTap: { config.onTapUpdateMember(agent) }
-                        )
-                            .padding(.top, DesignConstants.Spacing.step4x)
-                            .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
-                            .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        if isVerified {
-                            AssistantJoinedInfoView()
-                                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        }
-                    }
+                case let .agentPresentInfo(agent, inviterName):
+                    MessagesListItemTypeCell.agentPresentInfoContent(agent: agent, inviterName: inviterName, config: config)
 
                 case let .connectionEvent(_, summary, _):
                     ConnectionEventSummaryView(summary: summary)
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .agentBuilderSummary(let summary):
+                    AgentBuilderSummaryView(
+                        summary: summary,
+                        transitionNamespace: config.agentBuilderTransitionNamespace
+                    )
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .typingIndicator:
                     EmptyView()
@@ -174,9 +168,35 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         layoutAttributesForHorizontalFittingRequired(layoutAttributes)
     }
+
+    @ViewBuilder
+    private static func agentPresentInfoContent(
+        agent: ConversationMember,
+        inviterName: String?,
+        config: CellConfig
+    ) -> some View {
+        let isVerified = agent.agentVerification.isVerified
+        let label = isVerified ? "Agent" : "Agent"
+        let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
+        VStack(spacing: 0) {
+            TextTitleContentView(
+                title: title,
+                profile: agent.profile,
+                agentVerification: agent.agentVerification,
+                onTap: { config.onTapUpdateMember(agent) }
+            )
+                .padding(.top, DesignConstants.Spacing.step4x)
+                .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+            if isVerified {
+                AgentJoinedInfoView()
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+            }
+        }
+    }
 }
 
-/// Renders a single `.update` cell (system row + optional assistant-joined
+/// Renders a single `.update` cell (system row + optional agent-joined
 /// footer). Extracted from `MessagesListItemTypeCell.setup`'s switch so
 /// the function body stays under the 125-line SwiftLint cap; the body
 /// here also substitutes the contact's profile for the per-conversation
@@ -204,10 +224,10 @@ private struct UpdateCellContent: View {
             )
                 .id(update.differenceIdentifier)
                 .padding(.top, DesignConstants.Spacing.step4x)
-                .padding(.bottom, update.addedVerifiedAssistant ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                .padding(.bottom, update.addedVerifiedAgent ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
-            if update.addedVerifiedAssistant {
-                AssistantJoinedInfoView()
+            if update.addedVerifiedAgent {
+                AgentJoinedInfoView()
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         }

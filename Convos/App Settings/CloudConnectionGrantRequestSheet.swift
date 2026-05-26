@@ -221,7 +221,7 @@ struct CloudConnectionGrantRequestSheet: View {
     private var bodyText: String {
         let target = viewModel.conversationDisplayName
         if viewModel.hasConnection {
-            return "The assistant will be able to use \(viewModel.displayName) in \(target)."
+            return "The agent will be able to use \(viewModel.displayName) in \(target)."
         } else {
             return "You haven't connected \(viewModel.displayName) yet. Connect it now to share with \(target)."
         }

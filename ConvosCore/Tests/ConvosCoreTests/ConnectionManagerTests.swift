@@ -530,7 +530,7 @@ private extension ConnectionManagerTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAssistant: false,
+            hasHadVerifiedAgent: false,
         )
     }
 

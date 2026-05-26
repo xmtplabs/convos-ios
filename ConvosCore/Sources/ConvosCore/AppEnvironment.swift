@@ -226,6 +226,17 @@ public extension AppEnvironment {
         }
     }
 
+    /// True for Dev and Local builds. Gate debug-only UI on this so it
+    /// never reaches the App Store build.
+    var isInternalBuild: Bool {
+        switch self {
+        case .dev, .local:
+            true
+        case .production, .tests:
+            false
+        }
+    }
+
     var defaultXMTPLogsDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory

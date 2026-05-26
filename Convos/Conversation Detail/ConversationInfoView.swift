@@ -97,8 +97,8 @@ struct ConversationInfoView: View {
     }
 
     @ViewBuilder
-    private var assistantSection: some View {
-        if viewModel.conversation.hasEverHadVerifiedAssistant {
+    private var agentSection: some View {
+        if viewModel.conversation.hasEverHadVerifiedConvosAgent {
             Section {
                 filesAndLinksRow
             }
@@ -116,9 +116,9 @@ struct ConversationInfoView: View {
     @ViewBuilder
     private var filesAndLinksRow: some View {
         NavigationLink {
-            AssistantFilesLinksView(
+            AgentFilesLinksView(
                 conversationId: viewModel.conversation.id,
-                repository: viewModel.makeAssistantFilesLinksRepository(),
+                repository: viewModel.makeAgentFilesLinksRepository(),
                 members: viewModel.conversation.members,
                 profileSheetContent: { member in
                     AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: .shared))
@@ -129,7 +129,7 @@ struct ConversationInfoView: View {
                 imageName: nil,
                 symbolName: "folder",
                 title: "Files & Links",
-                subtitle: "Managed by Assistants",
+                subtitle: "Managed by Agents",
                 iconBackgroundColor: .colorFillMinimal,
                 iconForegroundColor: .colorTextPrimary
             ) {
@@ -447,7 +447,7 @@ struct ConversationInfoView: View {
 
             membersSection
 
-            assistantSection
+            agentSection
 
             convoCodeSection
 
@@ -522,20 +522,6 @@ struct ConversationInfoView: View {
                 } label: {
                     Text("Hidden messages")
                 }
-                if let instanceId = viewModel.assistantInstanceId {
-                    HStack {
-                        Text("Assistant instance ID")
-                        Spacer()
-                        Text(instanceId)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.colorTextSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        ShareLink(item: instanceId) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                }
                 Button {
                     showingRestoreInviteTagAlert = true
                 } label: {
@@ -592,7 +578,7 @@ struct ConversationInfoView: View {
                 } else {
                     AddToConversationMenu(
                         isFull: viewModel.isFull,
-                        hasAssistant: viewModel.conversation.hasAgent,
+                        hasAgent: viewModel.conversation.hasAgent,
                         isEnabled: true,
                         onConvoCode: {
                             if viewModel.isFull {
@@ -604,8 +590,8 @@ struct ConversationInfoView: View {
                         onCopyLink: {
                             viewModel.copyInviteLink()
                         },
-                        onInviteAssistant: {
-                            viewModel.requestAssistantJoin()
+                        onInviteAgent: {
+                            viewModel.requestAgentJoin()
                         },
                         onAddFromContacts: {
                             presentingAddFromContactsPicker = true

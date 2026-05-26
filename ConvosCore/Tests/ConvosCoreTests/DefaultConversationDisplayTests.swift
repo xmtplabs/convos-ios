@@ -288,8 +288,8 @@ struct DefaultConversationDisplayTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false
         )
         #expect(conversation.avatarType == .customImage)
     }
@@ -330,8 +330,8 @@ struct DefaultConversationDisplayTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false
         )
 
         if case .profile(let profile, _) = conversation.avatarType {

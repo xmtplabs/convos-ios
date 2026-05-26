@@ -47,6 +47,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onTapReadReceipts: (MessagesGroup) -> Void
+    let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReply: (AnyMessage) -> Void
     let replyingToMessage: AnyMessage?
     var replyingToAudioTranscriptText: String?
@@ -61,21 +62,24 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoSelected: (UIImage) -> Void
     let onVideoSelected: (URL) -> Void
     let onFileSelected: (URL, String, String, Int) -> Void
-    let onAboutAssistants: () -> Void
+    let onAboutAgents: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let creditsDepleted: Bool
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let hasAgent: Bool
+    let isAgentJoinPending: Bool
+    var headerMode: MessagesHeaderMode = .standard
+    var agentBuilderSummary: AgentBuilderSummary?
+    var agentBuilderTransitionNamespace: Namespace.ID?
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
     let onVoiceMemoTap: () -> Void
@@ -110,25 +114,29 @@ struct MessagesView<BottomBarContent: View>: View {
             onToggleReaction: onToggleReaction,
             onTapReactions: onTapReactions,
             onTapReadReceipts: onTapReadReceipts,
+            onTapThinkingIndicator: onTapThinkingIndicator,
             onReply: onReply,
             contextMenuState: contextMenuState,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,
+            creditsDepleted: creditsDepleted,
             onTapUpdateMember: onTapUpdateMember,
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,
-            onRetryAssistantJoin: onRetryAssistantJoin,
+            onRetryAgentJoin: onRetryAgentJoin,
             onCopyInviteLink: onCopyInviteLink,
             onConvoCode: onConvoCode,
-            onInviteAssistant: onInviteAssistant,
+            onInviteAgent: onInviteAgent,
             onRetryTranscript: onRetryTranscript,
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: memberContactOverride,
-            hasAssistant: hasAssistant,
-            isAssistantJoinPending: isAssistantJoinPending,
-            isAssistantEnabled: isAssistantEnabled,
+            hasAgent: hasAgent,
+            isAgentJoinPending: isAgentJoinPending,
+            headerMode: headerMode,
+            agentBuilderSummary: agentBuilderSummary,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             onBottomOverscrollChanged: onBottomOverscrollChanged,
             onBottomOverscrollReleased: onBottomOverscrollReleased,

@@ -1,4 +1,5 @@
 @testable import ConvosConnections
+@testable import ConvosConnectionsCalendar
 import Foundation
 import Testing
 

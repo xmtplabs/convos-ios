@@ -13,12 +13,25 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
     var isReadOnly: Bool = false
+    /// Hide the trailing toolbar item (the "+" add menu / scan button)
+    /// without removing the rest of the toolbar. Used by the Agent
+    /// Builder to keep the bar clean during the draft phase, then bring
+    /// the item in once the user commits via Make.
+    var topBarTrailingHidden: Bool = false
+    /// Controls the messages list's leading empty-state view (QR invite +
+    /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
+    /// in normal chat. The Agent Builder passes `.hidden` so the
+    /// underlying chat doesn't flash a QR while the user is still drafting.
+    var headerMode: MessagesHeaderMode = .standard
+    /// Shared SwiftUI namespace used by the Agent Builder commit morph.
+    /// Set by `AgentBuilderView` so its composer card and the in-stream
+    /// summary cell can match-geometry into each other via `glassEffectID`.
+    var agentBuilderTransitionNamespace: Namespace.ID?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
-    @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
-    @State private var showingAssistantsInfo: Bool = false
+    @State private var showingAgentsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
@@ -38,18 +51,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
         viewModel.messagingService.contactsRepository().contact(for:)
     }
 
-    private var showPullToAddAssistant: Bool {
-        !viewModel.conversation.hasAgent
-            && !viewModel.isAssistantJoinPending
-            && FeatureFlags.shared.isAssistantEnabled
-            && GlobalConvoDefaults.shared.assistantsEnabled
+    private var showPullToAddAgent: Bool {
+        !viewModel.conversation.hasAgent && !viewModel.isAgentJoinPending
     }
 
     private var messagesView: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return MessagesView(
             conversation: viewModel.conversation,
-            messages: viewModel.messagesWithTypingIndicator,
+            messages: viewModel.messagesWithThinkingIndicators,
             invite: viewModel.invite,
             hasLoadedAllMessages: viewModel.hasLoadedAllMessages,
             profile: viewModel.profile,
@@ -59,7 +69,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationImage: $viewModel.conversationImage,
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
-            pendingMediaAttachments: viewModel.pendingMediaAttachments,
+            pendingMediaAttachments: viewModel.isAwaitingBuilderBundleSend ? [] : viewModel.pendingMediaAttachments,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
             pendingInviteEmoji: viewModel.conversation.conversationEmoji,
@@ -98,6 +108,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
             onTapReadReceipts: viewModel.onTapReadReceipts(_:),
+            onTapThinkingIndicator: { descriptor in
+                viewModel.presentingThinkingDetail = descriptor
+            },
             onReply: { message in
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
@@ -117,12 +130,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoSelected: viewModel.addPhotoAttachment(_:),
             onVideoSelected: viewModel.addVideoAttachment(url:),
             onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
-            onAboutAssistants: { showingAssistantsInfo = true },
-            onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onAboutAgents: { showingAgentsInfo = true },
+            onAgentOutOfCredits: { viewModel.presentingPaywall = true },
+            creditsDepleted: viewModel.creditsDepleted,
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
-            onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
+            onRetryAgentJoin: { viewModel.requestAgentJoin() },
             onCopyInviteLink: { viewModel.copyInviteLink() },
             onConvoCode: {
                 if viewModel.isFull {
@@ -131,15 +145,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.presentingShareView = true
                 }
             },
-            onInviteAssistant: { viewModel.onRequestAssistantJoin() },
+            onInviteAgent: { viewModel.onRequestAgentJoin() },
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: contactOverride,
-            hasAssistant: viewModel.conversation.hasAgent,
-            isAssistantJoinPending: viewModel.isAssistantJoinPending,
-            isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
+            hasAgent: viewModel.conversation.hasAgent,
+            isAgentJoinPending: viewModel.isAgentJoinPending,
+            headerMode: headerMode,
+            agentBuilderSummary: viewModel.agentBuilderSummary,
+            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
                 if overscroll == 0 {
@@ -147,8 +163,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 }
             },
             onBottomOverscrollReleased: { overscroll in
-                if overscroll >= PullToAddAssistantView.activationThreshold,
-                   !viewModel.isAssistantJoinPending {
+                if overscroll >= PullToAddAgentView.activationThreshold,
+                   !viewModel.isAgentJoinPending {
                     didReleasePastThreshold = true
                 }
             },
@@ -160,12 +176,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             extraBottomInset: pagerDotsInset,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
-                    if showPullToAddAssistant {
-                        PullToAddAssistantView(
+                    if showPullToAddAgent {
+                        PullToAddAgentView(
                             overscrollAmount: scrollOverscrollAmount,
                             didReleasePastThreshold: didReleasePastThreshold,
                             onTriggered: {
-                                viewModel.onRequestAssistantJoin()
+                                viewModel.onRequestAgentJoin()
                             }
                         )
                         .fixedSize()
@@ -182,7 +198,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         } else if let layout = viewModel.pendingCapabilityPickerLayout {
                             CapabilityPickerCardView(
                                 layout: layout,
-                                assistantName: viewModel.askerDisplayName(for: layout.request),
+                                agentName: viewModel.askerDisplayName(for: layout.request),
                                 onApprove: { providerIds in
                                     viewModel.onCapabilityApprove(providerIds: providerIds)
                                 },
@@ -219,13 +235,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            if viewModel.isLocked {
-                lockedInfoButton
-            } else {
-                switch messagesTopBarTrailingItem {
-                case .share: addToConversationMenu
-                case .scan: scanInviteButton
+        if !topBarTrailingHidden {
+            ToolbarItem(placement: .topBarTrailing) {
+                if viewModel.isLocked {
+                    lockedInfoButton
+                } else {
+                    switch messagesTopBarTrailingItem {
+                    case .share: addToConversationMenu
+                    case .scan: scanInviteButton
+                    }
                 }
             }
         }
@@ -246,8 +264,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var addToConversationMenu: some View {
         AddToConversationMenu(
             isFull: viewModel.isFull,
-            hasAssistant: viewModel.conversation.hasAgent,
-            isAssistantJoinPending: viewModel.isAssistantJoinPending,
+            hasAgent: viewModel.conversation.hasAgent,
+            isAgentJoinPending: viewModel.isAgentJoinPending,
             isEnabled: messagesTopBarTrailingItemEnabled && !isReadOnly,
             onConvoCode: {
                 if viewModel.isFull {
@@ -259,8 +277,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onCopyLink: {
                 viewModel.copyInviteLink()
             },
-            onInviteAssistant: {
-                viewModel.onRequestAssistantJoin()
+            onInviteAgent: {
+                viewModel.onRequestAgentJoin()
             },
             onAddFromContacts: handleAddFromContactsTap
         )
@@ -298,9 +316,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private var stuffPage: some View {
-        AssistantFilesLinksView(
+        AgentFilesLinksView(
             conversationId: viewModel.conversation.id,
-            repository: viewModel.makeAssistantFilesLinksRepository(),
+            repository: viewModel.makeAgentFilesLinksRepository(),
             members: viewModel.conversation.members,
             usesInlineHeader: true,
             profileSheetContent: profileSheetForMember,
@@ -316,19 +334,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
-    @ViewBuilder
-    private var messagesPageContent: some View {
-        VStack(spacing: 0) {
-            LowBalanceBanner()
-            messagesView
-        }
-    }
-
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
-            messagesPage: { messagesPageContent },
+            messagesPage: { messagesView },
             stuffPage: { stuffPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -349,17 +359,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear { viewModel.onConversationAppeared() }
-        .task {
-            // Refresh credits on conversation appearance so the
-            // LowBalanceBanner above reflects current backend state. TTL-
-            // debounced; safe to fire on every nav.
-            await CreditsServices.shared.refresh()
-            // Future: once the agent runtime burns credits per turn via
-            // /v2/credits/consume (convos-assistants follow-up), hook into
-            // the XMTP message-arrival publisher here to refresh credits
-            // immediately after an agent reply lands — the highest-value
-            // freshness trigger we have without push notifications.
-        }
         .onDisappear {
             focusCoordinator.dismissStuffSearchIfNeeded()
             viewModel.onConversationDisappeared()
@@ -412,19 +411,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
         }
-        .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
-            AssistantsInfoView(
+        .selfSizingSheet(isPresented: $viewModel.presentingAgentConfirmation) {
+            AgentsInfoView(
                 isConfirmation: true,
-                onConfirm: { viewModel.requestAssistantJoin() }
+                onConfirm: { viewModel.requestAgentJoin() }
             )
             .padding(.top, 20)
         }
-        .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
-            AssistantProcessingPowerInfoView()
-                .padding(.top, 20)
+        .sheet(isPresented: $viewModel.presentingPaywall) {
+            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            PaywallView(viewModel: paywallViewModel)
         }
-        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
-            AssistantsInfoView()
+        .selfSizingSheet(isPresented: $showingAgentsInfo) {
+            AgentsInfoView()
                 .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
@@ -437,6 +436,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
             ReadByDrawerView(members: group.readByMembers)
+        }
+        .sheet(item: $viewModel.presentingThinkingDetail) { descriptor in
+            ThinkingDetailView(
+                descriptor: descriptor,
+                conversation: viewModel.conversation,
+                viewModel: viewModel,
+                profileSheetForMember: profileSheetForMember
+            )
         }
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(

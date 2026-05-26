@@ -16,12 +16,46 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
     }
 }
 
+/// Controls how the messages list's leading "empty state" content is presented.
+/// `.standard` shows either the invite QR (for the creator of an unlocked,
+/// non-full conversation) or the `ConversationInfoPreview`. `.hidden` suppresses
+/// the leading view entirely — used by the Agent Builder so the
+/// underlying chat doesn't flash a QR while the user is still drafting.
+enum MessagesHeaderMode {
+    case standard
+    case hidden
+}
+
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
         let messages: [MessagesListItemType]
         let invite: Invite
         let hasLoadedAllMessages: Bool
+        let headerMode: MessagesHeaderMode
+        /// Set by the Agent Builder commit path. When present, the cell
+        /// builder filters out messages before `summary.cutoffDate` and
+        /// prepends an `.agentBuilderSummary` cell.
+        let agentBuilderSummary: AgentBuilderSummary?
+        let agentBuilderTransitionNamespace: Namespace.ID?
+
+        init(
+            conversation: Conversation,
+            messages: [MessagesListItemType],
+            invite: Invite,
+            hasLoadedAllMessages: Bool,
+            headerMode: MessagesHeaderMode = .standard,
+            agentBuilderSummary: AgentBuilderSummary? = nil,
+            agentBuilderTransitionNamespace: Namespace.ID? = nil
+        ) {
+            self.conversation = conversation
+            self.messages = messages
+            self.invite = invite
+            self.hasLoadedAllMessages = hasLoadedAllMessages
+            self.headerMode = headerMode
+            self.agentBuilderSummary = agentBuilderSummary
+            self.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace
+        }
     }
 
     private enum ReactionTypes {
@@ -94,6 +128,9 @@ final class MessagesViewController: UIViewController {
 
             let animated = oldValue?.conversation.id == state.conversation.id
             dataSource.conversationId = state.conversation.id
+            headerMode = state.headerMode
+            agentBuilderSummary = state.agentBuilderSummary
+            agentBuilderTransitionNamespace = state.agentBuilderTransitionNamespace
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -137,6 +174,36 @@ final class MessagesViewController: UIViewController {
         }
     }
 
+    /// Hosts that don't render a bottom bar (e.g. the thinking detail sheet)
+    /// set this to false so the controller doesn't sit on its initial state
+    /// update waiting for a `bottomBarHeight > 0` that will never arrive.
+    /// The chat path leaves it true and clears the gate via `bottomBarHeight`
+    /// once the composer measures.
+    var hasBottomBar: Bool = true {
+        didSet {
+            if !hasBottomBar {
+                currentInterfaceActions.options.remove(.determiningBottomBarHeight)
+            }
+        }
+    }
+
+    /// Extra top inset (in points) added to the controller's safe area, used
+    /// when the host floats a bar over the collection view rather than
+    /// installing it through `safeAreaBar(edge: .top)`. The collection view's
+    /// `contentInsetAdjustmentBehavior = .always` picks the value up via
+    /// `view.safeAreaInsets.top`, so newest-message bottom anchoring lands
+    /// below the floating bar while the collection view itself still spans
+    /// the full host (older content scrolls under the bar visually without
+    /// being clipped). Default 0 preserves the chat path, which floats its
+    /// top pill via the parent ConversationPresenter and relies on a leading
+    /// `.invite` / `.conversationInfo` cell to occupy the area behind it.
+    var topContentInset: CGFloat = 0.0 {
+        didSet {
+            guard topContentInset != oldValue else { return }
+            additionalSafeAreaInsets.top = topContentInset
+        }
+    }
+
     private var lastKeyboardFrameChange: KeyboardInfo?
 
     var onUserInteraction: (() -> Void)?
@@ -175,6 +242,7 @@ final class MessagesViewController: UIViewController {
     var onToggleReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
@@ -187,25 +255,44 @@ final class MessagesViewController: UIViewController {
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    /// Drives the in-stream out-of-credits cell. Set from
+    /// `MessagesViewRepresentable` off `ConversationViewModel.creditsDepleted`
+    /// (which mirrors `CreditsServices.shared.currentBalance?.isDepleted`).
+    /// When this flips while a state is already applied, we replay the
+    /// last processed state so the cell appears / disappears without
+    /// needing the messages publisher to emit again.
+    var creditsDepleted: Bool = false {
+        didSet {
+            dataSource.creditsDepleted = creditsDepleted
+            guard oldValue != creditsDepleted, isViewLoaded, let state else { return }
+            self.state = state
+        }
+    }
     var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
-    var onRetryAssistantJoin: (() -> Void)?
+    var onRetryAgentJoin: (() -> Void)?
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAssistant: (() -> Void)?
+    var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
     var memberContactOverride: ((String) -> Contact?)?
 
-    var hasAssistant: Bool = false {
-        didSet { dataSource.hasAssistant = hasAssistant }
+    var headerMode: MessagesHeaderMode = .standard {
+        didSet { dataSource.headerMode = headerMode }
     }
-    var isAssistantJoinPending: Bool = false {
-        didSet { dataSource.isAssistantJoinPending = isAssistantJoinPending }
+
+    var agentBuilderSummary: AgentBuilderSummary?
+    var agentBuilderTransitionNamespace: Namespace.ID? {
+        didSet { dataSource.agentBuilderTransitionNamespace = agentBuilderTransitionNamespace }
     }
-    var isAssistantEnabled: Bool = false {
-        didSet { dataSource.isAssistantEnabled = isAssistantEnabled }
+
+    var hasAgent: Bool = false {
+        didSet { dataSource.hasAgent = hasAgent }
+    }
+    var isAgentJoinPending: Bool = false {
+        didSet { dataSource.isAgentJoinPending = isAgentJoinPending }
     }
     var shouldBlurPhotos: Bool = true {
         didSet {
@@ -361,6 +448,10 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onTapReadReceipts?(group)
         }
+        dataSource.onTapThinkingIndicator = { [weak self] descriptor in
+            guard let self = self else { return }
+            self.onTapThinkingIndicator?(descriptor)
+        }
         dataSource.onReaction = { [weak self] emoji, messageId in
             guard let self = self else { return }
             self.onReaction?(emoji, messageId)
@@ -397,8 +488,8 @@ final class MessagesViewController: UIViewController {
         dataSource.onDeleteMessage = { [weak self] message in
             self?.onDeleteMessage?(message)
         }
-        dataSource.onRetryAssistantJoin = { [weak self] in
-            self?.onRetryAssistantJoin?()
+        dataSource.onRetryAgentJoin = { [weak self] in
+            self?.onRetryAgentJoin?()
         }
         dataSource.onCopyInviteLink = { [weak self] in
             self?.onCopyInviteLink?()
@@ -406,8 +497,8 @@ final class MessagesViewController: UIViewController {
         dataSource.onConvoCode = { [weak self] in
             self?.onConvoCode?()
         }
-        dataSource.onInviteAssistant = { [weak self] in
-            self?.onInviteAssistant?()
+        dataSource.onInviteAgent = { [weak self] in
+            self?.onInviteAgent?()
         }
         dataSource.onRetryTranscript = { [weak self] item in
             self?.onRetryTranscript?(item)
@@ -549,40 +640,44 @@ extension MessagesViewController {
             currentControllerActions.options.remove(.loadingPreviousMessages)
         }
 
+        // The processor (via `MessagesListRepository.verifiedAgent` and
+        // `.agentBuilderSummary`) already drops the legacy "Agent
+        // joined" update / `.agentPresentInfo` cells, attaches the contact
+        // card to the agent's first group (or synthesizes an empty one),
+        // applies the summary cutoff, and prepends the summary cell — so we
+        // start from the publisher's items verbatim here.
         var cells: [MessagesListItemType] = messages
+        let hasVerifiedConvosAgent: Bool = conversation.members.contains(where: \.isVerifiedConvosAgent)
 
         // Mirror the conversation's persisted "hide invite QR" flag onto the
         // data source so the `.invite` cell renderer can drop the QR card
         // while keeping the invite menu visible.
         dataSource.hidesInviteCard = conversation.hidesInviteCard
 
-        // Add invite or conversation info at the beginning if all messages are loaded
-        if hasLoadedAllMessages, !conversation.isDraft {
+        // Add invite or conversation info at the beginning if all messages are loaded.
+        // When the Agent Builder summary is present, suppress this whole block -
+        // the summary card already announces the agent via its "You created an
+        // agent" footer, so showing the "+ Invite members" pill on top of it is
+        // redundant. Without a summary, `.hidden` header mode still renders the
+        // `.invite` cell (which surfaces just the "Invite members" affordance - the
+        // QR is gated inside the cell on the same `headerMode`).
+        if hasLoadedAllMessages, !conversation.isDraft, agentBuilderSummary == nil {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
-            } else {
+            } else if headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)
-                if let agent = conversation.members.first(where: \.isAgent) {
-                    let inviterName: String? = agent.invitedBy.map { inviter in
-                        let inviterIsMe = conversation.members.contains {
-                            $0.isCurrentUser && $0.profile.inboxId == inviter.inboxId
-                        }
-                        return inviterIsMe ? "You" : inviter.displayName
-                    }
-                    cells.insert(.assistantPresentInfo(agent: agent, inviterName: inviterName), at: 1)
-                }
             }
         }
 
-        if let agentMember = conversation.members.first(where: { $0.isAgent && $0.profile.isOutOfCredits }) {
+        if creditsDepleted, let agentMember = conversation.members.first(where: { $0.isAgent }) {
             let agentInboxId = agentMember.profile.inboxId
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
             }) {
-                cells.insert(.agentOutOfCredits(agentMember.profile), at: lastAgentIndex + 1)
+                cells.insert(.agentOutOfCredits(agentMember), at: lastAgentIndex + 1)
             } else {
-                cells.append(.agentOutOfCredits(agentMember.profile))
+                cells.append(.agentOutOfCredits(agentMember))
             }
         }
 

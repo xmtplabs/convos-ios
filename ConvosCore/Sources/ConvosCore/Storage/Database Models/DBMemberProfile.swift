@@ -268,6 +268,12 @@ extension DBMemberProfile {
         metadata?[Constant.publishedURLKey]?.stringValue
     }
 
+    /// The agent runtime's `instanceId` for this provisioned agent.
+    /// Surfaced on the contact card behind an internal-build gate.
+    var agentInstanceId: String? {
+        metadata?[Constant.instanceIdKey]?.stringValue
+    }
+
     /// The agent template's emoji, when published.
     var agentTemplateEmoji: String? {
         metadata?[Constant.emojiKey]?.stringValue
@@ -293,5 +299,6 @@ extension DBMemberProfile {
         static let publishedURLKey: String = "publishedUrl"
         static let emojiKey: String = "emoji"
         static let descriptionKey: String = "description"
+        static let instanceIdKey: String = "instanceId"
     }
 }

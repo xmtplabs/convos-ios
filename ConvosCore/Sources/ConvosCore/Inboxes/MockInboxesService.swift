@@ -19,6 +19,15 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         (service: mockMessagingService, conversationId: nil)
     }
 
+    public func commitClaimedConversation(id conversationId: String) async {
+    }
+
+    public func releaseClaimedConversation(id conversationId: String) async {
+    }
+
+    public func discardClaimedConversation(id conversationId: String) async {
+    }
+
     public func deleteAllInboxes() async throws {
     }
 
@@ -80,7 +89,12 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         MockInviteRepository()
     }
 
-    public func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    public func requestAgentJoin(
+        slug: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         if let forceErrorCode {
             switch forceErrorCode {
             case 502: throw APIError.agentProvisionFailed
@@ -126,8 +140,20 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     private static let mockDatabase: DatabaseQueue = MockDatabaseManager.shared.dbPool
 
-    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
+    }
+
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
+    }
+
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: Self.mockDatabase)
+    }
+
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: Self.mockDatabase)
     }
 
     // MARK: - Notifications
@@ -201,6 +227,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
         MockDeviceConnectionAuthorizer()
+    }
+
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        nil
     }
 
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {

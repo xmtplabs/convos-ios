@@ -83,7 +83,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 
     // Agents
-    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+    func requestAgentJoin(
+        slug: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse
 
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
@@ -98,8 +103,22 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 }
 
 extension ConvosAPIClientProtocol {
-    func requestAgentJoin(slug: String, templateId: String?) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: nil)
+    func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
+    }
+
+    func requestAgentJoin(
+        slug: String,
+        options: ConvosAPI.AgentJoinOptions?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: nil, options: options, forceErrorCode: nil)
+    }
+
+    func requestAgentJoin(
+        slug: String,
+        templateId: String?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: templateId, options: nil, forceErrorCode: nil)
     }
 }
 
@@ -677,7 +696,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Agents
 
-    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(
+        slug: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Backend pool timeout is 30s; give 5s buffer so backend returns a proper 504 before iOS times out
@@ -690,7 +714,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
                 slug: slug,
-                templateId: templateId
+                templateId: templateId,
+                options: options
             )
         )
 
@@ -848,11 +873,11 @@ extension APIError: DisplayError {
         case .rateLimitExceeded:
             return "Too many requests"
         case .noAgentsAvailable:
-            return "No assistants available"
+            return "No agents available"
         case .agentPoolTimeout:
-            return "Assistant timed out"
+            return "Agent timed out"
         case .agentProvisionFailed:
-            return "Couldn't add assistant"
+            return "Couldn't add agent"
         case .templateArchived:
             return "Agent unavailable"
         }
@@ -883,11 +908,11 @@ extension APIError: DisplayError {
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
         case .noAgentsAvailable:
-            return "No assistants are available right now. Please try again later."
+            return "No agents are available right now. Please try again later."
         case .agentPoolTimeout:
-            return "Assistant setup took too long. Please try again."
+            return "Agent setup took too long. Please try again."
         case .agentProvisionFailed:
-            return "Something went wrong while adding an assistant. Please try again."
+            return "Something went wrong while adding an agent. Please try again."
         case .templateArchived:
             return "This agent has been archived and can't be added to a conversation."
         }

@@ -1,35 +1,7 @@
+import ConvosConnections
 import Foundation
 #if canImport(HealthKit)
 @preconcurrency import HealthKit
-#endif
-
-/// Reads HealthKit samples that have arrived since a previous `HKQueryAnchor`. The
-/// observer routine calls this once per subscription whenever iOS wakes the host app
-/// for the corresponding `HealthSampleType`.
-///
-/// Distinct from `HealthBackfillReader` because the input is a saved anchor (or `nil`
-/// for an unbounded first read) rather than a date window. The output is the new
-/// samples since that anchor plus the updated anchor to persist.
-public protocol HealthDeltaReader: Sendable {
-    func delta(
-        typeIdentifier: HealthSampleType,
-        anchor: Data?
-    ) async throws -> HealthDeltaResult
-}
-
-public struct HealthDeltaResult: Sendable, Equatable {
-    public let samples: [HealthSample]
-    /// NSKeyed-archived `HKQueryAnchor` produced by the anchored query. Persisted on
-    /// the subscription row so the next delta starts from here.
-    public let anchor: Data?
-
-    public init(samples: [HealthSample], anchor: Data?) {
-        self.samples = samples
-        self.anchor = anchor
-    }
-}
-
-#if canImport(HealthKit)
 
 /// `HKAnchoredObjectQueryDescriptor`-backed delta reader.
 public struct HKHealthStoreDeltaReader: HealthDeltaReader {

@@ -46,13 +46,20 @@ public struct PlatformProviders: Sendable {
     /// Provider for OAuth session presentation (e.g. ASWebAuthenticationSession on iOS)
     public let oauthSessionProvider: any OAuthSessionProvider
 
+    /// Per-kind ConvosConnections DataSources/DataSinks the host has linked.
+    /// Defaults to `.none` so apps that don't link any device-kind products
+    /// (the v1 shipping configuration — cloud-only) don't pull HealthKit /
+    /// CoreLocation / EventKit / etc. symbols into the binary.
+    public let deviceConnections: DeviceConnectionsBundle
+
     public init(
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
         pushNotificationRegistrar: any PushNotificationRegistrarProtocol,
         notificationCenter: any UserNotificationCenterProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
-        oauthSessionProvider: any OAuthSessionProvider = UnavailableOAuthSessionProvider()
+        oauthSessionProvider: any OAuthSessionProvider = UnavailableOAuthSessionProvider(),
+        deviceConnections: DeviceConnectionsBundle = .none
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
@@ -60,6 +67,7 @@ public struct PlatformProviders: Sendable {
         self.notificationCenter = notificationCenter
         self.backgroundUploadManager = backgroundUploadManager
         self.oauthSessionProvider = oauthSessionProvider
+        self.deviceConnections = deviceConnections
     }
 }
 

@@ -134,7 +134,7 @@ struct ConnectionGrantRequestCodecTests {
     func validateRejectsSpoofedSender() throws {
         let spoofed = CloudConnectionGrantRequest(
             service: "googlecalendar",
-            requestedByInboxId: "trusted_assistant_inbox",
+            requestedByInboxId: "trusted_agent_inbox",
             targetInboxId: "user_inbox",
             reason: "hostile reason"
         )
@@ -152,14 +152,14 @@ struct ConnectionGrantRequestCodecTests {
     func validateAcceptsMatchingSender() throws {
         let legitimate = CloudConnectionGrantRequest(
             service: "googlecalendar",
-            requestedByInboxId: "assistant_inbox",
+            requestedByInboxId: "agent_inbox",
             targetInboxId: "user_inbox",
             reason: "I can check your schedule."
         )
 
         try XMTPiOS.DecodedMessage.validateConnectionGrantRequest(
             legitimate,
-            senderInboxId: "assistant_inbox",
+            senderInboxId: "agent_inbox",
             messageId: "msg-2"
         )
     }

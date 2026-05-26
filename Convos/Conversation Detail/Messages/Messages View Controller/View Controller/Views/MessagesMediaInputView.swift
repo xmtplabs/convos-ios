@@ -9,6 +9,11 @@ struct MessagesMediaButtonsView: View {
     var isMediaCapacityFull: Bool = false
     var isVoiceMemoDisabled: Bool = false
     var isSideConvoDisabled: Bool = false
+    var showsSideConvoButton: Bool = true
+    var buttonSpacing: CGFloat = DesignConstants.Spacing.step2x
+    /// Connections button (Agent Builder only). Nil hides the button — the
+    /// regular chat composer doesn't surface a connections affordance here.
+    var onConnectionsTap: (() -> Void)?
     /// Only rendered in DEBUG builds — the button is hidden when nil or in Release.
     var onDebugAttachmentTap: (() -> Void)?
 
@@ -21,7 +26,7 @@ struct MessagesMediaButtonsView: View {
     }
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
+        HStack(spacing: buttonSpacing) {
             Button {
                 isPhotoPickerPresented = true
             } label: {
@@ -78,22 +83,39 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Attach file")
             .accessibilityIdentifier("file-picker-button")
 
-            Button {
-                onConvosAction()
-            } label: {
-                Image("convosOrangeIcon")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 18)
-                    .foregroundStyle(isSideConvoDisabled ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary)
-                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
-                    .contentShape(.circle)
+            if let onConnectionsTap {
+                Button {
+                    onConnectionsTap()
+                } label: {
+                    Image(systemName: "batteryblock.fill")
+                        .font(.system(size: 18.0, weight: .medium))
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Connections")
+                .accessibilityIdentifier("connections-button")
             }
-            .buttonStyle(.plain)
-            .disabled(isSideConvoDisabled)
-            .accessibilityLabel("Side convo")
-            .accessibilityIdentifier("side-convo-button")
+
+            if showsSideConvoButton {
+                Button {
+                    onConvosAction()
+                } label: {
+                    Image("convosOrangeIcon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 18)
+                        .foregroundStyle(isSideConvoDisabled ? Color.colorTextPrimary.opacity(0.3) : Color.colorTextPrimary)
+                        .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(isSideConvoDisabled)
+                .accessibilityLabel("Side convo")
+                .accessibilityIdentifier("side-convo-button")
+            }
 
             if let onDebugAttachmentTap {
                 Button {

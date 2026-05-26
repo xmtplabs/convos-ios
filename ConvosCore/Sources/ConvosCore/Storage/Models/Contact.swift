@@ -25,7 +25,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// Last-known agent verification for this contact. `nil` means we have
     /// not observed any agent signal for this inbox. The unified contact
     /// card surfaces verified-agent affordances (Get skills, Learn about
-    /// assistants) iff `agentVerification?.isVerified == true`.
+    /// agents) iff `agentVerification?.isVerified == true`.
     public let agentVerification: AgentVerification?
     /// The backend `AgentTemplate.id` a template-backed agent was
     /// provisioned from. `nil` for human contacts and for agents that do
@@ -41,6 +41,18 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// member profile metadata (see `Contact.resolved(member:...)`), which
     /// is the freshest source. Drives the contact card's Share button.
     public let agentTemplatePublishedURL: String?
+    /// Emoji glyph the member set on their per-conversation profile.
+    /// Not persisted on `DBContact`; overlaid onto the contact at
+    /// resolution time from the per-conversation member profile metadata
+    /// (see `Contact.resolved(member:...)`) so avatars rendered from a
+    /// resolved `Contact` (e.g. the in-chat contact detail sheet) carry
+    /// the same emoji avatar that `MessageAvatarView` shows in the
+    /// messages list.
+    public let profileEmoji: String?
+    /// The agent runtime's `instanceId` for a specific provisioned agent.
+    /// Not persisted on `DBContact`; overlaid at resolution time from the
+    /// per-conversation member profile (see `Contact.resolved(member:...)`).
+    public let agentInstanceId: String?
 
     public init(
         inboxId: String,
@@ -54,7 +66,9 @@ public struct Contact: Hashable, Identifiable, Sendable {
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil,
         agentTemplateId: String? = nil,
-        agentTemplatePublishedURL: String? = nil
+        agentTemplatePublishedURL: String? = nil,
+        profileEmoji: String? = nil,
+        agentInstanceId: String? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -68,6 +82,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.agentVerification = agentVerification
         self.agentTemplateId = agentTemplateId
         self.agentTemplatePublishedURL = agentTemplatePublishedURL
+        self.profileEmoji = profileEmoji
+        self.agentInstanceId = agentInstanceId
     }
 
     /// True when this contact has the full set of AES-256-GCM material
@@ -148,7 +164,9 @@ extension Contact {
         isBlocked: Bool = false,
         agentVerification: AgentVerification? = nil,
         agentTemplateId: String? = nil,
-        agentTemplatePublishedURL: String? = nil
+        agentTemplatePublishedURL: String? = nil,
+        profileEmoji: String? = nil,
+        agentInstanceId: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -162,7 +180,9 @@ extension Contact {
             isBlocked: isBlocked,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -183,7 +203,9 @@ extension Contact {
             isBlocked: isBlocked,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -204,7 +226,79 @@ extension Contact {
             isBlocked: isBlocked,
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
-            agentTemplatePublishedURL: agentTemplatePublishedURL
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
+        )
+    }
+
+    /// Returns a copy with `agentVerification` overlaid. Used by
+    /// `Contact.resolved(member:...)` so the freshest verification
+    /// (computed at runtime against the current keyset) wins over a
+    /// stale stored value - e.g. a contact persisted before the agent
+    /// attested would carry `nil` / `.unverified` until the next
+    /// `mirrorMemberProfileToContactInTransaction` cycle, but the
+    /// in-chat detail sheet should already render the verified chrome
+    /// the moment the member surface considers them verified.
+    public func with(agentVerification: AgentVerification?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
+        )
+    }
+
+    /// Returns a copy with `profileEmoji` overlaid. Used by
+    /// `Contact.resolved(member:...)` to carry the freshest emoji glyph
+    /// from the per-conversation member profile metadata onto a stored
+    /// contact, which has no emoji column of its own.
+    public func with(profileEmoji: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
+        )
+    }
+
+    /// Returns a copy with `agentInstanceId` overlaid.
+    public func with(agentInstanceId: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 }

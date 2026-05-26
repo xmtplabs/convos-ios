@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName, voiceMemoRecording, sideConvoName, stuffSearchBar
+    case message, displayName, conversationName, voiceMemoRecording, sideConvoName, stuffSearchBar, agentBuilder
 }
 
 private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
@@ -518,25 +518,26 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onToggleReaction: { _, _ in },
             onTapReactions: { _ in },
             onTapReadReceipts: { _ in },
+            onTapThinkingIndicator: { _ in },
             onReply: { _ in },
             contextMenuState: .init(),
             onPhotoRevealed: { _ in },
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAgentOutOfCredits: {},
+            creditsDepleted: false,
             onTapUpdateMember: { _ in },
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },
-            onRetryAssistantJoin: {},
+            onRetryAgentJoin: {},
             onCopyInviteLink: {},
             onConvoCode: {},
-            onInviteAssistant: {},
+            onInviteAgent: {},
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },
             memberContactOverride: { _ in nil },
-            hasAssistant: false,
-            isAssistantJoinPending: false,
-            isAssistantEnabled: true,
+            hasAgent: false,
+            isAgentJoinPending: false,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             onBottomOverscrollReleased: { _ in },

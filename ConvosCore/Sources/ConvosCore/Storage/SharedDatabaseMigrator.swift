@@ -66,34 +66,7 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration("createConnections") { db in
-            try db.create(table: "connection") { t in
-                t.column("id", .text).notNull().primaryKey()
-                t.column("serviceId", .text).notNull()
-                t.column("serviceName", .text).notNull()
-                t.column("provider", .text).notNull()
-                t.column("composioEntityId", .text).notNull()
-                t.column("composioConnectionId", .text).notNull()
-                t.column("status", .text).notNull()
-                t.column("connectedAt", .datetime).notNull()
-            }
-
-            try db.create(table: "connectionGrant") { t in
-                t.column("connectionId", .text).notNull()
-                    .references("connection", onDelete: .cascade)
-                t.column("conversationId", .text).notNull()
-                    .references("conversation", onDelete: .cascade)
-                t.column("serviceId", .text).notNull()
-                t.column("grantedAt", .datetime).notNull()
-                t.primaryKey(["connectionId", "conversationId"])
-            }
-
-            try db.create(
-                index: "connectionGrant_conversationId",
-                on: "connectionGrant",
-                columns: ["conversationId"]
-            )
-        }
+        migrator.registerMigration("createConnections", migrate: Self.createConnections)
 
         migrator.registerMigration("createCapabilityResolution") { db in
             // Per-(subject, conversation, capability) routing decision. Set cardinality is
@@ -174,15 +147,147 @@ extension SharedDatabaseMigrator {
 
         Self.registerContactsMVPMigrations(on: &migrator)
 
+        migrator.registerMigration("createAgentBuilderSummary", migrate: Self.createAgentBuilderSummary)
+
+        migrator.registerMigration("addAgentBuilderSummaryBundledMessageIds", migrate: Self.addAgentBuilderSummaryBundledMessageIds)
+
+        migrator.registerMigration("createThinkingSession", migrate: Self.createThinkingSession)
+
+        migrator.registerMigration("replaceThinkingSessionWithThinkingMoment", migrate: Self.replaceThinkingSessionWithThinkingMoment)
+
+        migrator.registerMigration("renameConversationHasHadVerifiedAssistantToAgent", migrate: Self.renameConversationHasHadVerifiedAssistantToAgent)
+
         return migrator
     }
 
-    /// Contacts-MVP-era migrations: the contacts table and follow-up columns
-    /// landed across several PRs and would otherwise push `createMigrator()`
-    /// over SwiftLint's `function_body_length` ceiling. Order matters —
-    /// `createContactTable` must run before any `addContact*` alteration, and
-    /// `addConversationQuarantineFields` lands on the existing `conversation`
-    /// table from the single-inbox baseline.
+    private static func createConnections(_ db: Database) throws {
+        try db.create(table: "connection") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("serviceId", .text).notNull()
+            t.column("serviceName", .text).notNull()
+            t.column("provider", .text).notNull()
+            t.column("composioEntityId", .text).notNull()
+            t.column("composioConnectionId", .text).notNull()
+            t.column("status", .text).notNull()
+            t.column("connectedAt", .datetime).notNull()
+        }
+
+        try db.create(table: "connectionGrant") { t in
+            t.column("connectionId", .text).notNull()
+                .references("connection", onDelete: .cascade)
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("serviceId", .text).notNull()
+            t.column("grantedAt", .datetime).notNull()
+            t.primaryKey(["connectionId", "conversationId"])
+        }
+
+        try db.create(
+            index: "connectionGrant_conversationId",
+            on: "connectionGrant",
+            columns: ["conversationId"]
+        )
+    }
+
+    /// Snapshot of an Agent Builder draft captured at the moment the user
+    /// tapped Make. Replaces the user's prompt sends + any pre-Make agent
+    /// chatter with a single summary card at the top of the post-commit
+    /// messages list. One row per conversation; cascade-deleted when the
+    /// conversation is.
+    private static func createAgentBuilderSummary(_ db: Database) throws {
+        try db.create(table: "agentBuilderSummary") { t in
+            t.column("conversationId", .text).notNull().primaryKey()
+                .references("conversation", onDelete: .cascade)
+            t.column("summaryId", .text).notNull()
+            t.column("prompt", .text).notNull()
+            t.column("attachmentsJSON", .text).notNull()
+            t.column("createdAt", .datetime).notNull()
+            t.column("cutoffDate", .datetime).notNull()
+        }
+    }
+
+    /// JSON-encoded `[String]` of the `clientMessageId`s that the Agent
+    /// Builder issued on the user's behalf at commit. Replaces the
+    /// timestamp-padded filter that used to swallow user-side bundle sends —
+    /// uploads could stretch the multi-remote `sentAt` past the pad, leaking
+    /// a bare bundle bubble underneath the summary card. Defaults to `"[]"`
+    /// for rows written before this column existed; the hydrate path treats
+    /// an empty / malformed JSON the same as "no ids tracked".
+    private static func addAgentBuilderSummaryBundledMessageIds(_ db: Database) throws {
+        try db.alter(table: "agentBuilderSummary") { t in
+            t.add(column: "bundledMessageIdsJSON", .text).notNull().defaults(to: "[]")
+        }
+    }
+
+    /// Rename `conversation.hasHadVerifiedAssistant` -> `hasHadVerifiedAgent`
+    /// for naming consistency with the Assistant -> Agent rename. The
+    /// original column was introduced on the conversation table create
+    /// migration that has already shipped to dev, so this rename has to
+    /// happen via a new migration rather than editing the original column
+    /// definition in place.
+    private static func renameConversationHasHadVerifiedAssistantToAgent(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.rename(column: "hasHadVerifiedAssistant", to: "hasHadVerifiedAgent")
+        }
+    }
+
+    /// One row per `convos.org/thinking:1.0` session received from a remote
+    /// agent. `endedAtNs == NULL` marks an in-flight session; `resultMessageId`
+    /// is populated on `stop` when the agent linked a reply message. Cascade
+    /// with the conversation. A partial unique index keeps at most one active
+    /// session per (conversation, sender, targetMessage) — closed history
+    /// rows for the same triple are allowed.
+    private static func createThinkingSession(_ db: Database) throws {
+        try db.create(table: "thinkingSession") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("senderInboxId", .text).notNull()
+            t.column("targetMessageId", .text).notNull()
+            t.column("content", .text).notNull()
+            t.column("startedAtNs", .integer).notNull()
+            t.column("endedAtNs", .integer)
+            t.column("resultMessageId", .text)
+        }
+        try db.execute(sql: """
+            CREATE UNIQUE INDEX thinkingSession_activeKey
+            ON thinkingSession(conversationId, senderInboxId, targetMessageId)
+            WHERE endedAtNs IS NULL
+        """)
+        try db.create(
+            index: "thinkingSession_conversationId_startedAtNs",
+            on: "thinkingSession",
+            columns: ["conversationId", "startedAtNs"]
+        )
+    }
+
+    /// Replace `thinkingSession` (one row per session, idempotent-refresh
+    /// semantics) with `thinkingMoment` (one row per codec event). The
+    /// session aggregate is computed at read time by the repository. Each
+    /// agent `start` now becomes its own moment so the detail view can
+    /// render the full history; `id` is the XMTP message id so re-delivery
+    /// of the same event is a PK no-op. Drop+recreate is acceptable —
+    /// thinking is still on a feature branch with no production data.
+    private static func replaceThinkingSessionWithThinkingMoment(_ db: Database) throws {
+        try db.drop(table: "thinkingSession")
+        try db.create(table: "thinkingMoment") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("conversationId", .text).notNull()
+                .references("conversation", onDelete: .cascade)
+            t.column("senderInboxId", .text).notNull()
+            t.column("targetMessageId", .text).notNull()
+            t.column("state", .text).notNull()
+            t.column("content", .text).notNull()
+            t.column("sentAtNs", .integer).notNull()
+            t.column("resultMessageId", .text)
+        }
+        try db.create(
+            index: "thinkingMoment_sessionKey",
+            on: "thinkingMoment",
+            columns: ["conversationId", "senderInboxId", "targetMessageId", "sentAtNs"]
+        )
+    }
+
     private static func registerContactsMVPMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("createContactTable") { db in
             try SharedDatabaseMigrator.createContactSchema(db)

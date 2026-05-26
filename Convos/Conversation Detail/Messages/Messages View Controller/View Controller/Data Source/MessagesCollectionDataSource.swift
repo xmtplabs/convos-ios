@@ -1,5 +1,6 @@
 import ConvosCore
 import Foundation
+import SwiftUI
 import UIKit
 
 protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayoutDelegate {
@@ -9,6 +10,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }
+    var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)? { get set }
     var onReaction: ((String, String) -> Void)? { get set }
     var onToggleReaction: ((String, String) -> Void)? { get set }
     var onReply: ((AnyMessage) -> Void)? { get set }
@@ -19,18 +21,20 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onPhotoHidden: ((String) -> Void)? { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
+    var creditsDepleted: Bool { get set }
     var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
-    var onRetryAssistantJoin: (() -> Void)? { get set }
+    var onRetryAgentJoin: (() -> Void)? { get set }
     var onCopyInviteLink: (() -> Void)? { get set }
     var onConvoCode: (() -> Void)? { get set }
-    var onInviteAssistant: (() -> Void)? { get set }
+    var onInviteAgent: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
     var memberContactOverride: ((String) -> Contact?)? { get set }
-    var hasAssistant: Bool { get set }
-    var isAssistantJoinPending: Bool { get set }
-    var isAssistantEnabled: Bool { get set }
+    var hasAgent: Bool { get set }
+    var isAgentJoinPending: Bool { get set }
+    var headerMode: MessagesHeaderMode { get set }
+    var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var hidesInviteCard: Bool { get set }
 }

@@ -97,6 +97,23 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+    var agentBuilderViewModel: AgentBuilderViewModel? {
+        didSet {
+            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
+            // an Agent Builder VM is dropped without committing (e.g.
+            // the host view sets this to nil on tab swap), discard the
+            // outgoing one so its draft XMTP group is torn down. Skip
+            // when the user committed — that conversation has shipped
+            // and should stay on the server.
+            if let outgoing = oldValue,
+               oldValue !== agentBuilderViewModel,
+               !outgoing.hasCommitted,
+               !outgoing.didDiscard {
+                outgoing.discard()
+            }
+            updateListVisibility()
+        }
+    }
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -170,6 +187,18 @@ final class ConversationsViewModel {
 
     var isFilteredResultEmpty: Bool {
         activeFilter != .all && unpinnedConversations.isEmpty && hasUnpinnedConversations
+    }
+
+    /// True when the chats list is empty and the `.all` filter is active —
+    /// i.e. the user is in the no-convos-yet state that previously rendered
+    /// `ConversationsListEmptyCTA` ("Pop-up private convos"). Mirrors the
+    /// SwiftUI-side gate inside `ConversationsView.sidebarContent` so the
+    /// shell can swap the chats tab for an inline agent builder and hide
+    /// the bottom chrome.
+    var isEmptyCTAActive: Bool {
+        unpinnedConversations.isEmpty
+            && pinnedConversations.isEmpty
+            && activeFilter == .all
     }
 
     private static let hasCreatedMoreThanOneConvoKey: String = "hasCreatedMoreThanOneConvo"
@@ -261,6 +290,7 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
+            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -371,6 +401,10 @@ final class ConversationsViewModel {
             session: session,
             mode: .scanner
         )
+    }
+
+    func onStartAgent() {
+        agentBuilderViewModel = AgentBuilderViewModel(session: session)
     }
 
     private func join(from inviteCode: String) {

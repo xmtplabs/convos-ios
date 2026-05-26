@@ -94,6 +94,16 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    /// Free-form description an agent agent writes into its own profile
+    /// metadata to describe what it's set up to do — surfaced on the
+    /// `AgentContactCard` once the agent has decided.
+    public var agentDescription: String? {
+        metadata?[Constant.agentDescriptionMetadataKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
     public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {
         guard isAgent else {
             return .unverified
@@ -112,7 +122,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             return .unverified
         }
         Log.info("[Attestation] verifying agent \(inboxId.prefix(8)) with kid=\(keyId)")
-        let result = await AssistantAttestationVerifier.verify(
+        let result = await AgentAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: sig,
             attestationTimestamp: ts,
@@ -137,7 +147,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             Log.info("[Attestation] agent \(inboxId.prefix(8)) missing metadata (cached path) — keys: \(metadata?.keys.sorted() ?? [])")
             return .unverified
         }
-        let result = AssistantAttestationVerifier.verifyCached(
+        let result = AgentAttestationVerifier.verifyCached(
             inboxId: inboxId,
             attestation: sig,
             attestationTimestamp: ts,
@@ -154,18 +164,6 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             return .unverified
         }
         return verifyCachedAgentAttestation(keyset: keyset)
-    }
-
-    public var isOutOfCredits: Bool {
-        guard let credits = metadata?["credits"] else { return false }
-        switch credits {
-        case .number(let value):
-            return value <= 0
-        case .bool(let value):
-            return !value
-        case .string:
-            return false
-        }
     }
 
     public func with(inboxId: String) -> Profile {
@@ -207,8 +205,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
     private enum Constant {
         static let emojiMetadataKey: String = "emoji"
+        static let agentDescriptionMetadataKey: String = "description"
         static let templateIdKey: String = "templateId"
         static let publishedURLKey: String = "publishedUrl"
+        static let instanceIdKey: String = "instanceId"
     }
 }
 
@@ -234,6 +234,14 @@ extension Profile {
     /// the matching accessor on `DBMemberProfile`.
     public var agentTemplatePublishedURL: String? {
         metadata?[Constant.publishedURLKey]?.stringValue
+    }
+
+    /// The agent runtime's `instanceId` for this provisioned agent
+    /// (one templateId spawns N instances, each with its own inboxId).
+    /// Surfaced on the contact card behind an internal-build gate for
+    /// log correlation.
+    public var agentInstanceId: String? {
+        metadata?[Constant.instanceIdKey]?.stringValue
     }
 }
 

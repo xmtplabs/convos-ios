@@ -5,15 +5,15 @@ import Foundation
 /// Used sparingly at the boundary with Objective-C callback APIs (like HealthKit's
 /// `HKObserverQueryCompletionHandler`) where the framework guarantees thread safety
 /// the compiler cannot verify.
-struct UncheckedSendableBox<Value>: @unchecked Sendable {
-    let value: Value
+public struct UncheckedSendableBox<Value>: @unchecked Sendable {
+    public let value: Value
 
-    init(_ value: Value) {
+    public init(_ value: Value) {
         self.value = value
     }
 }
 
-extension UncheckedSendableBox where Value == () -> Void {
+public extension UncheckedSendableBox where Value == () -> Void {
     func callAsFunction() {
         value()
     }

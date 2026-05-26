@@ -106,9 +106,16 @@ public actor ConversationStateMachine {
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
 
-    // Message stream for ordered message sending
-    // Tuple contains (text, afterPhotoTrackingKey)
-    private var messageStreamContinuation: AsyncStream<(String, String?)>.Continuation?
+    // Message stream for ordered message sending. The state machine queues
+    // text sends and processes them serially so they land in the order the
+    // user typed, even when the conversation hasn't reached `.ready` yet.
+    private struct QueuedTextSend: Sendable {
+        let text: String
+        let afterPhoto: String?
+        let clientMessageId: String?
+    }
+
+    private var messageStreamContinuation: AsyncStream<QueuedTextSend>.Continuation?
     private var messageProcessingTask: Task<Void, Never>?
     private var isMessageStreamSetup: Bool = false
 
@@ -204,7 +211,7 @@ public actor ConversationStateMachine {
         guard !isMessageStreamSetup else { return }
         isMessageStreamSetup = true
 
-        let stream = AsyncStream<(String, String?)> { continuation in
+        let stream = AsyncStream<QueuedTextSend> { continuation in
             self.messageStreamContinuation = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { [weak self] in
@@ -215,9 +222,9 @@ public actor ConversationStateMachine {
 
         // Start a single task that processes messages in order
         messageProcessingTask = Task { [weak self] in
-            for await (text, afterPhotoKey) in stream {
+            for await send in stream {
                 guard let self else { break }
-                await self.processMessage(text, afterPhoto: afterPhotoKey)
+                await self.processMessage(send.text, afterPhoto: send.afterPhoto, clientMessageId: send.clientMessageId)
             }
             // Stream ended, reset so it can be recreated if needed
             await self?.resetMessageStream()
@@ -250,10 +257,14 @@ public actor ConversationStateMachine {
         return writer
     }
 
-    private func processMessage(_ text: String, afterPhoto trackingKey: String?) async {
+    private func processMessage(_ text: String, afterPhoto trackingKey: String?, clientMessageId: String? = nil) async {
         do {
             let messageWriter = try await getOrCreateMessageWriter()
-            try await messageWriter.send(text: text, afterPhoto: trackingKey)
+            if let clientMessageId {
+                try await messageWriter.send(text: text, clientMessageId: clientMessageId)
+            } else {
+                try await messageWriter.send(text: text, afterPhoto: trackingKey)
+            }
         } catch {
             Log.error("Error sending queued message: \(error.localizedDescription)")
         }
@@ -819,7 +830,12 @@ public actor ConversationStateMachine {
 extension ConversationStateMachine {
     func sendMessage(text: String, afterPhoto trackingKey: String? = nil) {
         setupMessageStream()
-        messageStreamContinuation?.yield((text, trackingKey))
+        messageStreamContinuation?.yield(QueuedTextSend(text: text, afterPhoto: trackingKey, clientMessageId: nil))
+    }
+
+    func sendMessage(text: String, clientMessageId: String) {
+        setupMessageStream()
+        messageStreamContinuation?.yield(QueuedTextSend(text: text, afterPhoto: nil, clientMessageId: clientMessageId))
     }
 
     func sendPhoto(image: ImageType) async throws {
@@ -1068,6 +1084,12 @@ public enum ConversationStateMachineError: Error {
     /// `.ready` could be emitted. Surfaces in `NewConversationView`'s
     /// standard error UI with a retry affordance via `.createConversation`.
     case addMembersFailed(underlying: Error)
+    /// Caller invoked `send(text:)` before the new-conversation flow had
+    /// configured a `ConversationStateManager`. Surfaces in wrapping flows
+    /// (e.g. Agent Builder) that send through the unwrapped
+    /// `NewConversationViewModel`; without this, a `try await send` would
+    /// look like a successful no-op and the prompt would silently vanish.
+    case noConversationStateManager
 
     public enum NetworkErrorKind {
         case serviceUnavailable
@@ -1144,6 +1166,8 @@ extension ConversationStateMachineError: DisplayError {
             return "Connection timed out"
         case .addMembersFailed:
             return "Couldn't add members"
+        case .noConversationStateManager:
+            return "Conversation isn't ready yet"
         }
     }
 
@@ -1168,6 +1192,8 @@ extension ConversationStateMachineError: DisplayError {
             return "The server took too long to respond. Try again in a moment."
         case .addMembersFailed:
             return "We couldn't add those contacts to the conversation. Please try again."
+        case .noConversationStateManager:
+            return "The conversation hasn't finished setting up. Wait a moment and try again."
         }
     }
 }
@@ -1229,5 +1255,22 @@ extension ConversationStateMachine: InviteJoinErrorHandler {
         }
 
         emitStateChange(.joinFailed(inviteTag: error.inviteTag, error: error))
+    }
+}
+
+extension ConversationStateMachine {
+    func awaitEagerUpload(trackingKey: String) async throws {
+        guard let writer = cachedMessageWriter else { return }
+        try await writer.awaitEagerUpload(trackingKey: trackingKey)
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem]) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendMultiRemoteAttachment(items: items)
+    }
+
+    func sendMultiRemoteAttachment(items: [MultiAttachmentBundleItem], clientMessageId: String) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendMultiRemoteAttachment(items: items, clientMessageId: clientMessageId)
     }
 }

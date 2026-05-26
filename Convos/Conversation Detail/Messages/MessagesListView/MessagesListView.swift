@@ -11,6 +11,7 @@ struct MessagesListView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onTapReadReceipts: (MessagesGroup) -> Void
+    let onTapThinkingIndicator: (ThinkingSessionDescriptor) -> Void
     let onReaction: (String, String) -> Void
     let onToggleReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
@@ -19,14 +20,13 @@ struct MessagesListView: View {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
     let onAgentOutOfCredits: () -> Void
-    let onRetryAssistantJoin: () -> Void
+    let onRetryAgentJoin: () -> Void
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
-    let onInviteAssistant: () -> Void
+    let onInviteAgent: () -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
-    let hasAssistant: Bool
-    let isAssistantJoinPending: Bool
-    let isAssistantEnabled: Bool
+    let hasAgent: Bool
+    let isAgentJoinPending: Bool
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -57,10 +57,9 @@ var body: some View {
                 NewConvoIdentityView(
                     onCopyLink: onCopyInviteLink,
                     onConvoCode: onConvoCode,
-                    onInviteAssistant: onInviteAssistant,
-                    hasAssistant: hasAssistant,
-                    isAssistantJoinPending: isAssistantJoinPending,
-                    isAssistantEnabled: isAssistantEnabled
+                    onInviteAgent: onInviteAgent,
+                    hasAgent: hasAgent,
+                    isAgentJoinPending: isAgentJoinPending
                 )
             }
             .id("invite")
@@ -106,27 +105,32 @@ var body: some View {
             ConversationInfoPreview(conversation: conversation)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case .agentOutOfCredits(let profile):
+        case .agentOutOfCredits(let member):
             TextTitleContentView(
-                title: "\(profile.displayName) is out of processing power",
-                profile: profile,
+                title: "\(member.profile.displayName) is out of credits",
+                profile: member.profile,
+                agentVerification: member.agentVerification,
                 onTap: onAgentOutOfCredits
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case let .assistantJoinStatus(status, requesterName, _):
-            AssistantJoinStatusView(
+        case let .agentJoinStatus(status, requesterName, _):
+            AgentJoinStatusView(
                 status: status,
                 requesterName: requesterName,
-                onRetry: onRetryAssistantJoin
+                onRetry: onRetryAgentJoin
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case let .assistantPresentInfo(agent, inviterName):
-            assistantPresentView(agent: agent, inviterName: inviterName)
+        case let .agentPresentInfo(agent, inviterName):
+            agentPresentView(agent: agent, inviterName: inviterName)
 
         case let .connectionEvent(_, summary, _):
             ConnectionEventSummaryView(summary: summary)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+
+        case .agentBuilderSummary(let summary):
+            AgentBuilderSummaryView(summary: summary)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
         case .typingIndicator:
@@ -146,16 +150,16 @@ var body: some View {
                 }
             )
             .padding(.vertical, DesignConstants.Spacing.stepX)
-            if update.addedVerifiedAssistant {
-                AssistantJoinedInfoView()
+            if update.addedVerifiedAgent {
+                AgentJoinedInfoView()
             }
         }
     }
 
     @ViewBuilder
-    private func assistantPresentView(agent: ConversationMember, inviterName: String?) -> some View {
+    private func agentPresentView(agent: ConversationMember, inviterName: String?) -> some View {
         let isVerified = agent.agentVerification.isVerified
-        let label = isVerified ? "Assistant" : "Agent"
+        let label = isVerified ? "Agent" : "Agent"
         let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
         VStack(spacing: 0) {
             TextTitleContentView(
@@ -166,7 +170,7 @@ var body: some View {
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             if isVerified {
-                AssistantJoinedInfoView()
+                AgentJoinedInfoView()
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         }
@@ -181,6 +185,7 @@ var body: some View {
             onTapInvite: onTapInvite,
             onTapReactions: onTapReactions,
             onTapReadReceipts: onTapReadReceipts,
+            onTapThinkingIndicator: onTapThinkingIndicator,
             onReaction: onReaction,
             onToggleReaction: onToggleReaction,
             onReply: onReply,

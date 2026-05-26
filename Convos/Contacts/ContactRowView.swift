@@ -52,20 +52,14 @@ struct ContactAvatarView: View {
     let contact: Contact
 
     var body: some View {
-        if contact.imageCacheURL != nil {
-            AvatarView(
-                fallbackName: contact.resolvedDisplayName,
-                cacheableObject: contact,
-                placeholderImage: nil,
-                placeholderImageName: nil,
-                agentVerification: contact.agentVerification ?? .unverified
-            )
-        } else {
-            MonogramView(
-                name: contact.resolvedDisplayName,
-                agentVerification: contact.agentVerification ?? .unverified
-            )
-        }
+        AvatarView(
+            fallbackName: contact.resolvedDisplayName,
+            cacheableObject: contact,
+            placeholderImage: nil,
+            placeholderEmoji: contact.profileEmoji,
+            placeholderImageName: nil,
+            agentVerification: contact.agentVerification ?? .unverified
+        )
     }
 }
 
@@ -75,8 +69,8 @@ struct ContactAvatarView: View {
         ContactRowView(contact: .mock(displayName: "Bob"), subtitle: "DM")
         ContactRowView(contact: .mock(displayName: nil), subtitle: "")
         ContactRowView(
-            contact: .mock(displayName: "Convo Assistant", agentVerification: .verified(.convos)),
-            subtitle: "Convos Assistant"
+            contact: .mock(displayName: "Convo Agent", agentVerification: .verified(.convos)),
+            subtitle: "Convos Agent"
         )
         ContactRowView(
             contact: .mock(displayName: "Calendar Bot", agentVerification: .verified(.userOAuth)),

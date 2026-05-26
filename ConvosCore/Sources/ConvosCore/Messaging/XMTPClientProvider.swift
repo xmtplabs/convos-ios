@@ -8,6 +8,7 @@ public protocol MessageSender {
     func sendReadReceipt() async throws
     func prepare(text: String) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
+    func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
@@ -244,14 +245,14 @@ extension XMTPiOS.Conversation: MessageSender {
         Log.info("InviteJoinError message sent successfully")
     }
 
-    public func sendAssistantJoinRequest(_ request: AssistantJoinRequest) async throws {
-        Log.info("Sending AssistantJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
-        let codec = AssistantJoinRequestCodec()
+    public func sendAgentJoinRequest(_ request: AgentJoinRequest) async throws {
+        Log.info("Sending AgentJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
+        let codec = AgentJoinRequestCodec()
         try await send(
             content: request,
             options: .init(contentType: codec.contentType)
         )
-        Log.info("AssistantJoinRequest message sent successfully")
+        Log.info("AgentJoinRequest message sent successfully")
     }
 
     public func sendTypingIndicator(isTyping: Bool) async throws {
@@ -270,6 +271,13 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(
             content: remoteAttachment,
             options: .init(contentType: ContentTypeRemoteAttachment),
+        )
+    }
+
+    public func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: multiRemoteAttachment,
+            options: .init(contentType: ContentTypeMultiRemoteAttachment),
         )
     }
 

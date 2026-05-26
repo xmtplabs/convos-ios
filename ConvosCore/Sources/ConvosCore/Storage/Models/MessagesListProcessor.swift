@@ -10,17 +10,199 @@ public final class MessagesListProcessor: Sendable {
         memberProfiles: [String: MemberProfileInfo] = [:],
         currentOtherMemberCount: Int = 0,
         sendReadReceipts: Bool = true,
-        previousReadByMembers: [ConversationMember] = []
+        previousReadByMembers: [ConversationMember] = [],
+        verifiedAgent: ConversationMember? = nil,
+        agentBuilderSummary: AgentBuilderSummary? = nil,
+        isInAgentBuilderFlow: Bool = false
     ) -> [MessagesListItemType] {
-        return processMessages(
+        let baseItems: [MessagesListItemType] = processMessages(
             messages,
             voiceMemoTranscripts: voiceMemoTranscripts,
             readReceipts: readReceipts,
             memberProfiles: memberProfiles,
             currentOtherMemberCount: currentOtherMemberCount,
             sendReadReceipts: sendReadReceipts,
-            previousReadByMembers: previousReadByMembers
+            previousReadByMembers: previousReadByMembers,
+            verifiedAgent: verifiedAgent
         )
+        return applyAgentContactCardAndSummary(
+            to: baseItems,
+            verifiedAgent: verifiedAgent,
+            agentBuilderSummary: agentBuilderSummary,
+            isInAgentBuilderFlow: isInAgentBuilderFlow
+        )
+    }
+
+    /// Post-process the raw item list to (a) cut messages predating the
+    /// `AgentBuilderSummary.cutoffDate`, (b) attach the contact-card prefix
+    /// to the agent's first messages group (synthesizing an empty group
+    /// when the agent hasn't said anything yet), and (c) prepend the
+    /// summary cell.
+    private static func applyAgentContactCardAndSummary(
+        to baseItems: [MessagesListItemType],
+        verifiedAgent: ConversationMember?,
+        agentBuilderSummary: AgentBuilderSummary?,
+        isInAgentBuilderFlow: Bool
+    ) -> [MessagesListItemType] {
+        var items: [MessagesListItemType] = baseItems
+
+        // Suppress the legacy "Agent joined" update row throughout the
+        // entire builder flow — pre-Make the builder overlay covers the
+        // chat, and post-Make the summary + contact card morph announce
+        // arrival, so the update row would only briefly flash through the
+        // overlay fade-out. Done outside the `agentBuilderSummary`
+        // block because the flag is set on builder appearance, before the
+        // summary exists. Gates on `addedAgent` (not
+        // `addedVerifiedAgent`) because the attestation result lands
+        // after the member-added event: filtering on verification would
+        // miss the brief window where the agent is in the convo but its
+        // Convos verification hasn't been validated yet, and that window
+        // is exactly when the user sees the flash.
+        if isInAgentBuilderFlow {
+            items = items.filter { item in
+                guard case .update(_, let update, _) = item else { return true }
+                return !update.addedAgent
+            }
+        }
+
+        if let summary = agentBuilderSummary {
+            items = items.flatMap { item -> [MessagesListItemType] in
+                switch item {
+                case .messages(let group):
+                    if group.sender.isCurrentUser {
+                        // User-side: filter by `bundledMessageIds`. The set
+                        // is populated synchronously in
+                        // `AgentBuilderViewModel.commit()` before the
+                        // writer is called, so the prompt text + multi-remote
+                        // bundle are caught the instant they appear in the
+                        // DB. Messages the user types after Make (not in the
+                        // set) flow through normally. A group can contain
+                        // both — consecutive same-sender messages stay in
+                        // one group regardless of the gap.
+                        let kept: [AnyMessage] = group.messages.filter {
+                            !summary.bundledMessageIds.contains($0.messageId)
+                        }
+                        if kept.isEmpty { return [] }
+                        if kept.count == group.messages.count { return [item] }
+                        var rebuilt: MessagesGroup = MessagesGroup(
+                            id: group.id,
+                            sender: group.sender,
+                            messages: kept,
+                            isLastGroup: group.isLastGroup,
+                            isLastGroupSentByCurrentUser: group.isLastGroupSentByCurrentUser,
+                            showsTypingIndicator: group.showsTypingIndicator,
+                            allTypingMembers: group.allTypingMembers,
+                            readByMembers: group.readByMembers,
+                            onlyVisibleToSender: group.onlyVisibleToSender,
+                            isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
+                            voiceMemoTranscripts: group.voiceMemoTranscripts
+                        )
+                        rebuilt.adjacentToFullBleedAbove = group.adjacentToFullBleedAbove
+                        rebuilt.adjacentToFullBleedBelow = group.adjacentToFullBleedBelow
+                        rebuilt.agentContactCard = group.agentContactCard
+                        return [.messages(rebuilt)]
+                    } else {
+                        // Agent / other-member groups: filter by the
+                        // group's latest message, no pad. Pre-Make hello
+                        // messages drop wholesale; later replies stay.
+                        let date: Date = group.messages.last?.date ?? group.messages.first?.date ?? .distantPast
+                        return date >= summary.cutoffDate ? [item] : []
+                    }
+                case .update(_, let update, _):
+                    // Builder flow: the summary + contact card already
+                    // announce the agent's arrival, so the legacy
+                    // "Agent joined · see its skills" update bubble
+                    // would just compete with them. Drop the row for any
+                    // agent add (not just `addedVerifiedAgent`)
+                    // because verification lands after the member-added
+                    // event — filtering on verification would miss the
+                    // brief pre-attestation window. Regular non-agent
+                    // member adds / removes still surface as normal.
+                    return update.addedAgent ? [] : [item]
+                default:
+                    return [item]
+                }
+            }
+            // Drop date separators that no longer precede a visible message
+            // group. The base processor emits a `.date(...)` row before the
+            // first message of a new calendar window, but if every message
+            // in that window was a builder-bundle send (just filtered
+            // above), the separator is now orphaned and flashes briefly
+            // post-Make while the agent provisions.
+            items = dropOrphanDateSeparators(in: items)
+        }
+
+        if let agent = verifiedAgent {
+            let cardInfo = AgentContactCardInfo(
+                profile: agent.profile,
+                agentDescription: agent.profile.agentDescription
+            )
+            let firstAgentGroupIndex: Int? = items.firstIndex { item in
+                guard case .messages(let group) = item else { return false }
+                return group.sender.profile.inboxId == agent.profile.inboxId
+            }
+            if let idx = firstAgentGroupIndex, case .messages(var group) = items[idx] {
+                group.agentContactCard = cardInfo
+                items[idx] = .messages(group)
+            } else {
+                var cardGroup = MessagesGroup(
+                    id: "agent-contact-card-\(agent.profile.inboxId)",
+                    sender: agent,
+                    messages: [],
+                    isLastGroup: false,
+                    isLastGroupSentByCurrentUser: false
+                )
+                cardGroup.agentContactCard = cardInfo
+                // Anchor the synthesized card group right after the
+                // "Agent joined" update row (if any). In builder flow
+                // that row was just filtered out above, so we fall back to
+                // index 0; in every other conversation the join row sits
+                // where the agent actually arrived, so the card lands
+                // immediately beneath it. Without a join row to anchor on
+                // we also fall back to index 0.
+                let joinUpdateIndex: Int? = items.firstIndex { item in
+                    guard case .update(_, let update, _) = item else { return false }
+                    return update.addedVerifiedAgent
+                }
+                let insertionIndex: Int = joinUpdateIndex.map { $0 + 1 } ?? 0
+                items.insert(.messages(cardGroup), at: insertionIndex)
+            }
+        }
+
+        if let summary = agentBuilderSummary {
+            items.insert(.agentBuilderSummary(summary), at: 0)
+        }
+
+        return items
+    }
+
+    /// Strip date separators that no longer precede a message group. A
+    /// `.date(...)` row is kept iff there is at least one anchorable row
+    /// (`.messages`, `.update`, or `.connectionEvent`) before the next
+    /// `.date(...)` (or end of list). Typing indicators, info rows, and
+    /// other purely ephemeral items don't anchor — a stretch with only
+    /// those leaves the date separator orphaned and it is dropped.
+    private static func dropOrphanDateSeparators(in items: [MessagesListItemType]) -> [MessagesListItemType] {
+        var result: [MessagesListItemType] = []
+        result.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            if case .date = item {
+                var hasFollowingAnchor: Bool = false
+                for later in items[(index + 1)...] {
+                    if case .date = later { break }
+                    switch later {
+                    case .messages, .update, .connectionEvent:
+                        hasFollowingAnchor = true
+                    default:
+                        break
+                    }
+                    if hasFollowingAnchor { break }
+                }
+                if !hasFollowingAnchor { continue }
+            }
+            result.append(item)
+        }
+        return result
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -31,25 +213,26 @@ public final class MessagesListProcessor: Sendable {
         memberProfiles: [String: MemberProfileInfo] = [:],
         currentOtherMemberCount: Int = 0,
         sendReadReceipts: Bool = true,
-        previousReadByMembers: [ConversationMember] = []
+        previousReadByMembers: [ConversationMember] = [],
+        verifiedAgent: ConversationMember? = nil
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
         let messageCount = messages.count
 
-        var lastAssistantJoinIndex: Int?
-        var agentJoinedAfterAssistantRequest = false
+        var lastAgentJoinIndex: Int?
+        var agentJoinedAfterAgentRequest = false
         var trackedMemberCount: Int = currentOtherMemberCount
 
         for i in 0..<messageCount {
             let content = messages[i].content
             switch content {
             case .assistantJoinRequest:
-                lastAssistantJoinIndex = i
-                agentJoinedAfterAssistantRequest = false
+                lastAgentJoinIndex = i
+                agentJoinedAfterAgentRequest = false
             case .update(let update):
-                if lastAssistantJoinIndex != nil, update.addedAgent {
-                    agentJoinedAfterAssistantRequest = true
+                if lastAgentJoinIndex != nil, update.addedAgent {
+                    agentJoinedAfterAgentRequest = true
                 }
                 var added = 0
                 var removed = 0
@@ -62,8 +245,8 @@ public final class MessagesListProcessor: Sendable {
             }
         }
 
-        if agentJoinedAfterAssistantRequest {
-            lastAssistantJoinIndex = nil
+        if agentJoinedAfterAgentRequest {
+            lastAgentJoinIndex = nil
         }
         trackedMemberCount = max(0, trackedMemberCount)
 
@@ -94,6 +277,12 @@ public final class MessagesListProcessor: Sendable {
                     currentGroupMessages.removeAll(keepingCapacity: true)
                     currentSenderId = nil
                 }
+                // Always emit verified-agent join updates; the post-process
+                // step in `applyAgentContactCardAndSummary` suppresses them
+                // for builder-flow conversations (where the summary card and
+                // contact card both already announce arrival) and uses them
+                // as the anchor for the synthesized contact-card row in
+                // every other conversation.
                 items.append(.update(id: msg.messageId, update: update, origin: msg.origin))
 
                 var added = 0
@@ -111,7 +300,7 @@ public final class MessagesListProcessor: Sendable {
 
             if case .assistantJoinRequest(let status, _) = content {
                 lastMessageDate = msg.date
-                guard index == lastAssistantJoinIndex else { continue }
+                guard index == lastAgentJoinIndex else { continue }
                 let age = Date().timeIntervalSince(msg.date)
                 guard age <= status.displayDuration else { continue }
 
@@ -129,7 +318,7 @@ public final class MessagesListProcessor: Sendable {
                     ? nil
                     : sender.profile.displayName
                 items.append(
-                    .assistantJoinStatus(status, requesterName: requesterName, date: msg.date)
+                    .agentJoinStatus(status, requesterName: requesterName, date: msg.date)
                 )
                 lastMessageDate = msg.date
                 lastWasAttachment = false

@@ -3,18 +3,17 @@ import SwiftUI
 struct NewConvoIdentityView: View {
     var onCopyLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAssistant: (() -> Void)?
-    var hasAssistant: Bool = false
-    var isAssistantJoinPending: Bool = false
-    var isAssistantEnabled: Bool = false
+    var onInviteAgent: (() -> Void)?
+    var hasAgent: Bool = false
+    var isAgentJoinPending: Bool = false
 
     private var showInviteMenu: Bool { onCopyLink != nil }
 
-    private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
+    private var isAgentActionDisabled: Bool { hasAgent || isAgentJoinPending }
 
-    private var assistantSubtitle: String {
-        if hasAssistant { return "Already here" }
-        if isAssistantJoinPending { return "Joining…" }
+    private var agentSubtitle: String {
+        if hasAgent { return "Already here" }
+        if isAgentJoinPending { return "Joining…" }
         return "Helps the group do things"
     }
 
@@ -53,15 +52,13 @@ struct NewConvoIdentityView: View {
                     }
                     .accessibilityIdentifier("new-convo-add-from-contacts")
 
-                    if isAssistantEnabled {
-                        let assistantAction: () -> Void = { onInviteAssistant?() }
-                        Button(action: assistantAction) {
-                            Text("Instant assistant")
-                            Text(assistantSubtitle)
-                            Image(systemName: "a.circle")
-                        }
-                        .disabled(isAssistantActionDisabled)
+                    let agentAction: () -> Void = { onInviteAgent?() }
+                    Button(action: agentAction) {
+                        Text("Instant agent")
+                        Text(agentSubtitle)
+                        Image(systemName: "a.circle")
                     }
+                    .disabled(isAgentActionDisabled)
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Image(systemName: "plus")
@@ -87,8 +84,7 @@ struct NewConvoIdentityView: View {
     NewConvoIdentityView(
         onCopyLink: {},
         onConvoCode: {},
-        onInviteAssistant: {},
-        isAssistantEnabled: true
+        onInviteAgent: {}
     )
 }
 

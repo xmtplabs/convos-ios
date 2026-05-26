@@ -24,9 +24,9 @@ struct ConversationUpdateTests {
         #expect(update.addedAgent == true)
     }
 
-    @Test("addedAgent is true when added member is a verified Convos assistant")
-    func addedAgentTrueForVerifiedConvosAssistant() {
-        let agent = ConversationMember.mock(name: "Convos Assistant", isAgent: true, agentVerification: .verified(.convos))
+    @Test("addedAgent is true when added member is a verified Convos agent")
+    func addedAgentTrueForVerifiedConvosAgent() {
+        let agent = ConversationMember.mock(name: "Convos Agent", isAgent: true, agentVerification: .verified(.convos))
         let update = update(addedMembers: [agent])
         #expect(update.addedAgent == true)
     }
@@ -38,54 +38,54 @@ struct ConversationUpdateTests {
         #expect(update.addedAgent == false)
     }
 
-    // MARK: - addedVerifiedAssistant
+    // MARK: - addedVerifiedAgent
 
-    @Test("addedVerifiedAssistant is true only for verified Convos assistants")
-    func addedVerifiedAssistantTrueForConvosAssistant() {
-        let agent = ConversationMember.mock(name: "Convos Assistant", isAgent: true, agentVerification: .verified(.convos))
+    @Test("addedVerifiedAgent is true only for verified Convos agents")
+    func addedVerifiedAgentTrueForConvosAgent() {
+        let agent = ConversationMember.mock(name: "Convos Agent", isAgent: true, agentVerification: .verified(.convos))
         let update = update(addedMembers: [agent])
-        #expect(update.addedVerifiedAssistant == true)
+        #expect(update.addedVerifiedAgent == true)
     }
 
-    @Test("addedVerifiedAssistant is false for unverified agents")
-    func addedVerifiedAssistantFalseForUnverifiedAgent() {
+    @Test("addedVerifiedAgent is false for unverified agents")
+    func addedVerifiedAgentFalseForUnverifiedAgent() {
         // This is the regression case: a CLI joiner advertises itself as
         // memberKind=agent but has no Convos attestation. The "See its skills"
         // button must NOT appear for these.
         let agent = ConversationMember.mock(name: "CLI Bot", isAgent: true, agentVerification: .unverified)
         let update = update(addedMembers: [agent])
-        #expect(update.addedVerifiedAssistant == false)
+        #expect(update.addedVerifiedAgent == false)
     }
 
-    @Test("addedVerifiedAssistant is false for user-OAuth verified agents")
-    func addedVerifiedAssistantFalseForUserOAuthAgent() {
-        // OAuth-verified agents are not Convos assistants and should not get
+    @Test("addedVerifiedAgent is false for user-OAuth verified agents")
+    func addedVerifiedAgentFalseForUserOAuthAgent() {
+        // OAuth-verified agents are not Convos agents and should not get
         // the "See its skills" affordance, which links to the Convos catalog.
         let agent = ConversationMember.mock(name: "OAuth Agent", isAgent: true, agentVerification: .verified(.userOAuth))
         let update = update(addedMembers: [agent])
-        #expect(update.addedVerifiedAssistant == false)
+        #expect(update.addedVerifiedAgent == false)
     }
 
-    @Test("addedVerifiedAssistant is false for regular members")
-    func addedVerifiedAssistantFalseForRegularMembers() {
+    @Test("addedVerifiedAgent is false for regular members")
+    func addedVerifiedAgentFalseForRegularMembers() {
         let regular = ConversationMember.mock(name: "Alice", isAgent: false)
         let update = update(addedMembers: [regular])
-        #expect(update.addedVerifiedAssistant == false)
+        #expect(update.addedVerifiedAgent == false)
     }
 
-    @Test("addedVerifiedAssistant is true when at least one added member is a verified Convos assistant")
-    func addedVerifiedAssistantTrueWithMixedMembers() {
+    @Test("addedVerifiedAgent is true when at least one added member is a verified Convos agent")
+    func addedVerifiedAgentTrueWithMixedMembers() {
         let regular = ConversationMember.mock(name: "Alice", isAgent: false)
         let unverified = ConversationMember.mock(name: "CLI Bot", isAgent: true, agentVerification: .unverified)
-        let verified = ConversationMember.mock(name: "Convos Assistant", isAgent: true, agentVerification: .verified(.convos))
+        let verified = ConversationMember.mock(name: "Convos Agent", isAgent: true, agentVerification: .verified(.convos))
         let update = update(addedMembers: [regular, unverified, verified])
-        #expect(update.addedVerifiedAssistant == true)
+        #expect(update.addedVerifiedAgent == true)
     }
 
-    @Test("addedVerifiedAssistant is false for empty added members")
-    func addedVerifiedAssistantFalseForEmpty() {
+    @Test("addedVerifiedAgent is false for empty added members")
+    func addedVerifiedAgentFalseForEmpty() {
         let update = update(addedMembers: [])
-        #expect(update.addedVerifiedAssistant == false)
+        #expect(update.addedVerifiedAgent == false)
     }
 
     // MARK: - summary for metadata changes

@@ -857,13 +857,14 @@ final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
             if let calculatedSize = configuration.calculatedSize {
                 item.calculatedSize = calculatedSize
                 item.calculatedOnce = true
-            } else {
-                // Reconfigure means the cell's content has changed (e.g. a voice
-                // memo transcript flipping from .notRequested to .completed). The
-                // previously self-sized height is stale, so swap in the new
-                // estimate and force another self-sizing pass.
-                item.resetSize(toPreferredSize: configuration.preferredSize)
             }
+            // Keep the previously self-sized height for reconfigures. The
+            // reconfigure self-sizing block in `prepare(forCollectionViewUpdates:)`
+            // calls `preferredLayoutAttributesFitting` on each visible
+            // reconfigured cell and emits an invalidation only when the
+            // real fit differs from the model — so reconfigures that don't
+            // change height stay anchored, while ones that do still adjust
+            // through the normal compensation path.
             afterUpdateModel.replaceItem(item, at: indexPathAfterUpdate)
             visibleBoundsBeforeUpdate.offsettingBy(dx: 0, dy: item.frame.height - oldHeight)
         }

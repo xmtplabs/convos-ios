@@ -16,6 +16,22 @@ protocol MessagesListRepositoryProtocol {
 
     var currentOtherMemberCount: Int { get set }
     var sendReadReceipts: Bool { get set }
+    /// The verified Convos agent in the conversation, if any. When set,
+    /// the processor attaches an `AgentContactCardInfo` to the agent's
+    /// first messages group (or synthesizes an empty one) and suppresses the
+    /// legacy "Agent joined" update bubble.
+    var verifiedAgent: ConversationMember? { get set }
+    /// The persisted Agent Builder summary for this conversation, if any.
+    /// When set, the processor prepends a `.agentBuilderSummary` cell and
+    /// filters every messages-group whose timestamp predates `cutoffDate`.
+    var agentBuilderSummary: AgentBuilderSummary? { get set }
+    /// `true` while the conversation is rendered under the agent builder
+    /// UI (set by `AgentBuilderView.onAppear`, cleared on disappear). The
+    /// processor uses this to suppress the legacy "Agent joined" update
+    /// row throughout the builder flow — pre-Make it lives under the builder
+    /// overlay anyway, and post-Make the contact card is the canonical
+    /// arrival signal so the row would just compete with the morph.
+    var isInAgentBuilderFlow: Bool { get set }
 }
 
 @MainActor
@@ -37,6 +53,40 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private var lastRawMessages: [AnyMessage] = []
     private var storedTranscripts: [String: VoiceMemoTranscript] = [:]
     var currentOtherMemberCount: Int = 0
+    var verifiedAgent: ConversationMember? {
+        didSet {
+            guard oldValue != verifiedAgent else { return }
+            reprocessCachedMessages()
+        }
+    }
+    var agentBuilderSummary: AgentBuilderSummary? {
+        didSet {
+            guard oldValue != agentBuilderSummary else { return }
+            reprocessCachedMessages()
+        }
+    }
+    var isInAgentBuilderFlow: Bool = false {
+        didSet {
+            guard oldValue != isInAgentBuilderFlow else { return }
+            reprocessCachedMessages()
+        }
+    }
+
+    /// Re-run the processor against the cached raw messages and emit so the
+    /// view layer picks up freshly-set `verifiedAgent` /
+    /// `agentBuilderSummary` without waiting for the next message delivery.
+    /// Intentionally does NOT short-circuit on `lastRawMessages.isEmpty` —
+    /// `MessagesListProcessor.process` synthesizes an agent contact card
+    /// group when `verifiedAgent` is set, even with zero messages, and we
+    /// need that synthesized output to reach the view.
+    private func reprocessCachedMessages() {
+        let reprocessed = processMessages(
+            lastRawMessages,
+            readReceipts: lastReadReceipts,
+            memberProfiles: lastMemberProfiles
+        )
+        messagesListSubject.send(reprocessed)
+    }
 
     // MARK: - Public Properties
 
@@ -141,10 +191,13 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             memberProfiles: memberProfiles,
             currentOtherMemberCount: currentOtherMemberCount,
             sendReadReceipts: sendReadReceipts,
-            previousReadByMembers: lastReadByMembers
+            previousReadByMembers: lastReadByMembers,
+            verifiedAgent: verifiedAgent,
+            agentBuilderSummary: agentBuilderSummary,
+            isInAgentBuilderFlow: isInAgentBuilderFlow
         )
         lastReadByMembers = Self.extractReadByMembers(from: items)
-        scheduleAssistantJoinDismissIfNeeded(items)
+        scheduleAgentJoinDismissIfNeeded(items)
         return items
     }
 
@@ -204,12 +257,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         return []
     }
 
-    private func scheduleAssistantJoinDismissIfNeeded(_ items: [MessagesListItemType]) {
+    private func scheduleAgentJoinDismissIfNeeded(_ items: [MessagesListItemType]) {
         dismissCancellable?.cancel()
         dismissCancellable = nil
 
         guard let remaining = items.lazy.compactMap({ item -> TimeInterval? in
-            guard case .assistantJoinStatus(let status, _, let date) = item else { return nil }
+            guard case .agentJoinStatus(let status, _, let date) = item else { return nil }
             let value = status.displayDuration - Date().timeIntervalSince(date)
             return value > 0 ? value : nil
         }).min() else { return }
@@ -219,7 +272,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .sink { [weak self] _ in
                 guard let self else { return }
                 let reprocessed = self.processMessages(self.lastRawMessages, readReceipts: self.lastReadReceipts, memberProfiles: self.lastMemberProfiles)
-                self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
+                self.scheduleAgentJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }
     }

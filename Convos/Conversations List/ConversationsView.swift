@@ -4,9 +4,43 @@ import SwiftUI
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    /// App-level indicator context plumbed from `MainTabView`. Carries the
+    /// shared namespace + transition id used for the pill -> app settings
+    /// sheet zoom; passed through to `ConversationPresenter` so the pill
+    /// overlay renders with the right matched-transition source.
+    let appIndicatorContext: AppIndicatorContext
+    /// Optional accessory rendered as an overlay at the bottom of the
+    /// sidebar. Reserved for callers that want extra chrome scoped to
+    /// the conversation list only; `MainTabView` no longer uses this
+    /// (the builder bar moved into the global bottom chrome), but the
+    /// hook stays in case downstream callers need it.
+    var sidebarBottomAccessory: AnyView?
+    /// Fired with the conversation list's current scroll content-offset Y
+    /// on every scroll tick, forwarded from `ConversationsViewController`.
+    /// `MainTabView` uses this to flip the agent builder bar between
+    /// expanded and collapsed states.
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Extra bottom inset (in points) for the conversation list to clear
+    /// the SwiftUI bottom chrome (builder bar + custom tab bar) rendered
+    /// by `MainTabView` as a `safeAreaInset`. SwiftUI's safe-area chain
+    /// doesn't reliably propagate that inset to the UIKit collection
+    /// view, so we plumb it through explicitly.
+    var bottomChromeInset: CGFloat = 0
+    /// Binding into the shell's "present this conversation as a sheet"
+    /// slot. Set by the inline agent builder (rendered in the chats
+    /// list's empty state) right after `commit()` lands a brand-new
+    /// conversation. `MainTabView` listens for non-nil here and shows
+    /// the conversation in a sheet, mirroring how the bottom-bar
+    /// builder is presented over the tabs.
+    @Binding var presentingCommittedConversation: ConversationViewModel?
+
+    /// Dedicated builder VM for the chats-list empty state. Created
+    /// lazily once the user is in the no-convos-yet state and torn down
+    /// the moment they ship their first convo (which also flips the
+    /// empty state off, so the inline builder unmounts naturally).
+    @State private var inlineBuilderViewModel: AgentBuilderViewModel?
 
     @Namespace private var namespace: Namespace.ID
-    @State private var presentingAppSettings: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -31,18 +65,107 @@ struct ConversationsView: View {
     }
 
     var emptyConversationsViewScrollable: some View {
-        ScrollView {
-            LazyVStack(spacing: 0.0) {
-                emptyConversationsView
-            }
+        emptyConversationsView
+    }
+
+    @ViewBuilder
+    var emptyConversationsView: some View {
+        if let inlineBuilderViewModel {
+            AgentBuilderView(
+                viewModel: inlineBuilderViewModel,
+                profileSettingsViewModel: profileSettingsViewModel,
+                mode: .inline,
+                onCommitted: handleInlineBuilderCommit(_:)
+            )
+        }
+        // Until the inline builder VM has been spun up by
+        // `ensureInlineBuilder()`, the empty state renders nothing.
+        // The previous "Pop-up private convo" fallback CTA caused a
+        // visible flash on cold launch and has been removed in favor
+        // of a blank empty state for that one frame.
+    }
+
+    private func ensureInlineBuilder() {
+        // Recreate the VM when it's nil, when the previous one has
+        // already committed, or when it's been discarded. A committed
+        // VM renders `Color.clear` in `inlineBody`. A discarded VM had
+        // `discard()` called on it (e.g. by `AgentBuilderView.onDisappear`
+        // when the user left the chats tab without committing), so its
+        // tasks are cancelled and its conversation has been torn down.
+        // Either case leaves the empty state non-functional until we
+        // spin up a fresh VM.
+        let needsFresh: Bool = inlineBuilderViewModel == nil
+            || inlineBuilderViewModel?.hasCommitted == true
+            || inlineBuilderViewModel?.didDiscard == true
+        if needsFresh {
+            inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
         }
     }
 
-    var emptyConversationsView: some View {
-        ConversationsListEmptyCTA(
-            onStartConvo: viewModel.onStartConvo,
-            onJoinConvo: viewModel.onJoinConvo
+    private func handleInlineBuilderCommit(_ convoVM: ConversationViewModel) {
+        presentingCommittedConversation = convoVM
+        // Intentionally keep `inlineBuilderViewModel` around (in its
+        // committed state). The chats list will update with the new
+        // conversation shortly, at which point `isEmptyCTAActive` flips
+        // false and `sidebarContent` swaps from the empty branch to the
+        // collection view, unmounting the builder naturally. Clearing
+        // here eagerly would leave a blank `Color` behind the sheet if
+        // the user dismisses before the list catches up — see the
+        // `onChange` below that recreates a fresh VM in that race.
+    }
+
+    /// Called whenever the post-commit conversation sheet dismisses.
+    /// If the chats list is still in its empty state at that moment
+    /// (DB sync race — the new convo hasn't landed in
+    /// `conversations` yet), swap the committed inline builder VM out
+    /// for a fresh one so the user sees an interactive composer
+    /// instead of a stuck post-commit gray rect.
+    /// Bridges `selectedConversationViewModel` (driven by the
+    /// `selectedConversationId` setter) to a `navigationDestination(item:)`
+    /// Binding so SwiftUI pushes / pops the `ConversationView` onto the
+    /// outer `NavigationStack` whenever the user selects / deselects a
+    /// conversation.
+    private var chatsDetailBinding: Binding<ConversationViewModel?> {
+        Binding(
+            get: { viewModel.selectedConversationViewModel },
+            set: { newValue in
+                viewModel.selectedConversationId = newValue?.conversation.id
+            }
         )
+    }
+
+    @ViewBuilder
+    private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
+        let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
+        ConversationPresenter(
+            viewModel: convoVM,
+            focusCoordinator: focusCoordinator,
+            insetsTopSafeArea: true,
+            isReadOnly: isReadOnly,
+            sidebarColumnWidth: $sidebarWidth,
+            appIndicatorContext: nil,
+            sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
+            rendersConversationIndicator: false
+        ) { focusState, coordinator in
+            ConversationView(
+                viewModel: convoVM,
+                profileSettingsViewModel: profileSettingsViewModel,
+                focusState: focusState,
+                focusCoordinator: coordinator,
+                onScanInviteCode: {},
+                onDeleteConversation: {},
+                messagesTopBarTrailingItem: .share,
+                messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
+                messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
+                isReadOnly: isReadOnly,
+                bottomBarContent: { EmptyView() }
+            )
+        }
+    }
+
+    private func handleCommittedSheetDidDismiss() {
+        guard viewModel.isEmptyCTAActive else { return }
+        inlineBuilderViewModel = AgentBuilderViewModel(session: viewModel.session)
     }
 
     var filteredEmptyStateView: some View {
@@ -83,67 +206,18 @@ struct ConversationsView: View {
             },
             onStartConvo: viewModel.onStartConvo,
             onJoinConvo: viewModel.onJoinConvo,
-            onShowAllFilter: { viewModel.activeFilter = .all }
+            onShowAllFilter: { viewModel.activeFilter = .all },
+            onScrollOffsetChange: onScrollOffsetChange,
+            bottomChromeInset: bottomChromeInset
         )
-        .ignoresSafeArea(edges: [.top, .bottom])
-    }
-
-    private var filterMenu: some View {
-        let isFiltered: Bool = viewModel.activeFilter != .all
-        return Menu {
-            let allAction = { viewModel.activeFilter = .all }
-            Button(action: allAction) {
-                if viewModel.activeFilter == .all {
-                    Label("All", systemImage: "checkmark")
-                } else {
-                    Text("All")
-                }
-            }
-
-            let unreadAction = {
-                viewModel.activeFilter = viewModel.activeFilter == .unread ? .all : .unread
-            }
-            Button(action: unreadAction) {
-                if viewModel.activeFilter == .unread {
-                    Label("Unread", systemImage: "checkmark")
-                } else {
-                    Text("Unread")
-                }
-            }
-
-            let explodingAction = {
-                viewModel.activeFilter = viewModel.activeFilter == .exploding ? .all : .exploding
-            }
-            Button(action: explodingAction) {
-                if viewModel.activeFilter == .exploding {
-                    Label("Exploding", systemImage: "checkmark")
-                } else {
-                    Text("Exploding")
-                }
-            }
-        } label: {
-            Image(systemName: "line.3.horizontal.decrease")
-                .foregroundStyle(isFiltered ? .colorTextPrimaryInverted : .colorFillPrimary)
-                .frame(width: 32, height: 32)
-                .background(isFiltered ? .colorFillPrimary : .clear)
-                .mask(Circle())
-                .overlay(Circle().stroke(isFiltered ? .colorFillPrimary : .clear, lineWidth: 2))
-                .accessibilityLabel(isFiltered ? "Filter active" : "Filter conversations")
-                .accessibilityIdentifier("filter-button")
-        }
-        .disabled(!viewModel.hasUnpinnedConversations)
+        .ignoresSafeArea(edges: .top)
     }
 
     @ViewBuilder
     private var sidebarContent: some View {
-        innerSidebarContent
-    }
-
-    @ViewBuilder
-    private var innerSidebarContent: some View {
-        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
+        if viewModel.isEmptyCTAActive {
             emptyConversationsViewScrollable
-        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty {
             ScrollView {
                 filteredEmptyStateView
             }
@@ -154,96 +228,49 @@ struct ConversationsView: View {
 
     @ToolbarContentBuilder
     private var sidebarToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            ConvosToolbarButton(padding: false) {
-                presentingAppSettings = true
-            }
-            .accessibilityLabel("Convos settings")
-            .accessibilityIdentifier("app-settings-button")
-        }
-        .matchedTransitionSource(id: "app-settings-transition-source", in: namespace)
-
-        ToolbarItem(placement: .topBarTrailing) {
-            CreditsBadge()
-        }
-
-        ToolbarItem(placement: .topBarTrailing) {
-            filterMenu
-        }
-        .matchedTransitionSource(id: "filter-view-transition-source", in: namespace)
-
-        ToolbarItem(placement: .bottomBar) {
-            Spacer()
-        }
-
-        ToolbarItem(placement: .bottomBar) {
-            Button("Scan", systemImage: "viewfinder") {
-                viewModel.onJoinConvo()
-            }
-            .accessibilityLabel("Scan to join a conversation")
-            .accessibilityIdentifier("scan-button")
-            .disabled(viewModel.staleDeviceObserver.isDeviceRemoved)
-        }
-        .matchedTransitionSource(id: "composer-transition-source", in: namespace)
-
-        ToolbarItem(placement: .bottomBar) {
-            Button("Compose", systemImage: "square.and.pencil") {
-                viewModel.onStartConvo()
-            }
-            .accessibilityLabel("Start a new conversation")
-            .accessibilityIdentifier("compose-button")
-            .disabled(viewModel.staleDeviceObserver.isDeviceRemoved)
-        }
-        .matchedTransitionSource(id: "composer-transition-source", in: namespace)
+        // The AppIndicatorPill and compose button are now rendered once
+        // by `MainTabView.sharedTopBar` (a `safeAreaInset(.top)` custom
+        // view) so they persist across tab swaps without flickering.
+        // Empty slot kept here so the NavigationSplitView sidebar's
+        // toolbar layout slot is still allocated.
+        ToolbarItem(placement: .topBarTrailing) { EmptyView() }
     }
 
     var body: some View {
         let resolver = contactOverride
-        let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
-        return ConversationPresenter(
-            viewModel: viewModel.selectedConversationViewModel,
-            focusCoordinator: focusCoordinator,
-            insetsTopSafeArea: true,
-            isReadOnly: isReadOnly,
-            sidebarColumnWidth: $sidebarWidth
-        ) { focusState, coordinator in
-            NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-                sidebarContent
-                    .onGeometryChange(for: CGSize.self) {
-                        $0.size
-                    } action: { newValue in
-                        sidebarWidth = newValue.width
-                    }
-                .background(.colorBackgroundSurfaceless)
-                .toolbarTitleDisplayMode(.inline)
-                .toolbar { sidebarToolbar }
-                .toolbar(removing: .sidebarToggle)
-            } detail: {
-                if let conversationViewModel = viewModel.selectedConversationViewModel {
-                    ConversationView(
-                        viewModel: conversationViewModel,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        focusState: focusState,
-                        focusCoordinator: coordinator,
-                        onScanInviteCode: {},
-                        onDeleteConversation: {},
-                        messagesTopBarTrailingItem: .share,
-                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite,
-                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite,
-                        isReadOnly: isReadOnly,
-                        bottomBarContent: { EmptyView() }
-                    )
-                } else if horizontalSizeClass != .compact {
-                    emptyConversationsViewScrollable
-                } else {
-                    EmptyView()
+        return sidebarContent
+            .onGeometryChange(for: CGSize.self) {
+                $0.size
+            } action: { newValue in
+                sidebarWidth = newValue.width
+            }
+            .background(.colorBackgroundSurfaceless)
+            .overlay(alignment: .bottom) {
+                if let sidebarBottomAccessory {
+                    sidebarBottomAccessory
                 }
             }
+            .navigationDestination(item: chatsDetailBinding) { vm in
+                pushedConversationDestination(viewModel: vm)
+            }
             .onAppear {
-                if viewModel.selectedConversationViewModel != nil {
-                    preferredColumn = .detail
-                }
                 viewModel.onAppear()
+                if viewModel.isEmptyCTAActive {
+                    ensureInlineBuilder()
+                }
+            }
+            .onChange(of: viewModel.isEmptyCTAActive) { _, isActive in
+                // Re-fire whenever the chats list flips back to empty
+                // (e.g. user just deleted the last conversation, or a
+                // post-commit sheet just dismissed and the new convo
+                // hasn't landed in the list yet). `.task` attached to
+                // the conditional empty view branch doesn't reliably
+                // fire when the branch's `if let` body is empty
+                // (committed VM or nil VM), so the trigger lives here
+                // on the parent body where firing is deterministic.
+                if isActive {
+                    ensureInlineBuilder()
+                }
             }
             .task {
                 // Refresh credits + subscription on every conversations-list
@@ -255,25 +282,18 @@ struct ConversationsView: View {
             .onDisappear {
                 viewModel.onDisappear()
             }
-            .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
-                preferredColumn = isNil ? .sidebar : .detail
+            .onChange(of: presentingCommittedConversation == nil) { wasNil, isNil in
+                guard !wasNil, isNil else { return }
+                handleCommittedSheetDidDismiss()
             }
             .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
                 guard let newState, case .exploded = newState else { return }
                 viewModel.selectedConversationId = nil
-                preferredColumn = .sidebar
             }
-            .onChange(of: preferredColumn) { _, newColumn in
-                if newColumn == .sidebar && horizontalSizeClass == .compact {
-                    viewModel.selectedConversationId = nil
-                }
-            }
-        }
         .focusable(false)
         .focusEffectDisabled()
         .memberContactOverride(resolver)
         .modifier(ConversationsSheetModifier(
-            presentingAppSettings: $presentingAppSettings,
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
@@ -304,7 +324,6 @@ struct ConversationsView: View {
 }
 
 private struct ConversationsSheetModifier: ViewModifier {
-    @Binding var presentingAppSettings: Bool
     @Bindable var viewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
@@ -322,29 +341,10 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $presentingAppSettings) {
-                AppSettingsView(
-                    viewModel: viewModel.appSettingsViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    session: viewModel.session,
-                    onDeleteAllData: viewModel.deleteAllData
-                )
-                .navigationTransition(
-                    .zoom(sourceID: "app-settings-transition-source", in: namespace)
-                )
-                .interactiveDismissDisabled(viewModel.appSettingsViewModel.isDeleting)
-            }
-            .sheet(item: $viewModel.newConversationViewModel) { newConvoViewModel in
-                NewConversationView(
-                    viewModel: newConvoViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "composer-transition-source", in: namespace)
-                )
-            }
+            // The `NewConversationView` and `AgentBuilderView` sheets
+            // are both presented from `MainTabView` so the compose
+            // button (top-trailing on every tab) and the agent
+            // builder bar can zoom into them with a shared namespace.
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }
                 CloudConnectionGrantRequestSheet(
@@ -426,7 +426,11 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     ConversationsView(
         viewModel: viewModel,
-        profileSettingsViewModel: profileSettingsViewModel
+        profileSettingsViewModel: profileSettingsViewModel,
+        appIndicatorContext: AppIndicatorContext(
+            profileImage: profileSettingsViewModel.profileImage
+        ),
+        presentingCommittedConversation: .constant(nil)
     )
 }
 
@@ -436,6 +440,10 @@ private struct ConversationsSheetModifier: ViewModifier {
     let profileSettingsViewModel = ProfileSettingsViewModel.shared
     ConversationsView(
         viewModel: viewModel,
-        profileSettingsViewModel: profileSettingsViewModel
+        profileSettingsViewModel: profileSettingsViewModel,
+        appIndicatorContext: AppIndicatorContext(
+            profileImage: profileSettingsViewModel.profileImage
+        ),
+        presentingCommittedConversation: .constant(nil)
     )
 }

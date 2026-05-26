@@ -111,10 +111,10 @@ private func makeEmoji(
     ), .existing)
 }
 
-private func makeAssistantJoinRequest(
+private func makeAgentJoinRequest(
     id: String = UUID().uuidString,
     sender: ConversationMember = currentUser,
-    status: AssistantJoinStatus = .pending,
+    status: AgentJoinStatus = .pending,
     date: Date = Date()
 ) -> AnyMessage {
     .message(Message(
@@ -806,37 +806,37 @@ struct MessagesListProcessorComplexTests {
     }
 }
 
-// MARK: - Assistant Join Request Tests
+// MARK: - Agent Join Request Tests
 
-struct MessagesListProcessorAssistantJoinTests {
-    @Test("Only the last assistant join request is shown")
-    func onlyLastAssistantJoinShown() {
+struct MessagesListProcessorAgentJoinTests {
+    @Test("Only the last agent join request is shown")
+    func onlyLastAgentJoinShown() {
         let now = Date()
         let messages = [
-            makeAssistantJoinRequest(id: "aj-1", date: now.addingTimeInterval(-5)),
+            makeAgentJoinRequest(id: "aj-1", date: now.addingTimeInterval(-5)),
             makeMessage(id: "1", sender: otherUser, text: "Hello", date: now.addingTimeInterval(-3)),
-            makeAssistantJoinRequest(id: "aj-2", date: now),
+            makeAgentJoinRequest(id: "aj-2", date: now),
         ]
         let result = MessagesListProcessor.process(messages)
         let ajItems = result.filter {
-            if case .assistantJoinStatus = $0 { return true }
+            if case .agentJoinStatus = $0 { return true }
             return false
         }
         #expect(ajItems.count == 1)
     }
 
-    @Test("Assistant join request hidden if verified Convos assistant joined after")
+    @Test("Agent join request hidden if verified Convos agent joined after")
     func hiddenAfterAgentJoined() {
         let now = Date()
         let agentMember = ConversationMember(
-            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Convos Assistant", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Convos Agent", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,
             agentVerification: .verified(.convos)
         )
         let messages = [
-            makeAssistantJoinRequest(id: "aj-1", date: now),
+            makeAgentJoinRequest(id: "aj-1", date: now),
             AnyMessage.message(Message(
                 id: "agent-joined",
                 sender: otherUser,
@@ -854,17 +854,17 @@ struct MessagesListProcessorAssistantJoinTests {
         ]
         let result = MessagesListProcessor.process(messages)
         let ajItems = result.filter {
-            if case .assistantJoinStatus = $0 { return true }
+            if case .agentJoinStatus = $0 { return true }
             return false
         }
         #expect(ajItems.isEmpty)
     }
 
-    @Test("Assistant join request hidden and joined update remains visible")
+    @Test("Agent join request hidden and joined update remains visible")
     func hiddenAfterAgentJoinedWhileUpdateStillShown() {
         let now = Date()
         let agentMember = ConversationMember(
-            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Assistant", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Agent", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,
@@ -885,14 +885,14 @@ struct MessagesListProcessorAssistantJoinTests {
             reactions: []
         ), .existing)
         let messages = [
-            makeAssistantJoinRequest(id: "aj-1", date: now),
+            makeAgentJoinRequest(id: "aj-1", date: now),
             joinedUpdate,
         ]
 
         let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 1)
 
-        let assistantJoinStatuses = result.compactMap { item -> AssistantJoinStatus? in
-            if case .assistantJoinStatus(let status, _, _) = item {
+        let agentJoinStatuses = result.compactMap { item -> AgentJoinStatus? in
+            if case .agentJoinStatus(let status, _, _) = item {
                 return status
             }
             return nil
@@ -904,29 +904,29 @@ struct MessagesListProcessorAssistantJoinTests {
             return nil
         }
 
-        #expect(assistantJoinStatuses.isEmpty)
+        #expect(agentJoinStatuses.isEmpty)
         #expect(updates.count == 1)
-        #expect(updates.first?.addedVerifiedAssistant == true)
+        #expect(updates.first?.addedVerifiedAgent == true)
     }
 
-    @Test("Assistant join request hidden when an unverified agent joined after")
+    @Test("Agent join request hidden when an unverified agent joined after")
     func hiddenAfterUnverifiedAgentJoined() {
-        // Real Convos agents may not have `agentVerification.isConvosAssistant`
+        // Real Convos agents may not have `agentVerification.isConvosAgent`
         // set yet at the moment the "agent joined" update is processed —
         // attestation/keyset resolution is async. Dev and local-environment
         // agents may never send attestation at all. Suppress the pending
-        // "Assistant is joining…" status as soon as any agent member joins —
+        // "Agent is joining…" status as soon as any agent member joins —
         // the membership-add itself is the signal the request is fulfilled.
         let now = Date()
         let unverifiedAgent = ConversationMember(
-            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Assistant", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "agent-1", conversationId: "test-conv", name: "Agent", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
             isAgent: true,
             agentVerification: .unverified
         )
         let messages = [
-            makeAssistantJoinRequest(id: "aj-1", date: now),
+            makeAgentJoinRequest(id: "aj-1", date: now),
             AnyMessage.message(Message(
                 id: "agent-joined",
                 sender: otherUser,
@@ -944,16 +944,16 @@ struct MessagesListProcessorAssistantJoinTests {
         ]
         let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 1)
         let ajItems = result.filter {
-            if case .assistantJoinStatus = $0 { return true }
+            if case .agentJoinStatus = $0 { return true }
             return false
         }
         #expect(ajItems.isEmpty)
     }
 
-    @Test("Expired assistant join request is not shown")
-    func expiredAssistantJoinHidden() {
+    @Test("Expired agent join request is not shown")
+    func expiredAgentJoinHidden() {
         let messages = [
-            makeAssistantJoinRequest(
+            makeAgentJoinRequest(
                 id: "aj-1",
                 status: .pending,
                 date: Date().addingTimeInterval(-100)
@@ -961,7 +961,7 @@ struct MessagesListProcessorAssistantJoinTests {
         ]
         let result = MessagesListProcessor.process(messages)
         let ajItems = result.filter {
-            if case .assistantJoinStatus = $0 { return true }
+            if case .agentJoinStatus = $0 { return true }
             return false
         }
         #expect(ajItems.isEmpty)
@@ -1028,22 +1028,22 @@ struct MessagesListProcessorEdgeCaseTests {
 // MARK: - Read Receipt Tests
 
 struct MessagesListProcessorReadReceiptTests {
-    @Test("Read-by member preserves agentVerification for verified Convos assistant")
+    @Test("Read-by member preserves agentVerification for verified Convos agent")
     func readByMemberPreservesVerification() {
         let now = Date()
-        let assistant: ConversationMember = .mock(
+        let agent: ConversationMember = .mock(
             isCurrentUser: false,
-            name: "Convos Assistant",
+            name: "Convos Agent",
             isAgent: true,
             agentVerification: .verified(.convos)
         )
         let messages = [
-            makeMessage(id: "asst-1", sender: assistant, text: "Hi there", date: now),
+            makeMessage(id: "asst-1", sender: agent, text: "Hi there", date: now),
             makeMessage(id: "me-1", sender: currentUser, text: "Hi back", date: now.addingTimeInterval(10)),
         ]
         let readAtNs = Int64(now.addingTimeInterval(20).timeIntervalSince1970 * 1_000_000_000)
         let receipts = [
-            ReadReceiptEntry(inboxId: assistant.profile.inboxId, readAtNs: readAtNs),
+            ReadReceiptEntry(inboxId: agent.profile.inboxId, readAtNs: readAtNs),
         ]
         let result = MessagesListProcessor.process(
             messages,
@@ -1055,16 +1055,16 @@ struct MessagesListProcessorReadReceiptTests {
         #expect(lastCurrentUserGroup != nil)
         let readers = lastCurrentUserGroup?.readByMembers ?? []
         #expect(readers.count == 1)
-        #expect(readers.first?.profile.inboxId == assistant.profile.inboxId)
+        #expect(readers.first?.profile.inboxId == agent.profile.inboxId)
         #expect(readers.first?.agentVerification == .verified(.convos))
     }
 
     @Test("Read-by members carry mixed verification end-to-end")
     func readByMembersMixedVerification() {
         let now = Date()
-        let assistant: ConversationMember = .mock(
+        let agent: ConversationMember = .mock(
             isCurrentUser: false,
-            name: "Convos Assistant",
+            name: "Convos Agent",
             isAgent: true,
             agentVerification: .verified(.convos)
         )
@@ -1076,14 +1076,14 @@ struct MessagesListProcessorReadReceiptTests {
         )
         let regular: ConversationMember = .mock(isCurrentUser: false, name: "Alice")
         let messages = [
-            makeMessage(id: "asst-1", sender: assistant, text: "asst hi", date: now),
+            makeMessage(id: "asst-1", sender: agent, text: "asst hi", date: now),
             makeMessage(id: "oauth-1", sender: oauthAgent, text: "oauth hi", date: now.addingTimeInterval(1)),
             makeMessage(id: "reg-1", sender: regular, text: "reg hi", date: now.addingTimeInterval(2)),
             makeMessage(id: "me-1", sender: currentUser, text: "Hi all", date: now.addingTimeInterval(10)),
         ]
         let readAtNs = Int64(now.addingTimeInterval(20).timeIntervalSince1970 * 1_000_000_000)
         let receipts = [
-            ReadReceiptEntry(inboxId: assistant.profile.inboxId, readAtNs: readAtNs),
+            ReadReceiptEntry(inboxId: agent.profile.inboxId, readAtNs: readAtNs),
             ReadReceiptEntry(inboxId: oauthAgent.profile.inboxId, readAtNs: readAtNs + 1),
             ReadReceiptEntry(inboxId: regular.profile.inboxId, readAtNs: readAtNs + 2),
         ]
@@ -1097,7 +1097,7 @@ struct MessagesListProcessorReadReceiptTests {
         let readers = lastCurrentUserGroup?.readByMembers ?? []
         #expect(readers.count == 3)
         let byInbox = Dictionary(uniqueKeysWithValues: readers.map { ($0.profile.inboxId, $0.agentVerification) })
-        #expect(byInbox[assistant.profile.inboxId] == .verified(.convos))
+        #expect(byInbox[agent.profile.inboxId] == .verified(.convos))
         #expect(byInbox[oauthAgent.profile.inboxId] == .verified(.userOAuth))
         #expect(byInbox[regular.profile.inboxId] == .unverified)
     }

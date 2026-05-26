@@ -45,7 +45,42 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// prewarm is kicked off for the next caller. `conversationId` is nil
     /// if no prepared group was available and the caller should create one
     /// on demand.
+    ///
+    /// **Visibility contract:** when `conversationId` is non-nil, the row
+    /// stays `isUnused = true` (hidden from the chats list) until the
+    /// caller calls `commitClaimedConversation(id:)`. If the caller will
+    /// instead abandon the row, it should call `discardClaimedConversation`
+    /// (which deletes the row) or, if the row should be kept on disk but
+    /// the cache claim dropped, `releaseClaimedConversation`.
     func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
+
+    /// Promotes a row previously claimed via `prepareNewConversation()`
+    /// into a real visible conversation: flips `isUnused = false` and
+    /// refreshes its `createdAt` so it sorts at the top of the chats
+    /// list. Call this exactly once, when the user has confirmed intent
+    /// (sent the builder bundle, generated an invite, sent the first
+    /// message, etc.).
+    func commitClaimedConversation(id conversationId: String) async
+
+    /// Drops the in-memory cache claim without touching the DB row. The
+    /// row stays `isUnused = true` and remains hidden. Use this when the
+    /// caller is bailing out without committing or discarding — e.g. the
+    /// flow re-enters and wants to re-claim from a fresh prewarm.
+    func releaseClaimedConversation(id conversationId: String) async
+
+    /// Drops a conversation that was claimed via `prepareNewConversation()` but
+    /// never engaged with by the user — typically called from the new-
+    /// conversation / Agent Builder X-cancel path when no messages have
+    /// been sent. Deletes the local `DBConversation` row and its dependent
+    /// rows (members, profiles, local state) so the conversation disappears
+    /// from the conversations list, and releases the in-memory cache claim
+    /// so the next prewarm runs. The single-inbox refactor turned the
+    /// older `session.deleteInbox` cleanup into a no-op (it would destroy the
+    /// user's account); this is the replacement scoped to a single
+    /// conversation. Draft ids are a no-op — drafts don't have on-disk rows
+    /// the user can see.
+    func discardClaimedConversation(id conversationId: String) async
+
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
@@ -57,7 +92,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
-    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+    func requestAgentJoin(
+        slug: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse
 
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
@@ -70,7 +110,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing
 
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
-    func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository
+    func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository
+    func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol
+    func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol
+    func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(
@@ -136,6 +179,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the view model having to know about HealthKit / EventKit / etc.
     func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer
 
+    /// `DataSink` the host has linked for `kind`, or `nil` if the host opted out
+    /// of that kind via `PlatformProviders.deviceConnections`. Lets the view-model
+    /// layer query a sink's `actionSchemas()` without hard-referencing per-kind
+    /// classes (which would force the corresponding Apple framework into the
+    /// binary even when the host doesn't ship that kind).
+    func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)?
+
     /// Per-conversation observer of every `(subject, capability)` resolution the user
     /// has approved. Conversation Info uses this to render the "Connections" section.
     func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol
@@ -143,7 +193,21 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 }
 
 extension SessionManagerProtocol {
-    public func requestAgentJoin(slug: String, templateId: String?) async throws -> ConvosAPI.AgentJoinResponse {
-        try await requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: nil)
+    public func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: nil, options: nil, forceErrorCode: nil)
+    }
+
+    public func requestAgentJoin(
+        slug: String,
+        options: ConvosAPI.AgentJoinOptions?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: nil, options: options, forceErrorCode: nil)
+    }
+
+    public func requestAgentJoin(
+        slug: String,
+        templateId: String?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, templateId: templateId, options: nil, forceErrorCode: nil)
     }
 }

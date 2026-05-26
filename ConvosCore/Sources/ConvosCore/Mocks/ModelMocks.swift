@@ -52,8 +52,8 @@ public extension Conversation {
             expiresAt: nil,
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: mockMembers.contains(where: \.agentVerification.isConvosAssistant)
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: mockMembers.contains(where: \.agentVerification.isConvosAgent)
         )
     }
 
@@ -98,8 +98,8 @@ public extension Conversation {
             expiresAt: .distantFuture,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false
         )
     }
 
@@ -143,8 +143,8 @@ public extension Conversation {
             expiresAt: .distantFuture,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil,
-            hasHadVerifiedAssistant: false
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: false
         )
     }
 }

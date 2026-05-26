@@ -73,8 +73,8 @@ private struct AvatarContentWidthKey: PreferenceKey {
 
 #Preview("Mixed read receipts") {
     let regular = ConversationMember.mock(name: "Alice")
-    let verifiedAssistant = ConversationMember.mock(
-        name: "Convos Assistant",
+    let verifiedAgent = ConversationMember.mock(
+        name: "Convos Agent",
         isAgent: true,
         agentVerification: .verified(.convos)
     )
@@ -83,6 +83,6 @@ private struct AvatarContentWidthKey: PreferenceKey {
         isAgent: true,
         agentVerification: .verified(.userOAuth)
     )
-    return ReadReceiptAvatarsView(members: [regular, verifiedAssistant, userOAuthAgent])
+    return ReadReceiptAvatarsView(members: [regular, verifiedAgent, userOAuthAgent])
         .padding()
 }

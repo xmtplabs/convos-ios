@@ -423,6 +423,59 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return (service, conversationId)
     }
 
+    public func commitClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.commitClaimedConversation(
+            id: conversationId,
+            databaseWriter: databaseWriter
+        )
+    }
+
+    public func releaseClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.releaseClaimedConversationId(conversationId)
+    }
+
+    public func discardClaimedConversation(id conversationId: String) async {
+        await unusedConversationCache.releaseClaimedConversationId(conversationId)
+        guard !DBConversation.isDraft(id: conversationId) else { return }
+
+        // Leave the XMTP group BEFORE the local row goes away so we don't
+        // orphan it on the network. Cache-claimed conversations are
+        // published in `UnusedConversationCache.runPreparation`, so by
+        // the time the user discards, the group is live with us as the
+        // sole member. Without `leaveGroup`, every cache cycle the user
+        // discards leaves a stranded MLS group on the server — over
+        // time, syncs re-deliver those groups and the chats list can
+        // briefly flash empty rows before the consent filter catches
+        // up.
+        do {
+            let inboxReady = try await loadOrCreateService().sessionStateManager.waitForInboxReadyResult()
+            if let xmtpConversation = try await inboxReady.client.conversation(with: conversationId),
+               case .group(let group) = xmtpConversation {
+                try await group.leaveGroup()
+            }
+        } catch {
+            Log.error("Failed to leave XMTP group for discarded conversation \(conversationId): \(error). The group may remain on the network.")
+        }
+
+        do {
+            try await databaseWriter.write { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == conversationId)
+                    .deleteAll(db)
+                try DBConversation.deleteOne(db, key: conversationId)
+            }
+            Log.info("Discarded claimed conversation \(conversationId)")
+        } catch {
+            Log.error("Failed to discard claimed conversation \(conversationId): \(error)")
+        }
+    }
+
     public func deleteAllInboxes() async throws {
         for try await _ in deleteAllInboxesWithProgress() {}
     }
@@ -619,8 +672,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
-    public func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        try await apiClient.requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: forceErrorCode)
+    public func requestAgentJoin(
+        slug: String,
+        templateId: String? = nil,
+        options: ConvosAPI.AgentJoinOptions? = nil,
+        forceErrorCode: Int? = nil
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await apiClient.requestAgentJoin(
+            slug: slug,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode
+        )
     }
 
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
@@ -673,8 +736,20 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AttachmentLocalStateWriter(databaseWriter: databaseWriter)
     }
 
-    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        AssistantFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
+    public func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        AgentFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
+    }
+
+    public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        AgentBuilderSummaryWriter(databaseWriter: databaseWriter)
+    }
+
+    public func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        AgentBuilderSummaryRepository(databaseReader: databaseReader)
+    }
+
+    public func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        ThinkingSessionRepository(databaseReader: databaseReader)
     }
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
@@ -849,7 +924,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
-        DefaultDeviceConnectionAuthorizer()
+        DefaultDeviceConnectionAuthorizer(
+            dataSources: platformProviders.deviceConnections.dataSources
+        )
+    }
+
+    public func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        platformProviders.deviceConnections.dataSinks.first(where: { $0.kind == kind })
     }
 
     public func capabilityResolutionsRepository(for conversationId: String) -> any CapabilityResolutionsRepositoryProtocol {
