@@ -59,6 +59,35 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// `ConnectionKind` for device-backed kinds, `nil` for cloud kinds.
+    /// Used by `supportedCases` to gate device kinds behind the same
+    /// allowlist (`SupportedConnections`) that the chat-side picker and
+    /// `ConversationConnectionsViewModel` already respect.
+    var deviceKind: ConnectionKind? {
+        switch self {
+        case .appleHealth: return .health
+        case .googleCalendar: return nil
+        }
+    }
+
+    /// Cases currently surfaced to users. Mirrors the gating in
+    /// `ConversationConnectionsViewModel`: device kinds are filtered by
+    /// `SupportedConnections.supportedDeviceKinds` and cloud kinds by
+    /// `SupportedConnections.supportedCloudServiceIds`. v1 ships cloud-
+    /// only (Google Calendar) — Apple Health is hidden until the host
+    /// re-introduces it in `SupportedConnections`.
+    static var supportedCases: [AgentBuilderConnection] {
+        allCases.filter { connection in
+            if let kind = connection.deviceKind {
+                return SupportedConnections.isSupported(kind)
+            }
+            if let cloudServiceId = connection.cloudServiceId {
+                return SupportedConnections.isSupported(cloudServiceId: cloudServiceId)
+            }
+            return false
+        }
+    }
+
     static let googleCalendarServiceId: String = "googlecalendar"
 }
 

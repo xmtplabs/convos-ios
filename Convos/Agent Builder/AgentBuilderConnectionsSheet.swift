@@ -18,7 +18,7 @@ struct AgentBuilderConnectionsSheet: View {
                 .padding(.bottom, DesignConstants.Spacing.step2x)
 
             VStack(spacing: 0) {
-                ForEach(Array(AgentBuilderConnection.allCases.enumerated()), id: \.element.id) { index, connection in
+                ForEach(Array(AgentBuilderConnection.supportedCases.enumerated()), id: \.element.id) { index, connection in
                     if index > 0 {
                         Divider()
                             .padding(.leading, DesignConstants.Spacing.step10x + DesignConstants.Spacing.step4x)

@@ -346,6 +346,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// avatar / display name path takes over naturally.
     var shouldRenderAsPendingAgent: Bool {
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
+        // While the builder is on screen, always render as pending. The
+        // verified agent may have silently joined the draft conversation
+        // in the background, but the indicator should keep showing the
+        // generic agent icon + "New Agent" / "Draft" copy until the user
+        // taps Make. The post-commit branch (`agentBuilderSummary != nil`)
+        // still flips back to the real agent the moment the verified
+        // member appears.
+        if isInAgentBuilderFlow { return true }
         return !conversation.members.contains(where: \.isVerifiedConvosAgent)
     }
 
