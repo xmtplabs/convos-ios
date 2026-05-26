@@ -152,8 +152,8 @@ struct SubscriptionSettingsView: View {
     NavigationStack {
         SubscriptionSettingsView()
             .onAppear {
-                MockCreditsService.shared.setPreset(.builderAmple)
-                MockSubscriptionService.shared.setPreset(.builderAmple)
+                MockCreditsService.shared.setPreset(.plusAmple)
+                MockSubscriptionService.shared.setPreset(.plusAmple)
             }
     }
 }

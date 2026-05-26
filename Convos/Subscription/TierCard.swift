@@ -152,14 +152,14 @@ struct TierCard: View {
     )
     return VStack(spacing: 16) {
         TierCard(
-            tier: .builder,
+            tier: .plus,
             product: product,
             isCurrent: false,
             isPurchasing: false,
             onPurchase: { _ in }
         )
         TierCard(
-            tier: .pro,
+            tier: .plus,
             product: nil,
             isCurrent: true,
             isPurchasing: false,

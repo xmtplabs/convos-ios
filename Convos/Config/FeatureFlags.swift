@@ -21,12 +21,12 @@ final class FeatureFlags {
     }
 
     /// Mock credits/subscription state used by the in-app paywall preview surface
-    /// in the Debug menu. Non-production only; defaults to `.builderAmple`.
+    /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
         get {
             let raw = UserDefaults.standard.string(forKey: Constant.mockCreditsPresetKey)
-                ?? CreditsStatePreset.builderAmple.rawValue
-            return CreditsStatePreset(rawValue: raw) ?? .builderAmple
+                ?? CreditsStatePreset.plusAmple.rawValue
+            return CreditsStatePreset(compatibleRawValue: raw) ?? .plusAmple
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: Constant.mockCreditsPresetKey)

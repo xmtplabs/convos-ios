@@ -15,7 +15,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     private var currentSubscriptionSnapshot: UserSubscription?
     private let mockProducts: [PaywallProduct]
 
-    public init(initialPreset: CreditsStatePreset = .builderAmple) {
+    public init(initialPreset: CreditsStatePreset = .plusAmple) {
         let initialSubscription: UserSubscription? = initialPreset.subscription()
         self.currentPreset = initialPreset
         self.currentSubscriptionSnapshot = initialSubscription
@@ -53,13 +53,8 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
             willRenew: true,
             isInTrial: false
         )
-        // Persist the purchased subscription so a subsequent refresh() doesn't
-        // revert the publisher to the preset's subscription. The preset is
-        // also bumped to a sensible matching ample state so debug-only credits
-        // surfaces don't lie (e.g. a Pro purchase shouldn't leave the credits
-        // preset on noSubNoTrial — Pro -> proAmple, Builder -> builderAmple).
         queue.sync {
-            currentPreset = product.tier == .pro ? .proAmple : .builderAmple
+            currentPreset = .plusAmple
             currentSubscriptionSnapshot = updated
         }
         subscriptionSubject.send(updated)
@@ -70,9 +65,6 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     }
 
     public func refresh(force: Bool) async {
-        // Mock has no real backend to talk to; re-publish the persisted
-        // snapshot. `setPreset()` updates the snapshot to the preset's
-        // subscription so debug-menu state changes still propagate.
         let snapshot = queue.sync { currentSubscriptionSnapshot }
         subscriptionSubject.send(snapshot)
     }
@@ -89,27 +81,19 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     private static func defaultMockProducts() -> [PaywallProduct] {
         [
             PaywallProduct(
-                id: SubscriptionProductIDs.builderMonthly,
-                tier: .builder,
+                id: SubscriptionProductIDs.plusMonthly,
+                tier: .plus,
                 period: .monthly,
                 displayPrice: "$19.99",
                 pricePerMonthDisplay: nil,
                 currencyCode: "USD"
             ),
             PaywallProduct(
-                id: SubscriptionProductIDs.builderAnnual,
-                tier: .builder,
+                id: SubscriptionProductIDs.plusAnnual,
+                tier: .plus,
                 period: .annual,
                 displayPrice: "$214.99",
                 pricePerMonthDisplay: "$17.92/mo",
-                currencyCode: "USD"
-            ),
-            PaywallProduct(
-                id: SubscriptionProductIDs.proMonthly,
-                tier: .pro,
-                period: .monthly,
-                displayPrice: "$199.99",
-                pricePerMonthDisplay: nil,
                 currencyCode: "USD"
             ),
         ]

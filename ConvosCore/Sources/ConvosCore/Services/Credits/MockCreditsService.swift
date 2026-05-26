@@ -12,7 +12,7 @@ public final class MockCreditsService: CreditsServiceProtocol, @unchecked Sendab
     private let queue: DispatchQueue = DispatchQueue(label: "convos.mock-credits-service")
     private var currentPreset: CreditsStatePreset
 
-    public init(initialPreset: CreditsStatePreset = .builderAmple) {
+    public init(initialPreset: CreditsStatePreset = .plusAmple) {
         self.currentPreset = initialPreset
         self.balanceSubject = CurrentValueSubject(initialPreset.balance())
     }

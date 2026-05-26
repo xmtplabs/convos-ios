@@ -14,34 +14,25 @@ enum SubscriptionCopy {
 
     static func displayName(for tier: SubscriptionTier) -> String {
         switch tier {
-        case .builder: return "Builder"
-        case .pro: return "Pro"
+        case .plus: return "Plus"
         }
     }
 
     static func outcomes(for tier: SubscriptionTier) -> [String] {
         switch tier {
-        case .builder:
+        case .plus:
             return [
                 "Plan ~5 trips",
                 "Run a daily agent for a month",
                 "Draft ~100 emails",
-            ]
-        case .pro:
-            return [
-                "Plan ~20 trips",
-                "Power a team of agents",
-                "Plan a wedding",
             ]
         }
     }
 
     static func features(for tier: SubscriptionTier) -> [String] {
         switch tier {
-        case .builder:
+        case .plus:
             return []
-        case .pro:
-            return ["Priority support"]
         }
     }
 }
