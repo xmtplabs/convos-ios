@@ -208,6 +208,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         static let agentDescriptionMetadataKey: String = "description"
         static let templateIdKey: String = "templateId"
         static let publishedURLKey: String = "publishedUrl"
+        static let instanceIdKey: String = "instanceId"
     }
 }
 
@@ -233,6 +234,14 @@ extension Profile {
     /// the matching accessor on `DBMemberProfile`.
     public var agentTemplatePublishedURL: String? {
         metadata?[Constant.publishedURLKey]?.stringValue
+    }
+
+    /// The agent runtime's `instanceId` for this provisioned agent
+    /// (one templateId spawns N instances, each with its own inboxId).
+    /// Surfaced on the contact card behind an internal-build gate for
+    /// log correlation.
+    public var agentInstanceId: String? {
+        metadata?[Constant.instanceIdKey]?.stringValue
     }
 }
 

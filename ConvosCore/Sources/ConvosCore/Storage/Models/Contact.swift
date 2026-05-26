@@ -49,6 +49,10 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// the same emoji avatar that `MessageAvatarView` shows in the
     /// messages list.
     public let profileEmoji: String?
+    /// The agent runtime's `instanceId` for a specific provisioned agent.
+    /// Not persisted on `DBContact`; overlaid at resolution time from the
+    /// per-conversation member profile (see `Contact.resolved(member:...)`).
+    public let agentInstanceId: String?
 
     public init(
         inboxId: String,
@@ -63,7 +67,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentVerification: AgentVerification? = nil,
         agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil,
-        profileEmoji: String? = nil
+        profileEmoji: String? = nil,
+        agentInstanceId: String? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -78,6 +83,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.agentTemplateId = agentTemplateId
         self.agentTemplatePublishedURL = agentTemplatePublishedURL
         self.profileEmoji = profileEmoji
+        self.agentInstanceId = agentInstanceId
     }
 
     /// True when this contact has the full set of AES-256-GCM material
@@ -159,7 +165,8 @@ extension Contact {
         agentVerification: AgentVerification? = nil,
         agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil,
-        profileEmoji: String? = nil
+        profileEmoji: String? = nil,
+        agentInstanceId: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -174,7 +181,8 @@ extension Contact {
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
-            profileEmoji: profileEmoji
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -196,7 +204,8 @@ extension Contact {
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
-            profileEmoji: profileEmoji
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -218,7 +227,8 @@ extension Contact {
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
-            profileEmoji: profileEmoji
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -244,7 +254,8 @@ extension Contact {
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
-            profileEmoji: profileEmoji
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 
@@ -266,7 +277,28 @@ extension Contact {
             agentVerification: agentVerification,
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
-            profileEmoji: profileEmoji
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
+        )
+    }
+
+    /// Returns a copy with `agentInstanceId` overlaid.
+    public func with(agentInstanceId: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId
         )
     }
 }

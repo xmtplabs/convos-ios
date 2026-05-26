@@ -72,6 +72,33 @@ struct AgentTemplateMetadataTests {
         #expect(profile.agentTemplateId == nil)
         #expect(profile.isAgentTemplate == false)
     }
+
+    @Test("A template-backed agent exposes the instanceId when published")
+    func templateBackedAgentExposesInstanceId() {
+        let profile = makeProfile(
+            memberKind: .verifiedConvos,
+            metadata: [
+                "templateId": .string("200e27dc-badc-429f-a431-b01b0281ec95"),
+                "instanceId": .string("inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+            ]
+        )
+        #expect(profile.agentInstanceId == "inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+    }
+
+    @Test("A human member exposes no instanceId")
+    func humanMemberHasNoInstanceId() {
+        let profile = makeProfile(memberKind: nil, metadata: nil)
+        #expect(profile.agentInstanceId == nil)
+    }
+
+    @Test("A non-string instanceId metadata value does not resolve")
+    func nonStringInstanceIdIgnored() {
+        let profile = makeProfile(
+            memberKind: .agent,
+            metadata: ["instanceId": .number(42)]
+        )
+        #expect(profile.agentInstanceId == nil)
+    }
 }
 
 struct ProfileAgentTemplateMetadataTests {
@@ -117,6 +144,21 @@ struct ProfileAgentTemplateMetadataTests {
         )
         #expect(profile.agentTemplateId == nil)
         #expect(profile.agentTemplatePublishedURL == nil)
+    }
+
+    @Test("A template-backed agent profile exposes the instanceId when published")
+    func templateBackedAgentExposesInstanceId() {
+        let profile = makeProfile(
+            isAgent: true,
+            metadata: ["instanceId": .string("inst_01HZQX0K7AYB5R8N3W2J6FQGCD")]
+        )
+        #expect(profile.agentInstanceId == "inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+    }
+
+    @Test("A human profile exposes no instanceId")
+    func humanProfileHasNoInstanceId() {
+        let profile = makeProfile(isAgent: false, metadata: nil)
+        #expect(profile.agentInstanceId == nil)
     }
 }
 
@@ -166,5 +208,38 @@ struct ContactAgentTemplateTests {
         )
         let cleared = base.with(agentTemplatePublishedURL: nil)
         #expect(cleared.agentTemplatePublishedURL == nil)
+    }
+
+    @Test("with(agentInstanceId:) overlays the id onto a copy")
+    func withOverlaysInstanceId() {
+        let base = Contact.mock(displayName: "Tifoso")
+        #expect(base.agentInstanceId == nil)
+
+        let overlaid = base.with(agentInstanceId: "inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+        #expect(overlaid.agentInstanceId == "inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+        #expect(overlaid.inboxId == base.inboxId)
+        #expect(overlaid.displayName == base.displayName)
+        #expect(overlaid.isBlocked == base.isBlocked)
+    }
+
+    @Test("with(agentInstanceId:) preserves an existing templateId")
+    func withInstanceIdPreservesTemplateId() {
+        let base = Contact.mock(
+            displayName: "Tifoso",
+            agentTemplateId: "200e27dc-badc-429f-a431-b01b0281ec95"
+        )
+        let overlaid = base.with(agentInstanceId: "inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+        #expect(overlaid.agentTemplateId == "200e27dc-badc-429f-a431-b01b0281ec95")
+        #expect(overlaid.agentInstanceId == "inst_01HZQX0K7AYB5R8N3W2J6FQGCD")
+    }
+
+    @Test("with(agentInstanceId:) can clear the id")
+    func withCanClearInstanceId() {
+        let base = Contact.mock(
+            displayName: "Tifoso",
+            agentInstanceId: "inst_01HZQX0K7AYB5R8N3W2J6FQGCD"
+        )
+        let cleared = base.with(agentInstanceId: nil)
+        #expect(cleared.agentInstanceId == nil)
     }
 }
