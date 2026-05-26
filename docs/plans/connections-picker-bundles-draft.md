@@ -1,8 +1,8 @@
 # Connections Picker — Bundles + Backend Config (draft)
 
-**status:** draft
+**status:** approved
 **owner:** louis
-**date:** 2026-05-19
+**date:** 2026-05-26
 **related:** [capability-resolution-flows.md](capability-resolution-flows.md) (how the picker gets triggered — agent sends a capability request, device opens the sheet)
 
 ## The thing
