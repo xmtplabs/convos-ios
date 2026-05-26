@@ -196,7 +196,6 @@ final class ConversationsViewModel {
         unpinnedConversations.isEmpty
             && pinnedConversations.isEmpty
             && activeFilter == .all
-            && UIDevice.current.userInterfaceIdiom == .phone
     }
 
     private static let hasCreatedMoreThanOneConvoKey: String = "hasCreatedMoreThanOneConvo"

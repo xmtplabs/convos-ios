@@ -210,9 +210,9 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private var sidebarContent: some View {
-        if viewModel.isEmptyCTAActive && horizontalSizeClass == .compact {
+        if viewModel.isEmptyCTAActive {
             emptyConversationsViewScrollable
-        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty {
             ScrollView {
                 filteredEmptyStateView
             }

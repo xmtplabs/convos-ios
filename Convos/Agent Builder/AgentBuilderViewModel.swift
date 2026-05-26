@@ -239,11 +239,15 @@ final class AgentBuilderViewModel: Identifiable {
             capturedCloudConnectionIds.removeValue(forKey: connection)
             return
         }
-        guard !isConnectingCloud else { return }
         switch connection {
         case .appleHealth:
+            // Device-only connection — no network or OAuth. Enable
+            // immediately regardless of any in-flight cloud OAuth.
             enabledConnections.insert(connection)
         case .googleCalendar:
+            // Block re-entry only on the cloud OAuth path; another OAuth
+            // already in flight would race for the ASWebAuthenticationSession.
+            guard !isConnectingCloud else { return }
             let serviceId: String = AgentBuilderConnection.googleCalendarServiceId
             if let existing = cloudConnections.first(where: { $0.serviceId == serviceId }) {
                 capturedCloudConnectionIds[connection] = existing.id

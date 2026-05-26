@@ -116,6 +116,13 @@ struct MainTabView: View {
     /// own focus chain (which still drives the message text field).
     @FocusState private var liftedIndicatorFocus: MessagesViewInputFocus?
     @State private var liftedIndicatorFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
+    /// True when the iPad app is running in a windowed (non-fullscreen)
+    /// state, where iPadOS 26 renders the "traffic light" controls
+    /// (close / minimize / fullscreen) at the top-leading edge of the
+    /// window. Drives extra leading inset on the app-indicator pill so
+    /// it doesn't overlap the controls. Stays false on iPhone (no
+    /// window chrome) and on iPad in fullscreen.
+    @State private var isInTrafficLightWindow: Bool = false
 
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
@@ -358,6 +365,35 @@ struct MainTabView: View {
         .ignoresSafeArea()
         .allowsHitTesting(true)
         .zIndex(1000)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { _ in
+            updateTrafficLightWindowState()
+        })
+    }
+
+    /// Update the traffic-light-window flag by comparing the active
+    /// window's frame to its screen's bounds. Fullscreen reports
+    /// `window.frame == screen.bounds` (no chrome inset). Maximized and
+    /// windowed both leave the frame offset/shrunk by the iPadOS 26
+    /// title-bar strip even at full width, so they require the leading
+    /// inset on the indicator pill to clear the traffic-light controls.
+    /// iPhone (no window chrome) always reports `false`.
+    private func updateTrafficLightWindowState() {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            if isInTrafficLightWindow { isInTrafficLightWindow = false }
+            return
+        }
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        guard let window = scene?.windows.first(where: \.isKeyWindow) ?? scene?.windows.first,
+              let screenBounds = scene?.screen.bounds else {
+            return
+        }
+        let isFullScreen: Bool = window.frame == screenBounds
+        let isWindowed: Bool = !isFullScreen
+        if isWindowed != isInTrafficLightWindow {
+            isInTrafficLightWindow = isWindowed
+        }
     }
 
     @ViewBuilder
@@ -378,8 +414,15 @@ struct MainTabView: View {
             Spacer(minLength: 0)
         }
         .padding(.top, safeAreaInsets.top)
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.leading, leadingAppIndicatorPadding)
+        .padding(.trailing, DesignConstants.Spacing.step3x)
         .transition(.blurReplace)
+    }
+
+    private var leadingAppIndicatorPadding: CGFloat {
+        isInTrafficLightWindow
+            ? Constant.iPadIndicatorLeadingPadding
+            : DesignConstants.Spacing.step3x
     }
 
     @ViewBuilder
@@ -615,6 +658,13 @@ struct MainTabView: View {
         /// at the boundary.
         static let collapseScrollThreshold: CGFloat = 20.0
         static let expandScrollThreshold: CGFloat = 4.0
+        /// Leading inset on the app-indicator pill when the iPad app is
+        /// in a windowed (non-fullscreen) state. iPadOS 26 renders
+        /// window chrome ("traffic lights": close / minimize /
+        /// fullscreen) at the top-leading edge of windows, so the pill
+        /// needs extra leading room to clear them. Fullscreen and iPhone
+        /// use the regular horizontal step (no window chrome).
+        static let iPadIndicatorLeadingPadding: CGFloat = 88.0
     }
 }
 
