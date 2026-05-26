@@ -123,7 +123,11 @@ struct DebugViewSection: View {
                     .foregroundStyle(.colorTextPrimary)
             }
             .sheet(isPresented: $presentingPaywall) {
-                let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+                let viewModel = PaywallViewModel(
+                    subscriptionService: SubscriptionServices.shared,
+                    source: .debug,
+                    coreMetrics: PostHogConfiguration.sharedCoreMetrics
+                )
                 PaywallView(viewModel: viewModel)
             }
         }

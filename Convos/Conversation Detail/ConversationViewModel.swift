@@ -469,7 +469,10 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     @ObservationIgnored
     let metricsDelegate: CollectorDelegate
     @ObservationIgnored
-    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(delegate: metricsDelegate)
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(
+        delegate: metricsDelegate,
+        stableId: PostHogConfiguration.stableIdEncoder
+    )
 
     var presentingConversationSettings: Bool {
         get { navState.presentingConversationSettings }
@@ -1986,7 +1989,7 @@ extension ConversationViewModel {
             recordSentMessageMetric(
                 startedAt: metricStartedAt,
                 memberCount: metricMemberCount,
-                attachmentCount: metricAttachmentTypes.count,
+                attachmentTypes: metricAttachmentTypes,
                 hasText: hasText,
                 hasAssistant: metricHasAssistant,
                 isSuccess: sendSucceeded
@@ -1997,7 +2000,7 @@ extension ConversationViewModel {
     private func recordSentMessageMetric(
         startedAt: Date,
         memberCount: Int,
-        attachmentCount: Int,
+        attachmentTypes: [String],
         hasText: Bool,
         hasAssistant: Bool,
         isSuccess: Bool
@@ -2008,7 +2011,7 @@ extension ConversationViewModel {
             await metrics.actions.sentMessage(
                 sendingTime: sendingTime,
                 memberCount: memberCount,
-                attachmentCount: attachmentCount,
+                attachmentTypes: attachmentTypes,
                 hasText: hasText,
                 hasAssistant: hasAssistant,
                 isSuccess: isSuccess

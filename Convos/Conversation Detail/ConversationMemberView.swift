@@ -34,7 +34,11 @@ struct ConversationMemberView: View {
             await CreditsServices.shared.refresh()
         }
         .sheet(isPresented: $presentingPaywall) {
-            let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            let paywallViewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                source: .memberCard,
+                coreMetrics: PostHogConfiguration.sharedCoreMetrics
+            )
             PaywallView(viewModel: paywallViewModel)
         }
         .alert(

@@ -120,7 +120,10 @@ class NewConversationViewModel: Identifiable {
 
     private let metricsDelegate: CollectorDelegate
     @ObservationIgnored
-    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(delegate: metricsDelegate)
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(
+        delegate: metricsDelegate,
+        stableId: PostHogConfiguration.stableIdEncoder
+    )
     @ObservationIgnored
     private var verificationStartedAt: Date?
     @ObservationIgnored

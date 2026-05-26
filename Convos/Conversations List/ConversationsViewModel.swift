@@ -171,7 +171,10 @@ final class ConversationsViewModel {
     @ObservationIgnored
     let metricsDelegate: CollectorDelegate
     @ObservationIgnored
-    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(delegate: metricsDelegate)
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(
+        delegate: metricsDelegate,
+        stableId: PostHogConfiguration.stableIdEncoder
+    )
     @ObservationIgnored
     private var didIdentifyUser: Bool = false
     @ObservationIgnored
@@ -286,28 +289,28 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation
         )
     }
 
     func onJoinConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .scanner
         )
     }
 
     private func join(from inviteCode: String) {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
         )
     }
 
     private func startConversation(withAgentTemplateId templateId: String) {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversationWithTemplate(templateId: templateId)
         )
@@ -566,7 +569,7 @@ final class ConversationsViewModel {
                 let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 guard !Task.isCancelled else { return }
                 let inboxId = inboxResult.client.inboxId
-                metrics.identify(userId: inboxId)
+                metrics.identify(privateKey: Data(inboxId.utf8))
                 await MainActor.run {
                     self?.sendCurrentUserProperties()
                 }

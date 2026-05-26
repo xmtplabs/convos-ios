@@ -32,6 +32,8 @@ final class AppSettingsNavigatorImpl: @preconcurrency AppSettingsNavigator {
         presentingDeleteAllDataConfirmation = true
     }
 
+    func navigateTo(subscriptionSettings: SubscriptionSettingsNavigatorArgs) {}
+
     func closed(context: ScreenContext) {
         screenAppearAt = nil
     }

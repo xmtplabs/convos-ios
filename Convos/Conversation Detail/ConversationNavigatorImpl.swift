@@ -30,6 +30,8 @@ final class ConversationNavigatorImpl: @preconcurrency ConversationNavigator {
 
     // MARK: - ConversationNavigator
 
+    func present(paywall: PaywallNavigatorArgs) {}
+
     func present(conversationInfo: ConversationInfoNavigatorArgs) {
         presentingConversationSettings = true
     }

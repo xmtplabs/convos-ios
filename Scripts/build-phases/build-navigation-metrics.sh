@@ -26,6 +26,11 @@ METRICS_DIR="${SUBMODULE_DIR}/metrics"
 GRADLE_OUTPUT="${METRICS_DIR}/descriptors/build/generated/ksp/main/resources/swift"
 DEST_DIR="${REPO_ROOT}/ConvosMetrics"
 
+if [ -e "${DEST_DIR}/Package.swift" ] && [ ! -d "${SUBMODULE_DIR}" ]; then
+    echo "ConvosMetrics already present at ${DEST_DIR} (symlink or vendored); skipping gradle codegen"
+    exit 0
+fi
+
 if [ ! -f "${METRICS_DIR}/settings.gradle.kts" ]; then
     echo "convos-shared submodule not initialized; running git submodule update --init"
     git -C "${REPO_ROOT}" submodule update --init --recursive convos-shared

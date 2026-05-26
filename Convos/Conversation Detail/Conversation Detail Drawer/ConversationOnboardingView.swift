@@ -129,7 +129,11 @@ struct ConversationOnboardingView: View {
 
     @ViewBuilder
     private var nuxPaywallSheetContent: some View {
-        let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+        let paywallViewModel = PaywallViewModel(
+            subscriptionService: SubscriptionServices.shared,
+            source: .onboarding,
+            coreMetrics: PostHogConfiguration.sharedCoreMetrics
+        )
         let onPurchaseSucceeded: () -> Void = {
             Task { await coordinator.userDidCompleteNUXPaywall() }
         }

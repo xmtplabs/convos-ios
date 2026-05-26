@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import StoreKit
 import SwiftUI
 
@@ -10,6 +11,7 @@ struct SubscriptionSettingsView: View {
     @State private var subscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var presentingPaywall: Bool = false
     @State private var presentingManageSubscriptions: Bool = false
+    @State private var navState: SubscriptionSettingsNavigatorImpl = .init()
 
     var body: some View {
         List {
@@ -41,10 +43,24 @@ struct SubscriptionSettingsView: View {
             await SubscriptionServices.shared.refresh(force: true)
         }
         .sheet(isPresented: $presentingPaywall) {
-            let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            let viewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                source: .settings,
+                coreMetrics: PostHogConfiguration.sharedCoreMetrics
+            )
             PaywallView(viewModel: viewModel)
         }
         .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
+        .onAppear { navState.markScreenAppeared() }
+        .onDisappear {
+            let durationSecs: Float = navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+            let context: ScreenContext = ScreenContext(durationSecs: durationSecs)
+            navState.closed(context: context)
+            PostHogConfiguration.sharedMetricsDelegate?.closed(
+                screen: SubscriptionSettingsCollector.name,
+                context: context
+            )
+        }
     }
 
     @ViewBuilder

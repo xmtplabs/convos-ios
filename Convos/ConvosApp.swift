@@ -96,6 +96,11 @@ struct ConvosApp: App {
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
         let metricsDelegate = PostHogCollector()
+        PostHogConfiguration.sharedMetricsDelegate = metricsDelegate
+        PostHogConfiguration.sharedCoreMetrics = CoreMetrics(
+            delegate: metricsDelegate,
+            stableId: PostHogConfiguration.stableIdEncoder
+        )
         let navState = ConversationsNavigatorImpl(session: convos.session, metricsDelegate: metricsDelegate)
         let navigator = ConversationsCollector(instance: navState, delegate: metricsDelegate)
         self.metricsDelegate = metricsDelegate

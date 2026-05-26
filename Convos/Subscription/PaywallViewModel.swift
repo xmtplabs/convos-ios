@@ -1,14 +1,17 @@
 import Combine
 import ConvosCore
+@preconcurrency import ConvosMetrics
 import Foundation
 
 @MainActor @Observable
 final class PaywallViewModel {
     private let subscriptionService: any SubscriptionServiceProtocol
+    private let coreMetrics: CoreMetrics?
+    private let source: PaywallSource
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored var onPurchaseSucceeded: (() -> Void)?
 
-    var selectedPeriod: SubscriptionPeriod = .monthly
+    var selectedPeriod: ConvosCore.SubscriptionPeriod = .monthly
     var purchasingProductId: String?
     var isShowingAlert: Bool = false
     var alertTitle: String = ""
@@ -24,8 +27,14 @@ final class PaywallViewModel {
     /// first fetch was about to complete.
     @ObservationIgnored private var loadProductsTask: Task<Void, Never>?
 
-    init(subscriptionService: any SubscriptionServiceProtocol) {
+    init(
+        subscriptionService: any SubscriptionServiceProtocol,
+        source: PaywallSource,
+        coreMetrics: CoreMetrics? = nil
+    ) {
         self.subscriptionService = subscriptionService
+        self.source = source
+        self.coreMetrics = coreMetrics
         let initial: UserSubscription? = subscriptionService.currentSubscription
         self.currentSubscription = initial
         // Default the picker to the period the user is currently subscribed to,
@@ -43,7 +52,7 @@ final class PaywallViewModel {
             .store(in: &cancellables)
     }
 
-    var currentTier: SubscriptionTier? {
+    var currentTier: ConvosCore.SubscriptionTier? {
         currentSubscription?.tier
     }
 
@@ -51,7 +60,7 @@ final class PaywallViewModel {
         SubscriptionCopy.legalDisclaimer
     }
 
-    func product(for tier: SubscriptionTier, period: SubscriptionPeriod) -> PaywallProduct? {
+    func product(for tier: ConvosCore.SubscriptionTier, period: ConvosCore.SubscriptionPeriod) -> PaywallProduct? {
         products.first { $0.tier == tier && $0.period == period }
     }
 
@@ -110,6 +119,16 @@ final class PaywallViewModel {
         guard purchasingProductId == nil else { return }
         purchasingProductId = product.id
         defer { purchasingProductId = nil }
+        let metricsSource: PaywallSource = source
+        let metricsTier: ConvosMetrics.SubscriptionTier = Self.metricsTier(for: product.tier)
+        let metricsPeriod: ConvosMetrics.SubscriptionPeriod = Self.metricsPeriod(for: product.period)
+        let started: Date = Date()
+        await coreMetrics?.actions.purchaseInitiated(
+            productId: product.id,
+            tier: metricsTier,
+            period: metricsPeriod,
+            source: metricsSource
+        )
         do {
             try await subscriptionService.purchase(productId: product.id)
             // Snap the period picker to the purchased product's period so the
@@ -119,22 +138,33 @@ final class PaywallViewModel {
             // and the Annual card the user just bought stays hidden behind
             // the picker.
             selectedPeriod = product.period
+            let durationSecs: Float = Float(Date().timeIntervalSince(started))
+            await coreMetrics?.actions.purchaseSucceeded(
+                productId: product.id,
+                tier: metricsTier,
+                period: metricsPeriod,
+                source: metricsSource,
+                durationSecs: durationSecs
+            )
             onPurchaseSucceeded?()
         } catch SubscriptionServiceError.purchaseCancelled {
-            // user cancelled — no-op, silently dismiss CTA spinner
+            await coreMetrics?.actions.purchaseCancelled(productId: product.id, source: metricsSource)
         } catch SubscriptionServiceError.purchasePending {
+            await coreMetrics?.actions.purchaseFailed(productId: product.id, source: metricsSource, reason: .purchasePending)
             showAlert(
                 title: "Awaiting approval",
                 message: "Your subscription will activate once it's approved. You can close this and we'll let you know."
             )
         } catch SubscriptionServiceError.purchaseUnverified {
             Log.error("Paywall purchase verification failed for \(product.id)")
+            await coreMetrics?.actions.purchaseFailed(productId: product.id, source: metricsSource, reason: .purchaseUnverified)
             showAlert(
                 title: "Couldn't verify purchase",
                 message: "Something didn't add up. Try again or tap Restore if you've already paid."
             )
         } catch {
             Log.error("Paywall purchase failed for \(product.id): \(error)")
+            await coreMetrics?.actions.purchaseFailed(productId: product.id, source: metricsSource, reason: .unknown)
             showAlert(title: "Something went wrong", message: "Purchase failed. Please try again.")
         }
     }
@@ -146,9 +176,28 @@ final class PaywallViewModel {
     private func restore() async {
         do {
             try await subscriptionService.restorePurchases()
+            // StoreKit-side restore on iOS does not surface a count of
+            // restored entitlements through SubscriptionServiceProtocol; the
+            // SubscriptionPublisher emits the resulting state. Report 0 so
+            // the event still lands as a "restore happened" signal.
+            await coreMetrics?.actions.purchasesRestored(restoredCount: 0)
         } catch {
             Log.error("Paywall restore failed: \(error)")
             showAlert(title: "Couldn't restore", message: "Restore failed. Please try again.")
+        }
+    }
+
+    private static func metricsTier(for tier: ConvosCore.SubscriptionTier) -> ConvosMetrics.SubscriptionTier {
+        switch tier {
+        case .builder: return .builder
+        case .pro: return .pro
+        }
+    }
+
+    private static func metricsPeriod(for period: ConvosCore.SubscriptionPeriod) -> ConvosMetrics.SubscriptionPeriod {
+        switch period {
+        case .monthly: return .monthly
+        case .annual: return .annual
         }
     }
 

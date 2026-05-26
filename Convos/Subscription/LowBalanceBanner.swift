@@ -1,4 +1,5 @@
 import ConvosCore
+@preconcurrency import ConvosMetrics
 import SwiftUI
 
 struct LowBalanceBanner: View {
@@ -15,7 +16,11 @@ struct LowBalanceBanner: View {
             balance = newBalance
         }
         .sheet(isPresented: $presentingPaywall) {
-            let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+            let viewModel = PaywallViewModel(
+                subscriptionService: SubscriptionServices.shared,
+                source: .lowBalanceBanner,
+                coreMetrics: PostHogConfiguration.sharedCoreMetrics
+            )
             PaywallView(viewModel: viewModel)
         }
     }
@@ -30,6 +35,12 @@ struct LowBalanceBanner: View {
         let icon: String = isDepleted ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
         let title: String = isDepleted ? "You're out of credits" : "\(balance.balance) credits left"
         let upgradeAction = { presentingPaywall = true }
+        let bannerAppearAction = {
+            let metrics: CoreMetrics? = PostHogConfiguration.sharedCoreMetrics
+            Task {
+                await metrics?.actions.lowBalanceBannerShown(isDepleted: isDepleted)
+            }
+        }
         HStack(spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: icon)
                 .font(.subheadline)
@@ -56,6 +67,7 @@ struct LowBalanceBanner: View {
                 .frame(height: 0.5)
         }
         .accessibilityElement(children: .contain)
+        .onAppear(perform: bannerAppearAction)
     }
 }
 

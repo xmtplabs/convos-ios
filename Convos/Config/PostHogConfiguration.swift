@@ -1,8 +1,17 @@
 import ConvosCore
+@preconcurrency import ConvosMetrics
 import Foundation
 import PostHog
 
 enum PostHogConfiguration {
+    static let stableIdEncoder: MetricsStableIdEncoder = MetricsStableIdEncoder(
+        salt: Data("convos-metrics".utf8),
+        info: Data("inbox-stable-id".utf8)
+    )
+
+    nonisolated(unsafe) static var sharedCoreMetrics: CoreMetrics?
+    nonisolated(unsafe) static var sharedMetricsDelegate: CollectorDelegate?
+
     static func configure() {
         guard shouldEnablePostHog() else {
             Log.info("PostHog disabled for current environment")
