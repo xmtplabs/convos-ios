@@ -431,17 +431,19 @@ struct MainTabView: View {
         let pendingAgentOverride: AgentVerification? = convoVM.shouldRenderAsPendingAgent
             ? .verified(.convos)
             : nil
+        let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved
         HStack {
             ConversationIndicatorWrapper(
                 viewModel: convoVM,
                 placeholderOverride: nil,
                 subtitleOverride: nil,
-                allowsEditing: true,
+                allowsEditing: !isReadOnly,
                 focusState: $liftedIndicatorFocus,
                 focusCoordinator: liftedIndicatorFocusCoordinator
             )
             .environment(\.forcedAgentVerification, pendingAgentOverride)
             .hoverEffect(.lift)
+            .disabled(isReadOnly)
             .matchedGeometryEffect(
                 id: AdaptiveAppIndicatorConstant.indicatorShellId,
                 in: sharedIndicatorNamespace,

@@ -153,7 +153,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             memberContactOverride: contactOverride,
             hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: headerMode,
+            headerMode: isReadOnly ? .suppressed : headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onBottomOverscrollChanged: { overscroll in

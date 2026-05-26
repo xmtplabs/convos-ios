@@ -150,7 +150,7 @@ struct ConversationPresenter<Content: View>: View {
             viewModel: viewModel,
             placeholderOverride: indicatorPlaceholderOverride,
             subtitleOverride: indicatorSubtitleOverride,
-            allowsEditing: allowsIndicatorEditing,
+            allowsEditing: allowsIndicatorEditing && !isReadOnly,
             focusState: $focusState,
             focusCoordinator: focusCoordinator
         )
