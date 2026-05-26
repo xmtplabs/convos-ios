@@ -14,6 +14,29 @@ enum AgentBuilderTransition {
     static let glassEffectId: String = "agentBuilderCard"
 }
 
+/// Tunables for the picked-Remix-agent thumbnail rendered inside the
+/// composer when a card has been chosen off the carousel. The
+/// thumbnail is a scaled-down rendering of the same hero contact
+/// card the carousel shows, so changing card sizing in one place
+/// keeps the thumbnail visually consistent. Named distinctly from
+/// the module-level `Constant` enum used by `MessagesBottomBar` so
+/// the two don't collide in this file's scope.
+private enum RemixBadgeMetric {
+    /// Outer dimensions roughly match a 30%-scale hero contact card
+    /// (carousel card ≈ 354 × 232, so ~30% ≈ 106 × 70).
+    static let badgeWidth: CGFloat = 110
+    static let badgeHeight: CGFloat = 72
+    static let cornerRadius: CGFloat = 12
+    static let innerPadding: CGFloat = 8
+    /// Avatar shrunk from 74pt (hero card) to ~22pt (also ~30%).
+    static let avatarSize: CGFloat = 22
+    static let avatarToTextSpacing: CGFloat = 4
+    static let nameToSummarySpacing: CGFloat = 1
+    static let nameFontSize: CGFloat = 11
+    static let nameTracking: CGFloat = -0.3
+    static let summaryFontSize: CGFloat = 7
+}
+
 struct AgentDraftComposer: View {
     @Bindable var viewModel: AgentBuilderViewModel
     var focusState: FocusState<MessagesViewInputFocus?>.Binding
@@ -53,6 +76,7 @@ struct AgentDraftComposer: View {
         }
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .topTrailing) { diceOverlay }
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
         .glassEffectID(AgentBuilderTransition.glassEffectId, in: transitionNamespace)
         .glassEffectTransition(.matchedGeometry)
@@ -196,6 +220,11 @@ struct AgentDraftComposer: View {
 
     private var standardLayout: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            if let pickedAgent = viewModel.pickedRemixAgent {
+                remixAgentBadge(for: pickedAgent)
+                    .padding(.bottom, DesignConstants.Spacing.step2x)
+                    .transition(.scale(scale: 1.4).combined(with: .opacity))
+            }
             textField
             if hasAnyAttachment {
                 attachmentsRow
@@ -204,9 +233,134 @@ struct AgentDraftComposer: View {
         }
     }
 
+    /// Pinned thumbnail of the picked Remix agent. Mirrors the
+    /// `AgentContactCardView.hero` layout (round emoji avatar above
+    /// bold name above tail-truncated summary) at ~30% of the
+    /// carousel card's footprint, wrapped in the same chip-style
+    /// container (rounded fill + thin stroke) the attachment chips
+    /// use. We hand-build the content rather than `.scaleEffect`-ing
+    /// the real card because nesting a `glassEffect` inside the
+    /// composer's outer `glassEffect` renders the inner one blank
+    /// (the backdrop sampling pipeline can't resolve a stable
+    /// material when the parent is already a glass surface).
+    ///
+    /// Tapping the X drops both the picked agent and Remix mode
+    /// entirely.
+    private func remixAgentBadge(for agent: RandomAgent) -> some View {
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: RemixBadgeMetric.avatarToTextSpacing) {
+                EmojiAvatarView(
+                    emoji: agent.emoji,
+                    agentVerification: .verified(.convos)
+                )
+                .frame(
+                    width: RemixBadgeMetric.avatarSize,
+                    height: RemixBadgeMetric.avatarSize
+                )
+                VStack(alignment: .leading, spacing: RemixBadgeMetric.nameToSummarySpacing) {
+                    Text(agent.displayName)
+                        .font(.system(size: RemixBadgeMetric.nameFontSize, weight: .bold))
+                        .tracking(RemixBadgeMetric.nameTracking)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(agent.jobSummary)
+                        .font(.system(size: RemixBadgeMetric.summaryFontSize))
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(2, reservesSpace: true)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
+            .padding(RemixBadgeMetric.innerPadding)
+            .frame(
+                width: RemixBadgeMetric.badgeWidth,
+                height: RemixBadgeMetric.badgeHeight
+            )
+            .background(
+                .colorBackgroundRaised,
+                in: .rect(cornerRadius: RemixBadgeMetric.cornerRadius)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: RemixBadgeMetric.cornerRadius)
+                    .stroke(.colorFillMinimal, lineWidth: 0.5)
+            )
+
+            remixAgentBadgeRemoveButton(for: agent)
+        }
+        .accessibilityIdentifier("remix-picked-agent-badge")
+    }
+
+    /// Attachment-style X overlaid on the scaled card. Matches the
+    /// `removeButton` styling from the photo / file / voice-memo
+    /// chips so the affordance reads consistently. Tap clears the
+    /// pick *and* exits Remix mode in one shot.
+    private func remixAgentBadgeRemoveButton(for agent: RandomAgent) -> some View {
+        Button {
+            withAnimation(.smooth(duration: 0.3)) {
+                viewModel.exitRemixMode()
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(.black)
+                .clipShape(.circle)
+                .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1))
+        }
+        .padding(.top, -DesignConstants.Spacing.stepX)
+        .padding(.trailing, -DesignConstants.Spacing.stepX)
+        .accessibilityLabel("Remove \(agent.displayName) and exit remix mode")
+        .accessibilityIdentifier("remix-picked-agent-remove-button")
+    }
+
+    /// Dice button positioned as a top-trailing overlay on the composer
+    /// rather than a layout sibling — keeps the text field flush with
+    /// the top edge regardless of whether the button is visible. Hidden
+    /// once the user puts any content in the composer (text, media,
+    /// voice memo, or connections) so the dice gesture is reserved for
+    /// fresh / unedited drafts.
+    @ViewBuilder
+    private var diceOverlay: some View {
+        let isVisible: Bool = !viewModel.hasContent && viewModel.pickedRemixAgent == nil
+        Button {
+            focusState.wrappedValue = nil
+            withAnimation(.smooth(duration: 0.35)) {
+                viewModel.enterRemixMode()
+            }
+        } label: {
+            Image(systemName: "dice.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.colorTextTertiary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .padding(DesignConstants.Spacing.step3x)
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(isVisible)
+        .animation(.easeInOut(duration: 0.2), value: isVisible)
+        .accessibilityLabel("Remix from a random agent")
+        .accessibilityIdentifier("remix-dice-button")
+    }
+
     @ViewBuilder
     private func recordingLayout(recorder: VoiceMemoRecorder) -> some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            // Keep the picked remix-agent badge pinned in the
+            // composer while recording — it's part of the draft
+            // context, not the input chrome. Without this the
+            // badge would disappear the moment the user taps the
+            // microphone and reappear on stop, which reads as a
+            // bug.
+            if let pickedAgent = viewModel.pickedRemixAgent {
+                remixAgentBadge(for: pickedAgent)
+                    .padding(.bottom, DesignConstants.Spacing.step2x)
+                    .transition(.scale(scale: 1.4).combined(with: .opacity))
+            }
             textField
             Spacer(minLength: 0)
             VoiceMemoRecordingView(recorder: recorder, showsInlineStopButton: false)
@@ -215,7 +369,13 @@ struct AgentDraftComposer: View {
     }
 
     private var textFieldPlaceholder: String {
-        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existance" : "Make a new agent"
+        if viewModel.isRecordingVoiceMemo {
+            return "Speaking an agent into existance"
+        }
+        if let picked = viewModel.pickedRemixAgent {
+            return "Customize \(picked.displayName) to make it yours"
+        }
+        return "Make a new agent"
     }
 
     private var textField: some View {
@@ -323,11 +483,15 @@ struct AgentDraftComposer: View {
         .padding(.leading, -DesignConstants.Spacing.step2x)
     }
 
+    private var makeButtonTitle: String {
+        viewModel.pickedRemixAgent != nil ? "Remix" : "Make"
+    }
+
     private var makeButton: some View {
         Button {
             onMakeTap()
         } label: {
-            Text("Make")
+            Text(makeButtonTitle)
                 .font(.callout)
                 .foregroundStyle(makeButtonEnabled ? .colorTextPrimaryInverted : .colorTextTertiary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -337,7 +501,7 @@ struct AgentDraftComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(!makeButtonEnabled)
-        .accessibilityLabel("Make agent")
+        .accessibilityLabel(viewModel.pickedRemixAgent != nil ? "Remix agent" : "Make agent")
         .accessibilityIdentifier("agent-make-button")
     }
 }

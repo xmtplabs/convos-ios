@@ -44,7 +44,9 @@ struct AgentBuilderView: View {
     @Namespace private var transitionNamespace: Namespace.ID
 
     private var indicatorPlaceholder: String? {
-        viewModel.hasCommitted ? nil : "New Agent"
+        if viewModel.hasCommitted { return nil }
+        if viewModel.isInRemixMode { return "Remix" }
+        return "New Agent"
     }
 
     private var indicatorSubtitle: String? {
@@ -64,6 +66,12 @@ struct AgentBuilderView: View {
         let hasAttachment: Bool = !viewModel.pendingMediaAttachments.isEmpty || viewModel.recordedVoiceMemo != nil
         if hasText && hasAttachment {
             return "The more info, the better"
+        }
+        // When the user has already picked a remix agent, they're
+        // *adding* customizations on top of an existing template —
+        // not starting fresh — so swap the verb.
+        if viewModel.pickedRemixAgent != nil {
+            return "Add a pic, screenshot, voice note or connection"
         }
         return "Start with a pic, screenshot, voice note or connection"
     }
@@ -102,6 +110,13 @@ struct AgentBuilderView: View {
             didFireInlineCommit = true
             onCommitted?(convoVM)
         }
+        .onChange(of: viewModel.pickedRemixAgent) { _, newPicked in
+            // After the user picks a card off the carousel, jump focus
+            // straight into the prompt field so they can start
+            // customizing without an extra tap.
+            guard newPicked != nil else { return }
+            focusCoordinator.moveFocus(to: .agentBuilder)
+        }
     }
 
     @ViewBuilder
@@ -139,10 +154,14 @@ struct AgentBuilderView: View {
                 if viewModel.hasCommitted {
                     Color.clear
                 } else {
-                    composerRect(focusState: $inlineFocusState)
+                    composerOrRemixCarousel(focusState: $inlineFocusState)
                 }
             }
-            if !viewModel.hasCommitted {
+            // Hide the legal footer while Remix mode owns the screen —
+            // the carousel + exit X already fill the bottom region,
+            // and the XMTP / Terms links don't make sense layered
+            // under the picker.
+            if !viewModel.hasCommitted && !viewModel.isInRemixMode {
                 inlineLegalFooter
             }
         }
@@ -155,6 +174,30 @@ struct AgentBuilderView: View {
         .onChange(of: inlineFocusState) { _, newFocus in
             focusCoordinator.syncFocusState(newFocus)
         }
+    }
+
+    /// Swap point between the composer and the Remix carousel. While
+    /// `isShowingRemixCarousel` is true the composer slides offscreen
+    /// downward and the random-agent picker takes its place; tapping
+    /// a card (sets `pickedRemixAgent`) or the X (clears
+    /// `isInRemixMode`) flips this back to the composer.
+    @ViewBuilder
+    private func composerOrRemixCarousel(
+        focusState: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
+        ZStack {
+            if viewModel.isShowingRemixCarousel {
+                RemixAgentCarouselView(
+                    viewModel: viewModel,
+                    agents: RandomAgent.mocks
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                composerRect(focusState: focusState)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth(duration: 0.35), value: viewModel.isShowingRemixCarousel)
     }
 
     /// "Secured by XMTP" + "Terms & Privacy Policy" links rendered under
@@ -221,7 +264,7 @@ struct AgentBuilderView: View {
                     }
 
                     if !viewModel.hasCommitted {
-                        composerRect(focusState: focusState)
+                        composerOrRemixCarousel(focusState: focusState)
                             .transition(.asymmetric(
                                 insertion: .opacity,
                                 removal: .move(edge: .bottom)

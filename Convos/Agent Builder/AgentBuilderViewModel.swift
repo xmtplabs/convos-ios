@@ -321,6 +321,50 @@ final class AgentBuilderViewModel: Identifiable {
     /// content stays hidden if the user re-enters the view somehow).
     var isCommitting: Bool = false
 
+    /// Whether the builder is in Remix mode. Toggled by the dice button in
+    /// the composer. When true and `pickedRemixAgent` is `nil`, the
+    /// composer slides offscreen and the random-agent carousel takes its
+    /// place. Once the user picks a card, the composer comes back with
+    /// the picked agent docked into its top-left corner and the prompt /
+    /// commit copy switches to the "Remix" variant.
+    var isInRemixMode: Bool = false
+
+    /// The `RandomAgent` the user picked off the carousel, or `nil` when
+    /// the carousel is still presented (or Remix mode is off entirely).
+    /// Drives the shrunken card slot inside the composer and the
+    /// "Remix this agent" placeholder / "Remix" Make-button copy.
+    var pickedRemixAgent: RandomAgent?
+
+    /// Convenience for view code: the composer should swap out for the
+    /// carousel exactly when we're in Remix mode and the user hasn't
+    /// picked a card yet.
+    var isShowingRemixCarousel: Bool {
+        isInRemixMode && pickedRemixAgent == nil
+    }
+
+    // MARK: - Remix mode
+
+    func enterRemixMode() {
+        guard !hasCommitted, !isCommitting else { return }
+        isInRemixMode = true
+        pickedRemixAgent = nil
+    }
+
+    func exitRemixMode() {
+        isInRemixMode = false
+        pickedRemixAgent = nil
+    }
+
+    func pickRemixAgent(_ agent: RandomAgent) {
+        guard isInRemixMode else { return }
+        pickedRemixAgent = agent
+    }
+
+    func clearPickedRemixAgent() {
+        guard isInRemixMode else { return }
+        pickedRemixAgent = nil
+    }
+
     // MARK: - Commit
 
     /// Tap-Make handler. Drives the staged commit animation:
