@@ -219,8 +219,8 @@ final class DeepLinkHandlerTests: XCTestCase {
 
         viewModel.handleURL(url)
 
-        XCTAssertNil(viewModel.pendingGrantRequest, "Unknown conversationId should be dropped silently")
-        XCTAssertNil(viewModel.selectedConversationId, "Selection should not change for unknown conversationId")
+        XCTAssertNil(viewModel.navState.pendingGrantRequest, "Unknown conversationId should be dropped silently")
+        XCTAssertNil(viewModel.navState.selectedConversationId, "Selection should not change for unknown conversationId")
     }
 
     @MainActor
@@ -231,10 +231,10 @@ final class DeepLinkHandlerTests: XCTestCase {
 
         viewModel.handleURL(url)
 
-        XCTAssertNotNil(viewModel.pendingGrantRequest)
-        XCTAssertEqual(viewModel.pendingGrantRequest?.serviceId, "google_calendar")
-        XCTAssertEqual(viewModel.pendingGrantRequest?.conversationId, "known-conv")
-        XCTAssertEqual(viewModel.selectedConversationId, "known-conv")
+        XCTAssertNotNil(viewModel.navState.pendingGrantRequest)
+        XCTAssertEqual(viewModel.navState.pendingGrantRequest?.serviceId, "google_calendar")
+        XCTAssertEqual(viewModel.navState.pendingGrantRequest?.conversationId, "known-conv")
+        XCTAssertEqual(viewModel.navState.selectedConversationId, "known-conv")
     }
 
     @MainActor
@@ -245,7 +245,7 @@ final class DeepLinkHandlerTests: XCTestCase {
 
         viewModel.handleURL(url)
 
-        XCTAssertNil(viewModel.pendingGrantRequest, "Unknown service should be rejected at parse time")
+        XCTAssertNil(viewModel.navState.pendingGrantRequest, "Unknown service should be rejected at parse time")
     }
 
     @MainActor
@@ -256,6 +256,6 @@ final class DeepLinkHandlerTests: XCTestCase {
 
         viewModel.handleURL(url)
 
-        XCTAssertNil(viewModel.pendingGrantRequest, "Malicious conversationId should be rejected")
+        XCTAssertNil(viewModel.navState.pendingGrantRequest, "Malicious conversationId should be rejected")
     }
 }

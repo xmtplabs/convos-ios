@@ -157,10 +157,11 @@ final class ConversationOnboardingCoordinator {
     }
 
     static func resetUserDefaults() {
-        UserDefaults.standard.removeObject(forKey: hasShownProfileEditorKey)
-        UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
-        UserDefaults.standard.removeObject(forKey: hasSeenAddAsProfileKey)
-        UserDefaults.standard.removeObject(forKey: hasShownNUXPaywallKey)
+        let defaults: UserDefaults = UserDefaults.standard
+        defaults.removeObject(forKey: hasShownProfileEditorKey)
+        defaults.removeObject(forKey: hasCompletedOnboardingKey)
+        defaults.removeObject(forKey: hasSeenAddAsProfileKey)
+        defaults.removeObject(forKey: hasShownNUXPaywallKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
         for key in allKeys where key.hasPrefix(hasSetProfilePrefix) || key.hasPrefix(legacyHasSetQuicknamePrefix) {

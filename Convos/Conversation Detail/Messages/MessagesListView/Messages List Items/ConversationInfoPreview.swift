@@ -9,6 +9,7 @@ struct ConversationInfoPreview: View {
     /// Mirrors the resolver threaded through the chat indicator and
     /// system-message cells.
     var memberContactOverride: (String) -> Contact? = { _ in nil }
+    var onShowBackwardsSecrecyInfo: (() -> Void)?
 
     @State private var presentingInfoSheet: Bool = false
 
@@ -63,7 +64,10 @@ struct ConversationInfoPreview: View {
             // messages are hidden" note is noise. Same flag the
             // messages controller uses to skip the QR invite header.
             if !conversation.hidesInviteCard {
-                let infoAction = { presentingInfoSheet = true }
+                let infoAction = {
+                    onShowBackwardsSecrecyInfo?()
+                    presentingInfoSheet = true
+                }
                 Button(action: infoAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
                         Image(systemName: "backward.circle.fill")

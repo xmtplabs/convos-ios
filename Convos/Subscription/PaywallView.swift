@@ -1,8 +1,10 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct PaywallView: View {
     @State private var viewModel: PaywallViewModel
+    @State private var navState: PaywallNavigatorImpl = .init()
     @Environment(\.dismiss) private var dismiss: DismissAction
     private let onSkip: (() -> Void)?
 
@@ -49,6 +51,16 @@ struct PaywallView: View {
         } message: { message in
             Text(message)
         }
+        .onAppear { navState.markScreenAppeared() }
+        .onDisappear {
+            let durationSecs: Float = navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+            let context: ScreenContext = ScreenContext(durationSecs: durationSecs)
+            navState.closed(context: context)
+            PostHogConfiguration.sharedMetricsDelegate?.closed(
+                screen: PaywallCollector.name,
+                context: context
+            )
+        }
     }
 
     @ViewBuilder
@@ -85,8 +97,8 @@ struct PaywallView: View {
     @ViewBuilder
     private var periodPicker: some View {
         Picker("Period", selection: $viewModel.selectedPeriod) {
-            Text("Monthly").tag(SubscriptionPeriod.monthly)
-            Text("Annual").tag(SubscriptionPeriod.annual)
+            Text("Monthly").tag(ConvosCore.SubscriptionPeriod.monthly)
+            Text("Annual").tag(ConvosCore.SubscriptionPeriod.annual)
         }
         .pickerStyle(.segmented)
     }
@@ -94,7 +106,7 @@ struct PaywallView: View {
     @ViewBuilder
     private var tierStack: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            ForEach(SubscriptionTier.allCases, id: \.self) { tier in
+            ForEach(ConvosCore.SubscriptionTier.allCases, id: \.self) { tier in
                 // Hide tier cards that have no product for the currently-
                 // selected period (e.g. Pro on Annual — Apple's price-tier
                 // ceiling for non-large-merchant accounts kept us from
@@ -107,7 +119,7 @@ struct PaywallView: View {
     }
 
     @ViewBuilder
-    private func tierCard(for tier: SubscriptionTier) -> some View {
+    private func tierCard(for tier: ConvosCore.SubscriptionTier) -> some View {
         let product: PaywallProduct? = viewModel.product(for: tier, period: viewModel.selectedPeriod)
         // "Current plan" only highlights when both the tier AND the period
         // match the user's actual subscription — otherwise Builder Annual
@@ -169,6 +181,6 @@ struct PaywallView: View {
 
 #Preview {
     let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
-    let viewModel = PaywallViewModel(subscriptionService: service)
+    let viewModel = PaywallViewModel(subscriptionService: service, source: .debug)
     return PaywallView(viewModel: viewModel)
 }

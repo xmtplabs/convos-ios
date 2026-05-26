@@ -1,5 +1,5 @@
 {
-  "originHash" : "596a9de200b071262cadc68f1399f3097d53c0ed82208de3a325f27f8dba7cf9",
+  "originHash" : "1ce97dc5ef8499df4936be8ad3109e21197da72386b7968275b2a2f46eb6586e",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -152,6 +152,15 @@
       "state" : {
         "revision" : "b7e1104502eca3a213b46303391ca4d3bc8ddec1",
         "version" : "2.30910.0"
+      }
+    },
+    {
+      "identity" : "posthog-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PostHog/posthog-ios.git",
+      "state" : {
+        "revision" : "cf6155963a6532c7b88e0cfa2b1d07595d6b6db6",
+        "version" : "3.58.3"
       }
     },
     {

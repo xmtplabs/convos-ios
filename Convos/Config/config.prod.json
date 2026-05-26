@@ -12,5 +12,6 @@
   "appUrlScheme": "convos",
   "siweDomain": "convos.org",
   "siweUri": "https://convos.org",
-  "siweChainId": 1
+  "siweChainId": 1,
+  "posthogHost": "https://us.i.posthog.com"
 }

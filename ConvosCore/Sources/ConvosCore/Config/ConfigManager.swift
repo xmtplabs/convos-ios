@@ -213,6 +213,12 @@ public final class ConfigManager: @unchecked Sendable {
         return name
     }
 
+    /// PostHog ingestion host from config.json. Same value across environments today
+    public var posthogHost: String? {
+        // an absent posthog host simply does not report metrics events
+        return config["posthogHost"] as? String
+    }
+
     public var bundleIdentifier: String {
         guard let id = config["bundleId"] as? String else {
             fatalError("Missing 'bundleId' in config.json")

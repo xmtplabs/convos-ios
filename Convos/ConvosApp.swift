@@ -1,5 +1,6 @@
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 import SwiftUI
 import UserNotifications
 import XMTPiOS
@@ -10,6 +11,9 @@ struct ConvosApp: App {
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
 
     private let convos: ConvosClient
+    let metricsDelegate: PostHogCollector
+    let conversationsNavState: ConversationsNavigatorImpl
+    let conversationsNavigator: ConversationsCollector
     let conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel = .shared
 
@@ -91,7 +95,27 @@ struct ConvosApp: App {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
-        self.conversationsViewModel = .init(session: convos.session)
+        let metricsDelegate = PostHogCollector()
+        PostHogConfiguration.sharedMetricsDelegate = metricsDelegate
+        PostHogConfiguration.sharedCoreMetrics = CoreMetrics(
+            delegate: metricsDelegate,
+            stableId: PostHogConfiguration.stableIdEncoder
+        )
+        let navState = ConversationsNavigatorImpl(session: convos.session, metricsDelegate: metricsDelegate)
+        let navigator = ConversationsCollector(instance: navState, delegate: metricsDelegate)
+        self.metricsDelegate = metricsDelegate
+        self.conversationsNavState = navState
+        self.conversationsNavigator = navigator
+        let viewModel = ConversationsViewModel(
+            session: convos.session,
+            navigator: navigator,
+            navState: navState,
+            metricsDelegate: metricsDelegate
+        )
+        self.conversationsViewModel = viewModel
+        navState.conversationLookup = { [weak viewModel] id in
+            viewModel?.conversations.first { $0.id == id }
+        }
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
         profileSettingsViewModel.bind(session: convos.session)
@@ -101,6 +125,8 @@ struct ConvosApp: App {
         WindowGroup {
             ConversationsView(
                 viewModel: conversationsViewModel,
+                navState: conversationsNavState,
+                navigator: conversationsNavigator,
                 profileSettingsViewModel: profileSettingsViewModel
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)

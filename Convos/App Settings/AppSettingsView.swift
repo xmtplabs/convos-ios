@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConvosToolbarButton: View {
@@ -31,6 +32,8 @@ struct ConvosToolbarButton: View {
 
 struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
+    @Bindable var navState: AppSettingsNavigatorImpl
+    let navigator: any AppSettingsNavigator
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
@@ -61,6 +64,13 @@ struct AppSettingsView: View {
             .contentMargins(.top, 0.0)
             .toolbarTitleDisplayMode(.inline)
             .toolbar { topToolbar }
+            .onAppear {
+                navState.markScreenAppeared()
+            }
+            .onDisappear {
+                let durationSecs = navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+                navigator.closed(context: ScreenContext(durationSecs: durationSecs))
+            }
         }
     }
 
@@ -104,6 +114,9 @@ struct AppSettingsView: View {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
+            .simultaneousGesture(TapGesture().onEnded {
+                navigator.navigateTo(myInfo: MyInfoNavigatorArgs())
+            })
         } footer: {
             Text("Private unless you choose to share")
         }
@@ -183,6 +196,9 @@ struct AppSettingsView: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                .simultaneousGesture(TapGesture().onEnded {
+                    navigator.navigateTo(assistants: AssistantSettingsNavigatorArgs())
+                })
             } footer: {
                 Text("Optional AI for groups")
             }
@@ -200,6 +216,9 @@ struct AppSettingsView: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                .simultaneousGesture(TapGesture().onEnded {
+                    navigator.navigateTo(connections: ConnectionsNavigatorArgs())
+                })
             } footer: {
                 Text("Enable services on this device and share them with assistants")
             }
@@ -251,6 +270,9 @@ struct AppSettingsView: View {
                 }
             }
             .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+            .simultaneousGesture(TapGesture().onEnded {
+                navigator.navigateTo(customize: CustomizeSettingsNavigatorArgs())
+            })
         }
         .listRowSeparatorTint(.colorBorderSubtle)
     }
@@ -337,14 +359,14 @@ struct AppSettingsView: View {
     private var deleteSection: some View {
         Section {
             Button(role: .destructive) {
-                showingDeleteAllDataConfirmation = true
+                navigator.navigateTo(deleteAllData: DeleteAllDataNavigatorArgs())
             } label: {
                 Text("Delete all app data")
             }
             .accessibilityLabel("Delete all app data")
             .accessibilityHint("Permanently deletes all conversations and your profile")
             .accessibilityIdentifier("delete-all-data-button")
-            .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
+            .selfSizingSheet(isPresented: $navState.presentingDeleteAllDataConfirmation) {
                 DeleteAllDataView(
                     viewModel: viewModel,
                     onComplete: {
@@ -390,9 +412,14 @@ struct AppSettingsView: View {
 
 #Preview {
     let profileSettingsViewModel = ProfileSettingsViewModel.shared
+    let delegate = CollectorDelegate()
+    let navState = AppSettingsNavigatorImpl()
+    let navigator = AppSettingsCollector(instance: navState, delegate: delegate)
     NavigationStack {
         AppSettingsView(
             viewModel: .mock,
+            navState: navState,
+            navigator: navigator,
             profileSettingsViewModel: profileSettingsViewModel,
             session: MockInboxesService(),
             onDeleteAllData: {}

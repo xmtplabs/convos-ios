@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosMetrics
 import Foundation
 import Observation
 import SwiftUI
@@ -13,48 +14,31 @@ final class ConversationsViewModel {
 
     private(set) var focusCoordinator: FocusCoordinator
 
-    // MARK: - Selection State
+    // MARK: - Navigation
 
     @ObservationIgnored
-    private var _selectedConversationId: String? {
-        didSet {
-            updateSelectionState()
-        }
-    }
+    let navigator: any ConversationsNavigator
+    @ObservationIgnored
+    let navState: ConversationsNavigatorImpl
 
-    var selectedConversationId: Conversation.ID? {
-        get { _selectedConversationId }
-        set {
-            guard _selectedConversationId != newValue else { return }
-            _selectedConversationId = newValue
-        }
-    }
-
-    private(set) var selectedConversation: Conversation? {
-        get {
-            guard let id = _selectedConversationId else { return nil }
-            return conversations.first(where: { $0.id == id })
-        }
-        set {
-            selectedConversationId = newValue?.id
-        }
-    }
+    // MARK: - Selection State
 
     private(set) var selectedConversationViewModel: ConversationViewModel?
 
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
 
-    private func updateSelectionState() {
-        let conversation = selectedConversation
-        let previousViewModelId = selectedConversationViewModel?.conversation.id
+    func updateSelectionState() {
+        let conversation: Conversation? = selectedConversation
+        let previousViewModelId: String? = selectedConversationViewModel?.conversation.id
 
         if let conversation = conversation {
             if selectedConversationViewModel?.conversation.id != conversation.id {
                 updateSelectionTask?.cancel()
-                let viewModel = ConversationViewModel.createSync(
+                let viewModel: ConversationViewModel = ConversationViewModel.createSync(
                     conversation: conversation,
-                    session: session
+                    session: session,
+                    metricsDelegate: navState.metricsDelegate
                 )
                 selectedConversationViewModel = viewModel
                 markConversationAsRead(conversation)
@@ -67,8 +51,8 @@ final class ConversationsViewModel {
             selectedConversationViewModel = nil
         }
 
-        if previousViewModelId != _selectedConversationId {
-            let userInfo: [AnyHashable: Any] = _selectedConversationId.map { ["conversationId": $0] } ?? [:]
+        if previousViewModelId != navState.selectedConversationId {
+            let userInfo: [AnyHashable: Any] = navState.selectedConversationId.map { ["conversationId": $0] } ?? [:]
             NotificationCenter.default.post(
                 name: .activeConversationChanged,
                 object: nil,
@@ -79,23 +63,10 @@ final class ConversationsViewModel {
         updateListVisibility()
     }
 
-    var pendingGrantRequest: PendingGrantRequest?
-
-    var newConversationViewModel: NewConversationViewModel? {
-        didSet {
-            oldValue?.cleanUpIfNeeded()
-            if newConversationViewModel == nil {
-                NotificationCenter.default.post(
-                    name: .activeConversationChanged,
-                    object: nil,
-                    userInfo: [:]
-                )
-            }
-            updateListVisibility()
-        }
+    private var selectedConversation: Conversation? {
+        guard let id = navState.selectedConversationId else { return nil }
+        return conversations.first(where: { $0.id == id })
     }
-    var presentingExplodeInfo: Bool = false
-    var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
     private(set) var hiddenConversationIds: Set<String> = []
@@ -197,12 +168,32 @@ final class ConversationsViewModel {
 
     let appSettingsViewModel: AppSettingsViewModel
 
+    @ObservationIgnored
+    let metricsDelegate: CollectorDelegate
+    @ObservationIgnored
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(
+        delegate: metricsDelegate,
+        stableId: PostHogConfiguration.stableIdEncoder
+    )
+    @ObservationIgnored
+    private var didIdentifyUser: Bool = false
+    @ObservationIgnored
+    private var identifyTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var userPropertiesTask: Task<Void, Never>?
+
     init(
         session: any SessionManagerProtocol,
-        horizontalSizeClass: UserInterfaceSizeClass? = nil
+        navigator: any ConversationsNavigator,
+        navState: ConversationsNavigatorImpl,
+        horizontalSizeClass: UserInterfaceSizeClass? = nil,
+        metricsDelegate: CollectorDelegate = CollectorDelegate()
     ) {
         self.session = session
+        self.navigator = navigator
+        self.navState = navState
         self.horizontalSizeClass = horizontalSizeClass
+        self.metricsDelegate = metricsDelegate
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
         self.appSettingsViewModel = AppSettingsViewModel(session: session)
@@ -225,6 +216,7 @@ final class ConversationsViewModel {
             self.conversationsCount = 0
         }
         observe()
+        identifyAndUpdateUserPropertiesIfNeeded()
     }
 
     func updateHorizontalSizeClass(_ sizeClass: UserInterfaceSizeClass?) {
@@ -235,21 +227,24 @@ final class ConversationsViewModel {
 
     func onAppear() {
         isVisible = true
+        navState.markScreenAppeared()
         updateListVisibility()
     }
 
     func onDisappear() {
         isVisible = false
+        let durationSecs = navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+        navigator.closed(context: ScreenContext(durationSecs: durationSecs))
         updateListVisibility()
     }
 
     @ObservationIgnored
     private var isVisible: Bool = false
 
-    private func updateListVisibility() {
+    func updateListVisibility() {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
-            && newConversationViewModel == nil
+            && navState.newConversationViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -274,55 +269,55 @@ final class ConversationsViewModel {
 
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
-            join(from: inviteCode)
+            navigator.present(newConversation: NewConversationNavigatorArgs(
+                mode: .joinInvite,
+                inviteCode: inviteCode
+            ))
         case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
             guard conversations.contains(where: { $0.id == conversationId }) else {
                 Log.warning("Dropping connection grant deep link for unknown conversationId")
                 return
             }
-            _selectedConversationId = conversationId
-            pendingGrantRequest = PendingGrantRequest(
+            navigator.navigateTo(conversation: ConversationNavigatorArgs(conversationId: conversationId))
+            navigator.present(connectionGrant: ConnectionGrantNavigatorArgs(
                 serviceId: serviceId,
                 conversationId: conversationId
-            )
+            ))
         case .agentTemplate(templateId: let templateId):
             startConversation(withAgentTemplateId: templateId)
         }
     }
 
     func onStartConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation
         )
     }
 
     func onJoinConvo() {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .scanner
         )
     }
 
     private func join(from inviteCode: String) {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
         )
     }
 
-    /// Opens a new conversation and, once it is ready, requests a fresh
-    /// instance of the given agent template into it. Entry point for the
-    /// `convos://template/<id>` deeplink.
     private func startConversation(withAgentTemplateId templateId: String) {
-        newConversationViewModel = NewConversationViewModel(
+        navState.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversationWithTemplate(templateId: templateId)
         )
     }
 
     func deleteAllData() {
-        selectedConversation = nil
+        navState.selectedConversationId = nil
         appSettingsViewModel.deleteAllData {}
     }
 
@@ -336,7 +331,7 @@ final class ConversationsViewModel {
             conversations.remove(at: index)
         }
         if selectedConversation == conversation {
-            selectedConversation = nil
+            navState.selectedConversationId = nil
         }
 
         let conversationId = conversation.id
@@ -366,12 +361,12 @@ final class ConversationsViewModel {
                     // ConversationViewModel.leaveConvo for the same pattern.
                     hiddenConversationIds.insert(conversationId)
                     conversations.removeAll { $0.id == conversationId }
-                    if _selectedConversationId == conversationId {
-                        _selectedConversationId = nil
+                    if navState.selectedConversationId == conversationId {
+                        navState.selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
-                    if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
-                        newConversationViewModel = nil
+                    if navState.newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
+                        navState.newConversationViewModel = nil
                     }
                 }
             }
@@ -380,8 +375,9 @@ final class ConversationsViewModel {
             .publisher(for: .explosionNotificationTapped)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.selectedConversation = nil
-                self?.presentingExplodeInfo = true
+                guard let self else { return }
+                self.navState.selectedConversationId = nil
+                self.navigator.present(explodeInfo: ExplodeInfoNavigatorArgs())
             }
             .store(in: &cancellables)
 
@@ -407,14 +403,16 @@ final class ConversationsViewModel {
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
-                if let selectedId = _selectedConversationId,
+                if let selectedId = navState.selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
-                    selectedConversationId = nil
+                    navState.selectedConversationId = nil
                 }
 
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
                 }
+
+                self.scheduleUserPropertiesUpdate()
             }
             .store(in: &cancellables)
 
@@ -425,7 +423,7 @@ final class ConversationsViewModel {
                 guard let self else { return }
                 if let conversation = self.selectedConversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
-                } else if let conversation = self.newConversationViewModel?.conversationViewModel?.conversation {
+                } else if let conversation = self.navState.newConversationViewModel?.conversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
                 }
             }
@@ -444,9 +442,9 @@ final class ConversationsViewModel {
             "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
         )
 
-        if let conversation = conversations.first(where: { $0.id == conversationId }) {
+        if conversations.contains(where: { $0.id == conversationId }) {
             Log.info("Found conversation, selecting it")
-            selectedConversation = conversation
+            navigator.navigateTo(conversation: ConversationNavigatorArgs(conversationId: conversationId))
         } else {
             Log.warning("Conversation \(conversationId) not found in current conversation list")
         }
@@ -496,7 +494,7 @@ final class ConversationsViewModel {
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
             } catch ConversationLocalStateWriterError.pinLimitReached {
                 await MainActor.run {
-                    self.presentingPinLimitInfo = true
+                    self.navigator.present(pinLimitInfo: PinLimitInfoNavigatorArgs())
                 }
             } catch {
                 Log.error("Failed toggling pin for conversation \(conversationId): \(error.localizedDescription)")
@@ -525,7 +523,7 @@ final class ConversationsViewModel {
 
         hiddenConversationIds.insert(conversationId)
         if selectedConversation == conversation {
-            selectedConversation = nil
+            navState.selectedConversationId = nil
         }
         conversations.removeAll { $0.id == conversationId }
 
@@ -557,6 +555,80 @@ final class ConversationsViewModel {
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func identifyAndUpdateUserPropertiesIfNeeded() {
+        guard !didIdentifyUser else { return }
+        didIdentifyUser = true
+
+        identifyTask?.cancel()
+        let metrics: CoreMetrics = coreMetrics
+        let messagingService: AnyMessagingService = session.messagingService()
+        identifyTask = Task { [weak self] in
+            do {
+                let inboxResult = try await messagingService.sessionStateManager.waitForInboxReadyResult()
+                guard !Task.isCancelled else { return }
+                let inboxId = inboxResult.client.inboxId
+                metrics.identify(privateKey: Data(inboxId.utf8))
+                await MainActor.run {
+                    self?.sendCurrentUserProperties()
+                }
+            } catch {
+                Log.warning("Metrics identify failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func scheduleUserPropertiesUpdate() {
+        guard didIdentifyUser else { return }
+        userPropertiesTask?.cancel()
+        userPropertiesTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.sendCurrentUserProperties()
+            }
+        }
+    }
+
+    private func sendCurrentUserProperties() {
+        let properties: UserProperties = currentUserProperties()
+        let metrics: CoreMetrics = coreMetrics
+        Task {
+            await metrics.updateUserProperties(properties: properties)
+        }
+    }
+
+    private func currentUserProperties() -> UserProperties {
+        let now: Date = Date()
+        let oneDay: TimeInterval = 60 * 60 * 24
+        let sevenDays: TimeInterval = oneDay * 7
+        let groupConversations: [Conversation] = conversations.filter { $0.kind == .group }
+        let conversationCount: Int = groupConversations.count
+        let assistantConversationCount: Int = groupConversations.filter { $0.hasAgent }.count
+        let activeWithin24Hours: [Conversation] = groupConversations.filter {
+            guard let lastAt = $0.lastMessage?.createdAt else { return false }
+            return now.timeIntervalSince(lastAt) <= oneDay
+        }
+        let conversationCount24Hours: Int = activeWithin24Hours.count
+        let conversationCount7Days: Int = groupConversations.filter {
+            guard let lastAt = $0.lastMessage?.createdAt else { return false }
+            return now.timeIntervalSince(lastAt) <= sevenDays
+        }.count
+        let maxAgeSecs: TimeInterval = activeWithin24Hours
+            .map { now.timeIntervalSince($0.createdAt) }
+            .max() ?? 0
+        let maxActiveConvoAge: Float = Float(maxAgeSecs / oneDay)
+        return UserProperties(
+            hasMessagedAssistant: false,
+            lastAssistantMessageTimestamp: nil,
+            contactCount: 0,
+            conversationCount: conversationCount,
+            assistantConversationCount: assistantConversationCount,
+            conversationCount24Hours: conversationCount24Hours,
+            conversationCount7Days: conversationCount7Days,
+            maxActiveConvoAge: maxActiveConvoAge
+        )
     }
 
     func scheduleConversationExplosion(_ conversation: Conversation, at expiresAt: Date) {
@@ -592,12 +664,18 @@ final class ConversationsViewModel {
 extension ConversationsViewModel {
     static var mock: ConversationsViewModel {
         let client = ConvosClient.mock()
-        return .init(session: client.session)
+        let delegate = CollectorDelegate()
+        let navState = ConversationsNavigatorImpl(session: client.session, metricsDelegate: delegate)
+        let navigator = ConversationsCollector(instance: navState, delegate: delegate)
+        return .init(session: client.session, navigator: navigator, navState: navState)
     }
 
     static func preview(conversations: [Conversation]) -> ConversationsViewModel {
         let client = ConvosClient.mock()
-        let vm = ConversationsViewModel(session: client.session)
+        let delegate = CollectorDelegate()
+        let navState = ConversationsNavigatorImpl(session: client.session, metricsDelegate: delegate)
+        let navigator = ConversationsCollector(instance: navState, delegate: delegate)
+        let vm = ConversationsViewModel(session: client.session, navigator: navigator, navState: navState)
         vm.conversations = conversations
         return vm
     }

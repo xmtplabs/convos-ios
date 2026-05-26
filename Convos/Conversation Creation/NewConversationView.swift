@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct NewConversationView: View {
@@ -85,6 +86,11 @@ struct NewConversationView: View {
         .onAppear {
             focusCoordinator.horizontalSizeClass = horizontalSizeClass
             viewModel.setDismissAction(dismiss)
+            viewModel.navState.markScreenAppeared()
+        }
+        .onDisappear {
+            let durationSecs = viewModel.navState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+            viewModel.navigator.closed(context: ScreenContext(durationSecs: durationSecs))
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             focusCoordinator.horizontalSizeClass = newSizeClass

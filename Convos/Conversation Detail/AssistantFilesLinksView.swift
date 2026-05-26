@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -140,13 +141,34 @@ struct AttachmentPreviewPresentation: Identifiable {
 struct AssistantFilesLinksView: View {
     let conversationId: String
     let repository: AssistantFilesLinksRepository
-    let members: [ConversationMember]
-    var usesInlineHeader: Bool = false
-    var profileSheetContent: ((ConversationMember) -> AnyView)?
-    var focusBinding: FocusState<MessagesViewInputFocus?>.Binding?
-
     @State private var viewModel: AssistantFilesLinksViewModel = .init()
     @State private var presentingPreview: AttachmentPreviewPresentation?
+    private let members: [ConversationMember]
+    private let usesInlineHeader: Bool
+    private let profileSheetContent: ((ConversationMember) -> AnyView)?
+    private let externalFocusBinding: FocusState<MessagesViewInputFocus?>.Binding?
+    private let navState: AssistantFilesLinksNavigatorImpl?
+    private let navigator: (any AssistantFilesLinksNavigator)?
+
+    init(
+        conversationId: String,
+        repository: AssistantFilesLinksRepository,
+        members: [ConversationMember],
+        usesInlineHeader: Bool = false,
+        profileSheetContent: ((ConversationMember) -> AnyView)? = nil,
+        focusBinding: FocusState<MessagesViewInputFocus?>.Binding? = nil,
+        navState: AssistantFilesLinksNavigatorImpl? = nil,
+        navigator: (any AssistantFilesLinksNavigator)? = nil
+    ) {
+        self.conversationId = conversationId
+        self.repository = repository
+        self.members = members
+        self.usesInlineHeader = usesInlineHeader
+        self.profileSheetContent = profileSheetContent
+        self.externalFocusBinding = focusBinding
+        self.navState = navState
+        self.navigator = navigator
+    }
 
     private func member(forInboxId inboxId: String) -> ConversationMember? {
         members.first { $0.profile.inboxId == inboxId }
@@ -161,7 +183,7 @@ struct AssistantFilesLinksView: View {
                 StuffSearchBar(
                     searchText: $viewModel.searchText,
                     filter: $viewModel.filter,
-                    focusBinding: focusBinding
+                    focusBinding: externalFocusBinding
                 )
             }
             .sheet(item: $presentingPreview) { preview in
@@ -184,12 +206,16 @@ struct AssistantFilesLinksView: View {
             } message: {
                 Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
             }
-            // `initial: true` runs the binding once on first appear and then again
-            // whenever the active conversation changes — the same view model
-            // instance follows the selection instead of being torn down via `.id`.
             .onChange(of: conversationId, initial: true) {
                 viewModel.observe(repository)
                 presentingPreview = nil
+            }
+            .onAppear {
+                navState?.markScreenAppeared()
+            }
+            .onDisappear {
+                let durationSecs: Float = navState?.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+                navigator?.closed(context: ScreenContext(durationSecs: durationSecs))
             }
     }
 

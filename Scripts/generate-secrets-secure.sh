@@ -53,6 +53,8 @@ else
     echo "Unknown build configuration '$BUILD_CONFIG' - Sentry disabled for safety"
 fi
 
+ESCAPED_POSTHOG_API_KEY=$(swift_escape "${POSTHOG_API_KEY:-}")
+
 # Generate Secrets.swift WITHOUT exposing values in logs
 cat >"$SECRETS_FILE" <<EOF
 import Foundation
@@ -68,6 +70,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = "$ESCAPED_XMTP_HOST"
     static let GATEWAY_URL: String = "$ESCAPED_GATEWAY_URL"
     static let SENTRY_DSN: String = "$ESCAPED_SENTRY_DSN"
+    static let POSTHOG_API_KEY: String = "$ESCAPED_POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
     static let GIT_COMMIT_SHA: String = "$ESCAPED_GIT_SHA"
     static let AGENT_DEBUG_JWKS: String = ""
@@ -102,6 +105,12 @@ if [[ -n "$ESCAPED_SENTRY_DSN" ]]; then
     echo "  - SENTRY_DSN: (configured - not displayed for security)"
 else
     echo "  - SENTRY_DSN: (empty - Sentry disabled)"
+fi
+
+if [[ -n "$ESCAPED_POSTHOG_API_KEY" ]]; then
+    echo "  - POSTHOG_API_KEY: (configured - not displayed for security)"
+else
+    echo "  - POSTHOG_API_KEY: (empty - PostHog disabled)"
 fi
 
 echo ""

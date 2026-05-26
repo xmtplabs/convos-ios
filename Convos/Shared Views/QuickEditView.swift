@@ -1,15 +1,5 @@
 import ConvosCore
 import SwiftUI
-import SwiftUIIntrospect
-
-private class TextFieldDelegate: NSObject, UITextFieldDelegate {
-    var action: (() -> Void)?
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        action?()
-        return false
-    }
-}
 
 struct QuickEditView: View {
     let placeholderText: String
@@ -24,8 +14,6 @@ struct QuickEditView: View {
     let showsSettingsButton: Bool
     let onSubmit: () -> Void
     let onSettings: () -> Void
-
-    @State private var textFieldDelegate: TextFieldDelegate = .init()
 
     @ViewBuilder
     private var settingsButton: some View {
@@ -65,16 +53,18 @@ struct QuickEditView: View {
         .accessibilityIdentifier("quick-edit-done-button")
     }
 
-    private var nameTextField: some View {
+    private func handleReturn() {
+        onSubmit()
+        Task { @MainActor in
+            focusState = focused
+        }
+    }
+
+    private var styledNameField: some View {
         let leadingPadding: CGFloat = DesignConstants.Spacing.step4x
-        let fieldHeight: CGFloat = 52.0
-        let borderColor: Color = .colorBorderSubtle
         return TextField(placeholderText, text: $text)
             .focused($focusState, equals: focused)
-            .introspect(.textField, on: .iOS(.v26)) { (textField: UITextField) in
-                textFieldDelegate.action = onSubmit
-                textField.delegate = textFieldDelegate
-            }
+            .onSubmit(handleReturn)
             .padding(.leading, leadingPadding)
             .font(.body)
             .tint(.colorTextPrimary)
@@ -82,6 +72,12 @@ struct QuickEditView: View {
             .multilineTextAlignment(.leading)
             .truncationMode(.tail)
             .submitLabel(.done)
+    }
+
+    private var nameTextField: some View {
+        let fieldHeight: CGFloat = 52.0
+        let borderColor: Color = .colorBorderSubtle
+        return styledNameField
             .frame(height: fieldHeight)
             .accessibilityIdentifier("quick-edit-display-name-field")
             .safeAreaInset(edge: .trailing) { settingsButton }

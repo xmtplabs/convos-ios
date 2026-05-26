@@ -3,6 +3,7 @@ import Combine
 import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
+import ConvosMetrics
 import Observation
 import SwiftUI
 import UIKit
@@ -429,8 +430,58 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     private(set) var isSendingMedia: Bool = false
     var explodeState: ExplodeState = .ready
 
-    var presentingConversationSettings: Bool = false
-    var presentingProfileSettings: Bool = false
+    @ObservationIgnored
+    var navState: ConversationNavigatorImpl
+    @ObservationIgnored
+    var navigator: any ConversationNavigator
+    @ObservationIgnored
+    var conversationInfoNavState: ConversationInfoNavigatorImpl
+    @ObservationIgnored
+    var conversationInfoNavigator: any ConversationInfoNavigator
+    @ObservationIgnored
+    var setupProfileNavState: SetupProfileNavigatorImpl
+    @ObservationIgnored
+    var setupProfileNavigator: any SetupProfileNavigator
+    @ObservationIgnored
+    var inviteAcceptedNavState: InviteAcceptedNavigatorImpl
+    @ObservationIgnored
+    var inviteAcceptedNavigator: any InviteAcceptedNavigator
+    @ObservationIgnored
+    var requestPushNotificationsNavState: RequestPushNotificationsNavigatorImpl
+    @ObservationIgnored
+    var requestPushNotificationsNavigator: any RequestPushNotificationsNavigator
+    @ObservationIgnored
+    var assistantFilesLinksNavState: AssistantFilesLinksNavigatorImpl
+    @ObservationIgnored
+    var assistantFilesLinksNavigator: any AssistantFilesLinksNavigator
+    @ObservationIgnored
+    var lockedConvoInfoNavState: LockedConvoInfoNavigatorImpl
+    @ObservationIgnored
+    var lockedConvoInfoNavigator: any LockedConvoInfoNavigator
+    @ObservationIgnored
+    var lockConvoConfirmationNavState: LockConvoConfirmationNavigatorImpl
+    @ObservationIgnored
+    var lockConvoConfirmationNavigator: any LockConvoConfirmationNavigator
+    @ObservationIgnored
+    var backwardsSecrecyInfoNavState: BackwardsSecrecyInfoNavigatorImpl
+    @ObservationIgnored
+    var backwardsSecrecyInfoNavigator: any BackwardsSecrecyInfoNavigator
+    @ObservationIgnored
+    let metricsDelegate: CollectorDelegate
+    @ObservationIgnored
+    private(set) lazy var coreMetrics: CoreMetrics = CoreMetrics(
+        delegate: metricsDelegate,
+        stableId: PostHogConfiguration.stableIdEncoder
+    )
+
+    var presentingConversationSettings: Bool {
+        get { navState.presentingConversationSettings }
+        set { navState.presentingConversationSettings = newValue }
+    }
+    var presentingProfileSettings: Bool {
+        get { navState.presentingProfileSettings }
+        set { navState.presentingProfileSettings = newValue }
+    }
 
     /// The agent's most-recent unresolved `capability_request` for this conversation.
     /// When non-nil, `ConversationView` renders the picker card in the same slot the
@@ -443,15 +494,33 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
-    var presentingConversationForked: Bool = false
+    var presentingConversationForked: Bool {
+        get { navState.presentingConversationForked }
+        set { navState.presentingConversationForked = newValue }
+    }
     var presentingReactionsForMessage: AnyMessage?
     var presentingReadByForGroup: MessagesGroup?
     var replyingToMessage: AnyMessage?
-    var presentingShareView: Bool = false
-    var presentingRevealMediaInfoSheet: Bool = false
-    var presentingPhotosInfoSheet: Bool = false
-    var presentingAssistantConfirmation: Bool = false
-    var presentingExplodedInviteInfo: Bool = false
+    var presentingShareView: Bool {
+        get { navState.presentingShareView }
+        set { navState.presentingShareView = newValue }
+    }
+    var presentingRevealMediaInfoSheet: Bool {
+        get { navState.presentingRevealMediaInfoSheet }
+        set { navState.presentingRevealMediaInfoSheet = newValue }
+    }
+    var presentingPhotosInfoSheet: Bool {
+        get { navState.presentingPhotosInfoSheet }
+        set { navState.presentingPhotosInfoSheet = newValue }
+    }
+    var presentingAssistantConfirmation: Bool {
+        get { navState.presentingAssistantConfirmation }
+        set { navState.presentingAssistantConfirmation = newValue }
+    }
+    var presentingExplodedInviteInfo: Bool {
+        get { navState.presentingExplodedInviteInfo }
+        set { navState.presentingExplodedInviteInfo = newValue }
+    }
     var activeToast: IndicatorToastStyle?
 
     var assistantJoinForceErrorCode: Int?
@@ -497,7 +566,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     }
 
     static func resetUserDefaults() {
-        let defaults = UserDefaults.standard
+        let defaults: UserDefaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
         defaults.removeObject(forKey: hasShownAssistantConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
@@ -509,7 +578,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
     func onPhotoAttached() {
         guard !hasShownPhotosInfoSheet else { return }
         hasShownPhotosInfoSheet = true
-        presentingPhotosInfoSheet = true
+        navigator.present(photosInfo: PhotosInfoNavigatorArgs())
     }
 
     func onRequestAssistantJoin() {
@@ -518,7 +587,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             return
         }
         hasShownAssistantConfirmation = true
-        presentingAssistantConfirmation = true
+        navigator.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversation.id))
     }
 
     var shouldBlurPhotos: Bool {
@@ -569,19 +638,22 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
             conversation: conversation,
             session: session,
             messagingService: messagingService,
-            backgroundUploadManager: backgroundUploadManager
+            backgroundUploadManager: backgroundUploadManager,
+            metricsDelegate: CollectorDelegate()
         )
     }
 
     static func createSync(
         conversation: Conversation,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        metricsDelegate: CollectorDelegate
     ) -> ConversationViewModel {
         let messagingService = session.messagingServiceSync()
         return ConversationViewModel(
             conversation: conversation,
             session: session,
-            messagingService: messagingService
+            messagingService: messagingService,
+            metricsDelegate: metricsDelegate
         )
     }
 
@@ -590,7 +662,8 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
-        applyGlobalDefaultsForNewConversation: Bool = false
+        applyGlobalDefaultsForNewConversation: Bool = false,
+        metricsDelegate: CollectorDelegate
     ) {
         let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
@@ -598,6 +671,34 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
+        self.metricsDelegate = metricsDelegate
+        let navState = ConversationNavigatorImpl()
+        self.navState = navState
+        self.navigator = ConversationCollector(instance: navState, delegate: metricsDelegate)
+        let infoNavState = ConversationInfoNavigatorImpl()
+        self.conversationInfoNavState = infoNavState
+        self.conversationInfoNavigator = ConversationInfoCollector(instance: infoNavState, delegate: metricsDelegate)
+        let setupProfileNavState = SetupProfileNavigatorImpl()
+        self.setupProfileNavState = setupProfileNavState
+        self.setupProfileNavigator = SetupProfileCollector(instance: setupProfileNavState, delegate: metricsDelegate)
+        let inviteAcceptedNavState = InviteAcceptedNavigatorImpl()
+        self.inviteAcceptedNavState = inviteAcceptedNavState
+        self.inviteAcceptedNavigator = InviteAcceptedCollector(instance: inviteAcceptedNavState, delegate: metricsDelegate)
+        let requestPushNotificationsNavState = RequestPushNotificationsNavigatorImpl()
+        self.requestPushNotificationsNavState = requestPushNotificationsNavState
+        self.requestPushNotificationsNavigator = RequestPushNotificationsCollector(instance: requestPushNotificationsNavState, delegate: metricsDelegate)
+        let assistantFilesLinksNavState = AssistantFilesLinksNavigatorImpl()
+        self.assistantFilesLinksNavState = assistantFilesLinksNavState
+        self.assistantFilesLinksNavigator = AssistantFilesLinksCollector(instance: assistantFilesLinksNavState, delegate: metricsDelegate)
+        let lockedConvoInfoNavState = LockedConvoInfoNavigatorImpl()
+        self.lockedConvoInfoNavState = lockedConvoInfoNavState
+        self.lockedConvoInfoNavigator = LockedConvoInfoCollector(instance: lockedConvoInfoNavState, delegate: metricsDelegate)
+        let lockConvoConfirmationNavState = LockConvoConfirmationNavigatorImpl()
+        self.lockConvoConfirmationNavState = lockConvoConfirmationNavState
+        self.lockConvoConfirmationNavigator = LockConvoConfirmationCollector(instance: lockConvoConfirmationNavState, delegate: metricsDelegate)
+        let backwardsSecrecyInfoNavState = BackwardsSecrecyInfoNavigatorImpl()
+        self.backwardsSecrecyInfoNavState = backwardsSecrecyInfoNavState
+        self.backwardsSecrecyInfoNavigator = BackwardsSecrecyInfoCollector(instance: backwardsSecrecyInfoNavState, delegate: metricsDelegate)
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -676,13 +777,42 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         messagingService: any MessagingServiceProtocol,
         conversationStateManager: any ConversationStateManagerProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
-        applyGlobalDefaultsForNewConversation: Bool = false
+        applyGlobalDefaultsForNewConversation: Bool = false,
+        metricsDelegate: CollectorDelegate
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
         self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
+        self.metricsDelegate = metricsDelegate
+        let navState = ConversationNavigatorImpl()
+        self.navState = navState
+        self.navigator = ConversationCollector(instance: navState, delegate: metricsDelegate)
+        let infoNavState = ConversationInfoNavigatorImpl()
+        self.conversationInfoNavState = infoNavState
+        self.conversationInfoNavigator = ConversationInfoCollector(instance: infoNavState, delegate: metricsDelegate)
+        let setupProfileNavState = SetupProfileNavigatorImpl()
+        self.setupProfileNavState = setupProfileNavState
+        self.setupProfileNavigator = SetupProfileCollector(instance: setupProfileNavState, delegate: metricsDelegate)
+        let inviteAcceptedNavState = InviteAcceptedNavigatorImpl()
+        self.inviteAcceptedNavState = inviteAcceptedNavState
+        self.inviteAcceptedNavigator = InviteAcceptedCollector(instance: inviteAcceptedNavState, delegate: metricsDelegate)
+        let requestPushNotificationsNavState = RequestPushNotificationsNavigatorImpl()
+        self.requestPushNotificationsNavState = requestPushNotificationsNavState
+        self.requestPushNotificationsNavigator = RequestPushNotificationsCollector(instance: requestPushNotificationsNavState, delegate: metricsDelegate)
+        let assistantFilesLinksNavState = AssistantFilesLinksNavigatorImpl()
+        self.assistantFilesLinksNavState = assistantFilesLinksNavState
+        self.assistantFilesLinksNavigator = AssistantFilesLinksCollector(instance: assistantFilesLinksNavState, delegate: metricsDelegate)
+        let lockedConvoInfoNavState = LockedConvoInfoNavigatorImpl()
+        self.lockedConvoInfoNavState = lockedConvoInfoNavState
+        self.lockedConvoInfoNavigator = LockedConvoInfoCollector(instance: lockedConvoInfoNavState, delegate: metricsDelegate)
+        let lockConvoConfirmationNavState = LockConvoConfirmationNavigatorImpl()
+        self.lockConvoConfirmationNavState = lockConvoConfirmationNavState
+        self.lockConvoConfirmationNavigator = LockConvoConfirmationCollector(instance: lockConvoConfirmationNavState, delegate: metricsDelegate)
+        let backwardsSecrecyInfoNavState = BackwardsSecrecyInfoNavigatorImpl()
+        self.backwardsSecrecyInfoNavState = backwardsSecrecyInfoNavState
+        self.backwardsSecrecyInfoNavigator = BackwardsSecrecyInfoCollector(instance: backwardsSecrecyInfoNavState, delegate: metricsDelegate)
 
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
@@ -1476,7 +1606,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
         if conversation.shouldShowQuickEdit {
             focusCoordinator.moveFocus(to: .conversationName)
         } else {
-            presentingConversationSettings = true
+            navigator.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversation.id))
         }
     }
 
@@ -1547,7 +1677,7 @@ class ConversationViewModel { // swiftlint:disable:this type_body_length
 
 extension ConversationViewModel {
     func onConversationSettings(focusCoordinator: FocusCoordinator) {
-        presentingConversationSettings = true
+        navigator.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversation.id))
         focusCoordinator.moveFocus(to: nil)
     }
 
@@ -1778,6 +1908,18 @@ extension ConversationViewModel {
 
         guard hasText || hasMedia || hasInvite || hasLinkPreview else { return }
 
+        let metricStartedAt: Date = Date()
+        let metricMemberCount: Int = conversation.members.count
+        let metricHasAssistant: Bool = conversation.hasAgent
+        var metricAttachmentTypes: [String] = []
+        for attachment in pendingMediaAttachments {
+            switch attachment {
+            case .photo: metricAttachmentTypes.append("image/jpeg")
+            case .video: metricAttachmentTypes.append("video/mp4")
+            case .file(let file): metricAttachmentTypes.append(file.mimeType)
+            }
+        }
+
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
         let prevMediaAttachments = pendingMediaAttachments
@@ -1816,6 +1958,7 @@ extension ConversationViewModel {
             let inviteURL = sideConvoResult.inviteURL
             let pendingInviteMessageId = sideConvoResult.pendingMessageId
 
+            var sendSucceeded: Bool = false
             do {
                 // Send each media attachment as its own message, in bar order.
                 // The first attachment carries the reply target (if any); subsequent
@@ -1836,11 +1979,43 @@ extension ConversationViewModel {
                     replyTarget: trailingReplyTarget,
                     messageWriter: messageWriter
                 )
+                sendSucceeded = true
             } catch {
                 Log.error("Error sending message: \(error)")
             }
 
             isSendingMedia = false
+
+            recordSentMessageMetric(
+                startedAt: metricStartedAt,
+                memberCount: metricMemberCount,
+                attachmentTypes: metricAttachmentTypes,
+                hasText: hasText,
+                hasAssistant: metricHasAssistant,
+                isSuccess: sendSucceeded
+            )
+        }
+    }
+
+    private func recordSentMessageMetric(
+        startedAt: Date,
+        memberCount: Int,
+        attachmentTypes: [String],
+        hasText: Bool,
+        hasAssistant: Bool,
+        isSuccess: Bool
+    ) {
+        let sendingTime: Float = Float(Date().timeIntervalSince(startedAt))
+        let metrics: CoreMetrics = coreMetrics
+        Task {
+            await metrics.actions.sentMessage(
+                sendingTime: sendingTime,
+                memberCount: memberCount,
+                attachmentTypes: attachmentTypes,
+                hasText: hasText,
+                hasAssistant: hasAssistant,
+                isSuccess: isSuccess
+            )
         }
     }
 
@@ -2158,6 +2333,10 @@ extension ConversationViewModel {
             presentingProfileSettings = true
             return
         }
+        navigator.present(memberProfile: MemberProfileNavigatorArgs(
+            conversationId: conversation.id,
+            memberId: member.profile.inboxId
+        ))
         presentingProfileForMember = member
     }
 
@@ -2169,12 +2348,17 @@ extension ConversationViewModel {
 
     func onTapInvite(_ invite: MessageInvite) {
         if invite.isConversationExpired || invite.isInviteExpired {
-            presentingExplodedInviteInfo = true
+            navigator.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
             return
         }
+        navigator.present(newConversation: NewConversationNavigatorArgs(
+            mode: .joinInvite,
+            inviteCode: invite.inviteSlug
+        ))
         presentingNewConversationForInvite = NewConversationViewModel(
             session: session,
-            mode: .joinInvite(code: invite.inviteSlug)
+            mode: .joinInvite(code: invite.inviteSlug),
+            metricsDelegate: metricsDelegate
         )
     }
 
@@ -2197,7 +2381,7 @@ extension ConversationViewModel {
     }
 
     func onProfileSettings() {
-        presentingProfileSettings = true
+        navigator.present(myInfo: MyInfoNavigatorArgs())
     }
 
     func remove(member: ConversationMember) {
@@ -2250,6 +2434,15 @@ extension ConversationViewModel {
         let urlString = invite.inviteURLString
         guard !urlString.isEmpty else { return }
         UIPasteboard.general.string = urlString
+        let metrics: CoreMetrics = coreMetrics
+        let memberCount: Int = conversation.members.count
+        let hasAssistant: Bool = conversation.hasAgent
+        Task {
+            await metrics.actions.invitedToConversation(
+                memberCount: memberCount,
+                hasAssistant: hasAssistant
+            )
+        }
     }
 
     /// Adds the given inboxIds as members of this conversation via the
@@ -2274,6 +2467,8 @@ extension ConversationViewModel {
         let conversationId = conversation.id
         let requestId = UUID().uuidString
         let taskId = requestId
+        let metrics: CoreMetrics = coreMetrics
+        let memberCount: Int = conversation.members.count
         assistantJoinTask = Task { [weak self, session] in
             await Self.broadcastAssistantJoinRequest(
                 status: .pending, requestId: requestId,
@@ -2312,6 +2507,7 @@ extension ConversationViewModel {
                 }
                 return
             }
+            await metrics.actions.addedAssistant(memberCount: memberCount)
             await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
         }
         assistantJoinTaskId = taskId
@@ -2546,13 +2742,11 @@ extension ConversationViewModel {
 
 extension ConversationViewModel {
     static var mock: ConversationViewModel {
-        let mockConversation: Conversation = .mock()
-        let mockSession: any SessionManagerProtocol = MockInboxesService()
-        let mockMessaging: any MessagingServiceProtocol = MockMessagingService()
-        return ConversationViewModel(
-            conversation: mockConversation,
-            session: mockSession,
-            messagingService: mockMessaging
+        return .init(
+            conversation: Conversation.mock(),
+            session: MockInboxesService(),
+            messagingService: MockMessagingService(),
+            metricsDelegate: CollectorDelegate()
         )
     }
 }
@@ -2599,6 +2793,10 @@ extension ConversationViewModel {
     }
 
     func onTapReactions(_ message: AnyMessage) {
+        navigator.present(reactions: ReactionsNavigatorArgs(
+            conversationId: conversation.id,
+            messageId: message.id
+        ))
         presentingReactionsForMessage = message
     }
 
@@ -2665,7 +2863,7 @@ extension ConversationViewModel {
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true
             hasShownRevealToast = true
-            presentingRevealMediaInfoSheet = true
+            navigator.present(revealMediaInfo: RevealMediaInfoNavigatorArgs())
         } else if !hasShownRevealToast {
             hasShownRevealToast = true
             showRevealSettingsToast()

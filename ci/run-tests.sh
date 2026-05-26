@@ -18,6 +18,17 @@ filter_xmtp_logs() {
     grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
 }
 
+# ConvosCore depends on the local ConvosMetrics Swift package, which is
+# generated from the convos-shared gradle project. SPM resolves package paths
+# before any Xcode build phase runs, so we have to materialize ConvosMetrics
+# ourselves before invoking `swift build`.
+ensure_convos_metrics_generated() {
+    if [[ ! -f "$REPO_ROOT/ConvosMetrics/Package.swift" ]]; then
+        echo "==> Generating ConvosMetrics Swift package from convos-shared..."
+        "$REPO_ROOT/Scripts/build-phases/build-navigation-metrics.sh"
+    fi
+}
+
 cd "$CORE_DIR"
 
 case "$TEST_TYPE" in
@@ -43,6 +54,8 @@ case "$TEST_TYPE" in
             echo "Error: XMTP_NODE_ADDRESS environment variable is required for integration tests"
             exit 1
         fi
+
+        ensure_convos_metrics_generated
 
         # Build first to avoid parallel build issues
         echo "==> Building tests..."
@@ -76,6 +89,8 @@ case "$TEST_TYPE" in
     all|"")
         echo "==> Running all tests"
         echo ""
+
+        ensure_convos_metrics_generated
 
         # Build first
         echo "==> Building tests..."

@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct FeatureRowItem<AccessoryView: View>: View {
@@ -76,11 +77,6 @@ struct ConversationInfoView: View {
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @State private var showingExplodeSheet: Bool = false
-    @State private var presentingEditView: Bool = false
-    @State private var showingLockedInfo: Bool = false
-    @State private var showingFullInfo: Bool = false
-    @State private var presentingShareView: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var exportedLogsURL: URL?
     @State private var metadataDebugText: String = "Loading…"
@@ -122,7 +118,9 @@ struct ConversationInfoView: View {
                 members: viewModel.conversation.members,
                 profileSheetContent: { member in
                     AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: .shared))
-                }
+                },
+                navState: viewModel.assistantFilesLinksNavState,
+                navigator: viewModel.assistantFilesLinksNavigator
             )
         } label: {
             FeatureRowItem(
@@ -137,6 +135,11 @@ struct ConversationInfoView: View {
             }
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded {
+            viewModel.conversationInfoNavigator.navigateTo(
+                filesAndLinks: AssistantFilesLinksNavigatorArgs(conversationId: viewModel.conversation.id)
+            )
+        })
         .accessibilityIdentifier("files-links-row")
     }
 
@@ -162,7 +165,7 @@ struct ConversationInfoView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         if viewModel.isFull {
-                            showingFullInfo = true
+                            viewModel.conversationInfoNavState.showingFullInfo = true
                         }
                     }
                     .opacity(viewModel.isLocked ? 0.5 : 1.0)
@@ -220,7 +223,7 @@ struct ConversationInfoView: View {
                 Toggle("", isOn: Binding(
                     get: { viewModel.isLocked },
                     set: { _ in
-                        showingLockedInfo = true
+                        viewModel.conversationInfoNavState.showingLockedInfo = true
                     }
                 ))
                 .labelsHidden()
@@ -253,7 +256,7 @@ struct ConversationInfoView: View {
                         }
 
                         Button {
-                            presentingEditView = true
+                            viewModel.conversationInfoNavigator.navigateTo(edit: ConversationInfoEditNavigatorArgs(conversationId: viewModel.conversation.id))
                         } label: {
                             Text("Edit info")
                                 .font(.caption)
@@ -264,7 +267,7 @@ struct ConversationInfoView: View {
                         .padding(.top, DesignConstants.Spacing.step2x)
                         .accessibilityLabel("Edit conversation info")
                         .accessibilityIdentifier("edit-info-button")
-                        .sheet(isPresented: $presentingEditView) {
+                        .sheet(isPresented: $viewModel.conversationInfoNavState.presentingEditView) {
                             ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
                         }
                     }
@@ -295,6 +298,9 @@ struct ConversationInfoView: View {
                     }
                 }
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                viewModel.conversationInfoNavigator.navigateTo(membersList: MembersListNavigatorArgs(conversationId: viewModel.conversation.id))
+            })
         }
     }
 
@@ -455,7 +461,7 @@ struct ConversationInfoView: View {
                 Section {
                     ExplodeInfoRow(
                         scheduledExplosionDate: viewModel.scheduledExplosionDate,
-                        onTap: { showingExplodeSheet = true },
+                        onTap: { viewModel.conversationInfoNavState.showingExplodeSheet = true },
                         onExplodeNow: { viewModel.explodeConvo() }
                     )
                 }
@@ -582,7 +588,7 @@ struct ConversationInfoView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     Button {
-                        showingLockedInfo = true
+                        viewModel.conversationInfoNavState.showingLockedInfo = true
                     } label: {
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.colorTextSecondary)
@@ -596,9 +602,9 @@ struct ConversationInfoView: View {
                         isEnabled: true,
                         onConvoCode: {
                             if viewModel.isFull {
-                                showingFullInfo = true
+                                viewModel.conversationInfoNavState.showingFullInfo = true
                             } else {
-                                presentingShareView = true
+                                viewModel.conversationInfoNavState.presentingShareView = true
                             }
                         },
                         onCopyLink: {
@@ -650,48 +656,48 @@ struct ConversationInfoView: View {
                 .background(.colorBackgroundRaisedSecondary)
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar { navigationBarContent }
-                .selfSizingSheet(isPresented: $showingLockedInfo) {
+                .selfSizingSheet(isPresented: $viewModel.conversationInfoNavState.showingLockedInfo) {
                     LockedConvoInfoView(
                         isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
                         isLocked: viewModel.isLocked,
                         onLock: {
                             viewModel.toggleLock()
-                            showingLockedInfo = false
+                            viewModel.conversationInfoNavState.showingLockedInfo = false
                         },
                         onDismiss: {
-                            showingLockedInfo = false
+                            viewModel.conversationInfoNavState.showingLockedInfo = false
                         }
                     )
                 }
-                .selfSizingSheet(isPresented: $showingFullInfo) {
+                .selfSizingSheet(isPresented: $viewModel.conversationInfoNavState.showingFullInfo) {
                     FullConvoInfoView(onDismiss: {
-                        showingFullInfo = false
+                        viewModel.conversationInfoNavState.showingFullInfo = false
                     })
                 }
                 .overlay {
-                    if presentingShareView {
+                    if viewModel.conversationInfoNavState.presentingShareView {
                         ConversationShareOverlay(
                             conversation: viewModel.conversation,
                             invite: viewModel.invite,
-                            isPresented: $presentingShareView,
+                            isPresented: $viewModel.conversationInfoNavState.presentingShareView,
                             topSafeAreaInset: 0
                         )
                     }
                 }
                 .background {
                     Color.clear
-                        .fullScreenCover(isPresented: $showingExplodeSheet) {
+                        .fullScreenCover(isPresented: $viewModel.conversationInfoNavState.showingExplodeSheet) {
                             ExplodeConvoSheet(
                                 isScheduled: viewModel.scheduledExplosionDate != nil,
                                 onSchedule: { date in
                                     viewModel.scheduleExplosion(at: date)
-                                    showingExplodeSheet = false
+                                    viewModel.conversationInfoNavState.showingExplodeSheet = false
                                 },
                                 onExplodeNow: {
                                     viewModel.explodeConvo()
                                 },
                                 onDismiss: {
-                                    showingExplodeSheet = false
+                                    viewModel.conversationInfoNavState.showingExplodeSheet = false
                                 }
                             )
                             .presentationBackground(.clear)
@@ -699,6 +705,13 @@ struct ConversationInfoView: View {
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
+                }
+                .onAppear {
+                    viewModel.conversationInfoNavState.markScreenAppeared()
+                }
+                .onDisappear {
+                    let durationSecs = viewModel.conversationInfoNavState.screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+                    viewModel.conversationInfoNavigator.closed(context: ScreenContext(durationSecs: durationSecs))
                 }
         }
     }

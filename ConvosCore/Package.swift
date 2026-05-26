@@ -34,10 +34,12 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
+        .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.0.0"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
         .package(path: "../ConvosConnections"),
+        .package(path: "../ConvosMetrics"),
     ],
     targets: [
         .target(
@@ -51,10 +53,12 @@ let package = Package(
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
+                .product(name: "PostHog", package: "posthog-ios"),
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
                 .product(name: "ConvosConnections", package: "ConvosConnections"),
+                .product(name: "ConvosMetrics", package: "ConvosMetrics"),
                 .target(name: "ConvosConnectionsXMTP"),
             ],
             swiftSettings: [

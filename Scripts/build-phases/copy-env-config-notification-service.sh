@@ -26,12 +26,14 @@ if [ "$CONFIGURATION" = "Local" ]; then
     XMTP_CUSTOM_HOST=""
     FIREBASE_TOKEN=""
     AGENT_DEBUG_JWKS=""
+    POSTHOG_API_KEY=""
 
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         XMTP_CUSTOM_HOST=$(grep -v '^#' "${SRCROOT}/.env" | grep '^XMTP_CUSTOM_HOST=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
+        POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
 
     ESCAPED_AGENT_DEBUG_JWKS=$(swift_escape "$AGENT_DEBUG_JWKS")
@@ -45,6 +47,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST = "${XMTP_CUSTOM_HOST:-$LOCAL_IP}"
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
+    static let POSTHOG_API_KEY = "$POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = "$ESCAPED_AGENT_DEBUG_JWKS"
@@ -63,12 +66,14 @@ elif [ "$CONFIGURATION" = "Dev" ]; then
     FIREBASE_TOKEN=""
     CONVOS_API_BASE_URL=""
     AGENT_DEBUG_JWKS=""
+    POSTHOG_API_KEY=""
     if [ -f "${SRCROOT}/.env" ]; then
         FIREBASE_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
+        POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
 
     if [ -n "$FIREBASE_TOKEN" ]; then
@@ -92,6 +97,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST = ""
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
+    static let POSTHOG_API_KEY = "$POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = "$ESCAPED_AGENT_DEBUG_JWKS"

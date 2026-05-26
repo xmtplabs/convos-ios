@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import SwiftUI
 
 struct ConversationMembersListView: View {
@@ -53,7 +54,7 @@ struct ConversationMembersListView: View {
                     hasAssistant: viewModel.conversation.hasAgent,
                     isEnabled: true,
                     onConvoCode: {
-                        viewModel.presentingShareView = true
+                        viewModel.navigator.present(shareInvite: ShareInviteNavigatorArgs(conversationId: viewModel.conversation.id))
                     },
                     onCopyLink: {
                         viewModel.copyInviteLink()
