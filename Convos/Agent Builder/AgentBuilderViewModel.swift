@@ -664,11 +664,17 @@ final class AgentBuilderViewModel: Identifiable {
         agentJoinTask?.cancel()
         pendingConnectionGrantTask?.cancel()
         didRequestAgentJoin = true // suppress any late retries
-        voiceMemoRecorder?.cancelRecording()
-        // File picker stages copies into `FileManager.default.temporaryDirectory`;
-        // those temp copies are otherwise orphaned because `dismissWithDeletion`
-        // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.
-        newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+        // Skip recording/attachment cleanup while a commit is mid-flight —
+        // `sendBuilderBundle` still holds references to those temp files
+        // until `hasCommitted` flips. Cleaning them here would race the
+        // in-flight upload and leave the bundle pointing at deleted paths.
+        if !isCommitting {
+            voiceMemoRecorder?.cancelRecording()
+            // File picker stages copies into `FileManager.default.temporaryDirectory`;
+            // those temp copies are otherwise orphaned because `dismissWithDeletion`
+            // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.
+            newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+        }
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation
 
