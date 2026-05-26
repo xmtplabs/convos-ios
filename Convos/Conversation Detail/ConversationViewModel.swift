@@ -2777,15 +2777,6 @@ extension ConversationViewModel {
         return try await inboxResult.client.hiddenMessagesDebugInfo(conversationId: conversation.id)
     }
 
-    var agentInstanceId: String? {
-        guard let agent = conversation.members.first(where: \.isAgent),
-              case .string(let value) = agent.profile.metadata?["instanceId"],
-              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        return value
-    }
-
     /// Resolved display name for the agent that emitted `request`, or nil if the agent
     /// is not (or no longer) in the conversation. Used by the capability picker card to
     /// label the asker. Connection-event summaries do their own name resolution at
