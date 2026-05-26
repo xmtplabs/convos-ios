@@ -21,13 +21,22 @@ extension DBAgentBuilderSummary {
             }
             return Set(array)
         }()
+        let cloudConnectionIds: [String: String] = {
+            guard let data = cloudConnectionIdsJSON.data(using: .utf8),
+                  let dict = try? JSONDecoder().decode([String: String].self, from: data) else {
+                return [:]
+            }
+            return dict
+        }()
         return AgentBuilderSummary(
             id: UUID(uuidString: summaryId) ?? UUID(),
             prompt: prompt,
             attachments: attachments,
             createdAt: createdAt,
             cutoffDate: cutoffDate,
-            bundledMessageIds: bundledIds
+            bundledMessageIds: bundledIds,
+            cloudConnectionIds: cloudConnectionIds,
+            connectionsAppliedAt: connectionsAppliedAt
         )
     }
 }
@@ -36,13 +45,16 @@ extension AgentBuilderSummary {
     /// Encode for storage. Attachments serialize to JSON (base64 inside for
     /// any `Data` thumbnails). `bundledMessageIds` serializes as a JSON array
     /// (Sets aren't directly JSON-encodable; the conversion back is in
-    /// `toAgentBuilderSummary`).
+    /// `toAgentBuilderSummary`). `cloudConnectionIds` serialize as a JSON
+    /// object keyed by connection `rawValue`.
     public func toDBAgentBuilderSummary(conversationId: String) throws -> DBAgentBuilderSummary {
         let attachmentsData: Data = try JSONEncoder().encode(attachments)
         let attachmentsJSON: String = String(data: attachmentsData, encoding: .utf8) ?? "[]"
         let bundledIdsArray: [String] = Array(bundledMessageIds)
         let bundledIdsData: Data = try JSONEncoder().encode(bundledIdsArray)
         let bundledMessageIdsJSON: String = String(data: bundledIdsData, encoding: .utf8) ?? "[]"
+        let cloudConnectionIdsData: Data = try JSONEncoder().encode(cloudConnectionIds)
+        let cloudConnectionIdsJSON: String = String(data: cloudConnectionIdsData, encoding: .utf8) ?? "{}"
         return DBAgentBuilderSummary(
             conversationId: conversationId,
             summaryId: id.uuidString,
@@ -50,7 +62,9 @@ extension AgentBuilderSummary {
             attachmentsJSON: attachmentsJSON,
             createdAt: createdAt,
             cutoffDate: cutoffDate,
-            bundledMessageIdsJSON: bundledMessageIdsJSON
+            bundledMessageIdsJSON: bundledMessageIdsJSON,
+            cloudConnectionIdsJSON: cloudConnectionIdsJSON,
+            connectionsAppliedAt: connectionsAppliedAt
         )
     }
 }

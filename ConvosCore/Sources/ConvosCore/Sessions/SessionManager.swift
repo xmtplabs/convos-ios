@@ -146,6 +146,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await self.bootstrapCapabilityProviders()
             guard !Task.isCancelled else { return }
 
+            // Kick off the AgentBuilder grant replayer after the capability
+            // providers have bootstrapped — it relies on the cloud-connection
+            // and enablement stores being ready to query.
+            _ = self.agentBuilderConnectionGrantReplayer()
+
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
@@ -833,6 +838,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// shared registry per session instead of per-callsite copies.
     private let capabilityRegistryLock: OSAllocatedUnfairLock<(any CapabilityProviderRegistry)?> = .init(initialState: nil)
     private let connectionEnablementStoreLock: OSAllocatedUnfairLock<(any EnablementStore)?> = .init(initialState: nil)
+    /// Lazily-constructed singleton replayer. Lives for the lifetime of
+    /// the session because it owns a long-running `ValueObservation`
+    /// stream over `agentBuilderSummary` + member rows. Constructed by
+    /// the accessor in `SessionManager+AgentBuilderGrantReplayer.swift`.
+    let agentBuilderGrantReplayerLock: OSAllocatedUnfairLock<AgentBuilderConnectionGrantReplayer?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in

@@ -157,6 +157,10 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("renameConversationHasHadVerifiedAssistantToAgent", migrate: Self.renameConversationHasHadVerifiedAssistantToAgent)
 
+        migrator.registerMigration("addAgentBuilderSummaryCloudConnectionIds", migrate: Self.addAgentBuilderSummaryCloudConnectionIds)
+
+        migrator.registerMigration("addAgentBuilderSummaryConnectionsAppliedAt", migrate: Self.addAgentBuilderSummaryConnectionsAppliedAt)
+
         return migrator
     }
 
@@ -216,6 +220,33 @@ extension SharedDatabaseMigrator {
     private static func addAgentBuilderSummaryBundledMessageIds(_ db: Database) throws {
         try db.alter(table: "agentBuilderSummary") { t in
             t.add(column: "bundledMessageIdsJSON", .text).notNull().defaults(to: "[]")
+        }
+    }
+
+    /// JSON-encoded `[String: String]` mapping AgentBuilderConnection
+    /// rawValue → captured CloudConnection.id. Drives the post-Make grant
+    /// replayer: a force-quit between Make and agent-join no longer loses
+    /// the user's selected cloud connections — the replayer reads the
+    /// summary on next launch and fires the grants once the agent appears.
+    /// Defaults to `"{}"` on older summaries.
+    private static func addAgentBuilderSummaryCloudConnectionIds(_ db: Database) throws {
+        try db.alter(table: "agentBuilderSummary") { t in
+            t.add(column: "cloudConnectionIdsJSON", .text).notNull().defaults(to: "{}")
+        }
+    }
+
+    /// Timestamp set the first time the `AgentBuilderConnectionGrantReplayer`
+    /// finishes a successful pass over a summary's connections. Once set,
+    /// the replayer skips the row so a manual revoke from the chat UI
+    /// doesn't get silently undone by the next launch's replay scan. Nullable
+    /// — `nil` for summaries written before this column existed (those are
+    /// still safe to replay because the original commit's in-memory poll
+    /// would have either landed before the upgrade or been lost to app
+    /// death; the replayer's grant-store idempotency check keeps duplicate
+    /// firings from doing damage even in the worst case).
+    private static func addAgentBuilderSummaryConnectionsAppliedAt(_ db: Database) throws {
+        try db.alter(table: "agentBuilderSummary") { t in
+            t.add(column: "connectionsAppliedAt", .datetime)
         }
     }
 
