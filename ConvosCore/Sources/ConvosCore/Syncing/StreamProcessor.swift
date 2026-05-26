@@ -242,10 +242,17 @@ actor StreamProcessor: StreamProcessorProtocol {
         // revoked". Check it before the (potentially failing)
         // findConversation call so a missing-conversation race doesn't
         // suppress the banner trigger.
+        //
+        // Sender check: the signal is only meaningful when it comes
+        // from one of *our own* installations (the paired peer that
+        // performed the revoke). Without this, any participant in any
+        // shared conversation could forge a `DeviceRemovedContent` with
+        // our installationId and falsely trip the stale-device banner.
         if let typeId = try? message.encodedContent.type.typeID,
            typeId == ContentTypeDeviceRemoved.typeID,
            let removal = try? message.content() as DeviceRemovedContent,
-           removal.revokedInstallationId == params.client.installationId {
+           removal.revokedInstallationId == params.client.installationId,
+           message.senderInboxId == params.client.inboxId {
             Log.info("StreamProcessor: received DeviceRemoved for our own installation \(params.client.installationId) — posting revocation notification")
             NotificationCenter.default.post(
                 name: .installationWasRevokedByPeer,
