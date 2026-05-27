@@ -278,7 +278,6 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var linksSection: some View {
         Section {
-            securedByXMTPRow
             privacyTermsRow
             sendFeedbackRow
             if !ConfigManager.shared.currentEnvironment.isProduction {
@@ -288,28 +287,6 @@ struct AppSettingsView: View {
             linksFooter
         }
         .listRowSeparatorTint(.colorBorderSubtle)
-    }
-
-    @ViewBuilder
-    private var securedByXMTPRow: some View {
-        Button {
-            openExternalURL("https://xmtp.org")
-        } label: {
-            NavigationLink {
-                EmptyView()
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                    Text("Secured by ")
-                    Image("xmtpIcon")
-                        .renderingMode(.template)
-                        .foregroundStyle(.colorTextPrimary)
-                        .padding(.trailing, 1.0)
-                    Text("XMTP")
-                }
-                .foregroundStyle(.colorTextPrimary)
-            }
-        }
-        .foregroundStyle(.colorTextPrimary)
     }
 
     @ViewBuilder
