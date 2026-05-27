@@ -946,8 +946,16 @@ public extension SessionManager {
     /// secp256k1 key was already saved to the keychain by
     /// `LivePairingService.handleIdentityShare` before this runs. We:
     ///
-    /// 1. Stop the placeholder `MessagingService` (the one silent-identity
-    ///    bootstrap may have stood up before the deep link arrived).
+    /// 1. Stop AND delete the placeholder `MessagingService` (the one
+    ///    silent-identity bootstrap stood up before the deep link
+    ///    arrived). `stopAndDelete` is what removes the placeholder's
+    ///    libxmtp `xmtp-*.db3` files from `defaultDatabasesDirectory`.
+    ///    Without this, the new identity's `Client.create` finds the
+    ///    leftover SQLCipher-encrypted DB files and fails with
+    ///    `PRAGMA key or salt has incorrect value` — libxmtp uses one
+    ///    DB family per install (not per-inbox), so the placeholder's
+    ///    files actively block the paired identity from coming up,
+    ///    not just sit there as inert garbage.
     /// 2. Wipe the placeholder's GRDB rows. Without this, the local DB
     ///    still has the placeholder marked as `isCurrentUser` and the
     ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
@@ -956,11 +964,6 @@ public extension SessionManager {
     /// 3. Clear the cache. Next `messagingService()` call reads the new
     ///    keychain entry and bootstraps a fresh service under the paired
     ///    inboxId.
-    ///
-    /// Note: this does not delete the placeholder's libxmtp DB files from
-    /// disk. They're encrypted with the placeholder identity's
-    /// `databaseKey`, which the keychain replace abandoned, so they are
-    /// inert garbage until a "Delete All Data" sweep removes them.
     func refreshAfterPairingCompleted() async {
         // Mirror `tearDownInbox`'s ordering: keep the cached reference live
         // through stop + wipe so a concurrent `loadOrCreateService()` call
@@ -970,8 +973,9 @@ public extension SessionManager {
         // freshly-written paired GRDB rows the new service just made.
         let existing = cachedMessagingService.withLock { $0 }
         if let existing {
-            Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
-            await existing.stop()
+            Log.info("SessionManager: stopping + deleting placeholder messaging service after pairing adoption")
+            await existing.stopAndDelete()
+            await existing.waitForDeletionComplete()
         }
         do {
             try await wipeResidualInboxRows()
