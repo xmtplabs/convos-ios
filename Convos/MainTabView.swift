@@ -91,10 +91,11 @@ struct MainTabView: View {
     @State private var committedConversationFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var committedConversationSidebarWidth: CGFloat = 0
     /// Live subscription drives the app-indicator subtitle (plan name,
-    /// or "Free" when not subscribed). Seeded from the service's current
+    /// or "Basic" when not subscribed). Seeded from the service's current
     /// value so the first render doesn't flicker, then kept in sync via
     /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
     /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
@@ -136,10 +137,17 @@ struct MainTabView: View {
     }
 
     private var indicatorSubtitle: AppIndicatorSubtitle {
+        if creditBalance?.isDepleted == true {
+            return .symbol(
+                systemName: "bolt.fill",
+                tint: .colorLava,
+                accessibilityLabel: "No power"
+            )
+        }
         if let userSubscription {
             return .text(SubscriptionCopy.displayName(for: userSubscription.tier))
         }
-        return .text("Free")
+        return .text("Basic")
     }
 
     /// `true` once a conversation has been pushed onto the Chats tab's
@@ -221,6 +229,9 @@ struct MainTabView: View {
             }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
                 userSubscription = newSubscription
+            }
+            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
+                creditBalance = newBalance
             }
             .sheet(item: $presentingCommittedConversation) { convoVM in
                 committedConversationSheetContent(viewModel: convoVM)

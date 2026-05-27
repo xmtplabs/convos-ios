@@ -103,31 +103,22 @@ struct AppIndicatorPill: View {
     }
 }
 
-#Preview("With avatar") {
-    AppIndicatorPill(profileImage: nil)
+#Preview("Basic") {
+    AppIndicatorPill(profileImage: nil, subtitle: .text("Basic"))
         .padding()
         .background(Color.colorBackgroundSurfaceless)
 }
 
-#Preview("Plan name") {
-    AppIndicatorPill(profileImage: nil, subtitle: .text("Pro"))
+#Preview("Plus") {
+    AppIndicatorPill(profileImage: nil, subtitle: .text("Plus"))
         .padding()
         .background(Color.colorBackgroundSurfaceless)
 }
 
-#Preview("Low credits") {
+#Preview("No power") {
     AppIndicatorPill(
         profileImage: nil,
-        subtitle: .symbol(systemName: "battery.25percent", tint: .colorRed, accessibilityLabel: "Low credits")
-    )
-    .padding()
-    .background(Color.colorBackgroundSurfaceless)
-}
-
-#Preview("No credits") {
-    AppIndicatorPill(
-        profileImage: nil,
-        subtitle: .symbol(systemName: "battery.0percent", tint: .colorRed, accessibilityLabel: "Out of credits")
+        subtitle: .symbol(systemName: "bolt.fill", tint: .colorLava, accessibilityLabel: "No power")
     )
     .padding()
     .background(Color.colorBackgroundSurfaceless)
