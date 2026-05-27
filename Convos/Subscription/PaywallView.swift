@@ -35,8 +35,7 @@ struct PaywallView: View {
                     }
                     legalFooter
                 }
-                .padding(.horizontal, DesignConstants.Spacing.step6x)
-                .padding(.top, DesignConstants.Spacing.step6x)
+                .padding(.horizontal, DesignConstants.Spacing.step10x)
                 .padding(.bottom, DesignConstants.Spacing.step10x)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -62,11 +61,12 @@ struct PaywallView: View {
     private var hero: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             Text(SubscriptionCopy.heroLabel)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
             Text(SubscriptionCopy.heroTitle)
                 .font(.convosTitle)
                 .tracking(Font.convosTitleTracking)
+                .lineSpacing(-8)
                 .foregroundStyle(.colorTextPrimary)
         }
     }
@@ -115,10 +115,10 @@ struct PaywallView: View {
         HStack {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(headline)
-                    .font(.title3.weight(.semibold))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(.colorLava)
                 Text(subheadline)
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
             Spacer()
@@ -141,7 +141,7 @@ struct PaywallView: View {
         let outcomes: [String] = SubscriptionCopy.outcomes(for: viewModel.selectedPlan)
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             Text("Example uses")
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
             ForEach(outcomes, id: \.self) { outcome in
                 Text(outcome)
@@ -164,16 +164,20 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var basicPricing: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
+        VStack(spacing: DesignConstants.Spacing.stepX) {
             Text(SubscriptionCopy.basicPriceLabel)
-                .font(.title3.weight(.semibold))
+                .font(.body.weight(.medium))
                 .foregroundStyle(.colorTextPrimary)
             Text(SubscriptionCopy.basicPriceSubtitle)
-                .font(.subheadline)
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, DesignConstants.Spacing.step4x)
+        .background(
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                .fill(.colorFillSubtle)
+        )
     }
 
     @ViewBuilder
@@ -221,11 +225,11 @@ struct PaywallView: View {
                     .monospacedDigit()
                 HStack(spacing: DesignConstants.Spacing.stepX) {
                     Text(periodLabel)
-                        .font(.caption)
+                        .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
                     if let savingsLabel {
                         Text(savingsLabel)
-                            .font(.caption.weight(.semibold))
+                            .font(.footnote.weight(.semibold))
                             .foregroundStyle(.colorLava)
                     }
                 }
@@ -309,11 +313,11 @@ struct PaywallView: View {
         HStack(spacing: DesignConstants.Spacing.step6x) {
             if let url = URL(string: "https://convos.org/terms") {
                 Link("Terms & Privacy", destination: url)
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
             Button("Restore", action: viewModel.restoreTapped)
-                .font(.caption)
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
         }
         .frame(maxWidth: .infinity)
