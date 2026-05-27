@@ -190,63 +190,63 @@ struct PaywallView: View {
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        let inset: CGFloat = DesignConstants.Spacing.step2x
+        let inset: CGFloat = DesignConstants.Spacing.stepX
         let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - inset
-        GeometryReader { geo in
-            let segmentWidth: CGFloat = (geo.size.width - inset * 2) / 2
-            let restOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
-            let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), segmentWidth)
-            ZStack(alignment: .leading) {
+        HStack(spacing: 0) {
+            pricePillLabel(
+                price: viewModel.plusMonthlyProduct?.displayPrice ?? "",
+                periodLabel: "Monthly",
+                savingsLabel: nil
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { selectMonthlyIfAvailable() }
+
+            pricePillLabel(
+                price: viewModel.plusAnnualProduct?.displayPrice ?? "",
+                periodLabel: "Yearly",
+                savingsLabel: viewModel.annualSavingsPercent.map { "Save \($0)%" }
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { selectAnnualIfAvailable() }
+        }
+        .padding(inset)
+        .background(
+            GeometryReader { geo in
+                let segmentWidth: CGFloat = (geo.size.width - inset * 2) / 2
+                let restOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
+                let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), segmentWidth)
                 RoundedRectangle(cornerRadius: thumbRadius)
                     .fill(.clear)
                     .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
-                    .frame(width: segmentWidth, height: geo.size.height - inset * 2)
-                    .offset(x: inset + clampedDrag, y: inset)
+                    .frame(width: segmentWidth)
+                    .offset(x: inset + clampedDrag)
                     .animation(
                         thumbDragOffset == 0 ? .snappy(duration: 0.25) : .interactiveSpring,
                         value: clampedDrag
                     )
-
-                HStack(spacing: 0) {
-                    pricePillLabel(
-                        price: viewModel.plusMonthlyProduct?.displayPrice ?? "",
-                        periodLabel: "Monthly",
-                        savingsLabel: nil
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectMonthlyIfAvailable() }
-
-                    pricePillLabel(
-                        price: viewModel.plusAnnualProduct?.displayPrice ?? "",
-                        periodLabel: "Yearly",
-                        savingsLabel: viewModel.annualSavingsPercent.map { "Save \($0)%" }
-                    )
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectAnnualIfAvailable() }
-                }
-                .padding(.horizontal, inset)
             }
-            .gesture(
-                DragGesture(minimumDistance: 5)
-                    .onChanged { value in
-                        thumbDragOffset = value.translation.width
-                    }
-                    .onEnded { value in
-                        thumbDragOffset = 0
-                        let landX: CGFloat = restOffset + value.translation.width
-                        let midpoint: CGFloat = segmentWidth / 2
-                        if landX > midpoint {
-                            selectAnnualIfAvailable()
-                        } else {
-                            selectMonthlyIfAvailable()
-                        }
-                    }
-            )
-        }
-        .frame(height: 84)
+        )
         .background(
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                 .fill(.colorFillSubtle)
+        )
+        .gesture(
+            DragGesture(minimumDistance: 5)
+                .onChanged { value in
+                    thumbDragOffset = value.translation.width
+                }
+                .onEnded { value in
+                    let isMonthly: Bool = viewModel.selectedProduct?.period == .monthly
+                    let segmentGuess: CGFloat = 150
+                    let restX: CGFloat = isMonthly ? 0 : segmentGuess
+                    let landX: CGFloat = restX + value.translation.width
+                    thumbDragOffset = 0
+                    if landX > segmentGuess / 2 {
+                        selectAnnualIfAvailable()
+                    } else {
+                        selectMonthlyIfAvailable()
+                    }
+                }
         )
     }
 
