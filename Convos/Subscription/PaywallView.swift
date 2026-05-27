@@ -106,9 +106,12 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var usageRow: some View {
-        let boltIcon: String = viewModel.selectedPlan == .plus
+        let isPlus: Bool = viewModel.selectedPlan == .plus
+        let boltIcon: String = isPlus
             ? "bolt.fill"
             : "bolt.trianglebadge.exclamationmark.fill"
+        let iconColor: Color = isPlus ? .colorTextPrimaryInverted : .colorLava
+        let circleColor: Color = isPlus ? .colorFillPrimary : Color.colorLava.opacity(0.12)
         HStack {
             featureText(
                 headline: SubscriptionCopy.usageHeadline(for: viewModel.selectedPlan),
@@ -117,13 +120,10 @@ struct PaywallView: View {
             Spacer()
             Image(systemName: boltIcon)
                 .font(.title2)
-                .foregroundStyle(.colorLava)
+                .foregroundStyle(iconColor)
                 .offset(x: -1)
                 .frame(width: 44, height: 44)
-                .background(
-                    Circle()
-                        .fill(Color.colorLava.opacity(0.12))
-                )
+                .background(Circle().fill(circleColor))
         }
     }
 
