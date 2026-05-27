@@ -946,37 +946,43 @@ public extension SessionManager {
     /// secp256k1 key was already saved to the keychain by
     /// `LivePairingService.handleIdentityShare` before this runs. We:
     ///
-    /// 1. Stop AND delete the placeholder `MessagingService` (the one
-    ///    silent-identity bootstrap stood up before the deep link
-    ///    arrived). `stopAndDelete` is what removes the placeholder's
-    ///    libxmtp `xmtp-*.db3` files from `defaultDatabasesDirectory`.
-    ///    Without this, the new identity's `Client.create` finds the
-    ///    leftover SQLCipher-encrypted DB files and fails with
-    ///    `PRAGMA key or salt has incorrect value` — libxmtp uses one
-    ///    DB family per install (not per-inbox), so the placeholder's
-    ///    files actively block the paired identity from coming up,
-    ///    not just sit there as inert garbage.
-    /// 2. Wipe the placeholder's GRDB rows. Without this, the local DB
+    /// 1. Stop the placeholder `MessagingService` (the one silent-identity
+    ///    bootstrap may have stood up before the deep link arrived).
+    /// 2. Delete the placeholder's libxmtp `xmtp-*.db3` files directly
+    ///    from `defaultDatabasesDirectory`. Without this, the new
+    ///    identity's `Client.create` finds the leftover SQLCipher-
+    ///    encrypted DB files and fails with `PRAGMA key or salt has
+    ///    incorrect value` — libxmtp uses one DB family per install
+    ///    (not per-inbox), and the placeholder's databaseKey is
+    ///    discarded the moment the keychain was overwritten by the
+    ///    pair adoption.
+    /// 3. Wipe the placeholder's GRDB rows. Without this, the local DB
     ///    still has the placeholder marked as `isCurrentUser` and the
     ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
     ///    History-synced messages from the *paired* identity then come in
     ///    as not-mine and render on the wrong side of the message list.
-    /// 3. Clear the cache. Next `messagingService()` call reads the new
+    /// 4. Clear the cache. Next `messagingService()` call reads the new
     ///    keychain entry and bootstraps a fresh service under the paired
     ///    inboxId.
+    ///
+    /// Note: we deliberately do NOT call `existing.stopAndDelete()` even
+    /// though it has DB-file-deletion logic. The `MessagingService.delete`
+    /// path also runs `identityStore.delete()` — and the keychain has
+    /// already been overwritten with the freshly-paired identity by
+    /// `LivePairingService.handleIdentityShare`. Letting `stopAndDelete`
+    /// run would wipe the newly-paired keychain entry. Inline file
+    /// deletion keeps the keychain intact.
     func refreshAfterPairingCompleted() async {
         // Mirror `tearDownInbox`'s ordering: keep the cached reference live
         // through stop + wipe so a concurrent `loadOrCreateService()` call
         // observes the being-torn-down service rather than building a second
-        // one under the (just-replaced) paired keychain entry. If it ran
-        // simultaneously with `wipeResidualInboxRows()` we'd delete the
-        // freshly-written paired GRDB rows the new service just made.
+        // one under the (just-replaced) paired keychain entry.
         let existing = cachedMessagingService.withLock { $0 }
         if let existing {
-            Log.info("SessionManager: stopping + deleting placeholder messaging service after pairing adoption")
-            await existing.stopAndDelete()
-            await existing.waitForDeletionComplete()
+            Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
+            await existing.stop()
         }
+        deletePlaceholderLibxmtpDatabaseFiles()
         do {
             try await wipeResidualInboxRows()
             Log.info("SessionManager: wiped placeholder GRDB rows after pairing adoption")
@@ -984,5 +990,37 @@ public extension SessionManager {
             Log.warning("SessionManager: failed to wipe placeholder rows after pairing: \(error)")
         }
         cachedMessagingService.withLock { $0 = nil }
+    }
+
+    /// Removes the placeholder identity's libxmtp `xmtp-*.db3` files from
+    /// the shared default database directory. libxmtp names files
+    /// `xmtp-<gRPC-host>-<hash>.db3` and uses one family per install, so
+    /// the existing files were encrypted with the now-discarded
+    /// placeholder databaseKey. Without deletion, the paired identity's
+    /// `Client.create` would re-open them with its fresh databaseKey and
+    /// SQLCipher would reject with `PRAGMA key or salt has incorrect
+    /// value`. Mirrors `SessionStateMachine.deleteDatabaseFiles()` but
+    /// runs without involving the state machine (which is in `.error`
+    /// or being torn down here).
+    private func deletePlaceholderLibxmtpDatabaseFiles() {
+        let fileManager = FileManager.default
+        let dbDirectory = environment.defaultDatabasesDirectoryURL
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: dbDirectory,
+            includingPropertiesForKeys: nil
+        ) else {
+            Log.warning("SessionManager: could not enumerate \(dbDirectory.path) for placeholder DB cleanup")
+            return
+        }
+        var deletedCount: Int = 0
+        for url in entries where url.lastPathComponent.hasPrefix("xmtp-") {
+            do {
+                try fileManager.removeItem(at: url)
+                deletedCount += 1
+            } catch {
+                Log.warning("SessionManager: failed to delete placeholder libxmtp file \(url.lastPathComponent): \(error)")
+            }
+        }
+        Log.info("SessionManager: removed \(deletedCount) placeholder libxmtp file(s) after pairing adoption")
     }
 }
