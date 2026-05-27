@@ -18,15 +18,6 @@ final class HTMLThumbnailRenderer {
     // thumbnails (720x1200, no viewport / surface hints) get re-
     // rendered on demand.
     private static let cacheKeyPrefix: String = "html-thumb-v5-"
-    private static let injectionScript: String = """
-    (function() {
-        var css = 'html, body { margin-top: 0 !important; padding-top: 0 !important; } ' +
-                  '.note, .table, .note-hero, main, article { padding-top: 0 !important; margin-top: 0 !important; }';
-        var style = document.createElement('style');
-        style.textContent = css;
-        (document.head || document.documentElement).appendChild(style);
-    })();
-    """
 
     /// Runs at .atDocumentEnd so the parser has populated <head> with
     /// the artifact's own <meta viewport>. We strip every existing
@@ -173,12 +164,6 @@ final class HTMLThumbnailRenderer {
             forMainFrameOnly: true
         )
         config.userContentController.addUserScript(viewportUserScript)
-        let paddingUserScript = WKUserScript(
-            source: Self.injectionScript,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-        config.userContentController.addUserScript(paddingUserScript)
 
         let webView = WKWebView(
             frame: CGRect(origin: .zero, size: Self.renderSize),
