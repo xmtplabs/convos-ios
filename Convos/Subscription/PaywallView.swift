@@ -110,7 +110,7 @@ struct PaywallView: View {
         let boltIcon: String = isPlus
             ? "bolt.fill"
             : "bolt.trianglebadge.exclamationmark.fill"
-        let iconColor: Color = isPlus ? .colorTextPrimaryInverted : .colorLava
+        let iconColor: Color = .colorLava
         let circleColor: Color = isPlus ? .colorFillPrimary : Color.colorLava.opacity(0.12)
         HStack {
             featureText(
@@ -190,8 +190,9 @@ struct PaywallView: View {
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        let inset: CGFloat = DesignConstants.Spacing.step2x
-        let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - inset
+        let padding: CGFloat = DesignConstants.Spacing.step2x
+        let thumbInset: CGFloat = DesignConstants.Spacing.stepX
+        let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - thumbInset
         HStack(spacing: 0) {
             pricePillLabel(
                 price: viewModel.plusMonthlyProduct?.displayPrice ?? "",
@@ -209,20 +210,20 @@ struct PaywallView: View {
             .contentShape(Rectangle())
             .onTapGesture { selectAnnualIfAvailable() }
         }
-        .padding(inset)
+        .padding(padding)
         .background {
             GeometryReader { geo in
-                let segmentWidth: CGFloat = (geo.size.width - inset * 2) / 2
-                let restOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
-                let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), segmentWidth)
+                let thumbWidth: CGFloat = (geo.size.width - thumbInset * 2) / 2
+                let restOffset: CGFloat = isMonthlySelected ? 0 : thumbWidth
+                let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), thumbWidth)
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                         .fill(.colorFillSubtle)
                     RoundedRectangle(cornerRadius: thumbRadius)
                         .fill(.clear)
                         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
-                        .frame(width: segmentWidth, height: geo.size.height - inset * 2)
-                        .offset(x: inset + clampedDrag, y: inset)
+                        .frame(width: thumbWidth, height: geo.size.height - thumbInset * 2)
+                        .offset(x: thumbInset + clampedDrag, y: thumbInset)
                         .animation(
                             thumbDragOffset == 0 ? .snappy(duration: 0.25) : .interactiveSpring,
                             value: clampedDrag
