@@ -192,6 +192,20 @@ final class AgentBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var restoreComposerFocusAfterRecording: Bool = false
 
+    /// Attachments captured before the inner `ConversationViewModel`
+    /// finishes its placeholder-to-real swap. Drained into the real
+    /// inner VM from `onReachedReady`.
+    @ObservationIgnored
+    private var queuedInitialAttachments: [QueuedInitialAttachment] = []
+    @ObservationIgnored
+    private var hasDrainedInitialAttachments: Bool = false
+
+    private enum QueuedInitialAttachment {
+        case photo(UIImage)
+        case video(URL)
+        case file(url: URL, filename: String, mimeType: String, fileSize: Int)
+    }
+
     init(session: any SessionManagerProtocol, entryMode: AgentBuilderEntryMode = .composer) {
         self.session = session
         self.entryMode = entryMode
@@ -211,6 +225,7 @@ final class AgentBuilderViewModel: Identifiable {
         // both the placeholder VM and its real replacement stay suppressed.
         self.newConversationViewModel.suppressesContactCard = true
         self.newConversationViewModel.onReachedReady = { [weak self] in
+            self?.drainInitialAttachmentsIfNeeded()
             self?.requestAgentJoinIfNeeded()
         }
         cloudConnectionsCancellable = session.cloudConnectionRepository().connectionsPublisher()
@@ -226,25 +241,79 @@ final class AgentBuilderViewModel: Identifiable {
 
     // MARK: - Composer mutations
 
+    /// Bar-entry attachment paths (camera capture, photo picker, file
+    /// picker) call `addPhotoAttachment` etc. immediately after
+    /// `onStartAgent()` returns - i.e. while `NewConversationViewModel`
+    /// is still on its synchronously-created placeholder
+    /// `ConversationViewModel`. Forwarding straight to the inner VM at
+    /// that moment lands the attachment on the placeholder, which is
+    /// then discarded when `configureWithMessagingService` swaps in the
+    /// real VM. Queue any add that lands before the real-VM swap and
+    /// drain into the real VM at `onReachedReady`, so the eager-upload
+    /// pipeline fires on the real `cachedMessageWriter`.
     func addPhotoAttachment(_ image: UIImage) {
-        newConversationViewModel.conversationViewModel?.addPhotoAttachment(image)
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addPhotoAttachment(image)
+        } else {
+            queuedInitialAttachments.append(.photo(image))
+        }
     }
 
     func addVideoAttachment(url: URL) {
-        newConversationViewModel.conversationViewModel?.addVideoAttachment(url: url)
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addVideoAttachment(url: url)
+        } else {
+            queuedInitialAttachments.append(.video(url))
+        }
     }
 
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
-        newConversationViewModel.conversationViewModel?.addFileAttachment(
-            url: url,
-            filename: filename,
-            mimeType: mimeType,
-            fileSize: fileSize
-        )
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addFileAttachment(
+                url: url,
+                filename: filename,
+                mimeType: mimeType,
+                fileSize: fileSize
+            )
+        } else {
+            queuedInitialAttachments.append(
+                .file(url: url, filename: filename, mimeType: mimeType, fileSize: fileSize)
+            )
+        }
     }
 
     func removeAttachment(id: UUID) {
         newConversationViewModel.conversationViewModel?.removeMediaAttachment(id: id)
+    }
+
+    /// Flush attachments queued during the placeholder window into the
+    /// real inner conversation VM. Called once from `onReachedReady`;
+    /// the `hasDrainedInitialAttachments` flag then lets subsequent
+    /// adds short-circuit straight through.
+    private func drainInitialAttachmentsIfNeeded() {
+        guard !hasDrainedInitialAttachments else { return }
+        hasDrainedInitialAttachments = true
+        guard let convoVM = newConversationViewModel.conversationViewModel else { return }
+        let queued = queuedInitialAttachments
+        queuedInitialAttachments = []
+        for item in queued {
+            switch item {
+            case let .photo(image):
+                convoVM.addPhotoAttachment(image)
+            case let .video(url):
+                convoVM.addVideoAttachment(url: url)
+            case let .file(url, filename, mimeType, fileSize):
+                convoVM.addFileAttachment(
+                    url: url,
+                    filename: filename,
+                    mimeType: mimeType,
+                    fileSize: fileSize
+                )
+            }
+        }
     }
 
     func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {
