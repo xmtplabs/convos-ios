@@ -106,11 +106,10 @@ var body: some View {
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
         case .agentOutOfCredits(let member):
-            TextTitleContentView(
-                title: "\(member.profile.displayName) is out of credits",
-                profile: member.profile,
-                agentVerification: member.agentVerification,
-                onTap: onAgentOutOfCredits
+            AgentLostPowerStatus(
+                agentName: member.profile.displayName,
+                isCreator: true,
+                onUpgrade: onAgentOutOfCredits
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)
 

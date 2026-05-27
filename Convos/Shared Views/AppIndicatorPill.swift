@@ -9,7 +9,7 @@ import SwiftUI
 ///
 /// Shows the user's profile avatar when set, otherwise falls back to the
 /// `convosOrangeIcon` asset. Title is the static "Convos" string; subtitle
-/// is the user's subscription tier label, or a battery glyph when credits
+/// is the user's subscription tier label, or a bolt icon when credits
 /// are low / depleted — see [[AppIndicatorSubtitle]].
 struct AppIndicatorPill: View {
     let profileImage: UIImage?

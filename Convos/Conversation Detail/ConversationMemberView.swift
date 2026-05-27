@@ -71,14 +71,14 @@ struct ConversationMemberView: View {
     @ViewBuilder
     private var outOfCreditsRow: some View {
         HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
-            Image(systemName: "exclamationmark.octagon.fill")
+            Image(systemName: "bolt.fill")
                 .font(.title3)
-                .foregroundStyle(.colorRed)
+                .foregroundStyle(.colorLava)
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text("Out of credits")
+                Text("No power")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
-                Text("Your agents are paused until you upgrade or top up.")
+                Text("Your agents are in read-only mode until power is restored.")
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -93,7 +93,7 @@ struct ConversationMemberView: View {
         Button(action: upgradeAction) {
             Text("Upgrade")
                 .font(.body)
-                .foregroundStyle(.colorRed)
+                .foregroundStyle(.colorLava)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }

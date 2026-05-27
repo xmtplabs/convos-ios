@@ -29,7 +29,7 @@ struct MessagesGroupView: View {
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
     /// Mirrors `ConversationViewModel.creditsDepleted`. Drives the inline
-    /// `battery.0percent` glyph next to an agent sender's display name when
+    /// `bolt.fill` glyph next to an agent sender's display name when
     /// the global credit balance is depleted.
     var creditsDepleted: Bool = false
 
@@ -71,8 +71,8 @@ struct MessagesGroupView: View {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Text(group.sender.profile.displayName)
                 if group.sender.isAgent && creditsDepleted {
-                    Image(systemName: "battery.0percent")
-                        .foregroundStyle(.colorRed)
+                    Image(systemName: "bolt.fill")
+                        .foregroundStyle(.colorLava)
                 }
             }
         }
