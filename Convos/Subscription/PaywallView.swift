@@ -175,7 +175,7 @@ struct PaywallView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, DesignConstants.Spacing.step4x)
         .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
                 .fill(.colorFillSubtle)
         )
     }
