@@ -85,6 +85,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 tier: .plus,
                 period: .monthly,
                 displayPrice: "$19.99",
+                price: 19.99,
                 pricePerMonthDisplay: nil,
                 currencyCode: "USD"
             ),
@@ -92,8 +93,9 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
                 id: SubscriptionProductIDs.plusAnnual,
                 tier: .plus,
                 period: .annual,
-                displayPrice: "$214.99",
-                pricePerMonthDisplay: "$17.92/mo",
+                displayPrice: "$199.99",
+                price: 199.99,
+                pricePerMonthDisplay: "$16.67/mo",
                 currencyCode: "USD"
             ),
         ]

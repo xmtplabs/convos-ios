@@ -89,7 +89,7 @@ struct PaywallView: View {
                 subheadline: SubscriptionCopy.agentsSubheadline
             )
             Spacer()
-            Image("convosAgentIcon")
+            Image("addAgentIcon")
                 .resizable()
                 .scaledToFit()
                 .frame(width: 20, height: 20)
@@ -157,8 +157,12 @@ struct PaywallView: View {
     private var pricingSection: some View {
         if viewModel.selectedPlan == .basic {
             basicPricing
-        } else {
+        } else if viewModel.plusMonthlyProduct != nil {
             plusPricing
+        } else {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                .fill(.colorFillSubtle)
+                .frame(height: 80)
         }
     }
 
@@ -339,7 +343,8 @@ struct PaywallView: View {
             .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
             .disabled(viewModel.selectedProduct == nil || isPurchasing)
 
-            Text("Auto-renews monthly \u{00B7} Cancel anytime")
+            let renewPeriod: String = viewModel.selectedProduct?.period == .annual ? "yearly" : "monthly"
+            Text("Auto-renews \(renewPeriod) \u{00B7} Cancel anytime")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity)

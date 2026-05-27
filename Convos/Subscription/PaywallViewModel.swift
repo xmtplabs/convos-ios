@@ -39,15 +39,12 @@ final class PaywallViewModel {
     var annualSavingsPercent: Int? {
         guard let monthly = plusMonthlyProduct,
               let annual = plusAnnualProduct else { return nil }
-        let monthlyStr: String = monthly.displayPrice.replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        let annualStr: String = annual.displayPrice.replacingOccurrences(of: "$", with: "")
-            .replacingOccurrences(of: ",", with: "")
-        guard let monthlyPrice = Double(monthlyStr),
-              let annualPrice = Double(annualStr),
-              monthlyPrice > 0 else { return nil }
-        let yearlyAtMonthly: Double = monthlyPrice * 12
-        let savings: Int = Int(((yearlyAtMonthly - annualPrice) / yearlyAtMonthly) * 100)
+        let monthlyPrice: Decimal = monthly.price
+        let annualPrice: Decimal = annual.price
+        guard monthlyPrice > 0 else { return nil }
+        let yearlyAtMonthly: Decimal = monthlyPrice * 12
+        let fraction: Decimal = (yearlyAtMonthly - annualPrice) / yearlyAtMonthly * 100
+        let savings: Int = NSDecimalNumber(decimal: fraction).intValue
         return savings > 0 ? savings : nil
     }
 
