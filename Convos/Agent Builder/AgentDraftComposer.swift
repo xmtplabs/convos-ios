@@ -45,8 +45,8 @@ struct AgentDraftComposer: View {
 
     var body: some View {
         Group {
-            if viewModel.isRecordingVoiceMemo, let recorder = viewModel.voiceMemoRecorder {
-                recordingLayout(recorder: recorder)
+            if viewModel.isRecordingVoiceMemo {
+                recordingLayout(recorder: viewModel.voiceMemoRecorder)
             } else {
                 standardLayout
             }

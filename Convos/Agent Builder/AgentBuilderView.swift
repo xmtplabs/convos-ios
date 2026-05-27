@@ -141,43 +141,20 @@ struct AgentBuilderView: View {
 
     /// On first appear, if the user opened the builder via the
     /// `AgentBuilderBar`'s waveform button, resolve mic permission and
-    /// then start the recording. Two timing rules:
-    ///
-    /// 1. `AVAudioApplication.requestRecordPermission` must resolve
-    ///    before we call `record()`; without it, AVFoundation succeeds
-    ///    the initial call but then fires
-    ///    `audioRecorderDidFinishRecording(successfully: false)` and the
-    ///    recording UI flashes on and off.
-    /// 2. `NewConversationViewModel` seats a placeholder `ConversationViewModel`
-    ///    synchronously in init and swaps it for the real one once
-    ///    `prepareNewConversation()` returns. Starting recording on the
-    ///    placeholder's `voiceMemoRecorder` works, but the swap then
-    ///    discards that recorder and the UI sees the new VM's idle one,
-    ///    making it look like recording stopped instantly. Wait for the
-    ///    swap (real conversation id, no `draft-` prefix) before kicking
-    ///    off the recording.
+    /// then start the recording. The recorder lives directly on
+    /// `AgentBuilderViewModel` (not proxied through the inner conversation
+    /// VM), so it's stable across the placeholder-to-real inner-VM swap
+    /// and the only timing constraint is the permission prompt: a
+    /// `record()` call before
+    /// `AVAudioApplication.requestRecordPermission` resolves fires
+    /// `audioRecorderDidFinishRecording(successfully: false)` and the
+    /// recording UI flashes.
     private func startVoiceMemoIfNeeded() {
         guard viewModel.entryMode == .voiceMemo else { return }
         Task { @MainActor in
             let granted = await VoiceMemoRecorder.ensureRecordPermission()
             guard granted else { return }
-            await waitForRealConversationViewModel()
             viewModel.startVoiceMemoRecording(restoreComposerFocusAfter: true)
-        }
-    }
-
-    /// Polls every 50ms for up to 3s until the inner conversation VM
-    /// has a non-draft conversation id (i.e. `configureWithMessagingService`
-    /// has run and the real VM has replaced the placeholder). Bails
-    /// silently after the deadline so a slow `prepareNewConversation`
-    /// doesn't pin the recording task open forever.
-    private func waitForRealConversationViewModel() async {
-        for _ in 0..<60 {
-            if let convoVM = viewModel.newConversationViewModel.conversationViewModel,
-               !convoVM.conversation.id.hasPrefix("draft-") {
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 
