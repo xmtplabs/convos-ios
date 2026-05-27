@@ -274,36 +274,59 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var upgradeButton: some View {
-        let isPurchasing: Bool = viewModel.purchasingProductId != nil
-        let purchaseAction = { _ = Task { await viewModel.purchase() } }
-        Button(action: purchaseAction) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: "bolt.fill")
-                Text(SubscriptionCopy.upgradeLabel)
-            }
-            .opacity(isPurchasing ? 0 : 1)
-            .overlay {
-                if isPurchasing {
-                    ProgressView()
-                        .tint(.colorTextPrimaryInverted)
-                        .controlSize(.small)
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            let isPurchasing: Bool = viewModel.purchasingProductId != nil
+            let purchaseAction = { _ = Task { await viewModel.purchase() } }
+            Button(action: purchaseAction) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Image(systemName: "bolt.fill")
+                    Text(SubscriptionCopy.upgradeLabel)
+                }
+                .opacity(isPurchasing ? 0 : 1)
+                .overlay {
+                    if isPurchasing {
+                        ProgressView()
+                            .tint(.colorTextPrimaryInverted)
+                            .controlSize(.small)
+                    }
                 }
             }
+            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+            .disabled(viewModel.selectedProduct == nil || isPurchasing)
+
+            Text("Auto-renews monthly \u{00B7} Cancel anytime")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity)
         }
-        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
-        .disabled(viewModel.selectedProduct == nil || isPurchasing)
     }
 
     @State private var presentingManageSubscriptions: Bool = false
 
     @ViewBuilder
     private var manageSubscriptionButton: some View {
-        let manageAction = { presentingManageSubscriptions = true }
-        Button(action: manageAction) {
-            Text(SubscriptionCopy.manageSubscriptionLabel)
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            let manageAction = { presentingManageSubscriptions = true }
+            Button(action: manageAction) {
+                Text(SubscriptionCopy.manageSubscriptionLabel)
+            }
+            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorFillPrimary))
+            .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
+
+            subscriptionStatusLine
         }
-        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorFillPrimary))
-        .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
+    }
+
+    @ViewBuilder
+    private var subscriptionStatusLine: some View {
+        if let sub = viewModel.currentSubscription {
+            let tierName: String = SubscriptionCopy.displayName(for: sub.tier)
+            let periodName: String = sub.period == .monthly ? "Monthly" : "Annual"
+            Text("You subscribe to \(tierName) \(periodName)")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity)
+        }
     }
 
     // MARK: - Legal & Skip
@@ -348,13 +371,20 @@ struct PaywallView: View {
     }
 }
 
-#Preview("Non-subscriber") {
+#Preview("Basic") {
+    let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
+    let viewModel = PaywallViewModel(subscriptionService: service)
+    viewModel.selectedPlan = .basic
+    return PaywallView(viewModel: viewModel)
+}
+
+#Preview("Plus - Upgrade Path") {
     let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
     let viewModel = PaywallViewModel(subscriptionService: service)
     return PaywallView(viewModel: viewModel)
 }
 
-#Preview("Subscriber") {
+#Preview("Plus - Subscribed") {
     let service = MockSubscriptionService(initialPreset: .plusAmple)
     let viewModel = PaywallViewModel(subscriptionService: service)
     return PaywallView(viewModel: viewModel)
