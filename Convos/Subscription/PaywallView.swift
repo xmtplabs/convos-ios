@@ -380,10 +380,10 @@ struct PaywallView: View {
                 Text(SubscriptionCopy.manageSubscriptionLabel)
             }
             .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorFillPrimary))
-            .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
 
             subscriberFooter
         }
+        .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
     }
 
     @ViewBuilder
@@ -391,20 +391,9 @@ struct PaywallView: View {
         if let sub = viewModel.currentSubscription {
             let tierName: String = SubscriptionCopy.displayName(for: sub.tier)
             let periodName: String = sub.period == .monthly ? "Monthly" : "Annual"
-            VStack(spacing: DesignConstants.Spacing.stepX) {
-                Text("You subscribe to \(tierName) \(periodName)")
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                let manageAction = { presentingManageSubscriptions = true }
-                Button(action: manageAction) {
-                    Text(SubscriptionCopy.manageSubscriptionLabel)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                        .underline()
-                }
-                .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
-            }
-            .frame(maxWidth: .infinity)
+            Text("You subscribe to \(tierName) \(periodName)")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity)
         }
     }
