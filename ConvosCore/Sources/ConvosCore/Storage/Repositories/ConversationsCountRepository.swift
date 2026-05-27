@@ -17,7 +17,14 @@ class ConversationsCountRepository: ConversationsCountRepositoryProtocol {
         let kinds = kinds
         return ValueObservation
             .tracking { db in
-                try db.composeConversationsCount(consent: consent, kinds: kinds)
+                // See `ConversationsRepository` for why we touch
+                // `contact` + `inbox` explicitly: the visibility
+                // predicate joins them via a raw SQL fragment, and
+                // observation region inference shouldn't have to walk
+                // into the literal-SQL fragment to figure that out.
+                _ = try DBContact.fetchCount(db)
+                _ = try DBInbox.fetchCount(db)
+                return try db.composeConversationsCount(consent: consent, kinds: kinds)
             }
             .publisher(in: databaseReader)
             .replaceError(with: 0)
@@ -44,12 +51,7 @@ fileprivate extension Database {
             .filter(!DBConversation.Columns.id.like("draft-%"))
             .filter(kinds.contains(DBConversation.Columns.kind))
             .filter(consent.contains(DBConversation.Columns.consent))
-            // Match the main-feed filter — held / quarantined rows don't
-            // contribute to the visible count until promoted.
-            .filter(
-                DBConversation.Columns.quarantinedAt == nil
-                || DBConversation.Columns.quarantineReleasedAt != nil
-            )
+            .filter(literal: DBConversation.visibleInFeedPredicate)
             .fetchCount(self)
     }
 }

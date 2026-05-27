@@ -31,6 +31,18 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         self.consent = consent
         self.conversationsPublisher = ValueObservation
             .tracking { db in
+                // `composeAllConversations` filters via
+                // `DBConversation.visibleInFeedPredicate`, which embeds a
+                // raw SQL fragment that references `contact` and `inbox`
+                // tables (`creatorId IN (SELECT … FROM inbox) OR EXISTS
+                // (SELECT 1 FROM contact …)`). GRDB normally infers the
+                // observation region from the compiled statement, but
+                // to make the dependency unambiguous — and to keep the
+                // publisher firing if the SQL is ever refactored —
+                // explicitly touch both tables here. Reads are
+                // negligible; their only effect is to widen the region.
+                _ = try DBContact.fetchCount(db)
+                _ = try DBInbox.fetchCount(db)
                 do {
                     return try db.composeAllConversations(consent: consent)
                 } catch {
@@ -88,14 +100,7 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            // Exclude held / quarantined inbound conversations from the main
-            // feed. Released rows (sender promoted to contact) keep their
-            // `quarantinedAt` for audit but expose `quarantineReleasedAt` —
-            // those reappear here.
-            .filter(
-                DBConversation.Columns.quarantinedAt == nil
-                || DBConversation.Columns.quarantineReleasedAt != nil
-            )
+            .filter(literal: DBConversation.visibleInFeedPredicate)
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)
@@ -143,10 +148,7 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            .filter(
-                DBConversation.Columns.quarantinedAt == nil
-                || DBConversation.Columns.quarantineReleasedAt != nil
-            )
+            .filter(literal: DBConversation.visibleInFeedPredicate)
             .filter(literal: oneToOnePredicate)
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)

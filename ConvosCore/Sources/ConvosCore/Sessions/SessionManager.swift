@@ -30,9 +30,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var assetRenewalTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
-    private var contactBlockingObserver: NSObjectProtocol?
-    private var quarantineSweeperTask: Task<Void, Never>?
-    private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
+    private var staleStrangerGCTask: Task<Void, Never>?
 
     /// Tracks the user's current screen context. Used by
     /// `shouldDisplayNotification(for:)` to suppress in-app banners when they
@@ -167,14 +165,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     deinit {
         initializationTask?.cancel()
         foregroundObserverTask?.cancel()
-        quarantineSweeperTask?.cancel()
+        staleStrangerGCTask?.cancel()
         assetRenewalTask?.cancel()
         cloudConnectionsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
-        }
-        if let contactBlockingObserver {
-            NotificationCenter.default.removeObserver(contactBlockingObserver)
         }
     }
 
@@ -189,7 +184,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
-                self.runQuarantineSweep(reason: "foreground")
+                self.runStaleStrangerGC(reason: "foreground")
             }
         }
 
@@ -202,68 +197,76 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             self?.updateActiveConversation(conversationId)
         }
 
-        // Trigger an immediate quarantine sweep when a contact gets
-        // unblocked (or blocked — though only unblocking has a UX-visible
-        // effect on existing held conversations). Without this, the user
-        // would have to wait for the next hourly sweep or app-foreground
-        // entry before quarantined-by-block conversations reappear in
-        // the main feed.
-        contactBlockingObserver = NotificationCenter.default.addObserver(
-            forName: .contactBlockingDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.runQuarantineSweep(reason: "contactBlockingDidChange")
-        }
-
-        scheduleQuarantineSweeper()
+        scheduleStaleStrangerGC()
     }
 
-    /// Periodic sweeper that promotes quarantined conversations whose
-    /// senders have become contacts and deletes those past the TTL. Runs
-    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
-    /// while the process is alive. The foreground observer above also
-    /// triggers an extra sweep on every foreground entry.
-    private func scheduleQuarantineSweeper() {
-        let sweeper = QuarantineSweeper(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
-        )
-        cachedQuarantineSweeper = sweeper
-
-        quarantineSweeperTask?.cancel()
-        quarantineSweeperTask = Task { [weak self] in
-            // Initial sweep at launch.
-            await Self.invokeSweep(sweeper, reason: "launch")
-            // Hourly sweep while the process lives. Foreground entries also
-            // trigger an extra sweep via the foreground observer.
+    /// Periodic garbage collector for stranger conversations that have
+    /// sat hidden in the main feed (creator never became a contact,
+    /// creator stayed blocked, etc.) past the retention window. Runs at
+    /// launch and once per `staleStrangerGCInterval` while the process
+    /// is alive; foreground entries also trigger an extra run.
+    ///
+    /// Replaces the previous `QuarantineSweeper` system. Visibility is
+    /// now derived live by `DBConversation.visibleInFeedPredicate`, so
+    /// no promotion path is needed — only deletion of stale rows.
+    private func scheduleStaleStrangerGC() {
+        staleStrangerGCTask?.cancel()
+        staleStrangerGCTask = Task { [weak self] in
+            await self?.runStaleStrangerGC(reason: "launch")
             while !Task.isCancelled {
-                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
+                let interval: UInt64 = UInt64(SessionManager.staleStrangerGCInterval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: interval)
-                guard self != nil, !Task.isCancelled else { return }
-                await Self.invokeSweep(sweeper, reason: "interval")
+                guard let self, !Task.isCancelled else { return }
+                await self.runStaleStrangerGC(reason: "interval")
             }
         }
     }
 
-    private func runQuarantineSweep(reason: String) {
-        guard let sweeper = cachedQuarantineSweeper else { return }
-        Task.detached {
-            await Self.invokeSweep(sweeper, reason: reason)
+    private func runStaleStrangerGC(reason: String) {
+        Task.detached { [databaseWriter] in
+            await SessionManager.deleteStaleStrangerConversations(
+                databaseWriter: databaseWriter,
+                reason: reason
+            )
         }
     }
 
-    private static func invokeSweep(
-        _ sweeper: any QuarantineSweeperProtocol,
+    /// Hard-deletes any conversation whose creator is neither the local
+    /// user nor a contact, and whose `createdAt` is older than the
+    /// retention TTL. Same TTL the old `QuarantineSweeper` used.
+    private static func deleteStaleStrangerConversations(
+        databaseWriter: any DatabaseWriter,
         reason: String
     ) async {
+        let cutoff: Date = Date().addingTimeInterval(-staleStrangerTTL)
         do {
-            try await sweeper.sweep()
+            let deleted: Int = try await databaseWriter.write { db in
+                let sql: SQL = """
+                    DELETE FROM conversation
+                    WHERE createdAt < \(cutoff)
+                      AND creatorId NOT IN (SELECT inboxId FROM inbox)
+                      AND NOT EXISTS (
+                        SELECT 1 FROM contact
+                        WHERE contact.inboxId = conversation.creatorId
+                          AND contact.blockedAt IS NULL
+                      )
+                    """
+                try db.execute(literal: sql)
+                return db.changesCount
+            }
+            if deleted > 0 {
+                Log.info("StaleStrangerGC: deleted \(deleted) stranger conversation(s) (reason=\(reason))")
+            }
         } catch {
-            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
+            Log.error("StaleStrangerGC sweep (reason=\(reason)) failed: \(error.localizedDescription)")
         }
     }
+
+    /// 7-day hold for stranger conversations before hard delete. Matches
+    /// the previous `QuarantineSweeper` TTL.
+    private static let staleStrangerTTL: TimeInterval = 7 * 24 * 60 * 60
+    /// Hourly cadence for the foreground GC loop.
+    private static let staleStrangerGCInterval: TimeInterval = 60 * 60
 
     private func updateActiveConversation(_ conversationId: String?) {
         screenStateLock.withLock { state in
