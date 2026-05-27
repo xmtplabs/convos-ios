@@ -190,7 +190,7 @@ struct PaywallView: View {
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        let inset: CGFloat = DesignConstants.Spacing.stepX
+        let inset: CGFloat = DesignConstants.Spacing.step2x
         let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - inset
         HStack(spacing: 0) {
             pricePillLabel(
@@ -284,6 +284,7 @@ struct PaywallView: View {
                 }
             }
         }
+        .padding(.vertical, DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
     }
