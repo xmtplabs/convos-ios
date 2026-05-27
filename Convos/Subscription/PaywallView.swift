@@ -190,8 +190,7 @@ struct PaywallView: View {
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        let padding: CGFloat = DesignConstants.Spacing.step2x
-        let thumbInset: CGFloat = DesignConstants.Spacing.stepX
+        let thumbInset: CGFloat = 5
         let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - thumbInset
         HStack(spacing: 0) {
             pricePillLabel(
@@ -210,19 +209,20 @@ struct PaywallView: View {
             .contentShape(Rectangle())
             .onTapGesture { selectAnnualIfAvailable() }
         }
-        .padding(padding)
+        .padding(thumbInset)
         .background {
             GeometryReader { geo in
                 let thumbWidth: CGFloat = (geo.size.width - thumbInset * 2) / 2
+                let thumbHeight: CGFloat = geo.size.height - thumbInset * 2
                 let restOffset: CGFloat = isMonthlySelected ? 0 : thumbWidth
                 let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), thumbWidth)
-                ZStack(alignment: .leading) {
+                ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                         .fill(.colorFillSubtle)
                     RoundedRectangle(cornerRadius: thumbRadius)
-                        .fill(.clear)
-                        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
-                        .frame(width: thumbWidth, height: geo.size.height - thumbInset * 2)
+                        .fill(Color.white)
+                        .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
+                        .frame(width: thumbWidth, height: thumbHeight)
                         .offset(x: thumbInset + clampedDrag, y: thumbInset)
                         .animation(
                             thumbDragOffset == 0 ? .snappy(duration: 0.25) : .interactiveSpring,
