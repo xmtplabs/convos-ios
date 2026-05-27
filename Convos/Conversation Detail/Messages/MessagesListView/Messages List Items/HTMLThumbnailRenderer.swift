@@ -28,12 +28,19 @@ final class HTMLThumbnailRenderer {
     })();
     """
 
-    /// Pinned at .atDocumentStart so the artifact's CSS lays out for a
-    /// 160pt-wide tile regardless of whatever <meta viewport> the page
-    /// shipped with. Inserting before the existing tag wins because the
-    /// last meta viewport in the head is what UIKit honors.
+    /// Runs at .atDocumentEnd so the parser has populated <head> with
+    /// the artifact's own <meta viewport>. We strip every existing
+    /// viewport tag and append ours - last-in-head wins, and removing
+    /// first guarantees we are last regardless of how many the artifact
+    /// shipped. Injecting at .atDocumentStart would not see the
+    /// artifact's tag (parser has not run yet), so the artifact's
+    /// static viewport would end up after ours and win.
     private static let viewportScript: String = """
     (function() {
+        var existing = document.querySelectorAll('meta[name="viewport"]');
+        for (var i = 0; i < existing.length; i++) {
+            existing[i].remove();
+        }
         var m = document.createElement('meta');
         m.name = 'viewport';
         m.content = 'width=160, initial-scale=1, viewport-fit=cover';
@@ -162,7 +169,7 @@ final class HTMLThumbnailRenderer {
         config.userContentController.addUserScript(surfaceUserScript)
         let viewportUserScript = WKUserScript(
             source: Self.viewportScript,
-            injectionTime: .atDocumentStart,
+            injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         )
         config.userContentController.addUserScript(viewportUserScript)
