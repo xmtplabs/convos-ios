@@ -37,8 +37,9 @@ struct PaywallView: View {
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step10x)
                 .padding(.bottom, DesignConstants.Spacing.step10x)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
+            .contentMargins(.top, DesignConstants.Spacing.step6x, for: .scrollContent)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { closeButton }
