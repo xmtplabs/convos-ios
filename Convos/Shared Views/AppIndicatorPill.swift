@@ -68,10 +68,14 @@ struct AppIndicatorPill: View {
                 .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
-        case let .symbol(systemName, tint, _):
-            Image(systemName: systemName)
-                .font(.caption)
-                .foregroundStyle(tint)
+        case let .symbol(systemName, tint, label):
+            HStack(spacing: 2) {
+                Image(systemName: systemName)
+                Text(label)
+            }
+            .lineLimit(1)
+            .font(.caption)
+            .foregroundStyle(tint)
         }
     }
 
