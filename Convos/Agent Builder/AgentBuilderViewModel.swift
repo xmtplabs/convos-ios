@@ -90,11 +90,28 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
     static let googleCalendarServiceId: String = "googlecalendar"
 }
 
+/// How the builder was entered. Drives which surface (composer text
+/// field vs. voice-memo recorder) gets attention on first appear.
+/// `composer` is the default - the builder appears with its text field
+/// focused and the keyboard up. `voiceMemo` is the
+/// `AgentBuilderBar`'s waveform-button path: the builder appears
+/// without focusing the text field (so the keyboard stays down while
+/// the system mic-permission prompt resolves) and the view kicks off
+/// `startVoiceMemoRecording` on appear.
+enum AgentBuilderEntryMode {
+    case composer
+    case voiceMemo
+}
+
 @MainActor
 @Observable
 final class AgentBuilderViewModel: Identifiable {
     let id: UUID = UUID()
     let session: any SessionManagerProtocol
+    /// How the builder was entered. Read by `AgentBuilderView` on appear
+    /// to decide whether to focus the composer (and raise the keyboard)
+    /// or skip focus and start a voice-memo recording instead.
+    let entryMode: AgentBuilderEntryMode
 
     let newConversationViewModel: NewConversationViewModel
 
@@ -107,27 +124,29 @@ final class AgentBuilderViewModel: Identifiable {
         newConversationViewModel.conversationViewModel?.pendingMediaAttachments ?? []
     }
 
-    /// Shares the inner conversation VM's voice-memo recorder so the same
-    /// audio file flows through to `sendVoiceMemo()` on commit. The
-    /// builder's UI reacts to recorder state changes via Observation.
-    var voiceMemoRecorder: VoiceMemoRecorder? {
-        newConversationViewModel.conversationViewModel?.voiceMemoRecorder
-    }
+    /// Builder-owned voice-memo recorder. Lives directly on the
+    /// AgentBuilderViewModel (rather than proxying through the inner
+    /// `ConversationViewModel`) because `NewConversationViewModel` seats
+    /// a placeholder inner VM synchronously and swaps it for the real
+    /// one once `prepareNewConversation()` returns. A proxy would lose
+    /// any recording in flight at the moment of the swap; owning the
+    /// recorder here keeps it stable for the entire builder lifetime.
+    /// The recorded audio file (URL) is what flows through to
+    /// `sendBuilderBundle()` at commit, so post-Make path is unaffected.
+    let voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
 
     var isRecordingVoiceMemo: Bool {
-        guard let recorder = voiceMemoRecorder else { return false }
-        if case .recording = recorder.state { return true }
+        if case .recording = voiceMemoRecorder.state { return true }
         return false
     }
 
     var recordedVoiceMemo: (url: URL, duration: TimeInterval)? {
-        guard let recorder = voiceMemoRecorder else { return nil }
-        if case let .recorded(url, duration) = recorder.state { return (url, duration) }
+        if case let .recorded(url, duration) = voiceMemoRecorder.state { return (url, duration) }
         return nil
     }
 
     var voiceMemoAudioLevels: [Float] {
-        voiceMemoRecorder?.audioLevels ?? []
+        voiceMemoRecorder.audioLevels
     }
 
     /// Connection toggles set in the connections sheet. Drives chip rendering
@@ -173,8 +192,9 @@ final class AgentBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var restoreComposerFocusAfterRecording: Bool = false
 
-    init(session: any SessionManagerProtocol) {
+    init(session: any SessionManagerProtocol, entryMode: AgentBuilderEntryMode = .composer) {
         self.session = session
+        self.entryMode = entryMode
         self.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newAgent
@@ -228,9 +248,8 @@ final class AgentBuilderViewModel: Identifiable {
     }
 
     func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {
-        guard let recorder = voiceMemoRecorder else { return }
         do {
-            try recorder.startRecording()
+            try voiceMemoRecorder.startRecording()
             restoreComposerFocusAfterRecording = restoreComposerFocusAfter
         } catch {
             Log.error("AgentBuilder: failed to start voice memo recording: \(error.localizedDescription)")
@@ -242,14 +261,14 @@ final class AgentBuilderViewModel: Identifiable {
     /// kicked off the recording.
     @discardableResult
     func stopVoiceMemoRecording() -> Bool {
-        voiceMemoRecorder?.stopRecording()
+        voiceMemoRecorder.stopRecording()
         let shouldRestore = restoreComposerFocusAfterRecording
         restoreComposerFocusAfterRecording = false
         return shouldRestore
     }
 
     func cancelRecordedVoiceMemo() {
-        voiceMemoRecorder?.cancelRecording()
+        voiceMemoRecorder.cancelRecording()
     }
 
     /// Toggle a connection. Device kinds (Apple Health) are local-only —
@@ -608,7 +627,7 @@ final class AgentBuilderViewModel: Identifiable {
         // until `hasCommitted` flips. Cleaning them here would race the
         // in-flight upload and leave the bundle pointing at deleted paths.
         if !isCommitting {
-            voiceMemoRecorder?.cancelRecording()
+            voiceMemoRecorder.cancelRecording()
             // File picker stages copies into `FileManager.default.temporaryDirectory`;
             // those temp copies are otherwise orphaned because `dismissWithDeletion`
             // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.

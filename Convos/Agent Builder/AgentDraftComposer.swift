@@ -45,8 +45,8 @@ struct AgentDraftComposer: View {
 
     var body: some View {
         Group {
-            if viewModel.isRecordingVoiceMemo, let recorder = viewModel.voiceMemoRecorder {
-                recordingLayout(recorder: recorder)
+            if viewModel.isRecordingVoiceMemo {
+                recordingLayout(recorder: viewModel.voiceMemoRecorder)
             } else {
                 standardLayout
             }
@@ -215,7 +215,7 @@ struct AgentDraftComposer: View {
     }
 
     private var textFieldPlaceholder: String {
-        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existance" : "Make a new agent"
+        viewModel.isRecordingVoiceMemo ? "Speaking an agent into existence" : "Make a new agent"
     }
 
     private var textField: some View {

@@ -595,17 +595,15 @@ struct MainTabView: View {
         conversationsViewModel.onStartAgent()
     }
 
-    /// Open the builder and immediately start voice-memo recording. The
-    /// builder's voice-memo recorder is created lazily inside its init
-    /// path, so we schedule the start call on the next runloop tick to
-    /// give the VM a moment to wire up before we call `startRecording`.
+    /// Open the builder pre-configured to start a voice-memo recording.
+    /// `AgentBuilderView` reads `viewModel.entryMode` on appear and skips
+    /// the initial composer-focus (so the keyboard doesn't pop up
+    /// alongside the mic-permission prompt) before calling
+    /// `startVoiceMemoRecording`. The view also owns the timing of the
+    /// `record()` call, so we don't need the previous racy 50ms sleep
+    /// to wait for the inner conversation VM's recorder to materialize.
     private func openBuilderInVoiceMemoMode() {
-        conversationsViewModel.onStartAgent()
-        guard let builderViewModel = conversationsViewModel.agentBuilderViewModel else { return }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(50))
-            builderViewModel.startVoiceMemoRecording(restoreComposerFocusAfter: true)
-        }
+        conversationsViewModel.onStartAgent(entryMode: .voiceMemo)
     }
 
     /// Camera capture (still image): open the builder and load the image

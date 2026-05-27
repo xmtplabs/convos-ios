@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 /// Where the [[AgentBuilderView]] is being rendered. Drives whether it
@@ -86,6 +87,7 @@ struct AgentBuilderView: View {
             // or X cancel) so ordinary post-Make agent chatter anchors
             // inline like a normal agent convo.
             viewModel.newConversationViewModel.isInAgentBuilderFlow = true
+            startVoiceMemoIfNeeded()
         }
         .onDisappear {
             viewModel.newConversationViewModel.isInAgentBuilderFlow = false
@@ -116,12 +118,43 @@ struct AgentBuilderView: View {
                 indicatorPlaceholderOverride: indicatorPlaceholder,
                 indicatorSubtitleOverride: indicatorSubtitle,
                 allowsIndicatorEditing: viewModel.hasCommitted,
-                defaultFocusOverride: viewModel.hasCommitted ? nil : .agentBuilder
+                defaultFocusOverride: initialFocusOverride
             ) { focusState, coordinator in
                 content(focusState: focusState, coordinator: coordinator)
             }
         case .inline:
             inlineBody
+        }
+    }
+
+    /// Initial focus the sheet path requests from `ConversationPresenter`.
+    /// `nil` for post-commit (no input focus needed) and for voice-memo
+    /// entry (keep the keyboard down while we kick off the recording -
+    /// `stopVoiceMemoRecording`'s `restoreComposerFocusAfter: true` path
+    /// brings the keyboard back up when the user finishes the take).
+    /// `.agentBuilder` for the default composer entry.
+    private var initialFocusOverride: MessagesViewInputFocus? {
+        if viewModel.hasCommitted { return nil }
+        if viewModel.entryMode == .voiceMemo { return nil }
+        return .agentBuilder
+    }
+
+    /// On first appear, if the user opened the builder via the
+    /// `AgentBuilderBar`'s waveform button, resolve mic permission and
+    /// then start the recording. The recorder lives directly on
+    /// `AgentBuilderViewModel` (not proxied through the inner conversation
+    /// VM), so it's stable across the placeholder-to-real inner-VM swap
+    /// and the only timing constraint is the permission prompt: a
+    /// `record()` call before
+    /// `AVAudioApplication.requestRecordPermission` resolves fires
+    /// `audioRecorderDidFinishRecording(successfully: false)` and the
+    /// recording UI flashes.
+    private func startVoiceMemoIfNeeded() {
+        guard viewModel.entryMode == .voiceMemo else { return }
+        Task { @MainActor in
+            let granted = await VoiceMemoRecorder.ensureRecordPermission()
+            guard granted else { return }
+            viewModel.startVoiceMemoRecording(restoreComposerFocusAfter: true)
         }
     }
 
@@ -147,6 +180,10 @@ struct AgentBuilderView: View {
             }
         }
         .onAppear {
+            // Voice-memo entry skips the composer focus so the keyboard
+            // doesn't pop up alongside the mic-permission prompt; the
+            // body's main `.onAppear` kicks off the recording itself.
+            guard viewModel.entryMode != .voiceMemo else { return }
             focusCoordinator.moveFocus(to: .agentBuilder)
         }
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
@@ -239,6 +276,11 @@ struct AgentBuilderView: View {
                 }
                 .toolbarTitleDisplayMode(.inline)
                 .onAppear {
+                    // Voice-memo entry skips the composer focus so the
+                    // keyboard doesn't pop up alongside the mic-permission
+                    // prompt; the body's main `.onAppear` kicks off the
+                    // recording itself.
+                    guard viewModel.entryMode != .voiceMemo else { return }
                     coordinator.moveFocus(to: .agentBuilder)
                 }
         }
@@ -294,25 +336,45 @@ struct AgentBuilderView: View {
                     }
                 }
             )
-            .frame(maxHeight: Constant.composerHeight)
+            // Lock the composer card to its full height so switching
+            // into the recording layout (and hiding the hint row below)
+            // doesn't visibly shrink the card. `maxHeight` would let
+            // the recording layout's smaller intrinsic size collapse the
+            // card; explicit `height:` pins it at the standard-layout
+            // size for both states.
+            .frame(height: Constant.composerHeight)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step4x)
 
-            if !viewModel.isRecordingVoiceMemo {
-                Text(composerHintText)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .padding(.top, DesignConstants.Spacing.step2x)
-                    .padding(.bottom, DesignConstants.Spacing.step3x)
-            }
+            // Hidden (not removed) when recording, so the layout below
+            // the composer doesn't have to reflow when the user taps
+            // the voice-memo button. Without this, the recording-
+            // controls' Spacer-centered position would jump on entry.
+            Text(composerHintText)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.top, DesignConstants.Spacing.step2x)
+                .padding(.bottom, DesignConstants.Spacing.step3x)
+                .opacity(viewModel.isRecordingVoiceMemo ? 0 : 1)
 
             if viewModel.isRecordingVoiceMemo {
                 Spacer(minLength: 0)
                 recordingControls(focusState: focusState)
-                    .transition(.blurReplace)
+                    // Delay the appearance by `keyboardDismissDelay` so
+                    // the keyboard dismissal animation triggered by the
+                    // voice-memo tap (`focusState = nil`) finishes
+                    // before the controls fade in. Without the delay,
+                    // the Spacer-centered controls appear at the
+                    // keyboard-up Y and visibly slide down as the
+                    // keyboard collapses; with it, the appearance
+                    // lands at the final (keyboard-down) position.
+                    .transition(.blurReplace.animation(
+                        .easeInOut(duration: Constant.recordingControlsFadeDuration)
+                            .delay(Constant.keyboardDismissDelay)
+                    ))
                 Spacer(minLength: 0)
             } else {
                 Spacer(minLength: 0)
@@ -401,6 +463,12 @@ struct AgentBuilderView: View {
 
     private enum Constant {
         static let composerHeight: CGFloat = 375.0
+        /// iOS keyboard dismissal animation duration. Recording controls
+        /// hold for this long before fading in so their Spacer-centered
+        /// Y position settles after the keyboard collapses rather than
+        /// sliding through the transition.
+        static let keyboardDismissDelay: TimeInterval = 0.25
+        static let recordingControlsFadeDuration: TimeInterval = 0.25
     }
 }
 
