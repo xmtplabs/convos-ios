@@ -22,6 +22,12 @@ final class PaywallViewModel {
 
     var isSubscribed: Bool { currentSubscription != nil }
 
+    var isChangingPeriod: Bool {
+        guard let current = currentSubscription,
+              let selected = selectedProduct else { return false }
+        return current.period != selected.period
+    }
+
     var plusMonthlyProduct: PaywallProduct? {
         products.first { $0.tier == .plus && $0.period == .monthly }
     }

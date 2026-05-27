@@ -292,6 +292,8 @@ struct PaywallView: View {
     private var ctaSection: some View {
         if viewModel.selectedPlan == .basic {
             basicCTA
+        } else if viewModel.isChangingPeriod {
+            switchPeriodButton
         } else if viewModel.isSubscribed {
             manageSubscriptionButton
         } else {
@@ -338,6 +340,33 @@ struct PaywallView: View {
             .disabled(viewModel.selectedProduct == nil || isPurchasing)
 
             Text("Auto-renews monthly \u{00B7} Cancel anytime")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var switchPeriodButton: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            let isPurchasing: Bool = viewModel.purchasingProductId != nil
+            let periodName: String = viewModel.selectedProduct?.period == .annual ? "Yearly" : "Monthly"
+            let purchaseAction = { _ = Task { await viewModel.purchase() } }
+            Button(action: purchaseAction) {
+                Text("Switch to \(periodName)")
+                    .opacity(isPurchasing ? 0 : 1)
+                    .overlay {
+                        if isPurchasing {
+                            ProgressView()
+                                .tint(.colorTextPrimaryInverted)
+                                .controlSize(.small)
+                        }
+                    }
+            }
+            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+            .disabled(viewModel.selectedProduct == nil || isPurchasing)
+
+            Text("Auto-renews \(periodName.lowercased()) \u{00B7} Cancel anytime")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity)
