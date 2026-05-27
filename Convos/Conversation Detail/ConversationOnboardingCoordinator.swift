@@ -537,11 +537,6 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func transitionAfterProfileSetup() async {
-        if shouldShowNUXPaywall {
-            state = .presentingPaywall
-            handleStateChange()
-            return
-        }
         await transitionToNotificationState()
     }
 
