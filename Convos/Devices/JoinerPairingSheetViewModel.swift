@@ -62,8 +62,9 @@ final class JoinerPairingSheetViewModel: Identifiable {
         self.onApplyAdoptedProfile = onApplyAdoptedProfile
         self.onDeleteExistingData = onDeleteExistingData
         self.checkHasExistingData = checkHasExistingData
-        self.expiresAt = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
-        self.secondsRemaining = max(0, Int(self.expiresAt.timeIntervalSinceNow))
+        let resolvedExpiresAt: Date = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
+        self.expiresAt = resolvedExpiresAt
+        self.secondsRemaining = max(0, Int(resolvedExpiresAt.timeIntervalSinceNow))
         self.flowState = .connecting
         self.observers = PairingNotificationObservers()
 
