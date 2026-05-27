@@ -187,68 +187,90 @@ struct PaywallView: View {
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        HStack(spacing: 0) {
-            if let monthly = viewModel.plusMonthlyProduct {
-                pricePill(
-                    price: monthly.displayPrice,
-                    periodLabel: "Monthly",
-                    savingsLabel: nil,
-                    isSelected: isMonthlySelected,
-                    product: monthly
-                )
+        let inset: CGFloat = DesignConstants.Spacing.stepX
+        let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - inset
+        GeometryReader { geo in
+            let segmentWidth: CGFloat = (geo.size.width - inset * 2) / 2
+            let thumbOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: thumbRadius)
+                    .fill(Color.colorBackgroundRaised)
+                    .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+                    .frame(width: segmentWidth)
+                    .offset(x: inset + thumbOffset)
+                    .animation(.snappy(duration: 0.25), value: isMonthlySelected)
+
+                HStack(spacing: 0) {
+                    pricePillLabel(
+                        price: viewModel.plusMonthlyProduct?.displayPrice ?? "",
+                        periodLabel: "Monthly",
+                        savingsLabel: nil
+                    )
+                    .onTapGesture { selectMonthlyIfAvailable() }
+
+                    pricePillLabel(
+                        price: viewModel.plusAnnualProduct?.displayPrice ?? "",
+                        periodLabel: "Yearly",
+                        savingsLabel: viewModel.annualSavingsPercent.map { "Save \($0)%" }
+                    )
+                    .onTapGesture { selectAnnualIfAvailable() }
+                }
+                .padding(.horizontal, inset)
             }
-            if let annual = viewModel.plusAnnualProduct {
-                let savingsText: String? = viewModel.annualSavingsPercent.map { "Save \($0)%" }
-                pricePill(
-                    price: annual.displayPrice,
-                    periodLabel: "Yearly",
-                    savingsLabel: savingsText,
-                    isSelected: !isMonthlySelected,
-                    product: annual
-                )
-            }
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onEnded { value in
+                        if value.translation.width > 20 {
+                            selectAnnualIfAvailable()
+                        } else if value.translation.width < -20 {
+                            selectMonthlyIfAvailable()
+                        }
+                    }
+            )
         }
-        .padding(DesignConstants.Spacing.stepX)
+        .frame(height: 76)
         .background(
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                 .fill(.colorFillSubtle)
         )
     }
 
+    private func selectMonthlyIfAvailable() {
+        if let monthly = viewModel.plusMonthlyProduct {
+            viewModel.selectProduct(monthly)
+        }
+    }
+
+    private func selectAnnualIfAvailable() {
+        if let annual = viewModel.plusAnnualProduct {
+            viewModel.selectProduct(annual)
+        }
+    }
+
     @ViewBuilder
-    private func pricePill(
+    private func pricePillLabel(
         price: String,
         periodLabel: String,
-        savingsLabel: String?,
-        isSelected: Bool,
-        product: PaywallProduct
+        savingsLabel: String?
     ) -> some View {
-        let selectAction = { viewModel.selectProduct(product) }
-        Button(action: selectAction) {
-            VStack(spacing: DesignConstants.Spacing.stepX) {
-                Text(price)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-                    .monospacedDigit()
-                HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Text(periodLabel)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                    if let savingsLabel {
-                        Text(savingsLabel)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.colorLava)
-                    }
+        VStack(spacing: DesignConstants.Spacing.stepX) {
+            Text(price)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .monospacedDigit()
+            HStack(spacing: DesignConstants.Spacing.stepX) {
+                Text(periodLabel)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                if let savingsLabel {
+                    Text(savingsLabel)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.colorLava)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge - DesignConstants.Spacing.stepX)
-                    .fill(isSelected ? Color.colorBackgroundRaised : Color.clear)
-                    .shadow(color: isSelected ? .black.opacity(0.06) : .clear, radius: 4, y: 2)
-            )
         }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
     }
 
     // MARK: - CTA
