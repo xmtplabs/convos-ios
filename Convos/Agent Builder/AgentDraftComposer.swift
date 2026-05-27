@@ -301,6 +301,7 @@ struct AgentDraftComposer: View {
             )
             .padding(.horizontal, fadeWidth)
         }
+        .scrollClipDisabled()
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, alignment: .leading)
         .mask(

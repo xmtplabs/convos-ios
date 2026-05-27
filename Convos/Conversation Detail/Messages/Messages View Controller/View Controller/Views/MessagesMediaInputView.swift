@@ -38,6 +38,8 @@ struct MessagesMediaButtonsView: View {
             }
             .buttonStyle(.plain)
             .disabled(isMediaCapacityFull)
+            .hoverEffect(.lift)
+            .hoverEffectDisabled(isMediaCapacityFull)
             .accessibilityLabel("Photo library")
             .accessibilityIdentifier("photo-picker-button")
 
@@ -52,6 +54,8 @@ struct MessagesMediaButtonsView: View {
             }
             .buttonStyle(.plain)
             .disabled(isMediaCapacityFull)
+            .hoverEffect(.lift)
+            .hoverEffectDisabled(isMediaCapacityFull)
             .accessibilityLabel("Camera")
             .accessibilityIdentifier("camera-button")
 
@@ -66,6 +70,8 @@ struct MessagesMediaButtonsView: View {
             }
             .buttonStyle(.plain)
             .disabled(isVoiceMemoDisabled)
+            .hoverEffect(.lift)
+            .hoverEffectDisabled(isVoiceMemoDisabled)
             .accessibilityLabel("Voice memo")
             .accessibilityIdentifier("voice-memo-button")
 
@@ -80,6 +86,8 @@ struct MessagesMediaButtonsView: View {
             }
             .buttonStyle(.plain)
             .disabled(isMediaCapacityFull)
+            .hoverEffect(.lift)
+            .hoverEffectDisabled(isMediaCapacityFull)
             .accessibilityLabel("Attach file")
             .accessibilityIdentifier("file-picker-button")
 
@@ -94,6 +102,7 @@ struct MessagesMediaButtonsView: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.lift)
                 .accessibilityLabel("Connections")
                 .accessibilityIdentifier("connections-button")
             }
@@ -113,6 +122,8 @@ struct MessagesMediaButtonsView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isSideConvoDisabled)
+                .hoverEffect(.lift)
+                .hoverEffectDisabled(isSideConvoDisabled)
                 .accessibilityLabel("Side convo")
                 .accessibilityIdentifier("side-convo-button")
             }
@@ -128,6 +139,7 @@ struct MessagesMediaButtonsView: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.lift)
                 .accessibilityLabel("Debug test attachment")
                 .accessibilityIdentifier("debug-test-attachment-button")
             }
