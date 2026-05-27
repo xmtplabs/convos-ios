@@ -6,6 +6,7 @@ struct ConvosToolbarButton: View {
     let action: () -> Void
     var statusLabel: String = "Basic"
     var statusColor: Color = .colorTextSecondary
+    var showsBoltIcon: Bool = false
 
     var body: some View {
         Button {
@@ -22,17 +23,32 @@ struct ConvosToolbarButton: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Convos")
-                        .font(.body)
+                        .font(.body.weight(.medium))
                         .foregroundStyle(.colorFillPrimary)
-                    Text(statusLabel)
-                        .font(.system(size: 12))
-                        .foregroundStyle(statusColor)
+                    statusLine
                 }
                 .padding(.trailing, DesignConstants.Spacing.stepX)
             }
             .padding(padding ? DesignConstants.Spacing.step2x : 0)
         }
         .accessibilityIdentifier("convos-logo-button")
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        if showsBoltIcon {
+            HStack(spacing: 2) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 10))
+                Text(statusLabel)
+                    .font(.system(size: 12))
+            }
+            .foregroundStyle(statusColor)
+        } else {
+            Text(statusLabel)
+                .font(.system(size: 12))
+                .foregroundStyle(statusColor)
+        }
     }
 }
 

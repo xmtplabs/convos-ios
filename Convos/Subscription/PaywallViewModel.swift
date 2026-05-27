@@ -98,7 +98,9 @@ final class PaywallViewModel {
                 let ids: String = loaded.map(\.id).joined(separator: ", ")
                 Log.info("Paywall loaded \(loaded.count) product(s): \(ids)")
                 if selectedProduct == nil {
-                    selectedProduct = loaded.first { $0.tier == .plus && $0.period == .monthly }
+                    let preferredPeriod: SubscriptionPeriod = currentSubscription?.period ?? .monthly
+                    selectedProduct = loaded.first { $0.tier == .plus && $0.period == preferredPeriod }
+                        ?? loaded.first { $0.tier == .plus && $0.period == .monthly }
                 }
             }
         } catch {

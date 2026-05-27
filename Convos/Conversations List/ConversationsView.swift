@@ -55,7 +55,7 @@ struct ConversationsView: View {
     }
 
     private var toolbarStatusLabel: String {
-        if creditBalance?.isDepleted == true { return "⚡ No power" }
+        if creditBalance?.isDepleted == true { return "No power" }
         if currentSubscription != nil { return "Plus" }
         return "Basic"
     }
@@ -63,6 +63,10 @@ struct ConversationsView: View {
     private var toolbarStatusColor: Color {
         if creditBalance?.isDepleted == true { return .colorLava }
         return .colorTextSecondary
+    }
+
+    private var toolbarShowsBolt: Bool {
+        creditBalance?.isDepleted == true
     }
 
     /// Inbox-to-contact-name override applied across the whole
