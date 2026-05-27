@@ -184,21 +184,27 @@ struct PaywallView: View {
         )
     }
 
+    @State private var thumbDragOffset: CGFloat = 0
+
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        let inset: CGFloat = DesignConstants.Spacing.stepX
+        let inset: CGFloat = DesignConstants.Spacing.step2x
         let thumbRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge - inset
         GeometryReader { geo in
             let segmentWidth: CGFloat = (geo.size.width - inset * 2) / 2
-            let thumbOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
+            let restOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
+            let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), segmentWidth)
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: thumbRadius)
                     .fill(.clear)
                     .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
-                    .frame(width: segmentWidth)
-                    .offset(x: inset + thumbOffset)
-                    .animation(.snappy(duration: 0.25), value: isMonthlySelected)
+                    .frame(width: segmentWidth, height: geo.size.height - inset * 2)
+                    .offset(x: inset + clampedDrag, y: inset)
+                    .animation(
+                        thumbDragOffset == 0 ? .snappy(duration: 0.25) : .interactiveSpring,
+                        value: clampedDrag
+                    )
 
                 HStack(spacing: 0) {
                     pricePillLabel(
@@ -206,6 +212,7 @@ struct PaywallView: View {
                         periodLabel: "Monthly",
                         savingsLabel: nil
                     )
+                    .contentShape(Rectangle())
                     .onTapGesture { selectMonthlyIfAvailable() }
 
                     pricePillLabel(
@@ -213,22 +220,29 @@ struct PaywallView: View {
                         periodLabel: "Yearly",
                         savingsLabel: viewModel.annualSavingsPercent.map { "Save \($0)%" }
                     )
+                    .contentShape(Rectangle())
                     .onTapGesture { selectAnnualIfAvailable() }
                 }
                 .padding(.horizontal, inset)
             }
             .gesture(
-                DragGesture(minimumDistance: 10)
+                DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        thumbDragOffset = value.translation.width
+                    }
                     .onEnded { value in
-                        if value.translation.width > 20 {
+                        thumbDragOffset = 0
+                        let landX: CGFloat = restOffset + value.translation.width
+                        let midpoint: CGFloat = segmentWidth / 2
+                        if landX > midpoint {
                             selectAnnualIfAvailable()
-                        } else if value.translation.width < -20 {
+                        } else {
                             selectMonthlyIfAvailable()
                         }
                     }
             )
         }
-        .frame(height: 76)
+        .frame(height: 84)
         .background(
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                 .fill(.colorFillSubtle)
