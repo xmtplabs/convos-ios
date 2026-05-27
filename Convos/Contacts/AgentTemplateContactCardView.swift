@@ -4,33 +4,40 @@ import SwiftUI
 /// Standalone contact card for a template-backed agent, opened by tapping
 /// an agent row in the contacts list.
 ///
-/// A deliberate sibling of `ContactCardView` (which is built around the
+/// A deliberate sibling of `ContactDetailView` (which is built around the
 /// human `Contact` type) rather than a generalization of it - the two
-/// share the `ContactCardActionRow` / `ContactCardShareRow` building
+/// share the `ContactDetailActionRow` / `ContactDetailShareRow` building
 /// blocks but keep their type models separate.
 ///
 /// Actions:
 ///   - Share - the iOS share sheet seeded with the template `publishedUrl`.
-///   - Pop up a convo - spawns a fresh instance by posting
-///     `.contactsRequestedAgentTemplateConversation`, the same spawn-and-join
-///     path the `convos://template/<id>` deeplink and the chat-side card use.
+///   - Pop up a convo - spawns a fresh instance via a local
+///     `NewConversationViewModel` presentation, same path the chat-side
+///     agent card uses (`ContactDetailView.handleChatWithAgentTemplate`).
 ///   - Remove - deletes the local agent-template contact row. If a shared
 ///     conversation still contains an instance, the next membership sync
-///     re-adds it (the eventual-consistency story from the agent-templates PRD).
+///     re-adds it (the eventual-consistency story from the PRD).
 struct AgentTemplateContactCardView: View {
     let agentTemplateContact: AgentTemplateContact
     private let agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol
+    private let session: (any SessionManagerProtocol)?
+    private let profileSettingsViewModel: ProfileSettingsViewModel
 
     @State private var presentingRemoveConfirmation: Bool = false
     @State private var isRemoving: Bool = false
+    @State private var presentingNewConvo: NewConversationViewModel?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     init(
         agentTemplateContact: AgentTemplateContact,
-        agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol
+        agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol,
+        session: (any SessionManagerProtocol)? = nil,
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared
     ) {
         self.agentTemplateContact = agentTemplateContact
         self.agentTemplateContactsWriter = agentTemplateContactsWriter
+        self.session = session
+        self.profileSettingsViewModel = profileSettingsViewModel
     }
 
     var body: some View {
@@ -44,6 +51,13 @@ struct AgentTemplateContactCardView: View {
                 Button("Remove", role: .destructive, action: handleRemoveConfirmed)
             } message: {
                 Text(removeAlertMessage)
+            }
+            .sheet(item: $presentingNewConvo) { vm in
+                NewConversationView(
+                    viewModel: vm,
+                    profileSettingsViewModel: profileSettingsViewModel
+                )
+                .background(.colorBackgroundSurfaceless)
             }
     }
 
@@ -85,21 +99,21 @@ struct AgentTemplateContactCardView: View {
     private var actions: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             if let shareURL {
-                ContactCardShareRow(
+                ContactDetailShareRow(
                     url: shareURL,
                     contactDisplayName: agentTemplateContact.resolvedDisplayName
                 )
             }
-            ContactCardActionRow(
+            ContactDetailActionRow(
                 label: "Pop up a convo",
                 footer: "Start a new convo with \(agentTemplateContact.resolvedDisplayName)",
                 color: .colorTextPrimary,
-                isDisabled: false,
+                isDisabled: session == nil,
                 accessibilityLabel: "Pop up a convo with \(agentTemplateContact.resolvedDisplayName)",
                 accessibilityIdentifier: "agent-template-card-chat",
                 action: handleChat
             )
-            ContactCardActionRow(
+            ContactDetailActionRow(
                 label: "Remove",
                 footer: "Remove \(agentTemplateContact.resolvedDisplayName) from your contacts",
                 color: .colorCaution,
@@ -125,11 +139,16 @@ struct AgentTemplateContactCardView: View {
         "This removes the agent from your contacts. It re-appears if you're still in a conversation that has it."
     }
 
+    /// Spawns a fresh instance of this template into a new conversation by
+    /// presenting a `NewConversationViewModel` locally. The model's
+    /// `.newConversationWithTemplate` mode creates the conversation and
+    /// requests the agent join once it reaches `.ready`, the same path the
+    /// chat-side agent card uses.
     private func handleChat() {
-        NotificationCenter.default.post(
-            name: .contactsRequestedAgentTemplateConversation,
-            object: nil,
-            userInfo: ["templateId": agentTemplateContact.templateId]
+        guard let session else { return }
+        presentingNewConvo = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(templateId: agentTemplateContact.templateId)
         )
     }
 

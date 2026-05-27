@@ -33,7 +33,10 @@ struct ContactsPickerView: View {
     @State private var viewModel: ContactsPickerViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    let onConfirm: (_ inboxIds: Set<String>) -> Void
+    /// Confirm callback receives the full heterogeneous selection. Call
+    /// sites split into humans (`.inboxId`) and agent templates
+    /// (`.templateId`) and route each to their dispatch path.
+    let onConfirm: (_ selection: Set<ContactsPickerViewModel.Selection>) -> Void
     /// Optional source conversation that informs the indicator pill's
     /// emoji avatar. For the new-convo flow callers can pass the current
     /// draft so the picker reflects whatever emoji the convo will inherit;
@@ -44,14 +47,17 @@ struct ContactsPickerView: View {
     init(
         mode: ContactsPickerMode,
         contactsRepository: any ContactsRepositoryProtocol,
+        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
+            = MockAgentTemplateContactsRepository(contacts: []),
         alreadyInChatInboxIds: Set<String> = [],
         preselectedInboxIds: Set<String> = [],
         pillConversation: Conversation? = nil,
-        onConfirm: @escaping (_ inboxIds: Set<String>) -> Void
+        onConfirm: @escaping (_ selection: Set<ContactsPickerViewModel.Selection>) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
             mode: mode,
             contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository,
             alreadyInChatInboxIds: alreadyInChatInboxIds,
             preselectedInboxIds: preselectedInboxIds
         ))
@@ -88,8 +94,10 @@ struct ContactsPickerView: View {
                     accessibilityIdentifier: "contacts-picker-search-field"
                 )
                 ContactsPickerSelectedPills(
-                    contacts: viewModel.selectedContacts,
-                    onRemove: handleRemove
+                    humans: viewModel.selectedContacts,
+                    agentTemplates: viewModel.selectedAgentContacts,
+                    onRemoveHuman: handleRemoveHuman,
+                    onRemoveAgentTemplate: handleRemoveAgentTemplate
                 )
             }
         }
@@ -118,18 +126,22 @@ struct ContactsPickerView: View {
 
     // MARK: - Actions
 
-    private func handleToggle(_ inboxId: String) {
-        viewModel.toggleSelection(for: inboxId)
+    private func handleToggle(_ selection: ContactsPickerViewModel.Selection) {
+        viewModel.toggleSelection(selection)
     }
 
-    private func handleRemove(_ inboxId: String) {
-        viewModel.deselect(inboxId: inboxId)
+    private func handleRemoveHuman(_ inboxId: String) {
+        viewModel.deselect(.human(inboxId: inboxId))
+    }
+
+    private func handleRemoveAgentTemplate(_ templateId: String) {
+        viewModel.deselect(.agentTemplate(templateId: templateId))
     }
 
     private func handleConfirm() {
-        let ids = viewModel.selectedInboxIds
-        guard !ids.isEmpty else { return }
-        onConfirm(ids)
+        let selection = viewModel.selected
+        guard !selection.isEmpty else { return }
+        onConfirm(selection)
         dismiss()
     }
 
@@ -220,7 +232,7 @@ private struct ContactsPickerIndicatorPill: View {
 
 private struct ContactsPickerList: View {
     @Bindable var viewModel: ContactsPickerViewModel
-    let onToggle: (String) -> Void
+    let onToggle: (ContactsPickerViewModel.Selection) -> Void
 
     var body: some View {
         if viewModel.sections.isEmpty {
@@ -237,7 +249,7 @@ private struct ContactsPickerList: View {
                 rowContent: { (row: ContactsPickerViewModel.Row) in
                     ContactsPickerRow(
                         row: row,
-                        isSelected: viewModel.isSelected(inboxId: row.id),
+                        isSelected: viewModel.isSelected(row.selection),
                         onTap: rowTapAction(for: row)
                     )
                 },
@@ -262,11 +274,11 @@ private struct ContactsPickerList: View {
     }
 
     private func rowTapAction(for row: ContactsPickerViewModel.Row) -> () -> Void {
-        let inboxId = row.id
+        let selection = row.selection
         let isAlreadyInChat = row.isAlreadyInChat
         return {
             guard !isAlreadyInChat else { return }
-            onToggle(inboxId)
+            onToggle(selection)
         }
     }
 }
@@ -341,6 +353,23 @@ private struct ContactsPickerConfirmButton: View {
         mode: .newConversation,
         contactsRepository: MockContactsRepository(contacts: contacts),
         preselectedInboxIds: preselected,
+        onConfirm: { _ in }
+    )
+}
+
+#Preview("Humans + agents") {
+    let humans: [Contact] = [
+        .mock(displayName: "Alice"),
+        .mock(displayName: "Bob"),
+    ]
+    let agents: [AgentTemplateContact] = [
+        .mock(displayName: "Tifoso", emoji: "🚴", descriptionText: "Pro cycling expert"),
+        .mock(displayName: "Trip Planner", emoji: "🗺️", descriptionText: "Plans your next adventure"),
+    ]
+    return ContactsPickerView(
+        mode: .newConversation,
+        contactsRepository: MockContactsRepository(contacts: humans),
+        agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: agents),
         onConfirm: { _ in }
     )
 }

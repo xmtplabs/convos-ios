@@ -34,8 +34,13 @@ enum NewConversationMode {
     /// inbox IDs before emitting `.ready`. Used by the contacts picker
     /// "Start Conversation" path so navigation feels instant and the
     /// conversation arrives at `.ready` with the picked members already
-    /// in it.
-    case newConversationWithMembers(initialMemberInboxIds: [String])
+    /// in it. `initialAgentTemplateIds` (defaults to empty) requests one
+    /// fresh instance per id once the conversation reaches `.ready`,
+    /// mirroring the single-template `.newConversationWithTemplate` flow.
+    case newConversationWithMembers(
+        initialMemberInboxIds: [String],
+        initialAgentTemplateIds: [String] = []
+    )
     /// Opens an existing conversation in the same sheet presentation we
     /// use for the new-convo flows. Used when "Chat" on a contact card
     /// resolves to a 1:1 the user already has with that person, so the
@@ -169,11 +174,14 @@ class NewConversationViewModel: Identifiable {
 
     private var conversationStateManager: (any ConversationStateManagerProtocol)?
     private var acquiredMessagingService: AnyMessagingService?
-    /// Agent template id to provision into the conversation once it
-    /// reaches `.ready`. Set for the `.newConversationWithTemplate`
-    /// deeplink mode and when a `convos://template/<id>` QR is scanned.
+    /// Agent template ids to provision into the conversation once it
+    /// reaches `.ready`. Populated for the `.newConversationWithTemplate`
+    /// deeplink mode, the `convos://template/<id>` QR scan path, and the
+    /// contacts picker's mixed humans+templates new-conversation flow.
+    /// One entry per fresh instance to spawn; empty for the human-only
+    /// path.
     @ObservationIgnored
-    private var pendingAgentTemplateId: String?
+    private var pendingAgentTemplateIds: [String] = []
     /// Set when a template QR is scanned before the messaging service
     /// (and `conversationStateManager`) has been acquired; the create is
     /// kicked off once configuration completes. Mirrors `pendingInviteCode`.
@@ -215,8 +223,13 @@ class NewConversationViewModel: Identifiable {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
 
-        if case .newConversationWithTemplate(let templateId) = mode {
-            self.pendingAgentTemplateId = templateId
+        switch mode {
+        case .newConversationWithTemplate(let templateId):
+            self.pendingAgentTemplateIds = [templateId]
+        case .newConversationWithMembers(_, let templateIds):
+            self.pendingAgentTemplateIds = templateIds
+        default:
+            break
         }
 
         switch mode {
@@ -242,7 +255,7 @@ class NewConversationViewModel: Identifiable {
             self.allowsDismissingScanner = true
         }
 
-        if case .newConversationWithMembers(let ids) = mode {
+        if case .newConversationWithMembers(let ids, _) = mode {
             self.startedWithSeededMembers = true
             self.seededMemberInboxIds = ids
         } else {
@@ -339,7 +352,7 @@ class NewConversationViewModel: Identifiable {
                     existingConversationId: existingConversationId
                 )
 
-            case .newConversationWithMembers(let initialMemberInboxIds):
+            case .newConversationWithMembers(let initialMemberInboxIds, _):
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -562,7 +575,7 @@ class NewConversationViewModel: Identifiable {
     /// conversation, then request an instance of the template into it
     /// once it reaches `.ready` (handled in `handleStateChange`).
     private func startAgentTemplateConversation(templateId: String) {
-        pendingAgentTemplateId = templateId
+        pendingAgentTemplateIds = [templateId]
         showingFullScreenScanner = false
         isCreatingConversation = true
 
@@ -888,12 +901,14 @@ extension NewConversationViewModel {
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
 
-            // Agent-template deeplink: the conversation now exists with a
-            // shareable invite, so request a fresh instance of the
-            // template into it. One-shot - `.ready` may re-emit.
-            if let pendingAgentTemplateId, !didTriggerAgentJoin {
+            // Agent-template spawn: the conversation now exists with a
+            // shareable invite, so request a fresh instance for each
+            // pending templateId. One-shot - `.ready` may re-emit.
+            if !pendingAgentTemplateIds.isEmpty, !didTriggerAgentJoin {
                 didTriggerAgentJoin = true
-                conversationViewModel?.requestAgentJoin(templateId: pendingAgentTemplateId)
+                for templateId in pendingAgentTemplateIds {
+                    conversationViewModel?.requestAgentJoin(templateId: templateId)
+                }
             }
 
         case .joinFailed(_, let error):
@@ -918,9 +933,9 @@ extension NewConversationViewModel {
 
         // The include-info default applies to every conversation this VM
         // creates - the auto-create modes and the scanned-template path
-        // (which sets `pendingAgentTemplateId` but is not an auto-create
+        // (which seeds `pendingAgentTemplateIds` but is not an auto-create
         // mode). It does not apply when joining an existing invite.
-        guard autoCreateConversation || pendingAgentTemplateId != nil else { return }
+        guard autoCreateConversation || !pendingAgentTemplateIds.isEmpty else { return }
 
         do {
             try await stateManager.conversationMetadataWriter.updateIncludeInfoInPublicPreview(

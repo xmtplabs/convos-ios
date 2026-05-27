@@ -177,7 +177,7 @@ struct AppSettingsView: View {
             contactsRepository: messagingService.contactsRepository(),
             contactsWriter: messagingService.contactsWriter(),
             session: session,
-            profileSettingsViewModel: profileSettingsViewModel
+            profileSettingsViewModel: profileSettingsViewModel,
             agentTemplateContactsRepository: messagingService.agentTemplateContactsRepository(),
             agentTemplateContactsWriter: messagingService.agentTemplateContactsWriter()
         )

@@ -410,11 +410,16 @@ struct ContactDetailView: View {
     /// `ContactsView.handlePickerConfirm` and the invite-cell-tap pattern
     /// where the new-convo sheet is owned by the same view that hosted
     /// the picker.
-    private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
+    private func handlePickerConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
+        guard !selection.isEmpty, let session else { return }
+        let inboxIds: [String] = selection.compactMap(\.inboxId)
+        let templateIds: [String] = selection.compactMap(\.templateId)
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: inboxIds,
+                initialAgentTemplateIds: templateIds
+            )
         )
     }
 
@@ -679,7 +684,7 @@ private struct ContactDetailActions: View {
 /// rounded white pill on top with a small grey footer caption below - is
 /// the canonical card action style. The label color is the only knob: dark
 /// primary for affirmative actions, caution red for destructive.
-private struct ContactDetailActionRow: View {
+struct ContactDetailActionRow: View {
     let label: String
     let footer: String
     let color: Color
@@ -718,7 +723,7 @@ private struct ContactDetailActionRow: View {
 /// the system share sheet) rather than a plain action button, since the
 /// share intent is fully handled by the system. Rendered only when the
 /// agent carries a template `publishedUrl`.
-private struct ContactDetailShareRow: View {
+struct ContactDetailShareRow: View {
     let url: URL
     let contactDisplayName: String
 
