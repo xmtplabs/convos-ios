@@ -300,6 +300,17 @@ struct AttachmentHTMLContent: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         if let key = attachmentKey,
            let prewarmed = HTMLContentPrewarmer.shared.borrowContent(for: key) {
+            // Prewarmed WebView still has the `PrewarmCoordinator`
+            // wired as its navigation delegate and as the listener on
+            // the `convosBg` script handler. Re-point both at the
+            // sheet's coordinator so link taps now route through
+            // `InAppBrowser.open(...)` and any subsequent bg-color
+            // posts land on `onBodyBackgroundColor` instead of the
+            // stale prewarm coordinator.
+            let controller = prewarmed.webView.configuration.userContentController
+            controller.removeScriptMessageHandler(forName: HTMLBodyBackgroundBridge.messageHandlerName)
+            controller.add(context.coordinator, name: HTMLBodyBackgroundBridge.messageHandlerName)
+            prewarmed.webView.navigationDelegate = context.coordinator
             context.coordinator.usingPrewarmedWebView = true
             context.coordinator.loadedFileURL = fileURL
             DispatchQueue.main.async {
