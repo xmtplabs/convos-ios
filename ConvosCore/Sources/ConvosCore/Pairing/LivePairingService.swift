@@ -402,7 +402,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             do {
                 for try await message in stream {
                     if Task.isCancelled { break }
-                    self?.handleIncoming(message: message, isJoiner: isJoiner)
+                    self.handleIncoming(message: message, isJoiner: isJoiner)
                 }
             } catch {
                 if !Task.isCancelled {
