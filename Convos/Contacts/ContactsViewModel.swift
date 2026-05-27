@@ -53,24 +53,34 @@ final class ContactsViewModel {
     private func applyContacts(_ contacts: [Contact]) {
         allContacts = contacts
         // `contactCount` drives the empty-state vs list-state branch and
-        // the compose button's enabled flag. Use the human-visible count
-        // (verified agents are hidden from this view) so a user whose
-        // contacts are all agents sees the empty state correctly.
-        contactCount = contacts.filter { !$0.isVerifiedAgent }.count
+        // the compose button's enabled flag. Count what's actually visible
+        // in the list -- verified agents are hidden from this view, and
+        // unnamed contacts are filtered out below in `rebuildSections`,
+        // so include both predicates here too.
+        contactCount = contacts.filter(Self.isVisibleInList).count
         rebuildSections()
         isLoading = false
+    }
+
+    /// Single source of truth for "is this contact rendered in the list".
+    /// Verified agents stay in `DBContact` so chat-side surfaces (member
+    /// rows, system messages, the contact card opened from a member tap)
+    /// can still resolve them, but they're excluded here so the human
+    /// contact browser stays focused on real people. Contacts whose
+    /// displayName is missing/empty render as "Somebody" via
+    /// `resolvedDisplayName`; a "Somebody" row carries no useful info
+    /// for the browser, so we hide it until a profile name arrives.
+    private static func isVisibleInList(_ contact: Contact) -> Bool {
+        if contact.isVerifiedAgent { return false }
+        guard let name = contact.displayName, !name.isEmpty else { return false }
+        return true
     }
 
     /// Recomputes `sections` from `allContacts` honoring the current
     /// `searchQuery`. Mirrors the picker's filter/group pipeline so both
     /// surfaces sort and bucket identically.
-    ///
-    /// Verified agents are kept in `DBContact` so chat-side surfaces (member
-    /// rows, system messages, the contact card opened from a member tap) can
-    /// still resolve their profile; they are excluded here so the human
-    /// contact browser stays focused on real people.
     private func rebuildSections() {
-        let visibleContacts = allContacts.filter { !$0.isVerifiedAgent }
+        let visibleContacts = allContacts.filter(Self.isVisibleInList)
         let filtered = filterByQuery(visibleContacts)
         let grouped: [String: [Contact]] = Dictionary(grouping: filtered) { $0.alphabeticalSectionKey }
         let sortedKeys = grouped.keys.sorted { lhs, rhs in

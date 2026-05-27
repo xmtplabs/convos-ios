@@ -174,10 +174,20 @@ final class ContactsPickerViewModel {
     }
 
     private func rebuildSections() {
-        // Verified agents are kept in `DBContact` so chat-side surfaces can
-        // resolve them, but are hidden from the picker so users only see
-        // human candidates when starting / adding to a conversation.
-        let visible = allContacts.filter { !$0.isBlocked && !$0.isVerifiedAgent }
+        // Hidden from the picker:
+        //  - blocked contacts (the user explicitly opted out of contacting them)
+        //  - verified agents (kept in `DBContact` so chat-side surfaces can
+        //    resolve them, but not a valid picker target since they don't
+        //    accept 1:1 DMs; agent rows have their own dedicated entry point)
+        //  - contacts whose displayName is missing/empty (would render as
+        //    "Somebody" via `resolvedDisplayName`; a name-less row isn't a
+        //    useful picker target -- there's nothing to distinguish it from
+        //    every other unnamed contact)
+        let visible = allContacts.filter { contact in
+            guard !contact.isBlocked, !contact.isVerifiedAgent else { return false }
+            guard let name = contact.displayName, !name.isEmpty else { return false }
+            return true
+        }
         let filtered = filterByQuery(visible)
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,
