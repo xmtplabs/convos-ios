@@ -948,14 +948,10 @@ public extension SessionManager {
     ///
     /// 1. Stop the placeholder `MessagingService` (the one silent-identity
     ///    bootstrap may have stood up before the deep link arrived).
-    /// 2. Delete the placeholder's libxmtp `xmtp-*.db3` files directly
-    ///    from `defaultDatabasesDirectory`. Without this, the new
-    ///    identity's `Client.create` finds the leftover SQLCipher-
-    ///    encrypted DB files and fails with `PRAGMA key or salt has
-    ///    incorrect value` — libxmtp uses one DB family per install
-    ///    (not per-inbox), and the placeholder's databaseKey is
-    ///    discarded the moment the keychain was overwritten by the
-    ///    pair adoption.
+    /// 2. Delete any pre-existing libxmtp DB files for the *adopted*
+    ///    inboxId. See `deleteStaleLibxmtpDatabaseFilesForAdoptedInbox`
+    ///    for the file-naming details and the pair-then-re-pair scenario
+    ///    that produces the conflict.
     /// 3. Wipe the placeholder's GRDB rows. Without this, the local DB
     ///    still has the placeholder marked as `isCurrentUser` and the
     ///    placeholder's inboxId in `DBInbox`/`DBMember`/`DBMyProfile`.
@@ -982,7 +978,7 @@ public extension SessionManager {
             Log.info("SessionManager: stopping placeholder messaging service after pairing adoption")
             await existing.stop()
         }
-        deletePlaceholderLibxmtpDatabaseFiles()
+        deleteStaleLibxmtpDatabaseFilesForAdoptedInbox()
         do {
             try await wipeResidualInboxRows()
             Log.info("SessionManager: wiped placeholder GRDB rows after pairing adoption")
@@ -992,35 +988,68 @@ public extension SessionManager {
         cachedMessagingService.withLock { $0 = nil }
     }
 
-    /// Removes the placeholder identity's libxmtp `xmtp-*.db3` files from
-    /// the shared default database directory. libxmtp names files
-    /// `xmtp-<gRPC-host>-<hash>.db3` and uses one family per install, so
-    /// the existing files were encrypted with the now-discarded
-    /// placeholder databaseKey. Without deletion, the paired identity's
-    /// `Client.create` would re-open them with its fresh databaseKey and
-    /// SQLCipher would reject with `PRAGMA key or salt has incorrect
-    /// value`. Mirrors `SessionStateMachine.deleteDatabaseFiles()` but
-    /// runs without involving the state machine (which is in `.error`
-    /// or being torn down here).
-    private func deletePlaceholderLibxmtpDatabaseFiles() {
+    /// Removes libxmtp's on-disk DB files for the *just-adopted* inboxId
+    /// so the paired identity's `Client.create` opens a fresh SQLCipher
+    /// store with its own databaseKey.
+    ///
+    /// File naming and cause of the conflict:
+    /// `XMTPiOS.Client.create` builds the alias `xmtp-<env>-<inboxId>.db3`
+    /// (see `sdks/ios/Sources/XMTPiOS/Client.swift`) with sidecars
+    /// `<alias>-wal`, `<alias>-shm`, and `<alias>.sqlcipher_salt`. Each
+    /// inboxId gets its own family. The conflict here is *not* about
+    /// "one family per install": it's that the joiner reuses the
+    /// **same paired inboxId** across pair attempts (it's the
+    /// initiator's). `LivePairingService.handleIdentityShare` generates
+    /// a **fresh random databaseKey** on every adoption and overwrites
+    /// the keychain. So pair #2 finds pair #1's files at exactly that
+    /// per-inbox path, encrypted with the previous key, and SQLCipher
+    /// rejects with `PRAGMA key or salt has incorrect value`.
+    ///
+    /// Targeted deletion only removes the adopted inboxId's family.
+    /// The placeholder identity's own files (different inboxId,
+    /// different path) are left as cruft until a full "Delete All
+    /// Data" sweep — they don't conflict with anything new because the
+    /// silent-bootstrap path always generates a fresh inboxId.
+    private func deleteStaleLibxmtpDatabaseFilesForAdoptedInbox() {
+        let adoptedInboxId: String
+        do {
+            guard let identity = try identityStore.loadSync() else {
+                Log.info("SessionManager: no adopted identity in keychain; skipping libxmtp DB cleanup")
+                return
+            }
+            adoptedInboxId = identity.inboxId
+        } catch {
+            Log.warning("SessionManager: identityStore.loadSync failed during libxmtp DB cleanup: \(error)")
+            return
+        }
+
         let fileManager = FileManager.default
         let dbDirectory = environment.defaultDatabasesDirectoryURL
         guard let entries = try? fileManager.contentsOfDirectory(
             at: dbDirectory,
             includingPropertiesForKeys: nil
         ) else {
-            Log.warning("SessionManager: could not enumerate \(dbDirectory.path) for placeholder DB cleanup")
+            Log.warning("SessionManager: could not enumerate \(dbDirectory.path) for adopted-inbox DB cleanup")
             return
         }
+
+        // Match any file whose name starts with `xmtp-` and contains the
+        // adopted inboxId. Covers the current alias form
+        // (`xmtp-<env>-<inboxId>.db3`), the legacy form
+        // (`xmtp-<env>:443-<inboxId>.db3`) that libxmtp's Swift binding
+        // still falls back to, and all four sidecar suffixes (`.db3`,
+        // `.db3-wal`, `.db3-shm`, `.db3.sqlcipher_salt`).
         var deletedCount: Int = 0
-        for url in entries where url.lastPathComponent.hasPrefix("xmtp-") {
+        for url in entries {
+            let name = url.lastPathComponent
+            guard name.hasPrefix("xmtp-"), name.contains(adoptedInboxId) else { continue }
             do {
                 try fileManager.removeItem(at: url)
                 deletedCount += 1
             } catch {
-                Log.warning("SessionManager: failed to delete placeholder libxmtp file \(url.lastPathComponent): \(error)")
+                Log.warning("SessionManager: failed to delete stale libxmtp file \(name): \(error)")
             }
         }
-        Log.info("SessionManager: removed \(deletedCount) placeholder libxmtp file(s) after pairing adoption")
+        Log.info("SessionManager: removed \(deletedCount) stale libxmtp file(s) for adopted inboxId after pairing adoption")
     }
 }
