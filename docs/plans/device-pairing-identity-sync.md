@@ -226,7 +226,7 @@ User taps **Confirm** on Device A.
 
    `databaseKey` is **not** transferred - B generates a fresh one. Backend `accountId` is **not** transferred - B re-derives it via SIWE.
 
-2. A sends this as a DM from real-A to B-ephemeral using `IdentityShareCodec`. Transitions UI to `syncing`.
+2. A sends this as a DM from real-A to B-ephemeral using `IdentityShareCodec`. The DM is created with `DisappearingMessageSettings` set to a 5-minute retention window (`LivePairingService.Constant.pairingDmRetentionSeconds`) so the message containing the raw secp256k1 key — and every other pairing message in the same DM — auto-purges from both the history server and every paired installation's local SQLCipher DB after the handshake completes. The initiator explicitly reasserts the settings via `dm.updateDisappearingMessageSettings(...)` before sending the IdentityShare, since the joiner created the DM first and `findOrCreateDm`'s settings argument only applies on create. Transitions UI to `syncing`.
 3. B receives it on its DM stream. Cancels its other listeners. Transitions UI to `syncing` (sheet non-dismissible).
 4. B validates: `recoverAddress(privateKeyData) == addressInSignedInvite`. If mismatch -> `failed`, do not proceed.
 5. B writes to keychain: `KeychainIdentityStore.save(inboxId: <from share>, clientId: UUID(), keys: KeychainIdentityKeys(privateKey: PrivateKey(privateKeyData), databaseKey: <new random>))`.
@@ -454,16 +454,6 @@ Build order inside the PR (so each commit compiles and tests pass for bisect-fri
 - Device naming UX (rename a paired device). Defer.
 
 ## Known limitations (acceptable for TestFlight; flagged for follow-up)
-
-### Private key at rest in history-synced DM
-
-`IdentityShareContent` carries the raw secp256k1 private key inside a normal MLS DM (`findOrCreateDm` between the initiator's real inbox and the joiner's ephemeral inbox). libxmtp ships with `deviceSyncEnabled: true` (see `SessionStateMachine.clientOptions`), which replicates message history across all installations under an inbox via XMTP's history server. After the joiner adopts the paired identity, both installations sit under the *same* inbox — so the original IdentityShare DM (from the *ephemeral* inbox era) lives encrypted on the history server *and* in every paired installation's persistent SQLCipher DB indefinitely. The encryption is MLS-grade; the practical concern is "any future paired device or anyone with the inbox's MLS keying material can decrypt a message containing the secp256k1 signing key."
-
-Why we shipped it anyway:
-- Anyone who can decrypt that DM already has the inbox's MLS keys, which means they already have access to all of the user's conversations — possessing the secp256k1 key in addition gives no extra access in practice.
-- A clean fix exists and is small.
-
-Follow-up: libxmtp already supports per-conversation **disappearing messages** via the `disappearingMessageSettings:` parameter on `findOrCreateDm` (see `XMTPClientProvider`'s `Conversations` extension — we currently pass `nil`). The pairing DM should be created with a tight expiration (e.g. 5 minutes — long enough for the handshake, short enough that the key isn't durably stored anywhere). After the TTL, the DM and all messages in it — including the `IdentityShareContent` — get pruned from both the history server and every installation's local DB. Both the joiner's ephemeral side and the initiator's real side benefit. No new content-type needed; just thread a non-nil `DisappearingMessageSettings` through `LivePairingService` when it constructs the DM in `sendPairingJoinRequest`/`sendPinToJoiner`/`sendIdentityShare`. Tracked as a fast follow-up.
 
 ### Orphan backend `accountId` from cold-launch pair
 

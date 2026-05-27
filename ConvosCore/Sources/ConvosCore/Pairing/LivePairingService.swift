@@ -170,9 +170,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
         // the incoming key was signed by the same party that signed the
         // scanned QR slug.
         state.withLock { $0.expectedInitiatorAddress = invite.initiatorAddress.lowercased() }
-        let dm = try await joinerClient.conversationsProvider.findOrCreateDm(
-            with: invite.initiatorInboxId
-        )
+        let dm = try await findOrCreatePairingDm(via: joinerClient, with: invite.initiatorInboxId)
         let content = PairingJoinRequestContent(
             slug: slug,
             joinerInboxId: joinerClient.inboxId,
@@ -187,7 +185,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
 
     public func sendPinToJoiner(_ pin: String, joinerInboxId: String) async throws {
         guard case let .initiator(client, _, _, _) = role else { throw LivePairingServiceError.notReady }
-        let dm = try await client.conversationsProvider.findOrCreateDm(with: joinerInboxId)
+        let dm = try await findOrCreatePairingDm(via: client, with: joinerInboxId)
         try await dm.send(
             content: PairingMessageContent.pin(pin),
             options: SendOptions(contentType: ContentTypePairingMessage)
@@ -198,7 +196,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
         guard case .joiner = role else { throw LivePairingServiceError.notReady }
         let box = state.withLock { s in NonSendableBox(s.joinerClient) }
         guard let joinerClient = box.value else { throw LivePairingServiceError.xmtpUnavailable }
-        let dm = try await joinerClient.conversationsProvider.findOrCreateDm(with: initiatorInboxId)
+        let dm = try await findOrCreatePairingDm(via: joinerClient, with: initiatorInboxId)
         try await dm.send(
             content: PairingMessageContent.pinEcho(pin),
             options: SendOptions(contentType: ContentTypePairingMessage)
@@ -219,7 +217,15 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             displayName: initiatorProfile?.displayName,
             imageAssetIdentifier: initiatorProfile?.imageAssetIdentifier
         )
-        let dm = try await client.conversationsProvider.findOrCreateDm(with: toJoinerInboxId)
+        // Critical path: this DM carries the raw secp256k1 key. Use the
+        // pairing-DM helper so the disappearing-messages TTL is applied
+        // (and, for safety, explicitly reasserted via
+        // `updateDisappearingMessageSettings` — the joiner created the
+        // DM first, so the initiator's `findOrCreateDm` here is really a
+        // "find" and its settings argument wouldn't take effect on an
+        // already-created conversation).
+        let dm = try await findOrCreatePairingDm(via: client, with: toJoinerInboxId)
+        try await reassertPairingDmSettings(on: dm)
         try await dm.send(
             content: share,
             options: SendOptions(contentType: ContentTypeIdentityShare)
@@ -230,7 +236,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
         do {
             switch role {
             case let .initiator(client, _, _, _):
-                let dm = try await client.conversationsProvider.findOrCreateDm(with: peerInboxId)
+                let dm = try await findOrCreatePairingDm(via: client, with: peerInboxId)
                 try await dm.send(
                     content: PairingMessageContent.error(message),
                     options: SendOptions(contentType: ContentTypePairingMessage)
@@ -238,7 +244,7 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             case .joiner:
                 let box = state.withLock { s in NonSendableBox(s.joinerClient) }
                 guard let joinerClient = box.value else { return }
-                let dm = try await joinerClient.conversationsProvider.findOrCreateDm(with: peerInboxId)
+                let dm = try await findOrCreatePairingDm(via: joinerClient, with: peerInboxId)
                 try await dm.send(
                     content: PairingMessageContent.error(message),
                     options: SendOptions(contentType: ContentTypePairingMessage)
@@ -246,6 +252,48 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             }
         } catch {
             Log.warning("Failed to send pairing error DM: \(error)")
+        }
+    }
+
+    /// Wraps `findOrCreateDm` with the pairing-DM disappearing-messages
+    /// settings so every DM in the pairing flow has a tight TTL. Both
+    /// initiator and joiner call this — whichever side creates the DM
+    /// first sets the settings on creation; libxmtp propagates the
+    /// metadata via MLS group epoch.
+    private func findOrCreatePairingDm(
+        via client: any XMTPClientProvider,
+        with peerInboxId: String
+    ) async throws -> Dm {
+        try await client.conversationsProvider.findOrCreateDm(
+            with: peerInboxId,
+            disappearingMessageSettings: Constant.pairingDmSettings
+        )
+    }
+
+    /// Explicitly reasserts the pairing-DM settings on a DM that may have
+    /// been created without them (e.g. by the joiner before this client
+    /// joined the conversation). `findOrCreateDm`'s settings argument
+    /// only applies on create — `updateDisappearingMessageSettings`
+    /// updates an existing conversation via a group commit. Only invoked
+    /// on the IdentityShare critical path where defense in depth matters
+    /// most; the other pairing messages don't carry secrets.
+    private func reassertPairingDmSettings(on dm: Dm) async throws {
+        try await dm.updateDisappearingMessageSettings(Constant.pairingDmSettings)
+    }
+
+    private enum Constant {
+        /// 5 minutes is more than enough for a pairing handshake (typically
+        /// seconds) and short enough that the IdentityShare key isn't
+        /// durably stored anywhere — neither on the history server nor in
+        /// either installation's local DB after the TTL elapses.
+        static let pairingDmRetentionSeconds: Int64 = 5 * 60
+
+        static var pairingDmSettings: DisappearingMessageSettings {
+            let nowNs = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+            return DisappearingMessageSettings(
+                disappearStartingAtNs: nowNs,
+                retentionDurationInNs: pairingDmRetentionSeconds * 1_000_000_000
+            )
         }
     }
 

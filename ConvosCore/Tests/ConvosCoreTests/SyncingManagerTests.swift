@@ -223,6 +223,13 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         fatalError("not implemented in test mock")
     }
 
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> XMTPiOS.Dm {
+        fatalError("not implemented in test mock")
+    }
+
     func streamAllMessages(
         type: ConversationFilterType,
         consentStates: [ConsentState]?,

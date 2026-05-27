@@ -73,6 +73,16 @@ public protocol ConversationsProvider {
 
     func findOrCreateDm(with peerInboxId: String) async throws -> Dm
 
+    /// Same as `findOrCreateDm(with:)` but applies the given disappearing-
+    /// messages settings on create (passed through to libxmtp's
+    /// `findOrCreateDm(with:disappearingMessageSettings:)`). Use the basic
+    /// overload by default; callers that need a TTL on the conversation
+    /// (e.g. pairing) reach for this one.
+    func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> Dm
+
     func findMessage(messageId: String) throws -> XMTPiOS.DecodedMessage?
 
     func sync() async throws
@@ -138,6 +148,11 @@ extension XMTPiOS.Conversations: ConversationsProvider {
         try await findOrCreateDm(with: peerInboxId, disappearingMessageSettings: nil)
     }
 }
+
+// libxmtp's `findOrCreateDm(with:disappearingMessageSettings:)` is the
+// underlying API the no-arg overload calls. It already satisfies the
+// new protocol method via the same name + argument labels, so no
+// additional bridging shim is needed here.
 
 extension XMTPiOS.Client: XMTPClientProvider {
     public var conversationsProvider: any ConversationsProvider {
