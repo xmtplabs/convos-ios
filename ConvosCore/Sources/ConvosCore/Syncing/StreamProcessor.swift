@@ -118,9 +118,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             databaseWriter: databaseWriter
         )
         self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
-        self.inboundFilter = InboundConversationFilter(
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
-        )
+        self.inboundFilter = InboundConversationFilter()
     }
 
     // MARK: - Public Interface
@@ -156,12 +154,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             return
         case .deliver:
             try await persistDeliveredConversation(
-                conversation,
-                params: params,
-                clientConversationId: clientConversationId
-            )
-        case .quarantine:
-            try await persistQuarantinedConversation(
                 conversation,
                 params: params,
                 clientConversationId: clientConversationId
@@ -208,26 +200,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             conversationId: conversation.id,
             params: params,
             context: "on stream"
-        )
-    }
-
-    /// Persists an inbound conversation with the `quarantinedAt` flag set,
-    /// hiding it from the main feed. The QuarantineSweeper will later either
-    /// promote the row (if the sender becomes a contact within the TTL) or
-    /// delete it (if the TTL expires first). We deliberately do NOT subscribe
-    /// to push notifications here — quarantined conversations should be
-    /// silent until promoted.
-    private func persistQuarantinedConversation(
-        _ conversation: XMTPiOS.Group,
-        params: SyncClientParams,
-        clientConversationId: String?
-    ) async throws {
-        Log.info("Quarantining inbound conversation from non-contact: \(conversation.id)")
-        try await conversationWriter.storeWithLatestMessages(
-            conversation: conversation,
-            inboxId: params.client.inboxId,
-            clientConversationId: clientConversationId,
-            quarantinedAt: Date()
         )
     }
 

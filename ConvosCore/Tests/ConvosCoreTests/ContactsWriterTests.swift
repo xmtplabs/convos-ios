@@ -373,45 +373,13 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
-    @Test("Block and unblock post `contactBlockingDidChange` on real state changes only")
-    func testBlockingPostsNotificationOnRealChanges() async throws {
-        let dbManager = MockDatabaseManager.makeTestDatabase()
-        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
-        let inboxId = "inbox-1"
-
-        try await writer.upsertContact(
-            inboxId: inboxId,
-            addedViaConversationId: nil,
-            profile: ContactProfileSnapshot(displayName: "Test")
-        )
-
-        let recorder = NotificationRecorder(name: .contactBlockingDidChange)
-
-        // First block: real change → post.
-        try await writer.block(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 1)
-        #expect(recorder.notifications.first?.userInfo?["inboxId"] as? String == inboxId)
-        #expect(recorder.notifications.first?.userInfo?["blocked"] as? Bool == true)
-
-        // Idempotent re-block: no change → no post.
-        try await writer.block(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 1)
-
-        // Unblock: real change → post.
-        try await writer.unblock(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 2)
-        #expect(recorder.notifications.last?.userInfo?["blocked"] as? Bool == false)
-
-        // Idempotent re-unblock: no change → no post.
-        try await writer.unblock(inboxId: inboxId)
-        try await Task.sleep(nanoseconds: 20_000_000)
-        #expect(recorder.notifications.count == 2)
-
-        recorder.stop()
-    }
+    // Note: a `contactBlockingDidChange` notification test used to live
+    // here. The notification was removed when conversation visibility
+    // moved to a live join — there's no longer a sweeper to wake on
+    // block / unblock. The `ConversationsRepository` re-evaluates the
+    // visibility predicate via GRDB's `ValueObservation` on the
+    // `contact` table; the integration is now implicit and covered by
+    // the repository tests.
 
     @Test("block followed by unblock returns the contact to the unblocked state")
     func testBlockUnblockRoundTrip() async throws {

@@ -227,19 +227,94 @@ struct ConversationsRepositoryFindOneToOneTests {
         #expect(match?.id == "convo-pending")
     }
 
-    @Test("isUnused, expired, and quarantined-without-release rows are excluded")
+    @Test("isUnused and expired rows are excluded")
     func testHiddenRowsAreExcluded() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let now = Date()
         try dbManager.dbWriter.write { db in
             try Self.seedOneToOne(db: db, id: "convo-unused", createdAt: now, isUnused: true)
             try Self.seedOneToOne(db: db, id: "convo-expired", createdAt: now, expiresAt: Date(timeIntervalSince1970: 1))
-            try Self.seedOneToOne(db: db, id: "convo-quarantined", createdAt: now, quarantinedAt: now)
         }
 
         let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
         let match = try repo.findOneToOne(with: Self.otherInboxId, excluding: nil)
 
         #expect(match == nil)
+    }
+
+    @Test("Stranger-created 1:1 is excluded until the creator becomes a contact")
+    func testStrangerCreatedConversationHiddenUntilContact() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedOneToOneCreatedByOther(db: db, id: "convo-from-stranger", createdAt: Date())
+        }
+
+        // Stranger creator + no contact entry → hidden by the live
+        // visibility predicate (`DBConversation.visibleInFeedPredicate`).
+        let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
+        #expect(try repo.findOneToOne(with: Self.otherInboxId, excluding: nil) == nil)
+
+        // Add the creator as a contact and the conversation appears.
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: Self.otherInboxId,
+                addedAt: Date(),
+                addedViaConversationId: nil,
+                displayName: nil,
+                avatarURL: nil,
+                avatarSalt: nil,
+                avatarNonce: nil,
+                avatarKey: nil,
+                profileUpdatedAt: Date(),
+                agentVerification: nil
+            ).insert(db)
+        }
+        #expect(try repo.findOneToOne(with: Self.otherInboxId, excluding: nil)?.id == "convo-from-stranger")
+    }
+
+    private static func seedOneToOneCreatedByOther(
+        db: Database,
+        id: String,
+        createdAt: Date
+    ) throws {
+        try seedInbox(db: db)
+        try DBMember(inboxId: otherInboxId).save(db, onConflict: .ignore)
+        try DBConversation(
+            id: id,
+            clientConversationId: "client-\(id)",
+            inviteTag: "tag-\(id)",
+            creatorId: otherInboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: createdAt,
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false,
+            quarantinedAt: nil,
+            quarantineReleasedAt: nil
+        ).insert(db)
+        try ConversationLocalState(
+            conversationId: id,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: createdAt,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false
+        ).insert(db)
+        try addMember(db: db, conversationId: id, inboxId: currentInboxId, role: .member)
+        try addMember(db: db, conversationId: id, inboxId: otherInboxId, role: .superAdmin)
     }
 }
