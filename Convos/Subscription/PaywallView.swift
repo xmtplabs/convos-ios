@@ -210,26 +210,27 @@ struct PaywallView: View {
             .onTapGesture { selectAnnualIfAvailable() }
         }
         .padding(inset)
-        .background(
+        .background {
             GeometryReader { geo in
                 let segmentWidth: CGFloat = (geo.size.width - inset * 2) / 2
                 let restOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
                 let clampedDrag: CGFloat = min(max(restOffset + thumbDragOffset, 0), segmentWidth)
-                RoundedRectangle(cornerRadius: thumbRadius)
-                    .fill(.clear)
-                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
-                    .frame(width: segmentWidth)
-                    .offset(x: inset + clampedDrag)
-                    .animation(
-                        thumbDragOffset == 0 ? .snappy(duration: 0.25) : .interactiveSpring,
-                        value: clampedDrag
-                    )
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                        .fill(.colorFillSubtle)
+                    RoundedRectangle(cornerRadius: thumbRadius)
+                        .fill(.clear)
+                        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
+                        .frame(width: segmentWidth, height: geo.size.height - inset * 2)
+                        .offset(x: inset + clampedDrag, y: inset)
+                        .animation(
+                            thumbDragOffset == 0 ? .snappy(duration: 0.25) : .interactiveSpring,
+                            value: clampedDrag
+                        )
+                }
             }
-        )
-        .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                .fill(.colorFillSubtle)
-        )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
         .gesture(
             DragGesture(minimumDistance: 5)
                 .onChanged { value in
