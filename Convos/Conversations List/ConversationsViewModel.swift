@@ -334,8 +334,8 @@ final class ConversationsViewModel {
         )
     }
 
-    func onStartAgent() {
-        agentBuilderViewModel = AgentBuilderViewModel(session: session)
+    func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
+        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode)
     }
 
     private func join(from inviteCode: String) {

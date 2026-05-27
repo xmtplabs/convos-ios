@@ -90,11 +90,28 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
     static let googleCalendarServiceId: String = "googlecalendar"
 }
 
+/// How the builder was entered. Drives which surface (composer text
+/// field vs. voice-memo recorder) gets attention on first appear.
+/// `composer` is the default - the builder appears with its text field
+/// focused and the keyboard up. `voiceMemo` is the
+/// `AgentBuilderBar`'s waveform-button path: the builder appears
+/// without focusing the text field (so the keyboard stays down while
+/// the system mic-permission prompt resolves) and the view kicks off
+/// `startVoiceMemoRecording` on appear.
+enum AgentBuilderEntryMode {
+    case composer
+    case voiceMemo
+}
+
 @MainActor
 @Observable
 final class AgentBuilderViewModel: Identifiable {
     let id: UUID = UUID()
     let session: any SessionManagerProtocol
+    /// How the builder was entered. Read by `AgentBuilderView` on appear
+    /// to decide whether to focus the composer (and raise the keyboard)
+    /// or skip focus and start a voice-memo recording instead.
+    let entryMode: AgentBuilderEntryMode
 
     let newConversationViewModel: NewConversationViewModel
 
@@ -173,8 +190,9 @@ final class AgentBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var restoreComposerFocusAfterRecording: Bool = false
 
-    init(session: any SessionManagerProtocol) {
+    init(session: any SessionManagerProtocol, entryMode: AgentBuilderEntryMode = .composer) {
         self.session = session
+        self.entryMode = entryMode
         self.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newAgent
