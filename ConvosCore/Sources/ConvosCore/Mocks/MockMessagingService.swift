@@ -187,6 +187,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         InstallationsSnapshot(inboxId: "mock-inbox", currentInstallationId: "mock-installation", installations: [])
     }
 
+    public func broadcastProfileSnapshotsToAllGroups() async {}
+
     public func revokeOtherInstallations() async throws -> [String] {
         []
     }

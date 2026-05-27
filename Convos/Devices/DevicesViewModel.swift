@@ -77,16 +77,41 @@ final class DevicesViewModel {
         if !didStartObserving {
             didStartObserving = true
             observers.add(for: .pairingDidCompleteSuccessfully) { [weak self] notification in
-                let name = (notification.userInfo?["joinerDeviceName"] as? String) ?? "New device"
+                // Only the initiator-side post carries `joinerDeviceName`
+                // (`PairingSheetViewModel.confirmEmoji`). The joiner's
+                // post has no userInfo. We use that to gate the
+                // initiator-only profile-snapshot broadcast: the joiner
+                // is the one *receiving* the snapshots, it shouldn't
+                // re-send them.
+                let userInfo = notification.userInfo
+                let joinerDeviceName = userInfo?["joinerDeviceName"] as? String
+                let displayName = joinerDeviceName ?? "New device"
+                let isInitiatorSide = joinerDeviceName != nil
                 Task { @MainActor in
-                    self?.insertOptimisticDevice(named: name)
+                    self?.insertOptimisticDevice(named: displayName)
                     await self?.refreshUntilRealInstallationAppears()
+                    if isInitiatorSide {
+                        await self?.broadcastProfileSnapshotsAfterPair()
+                    }
                 }
             }
         }
         Task { @MainActor in
             await refreshInstallations(refreshFromNetwork: true)
         }
+    }
+
+    /// Initiator-only: once the joiner's installation is visible in our
+    /// inbox, broadcast a fresh `ProfileSnapshot` to every group so the
+    /// joiner's new local DB hydrates each conversation's members
+    /// immediately. Falls through silently if the joiner's installation
+    /// never appears within the broadcaster's polling window.
+    private func broadcastProfileSnapshotsAfterPair() async {
+        guard let session else { return }
+        let broadcaster = PostPairProfileSnapshotBroadcaster(
+            messagingService: session.messagingService()
+        )
+        _ = await broadcaster.runAfterPairing()
     }
 
     /// Inserts a non-self placeholder row with the just-paired device's

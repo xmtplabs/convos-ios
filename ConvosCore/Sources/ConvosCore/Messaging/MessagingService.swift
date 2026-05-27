@@ -374,6 +374,56 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    /// Sends a fresh `ProfileSnapshot` (containing the current profile
+    /// metadata for every member) to every group the local user is in.
+    /// Used by the post-pair broadcaster so a newly-paired installation
+    /// has each conversation's member profiles populated locally without
+    /// having to rely on history sync — every group gets one snapshot
+    /// from the initiator immediately after the joiner's installation
+    /// becomes active.
+    ///
+    /// Best-effort per group: a single group's failure is logged and
+    /// skipped so a transient send error doesn't abort the fan-out.
+    func broadcastProfileSnapshotsToAllGroups() async {
+        let result: InboxReadyResult
+        do {
+            result = try await sessionStateManager.waitForInboxReadyResult()
+        } catch {
+            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups skipped, inbox not ready: \(error)")
+            return
+        }
+        let conversations: [XMTPiOS.Conversation]
+        do {
+            conversations = try await result.client.conversationsProvider.list(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: nil,
+                consentStates: [.allowed],
+                orderBy: .createdAt
+            )
+        } catch {
+            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups list failed: \(error)")
+            return
+        }
+        var sent: Int = 0
+        for conversation in conversations {
+            guard case let .group(group) = conversation else { continue }
+            do {
+                let memberInboxIds = try await group.members.map(\.inboxId)
+                try await ProfileSnapshotBuilder.sendSnapshot(
+                    group: group,
+                    memberInboxIds: memberInboxIds
+                )
+                sent += 1
+            } catch {
+                Log.warning("MessagingService: ProfileSnapshot send failed for group \(group.id): \(error.localizedDescription)")
+            }
+        }
+        Log.info("MessagingService: broadcasted ProfileSnapshot to \(sent) group(s) after pairing")
+    }
+
     func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
         let result = try await sessionStateManager.waitForInboxReadyResult()
         let installations = try await result.client.listInstallations(refreshFromNetwork: refreshFromNetwork)

@@ -118,6 +118,14 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     /// any other paired devices). The Devices screen drives off this.
     func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot
 
+    /// Sends a fresh `ProfileSnapshot` to every allowed group the local
+    /// user is in. Invoked by the post-pair broadcaster so a newly-paired
+    /// installation has profile data for each member of each group
+    /// immediately, without having to wait for libxmtp's history sync to
+    /// replay older `ProfileUpdate` / `ProfileSnapshot` messages.
+    /// Best-effort per group; never throws.
+    func broadcastProfileSnapshotsToAllGroups() async
+
     /// Revokes every installation other than this device's own. Used by
     /// "Sign out other devices". Returns the installationIds revoked.
     func revokeOtherInstallations() async throws -> [String]
