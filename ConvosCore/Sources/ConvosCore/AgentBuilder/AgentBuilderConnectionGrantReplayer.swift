@@ -148,7 +148,12 @@ public final class AgentBuilderConnectionGrantReplayer: Sendable {
                 )
                 if !success { anyFailed = true }
             default:
+                // Unknown identifier — newer summaries written by a
+                // future build may carry connection kinds this build
+                // doesn't recognise. Don't stamp `connectionsAppliedAt`;
+                // leave the row eligible for a later build to retry.
                 Log.warning("AgentBuilderConnectionGrantReplayer: unknown connection identifier \(identifier) in \(conversationId)")
+                anyFailed = true
             }
         }
 
@@ -160,23 +165,29 @@ public final class AgentBuilderConnectionGrantReplayer: Sendable {
         }
     }
 
-    /// Returns `true` if the connection's grant state matches what the
-    /// summary requested (either freshly applied or already on disk).
-    /// Failures return `false` so the caller leaves the summary
-    /// unstamped and a subsequent launch retries.
+    /// Returns `true` if every agent in `agentInboxIds` ends the call
+    /// with the device kind enabled (either already on disk before we
+    /// started, or written successfully now). Per-agent checks make
+    /// partial pre-existing state safe: an agent that's missing
+    /// enablement still gets written even if a sibling agent already
+    /// had it.
     private func fireDeviceGrant(
         kind: ConnectionKind,
         conversationId: String,
         agentInboxIds: [String]
     ) async -> Bool {
-        let alreadyEnabled: Bool = await isAnyCapabilityEnabled(
-            kind: kind,
-            conversationId: conversationId,
-            agentInboxIds: agentInboxIds
-        )
-        if alreadyEnabled { return true }
-        var written: [String] = []
+        var agentsNeedingWrite: [String] = []
         for agent in agentInboxIds {
+            let enabled: Bool = await isAgentCapabilityEnabled(
+                kind: kind,
+                conversationId: conversationId,
+                agent: agent
+            )
+            if !enabled { agentsNeedingWrite.append(agent) }
+        }
+        if agentsNeedingWrite.isEmpty { return true }
+        var newlyWritten: [String] = []
+        for agent in agentsNeedingWrite {
             for capability in ConnectionCapability.allCases {
                 await enablementStore.setEnabled(
                     true,
@@ -186,21 +197,23 @@ public final class AgentBuilderConnectionGrantReplayer: Sendable {
                     grantedToInboxId: agent
                 )
             }
-            written.append(agent)
+            newlyWritten.append(agent)
         }
-        guard let representative = written.first else { return false }
-        do {
-            try await connectionEventWriter.sendGranted(
-                providerId: "device.\(kind.rawValue)",
-                capability: nil,
-                grantedToInboxId: representative,
-                in: conversationId
-            )
-            return true
-        } catch {
-            Log.error("AgentBuilderConnectionGrantReplayer: sendGranted (device \(kind.rawValue)) failed: \(error.localizedDescription)")
-            return false
+        let allEnabled: Bool = newlyWritten.count == agentsNeedingWrite.count
+        if let representative = newlyWritten.first {
+            do {
+                try await connectionEventWriter.sendGranted(
+                    providerId: "device.\(kind.rawValue)",
+                    capability: nil,
+                    grantedToInboxId: representative,
+                    in: conversationId
+                )
+            } catch {
+                Log.error("AgentBuilderConnectionGrantReplayer: sendGranted (device \(kind.rawValue)) failed: \(error.localizedDescription)")
+                return false
+            }
         }
+        return allEnabled
     }
 
     private func fireCloudGrant(
@@ -209,69 +222,66 @@ public final class AgentBuilderConnectionGrantReplayer: Sendable {
         conversationId: String,
         agentInboxIds: [String]
     ) async -> Bool {
-        let alreadyGranted: Bool = await isCloudGrantApplied(
-            connectionId: connectionId,
-            conversationId: conversationId
-        )
-        if alreadyGranted { return true }
+        let alreadyGrantedAgents: Set<String>
+        do {
+            let grants: [CloudConnectionGrant] = try await cloudConnectionRepository.grants(for: conversationId)
+            alreadyGrantedAgents = Set(
+                grants
+                    .filter { $0.connectionId == connectionId }
+                    .map(\.grantedToInboxId)
+            )
+        } catch {
+            Log.error("AgentBuilderConnectionGrantReplayer: grants(for:) failed for \(conversationId): \(error.localizedDescription)")
+            return false
+        }
+        let agentsToGrant: [String] = agentInboxIds.filter { !alreadyGrantedAgents.contains($0) }
+        if agentsToGrant.isEmpty { return true }
         let providerId: String = "composio.\(serviceId)"
-        var granted: [String] = []
-        for agent in agentInboxIds {
+        var newlyGranted: [String] = []
+        for agent in agentsToGrant {
             do {
                 try await grantWriter.grantConnection(
                     connectionId,
                     to: conversationId,
                     grantedToInboxId: agent
                 )
-                granted.append(agent)
+                newlyGranted.append(agent)
             } catch {
                 Log.error("AgentBuilderConnectionGrantReplayer: grantConnection failed for \(serviceId) agent \(agent): \(error.localizedDescription)")
             }
         }
-        guard granted.count == agentInboxIds.count, let representative = granted.first else {
-            return false
-        }
-        do {
-            try await connectionEventWriter.sendGranted(
-                providerId: providerId,
-                capability: nil,
-                grantedToInboxId: representative,
-                in: conversationId
-            )
-            return true
-        } catch {
-            Log.error("AgentBuilderConnectionGrantReplayer: sendGranted (\(providerId)) failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func isAnyCapabilityEnabled(
-        kind: ConnectionKind,
-        conversationId: String,
-        agentInboxIds: [String]
-    ) async -> Bool {
-        for agent in agentInboxIds {
-            for capability in ConnectionCapability.allCases {
-                let enabled: Bool = await enablementStore.isEnabled(
-                    kind: kind,
-                    capability: capability,
-                    conversationId: conversationId,
-                    grantedToInboxId: agent
+        let allGranted: Bool = newlyGranted.count == agentsToGrant.count
+        if let representative = newlyGranted.first {
+            do {
+                try await connectionEventWriter.sendGranted(
+                    providerId: providerId,
+                    capability: nil,
+                    grantedToInboxId: representative,
+                    in: conversationId
                 )
-                if enabled { return true }
+            } catch {
+                Log.error("AgentBuilderConnectionGrantReplayer: sendGranted (\(providerId)) failed: \(error.localizedDescription)")
+                return false
             }
         }
-        return false
+        return allGranted
     }
 
-    private func isCloudGrantApplied(connectionId: String, conversationId: String) async -> Bool {
-        do {
-            let grants: [CloudConnectionGrant] = try await cloudConnectionRepository.grants(for: conversationId)
-            return grants.contains(where: { $0.connectionId == connectionId })
-        } catch {
-            Log.error("AgentBuilderConnectionGrantReplayer: grants(for:) failed for \(conversationId): \(error.localizedDescription)")
-            return false
+    private func isAgentCapabilityEnabled(
+        kind: ConnectionKind,
+        conversationId: String,
+        agent: String
+    ) async -> Bool {
+        for capability in ConnectionCapability.allCases {
+            let enabled: Bool = await enablementStore.isEnabled(
+                kind: kind,
+                capability: capability,
+                conversationId: conversationId,
+                grantedToInboxId: agent
+            )
+            if enabled { return true }
         }
+        return false
     }
 
     /// Pull summaries that have at least one `.connection` attachment
