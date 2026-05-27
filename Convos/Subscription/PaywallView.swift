@@ -87,8 +87,6 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var agentsRow: some View {
-        let isActive: Bool = viewModel.selectedPlan == .plus
-        let iconOpacity: Double = isActive ? 1.0 : 0.4
         HStack {
             featureText(
                 headline: SubscriptionCopy.agentsHeadline,
@@ -99,7 +97,7 @@ struct PaywallView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 20, height: 20)
-                .opacity(iconOpacity)
+                .offset(x: 2)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(.colorFillPrimary))
         }
@@ -107,9 +105,7 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var usageRow: some View {
-        let isActive: Bool = viewModel.selectedPlan == .plus
-        let iconOpacity: Double = isActive ? 1.0 : 0.4
-        let boltIcon: String = isActive
+        let boltIcon: String = viewModel.selectedPlan == .plus
             ? "bolt.fill"
             : "bolt.trianglebadge.exclamationmark.fill"
         HStack {
@@ -121,11 +117,10 @@ struct PaywallView: View {
             Image(systemName: boltIcon)
                 .font(.title2)
                 .foregroundStyle(.colorLava)
-                .opacity(iconOpacity)
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
-                        .fill(Color.colorLava.opacity(isActive ? 0.12 : 0.06))
+                        .fill(Color.colorLava.opacity(0.12))
                 )
         }
     }
