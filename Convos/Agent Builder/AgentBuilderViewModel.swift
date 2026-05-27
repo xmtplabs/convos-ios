@@ -293,6 +293,28 @@ final class AgentBuilderViewModel: Identifiable {
     /// real inner conversation VM. Called once from `onReachedReady`;
     /// the `hasDrainedInitialAttachments` flag then lets subsequent
     /// adds short-circuit straight through.
+    /// Delete temp files owned by attachments still sitting in
+    /// `queuedInitialAttachments`. Called from `discard()` when the user
+    /// bails before the inner VM resolves -- the queue items haven't been
+    /// forwarded to the VM yet, so `cleanupPendingMediaAttachments()` on
+    /// the VM doesn't see them and their `temporaryDirectory` copies would
+    /// otherwise leak. Photos are in-memory `UIImage`s so they have no
+    /// file to delete.
+    private func cleanupQueuedInitialAttachments() {
+        let queued = queuedInitialAttachments
+        queuedInitialAttachments = []
+        for item in queued {
+            switch item {
+            case .photo:
+                continue
+            case .video(let url):
+                try? FileManager.default.removeItem(at: url)
+            case .file(let url, _, _, _):
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
     private func drainInitialAttachmentsIfNeeded() {
         guard !hasDrainedInitialAttachments else { return }
         // Flip the flag only after confirming the inner VM is available.
@@ -708,6 +730,12 @@ final class AgentBuilderViewModel: Identifiable {
             // those temp copies are otherwise orphaned because `dismissWithDeletion`
             // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.
             newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+            // Attachments staged before the inner VM resolved haven't been
+            // forwarded yet -- `cleanupPendingMediaAttachments()` only walks
+            // what's already inside that VM. Walk the local queue too so the
+            // file-picker / camera / photo-picker temp files don't leak when
+            // the user discards before the placeholder window closes.
+            cleanupQueuedInitialAttachments()
         }
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation
