@@ -63,17 +63,31 @@ private struct AddFromContactsPickerModifier: ViewModifier {
                 conversationTitle: viewModel.conversation.name
             ),
             contactsRepository: viewModel.messagingService.contactsRepository(),
+            agentTemplateContactsRepository: viewModel.messagingService.agentTemplateContactsRepository(),
             alreadyInChatInboxIds: alreadyInChat,
             onConfirm: handleConfirm
         )
     }
 
-    private func handleConfirm(_ inboxIds: Set<String>) {
-        let ids = Array(inboxIds)
-        guard !ids.isEmpty else { return }
+    /// Splits the mixed selection into humans and agent templates. Humans
+    /// go through the existing `addMembersFromContacts` flow. Templates are
+    /// dispatched via `requestAgentJoin(templateId:)` per id, which reuses
+    /// the existing conversation's invite slug to spawn a fresh instance
+    /// into this conversation (no new backend endpoint - see Phase 2 PRD
+    /// add-to-existing question 1).
+    private func handleConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
+        let humanInboxIds: [String] = selection.compactMap(\.inboxId)
+        let templateIds: [String] = selection.compactMap(\.templateId)
+        guard !humanInboxIds.isEmpty || !templateIds.isEmpty else { return }
+
+        for templateId in templateIds {
+            viewModel.requestAgentJoin(templateId: templateId)
+        }
+
+        guard !humanInboxIds.isEmpty else { return }
         Task {
             do {
-                try await viewModel.addMembersFromContacts(ids)
+                try await viewModel.addMembersFromContacts(humanInboxIds)
             } catch {
                 Log.error("Add from contacts failed: \(error.localizedDescription)")
                 errorMessage = "We couldn't add those contacts. Please try again."

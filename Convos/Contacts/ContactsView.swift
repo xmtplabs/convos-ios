@@ -8,6 +8,7 @@ struct ContactsView: View {
 
     private let contactsRepository: any ContactsRepositoryProtocol
     private let contactsWriter: any ContactsWriterProtocol
+    private let agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
     private let agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol
     private let session: (any SessionManagerProtocol)?
     private let profileSettingsViewModel: ProfileSettingsViewModel
@@ -16,7 +17,7 @@ struct ContactsView: View {
         contactsRepository: any ContactsRepositoryProtocol,
         contactsWriter: any ContactsWriterProtocol = MockContactsWriter(),
         session: (any SessionManagerProtocol)? = nil,
-        profileSettingsViewModel: ProfileSettingsViewModel = .shared
+        profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol = MockAgentTemplateContactsRepository(),
         agentTemplateContactsWriter: any AgentTemplateContactsWriterProtocol = MockAgentTemplateContactsWriter()
     ) {
@@ -26,6 +27,7 @@ struct ContactsView: View {
         ))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
+        self.agentTemplateContactsRepository = agentTemplateContactsRepository
         self.agentTemplateContactsWriter = agentTemplateContactsWriter
         self.session = session
         self.profileSettingsViewModel = profileSettingsViewModel
@@ -113,52 +115,41 @@ struct ContactsView: View {
                 )
             },
             rowContent: { (row: ContactsViewModel.Row) in
-                NavigationLink {
-                    ContactDetailView(
-                        contact: row.contact,
-                        contactsWriter: contactsWriter,
-                        contactsRepository: contactsRepository,
-                        session: session,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        showsCloseButton: false
-                    )
-                } label: {
-                    ContactRowView(contact: row.contact, subtitle: row.subtitle)
-                }
+                rowDestination(for: row)
             },
             listBackground: { Color.colorBackgroundRaisedSecondary }
         )
     }
 
-    /// Renders one browse row. A human contact pushes `ContactCardView`; an
-    /// agent-template contact pushes the sibling `AgentTemplateContactCardView`.
+    /// Renders one browse row. A human row pushes `ContactDetailView`; an
+    /// agent-template row pushes the sibling `AgentTemplateContactCardView`.
     @ViewBuilder
-    private func contactRow(for item: ContactsViewModel.ListItem) -> some View {
-        switch item {
+    private func rowDestination(for row: ContactsViewModel.Row) -> some View {
+        switch row.kind {
         case .human(let contact):
             NavigationLink {
-                ContactCardView(
+                ContactDetailView(
                     contact: contact,
                     contactsWriter: contactsWriter,
                     contactsRepository: contactsRepository,
-                    session: session
+                    session: session,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    showsCloseButton: false
                 )
             } label: {
-                ContactRowView(contact: contact)
+                ContactRowView(contact: contact, subtitle: row.subtitle)
             }
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-        case .agentTemplate(let agentContact):
+        case .agentTemplate(let agent):
             NavigationLink {
                 AgentTemplateContactCardView(
-                    agentTemplateContact: agentContact,
-                    agentTemplateContactsWriter: agentTemplateContactsWriter
+                    agentTemplateContact: agent,
+                    agentTemplateContactsWriter: agentTemplateContactsWriter,
+                    session: session,
+                    profileSettingsViewModel: profileSettingsViewModel
                 )
             } label: {
-                AgentTemplateContactRowView(agentTemplateContact: agentContact)
+                AgentTemplateContactRowView(agentTemplateContact: agent)
             }
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
         }
     }
 
@@ -204,6 +195,7 @@ struct ContactsView: View {
         ContactsPickerView(
             mode: .newConversation,
             contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository,
             onConfirm: handlePickerConfirm
         )
     }
@@ -217,16 +209,17 @@ struct ContactsView: View {
     /// Spins up a `NewConversationViewModel` locally and presents it as a
     /// sheet from this view, so the new conversation appears in place of
     /// the picker while the App Settings sheet stack stays alive
-    /// underneath. Dismissing the new-convo sheet lands the user back on
-    /// the contacts list, not at the root conversations list. Mirrors the
-    /// invite-cell-tap pattern (`presentingNewConversationForInvite` on
-    /// `ConversationViewModel`) where the sheet is owned by the same view
-    /// that hosted the picker.
-    private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
+    /// underneath.
+    private func handlePickerConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
+        guard !selection.isEmpty, let session else { return }
+        let inboxIds: [String] = selection.compactMap(\.inboxId)
+        let templateIds: [String] = selection.compactMap(\.templateId)
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: inboxIds,
+                initialAgentTemplateIds: templateIds
+            )
         )
     }
 }

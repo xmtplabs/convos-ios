@@ -54,23 +54,27 @@ final class ContactsViewModel {
         }
     }
 
-    /// Dual-shape section so two consumers can read the same data the way
-    /// each expects: `rows` is humans-only (`Row` carries a `Contact`) for
-    /// callers that pre-date the agent-template merge, and `items` is the
-    /// merged list (`ListItem` sum) for agent-aware callers.
     struct Section: Identifiable, Hashable {
         let id: String
         let title: String
         let rows: [Row]
-        let items: [ListItem]
     }
 
+    /// One row in the alphabetical list. Carries the same `Kind`
+    /// discriminator as `ContactsPickerViewModel.Row` so the human vs
+    /// agent-template variants share the dispatch pattern.
     struct Row: Identifiable, Hashable {
         let id: String
-        let contact: Contact
-        /// Same resolver as the picker — convo name, then "DM" for 1:1
-        /// source, then agent role label, then empty (caller hides line).
+        let kind: Kind
+        /// Source-conversation name / DM / agent role label resolver
+        /// for the human variant; template description for the agent
+        /// variant; empty hides the line.
         let subtitle: String
+
+        enum Kind: Hashable {
+            case human(Contact)
+            case agentTemplate(AgentTemplateContact)
+        }
     }
 
     var sections: [Section] = []
@@ -176,18 +180,40 @@ final class ContactsViewModel {
             default: return lhs < rhs
             }
         }
-        let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
-        let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
-        sections = sortedKeys.map { key in
-            let itemsInGroup: [ListItem] = grouped[key] ?? []
-            let humansInGroup: [Contact] = itemsInGroup.compactMap { item in
-                if case .human(let contact) = item { return contact }
+        let viaIds: Set<String> = Set(
+            filtered.compactMap { item -> String? in
+                if case .human(let contact) = item {
+                    return contact.addedViaConversationId
+                }
                 return nil
             }
-            let rowsInGroup: [Row] = humansInGroup.map { contact in
-                Row(id: contact.inboxId, contact: contact, subtitle: contact.listSubtitle(sources: sources))
+        )
+        let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
+        sections = sortedKeys.map { key in
+            let rows = (grouped[key] ?? []).map { item in
+                makeRow(from: item, sources: sources)
             }
-            return Section(id: key, title: key, rows: rowsInGroup, items: itemsInGroup)
+            return Section(id: key, title: key, rows: rows)
+        }
+    }
+
+    private func makeRow(
+        from item: ListItem,
+        sources: [String: ContactSourceConversation]
+    ) -> Row {
+        switch item {
+        case .human(let contact):
+            return Row(
+                id: "human:\(contact.inboxId)",
+                kind: .human(contact),
+                subtitle: contact.listSubtitle(sources: sources)
+            )
+        case .agentTemplate(let agent):
+            return Row(
+                id: "agent:\(agent.templateId)",
+                kind: .agentTemplate(agent),
+                subtitle: agent.descriptionText ?? ""
+            )
         }
     }
 

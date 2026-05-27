@@ -11,17 +11,20 @@ final class ContactsViewModelTests: XCTestCase {
     /// Human `inboxId`s across every section, in render order.
     private func humanInboxIds(_ viewModel: ContactsViewModel) -> [String] {
         viewModel.sections.flatMap { section in
-            section.items.compactMap { item -> String? in
-                guard case .human(let contact) = item else { return nil }
+            section.rows.compactMap { row -> String? in
+                guard case .human(let contact) = row.kind else { return nil }
                 return contact.inboxId
             }
         }
     }
 
-    /// Resolved display names across every section, in render order.
-    private func displayNames(_ viewModel: ContactsViewModel) -> [String] {
+    /// Agent-template `templateId`s across every section, in render order.
+    private func agentTemplateIds(_ viewModel: ContactsViewModel) -> [String] {
         viewModel.sections.flatMap { section in
-            section.items.map(\.resolvedDisplayName)
+            section.rows.compactMap { row -> String? in
+                guard case .agentTemplate(let agent) = row.kind else { return nil }
+                return agent.templateId
+            }
         }
     }
 
@@ -51,10 +54,6 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-<<<<<<< HEAD
-        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-=======
->>>>>>> 2d0d2b7d (feat(agent-templates): capture and browse agent-template contacts)
         // Alice and the unverified agent pass through; both verified agents
         // are filtered out. Unverified agents intentionally remain visible
         // because they're not yet attested.
@@ -91,8 +90,7 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         viewModel.searchQuery = "ALI"
-        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(allIds, [alice.inboxId])
+        XCTAssertEqual(humanInboxIds(viewModel), [alice.inboxId])
     }
 
     func testSearchAndVerifiedAgentFilterComposeCorrectly() {
@@ -109,7 +107,24 @@ final class ContactsViewModelTests: XCTestCase {
         // Searching "alice" must not surface the verified Alice Assistant -
         // the agent filter precedes the search filter in the pipeline.
         viewModel.searchQuery = "alice"
-        let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(allIds, [alice.inboxId])
+        XCTAssertEqual(humanInboxIds(viewModel), [alice.inboxId])
+    }
+
+    // MARK: - Agent-template merging
+
+    /// Agent-template contacts surface in the same alphabetical sections as
+    /// humans, distinguished by the `Row.kind` discriminator. Regression
+    /// guard for the 2.3 capture-and-browse path.
+    func testAgentTemplateContactsAppearAlongsideHumans() {
+        let alice = Contact.mock(displayName: "Alice")
+        let tifoso = AgentTemplateContact.mock(displayName: "Tifoso", emoji: "🚴")
+        let viewModel = ContactsViewModel(
+            contactsRepository: MockContactsRepository(contacts: [alice]),
+            agentTemplateContactsRepository: MockAgentTemplateContactsRepository(contacts: [tifoso])
+        )
+
+        XCTAssertEqual(humanInboxIds(viewModel), [alice.inboxId])
+        XCTAssertEqual(agentTemplateIds(viewModel), [tifoso.templateId])
+        XCTAssertEqual(viewModel.contactCount, 2)
     }
 }
