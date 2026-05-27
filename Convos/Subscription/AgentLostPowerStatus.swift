@@ -30,7 +30,7 @@ struct AgentLostPowerStatus: View {
 
     @ViewBuilder
     private var upgradeButton: some View {
-        let action = { onUpgrade?() }
+        let action = { onUpgrade?() as Void }
         Button(action: action) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Text("Upgrade")
@@ -45,7 +45,7 @@ struct AgentLostPowerStatus: View {
 
     @ViewBuilder
     private var learnMoreButton: some View {
-        let action = { onLearnMore?() }
+        let action = { onLearnMore?() as Void }
         Button(action: action) {
             Text("Learn more")
                 .font(.subheadline.weight(.medium))
