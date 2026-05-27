@@ -76,13 +76,16 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageLastRenewed: Date?
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
-    /// Non-nil when the inbound filter quarantined this conversation —
-    /// persisted but hidden from the main feed until either promoted (sender
-    /// becomes a contact) or swept past the TTL.
+    /// **Deprecated.** No active code path reads or writes this column.
+    /// Conversation visibility is now derived live at read time via
+    /// `DBConversation.visibleInFeedPredicate` (creator ∈ self or
+    /// non-blocked contact). Stale-stranger cleanup is handled by
+    /// `SessionManager.scheduleStaleStrangerGC`. Retained in the
+    /// schema for migration safety; will be dropped in a follow-up
+    /// GRDB migration.
     let quarantinedAt: Date?
-    /// Non-nil when a quarantined conversation has been promoted back to the
-    /// main feed (sender became a contact). Once non-nil the row participates
-    /// in the main feed query again.
+    /// **Deprecated.** Pair with `quarantinedAt` above — no longer
+    /// read or written. Same removal plan.
     let quarantineReleasedAt: Date?
 
     init(

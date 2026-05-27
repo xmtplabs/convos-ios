@@ -17,13 +17,11 @@ class ConversationsCountRepository: ConversationsCountRepositoryProtocol {
         let kinds = kinds
         return ValueObservation
             .tracking { db in
-                // See `ConversationsRepository` for why we touch
-                // `contact` + `inbox` explicitly: the visibility
-                // predicate joins them via a raw SQL fragment, and
-                // observation region inference shouldn't have to walk
-                // into the literal-SQL fragment to figure that out.
-                _ = try DBContact.fetchCount(db)
-                _ = try DBInbox.fetchCount(db)
+                // Same column-naming probes as `ConversationsRepository`
+                // so an UPDATE to `contact.blockedAt` re-fires this
+                // count publisher (not just inserts/deletes).
+                _ = try Row.fetchOne(db, sql: "SELECT inboxId, blockedAt FROM contact LIMIT 1")
+                _ = try Row.fetchOne(db, sql: "SELECT inboxId FROM inbox LIMIT 1")
                 return try db.composeConversationsCount(consent: consent, kinds: kinds)
             }
             .publisher(in: databaseReader)

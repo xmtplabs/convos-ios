@@ -32,17 +32,18 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         self.conversationsPublisher = ValueObservation
             .tracking { db in
                 // `composeAllConversations` filters via
-                // `DBConversation.visibleInFeedPredicate`, which embeds a
-                // raw SQL fragment that references `contact` and `inbox`
-                // tables (`creatorId IN (SELECT … FROM inbox) OR EXISTS
-                // (SELECT 1 FROM contact …)`). GRDB normally infers the
-                // observation region from the compiled statement, but
-                // to make the dependency unambiguous — and to keep the
-                // publisher firing if the SQL is ever refactored —
-                // explicitly touch both tables here. Reads are
-                // negligible; their only effect is to widen the region.
-                _ = try DBContact.fetchCount(db)
-                _ = try DBInbox.fetchCount(db)
+                // `DBConversation.visibleInFeedPredicate`, which embeds
+                // a raw SQL fragment referencing the `contact` and
+                // `inbox` tables. Run a one-row probe that names the
+                // *columns* we depend on (`contact.blockedAt`,
+                // `contact.inboxId`, `inbox.inboxId`) so GRDB widens
+                // the observation region to those tables AND so an
+                // UPDATE that flips `blockedAt` on an existing row
+                // re-fires the publisher — not just inserts/deletes.
+                // `fetchCount` alone is row-count-driven and wouldn't
+                // re-fire on a column update.
+                _ = try Row.fetchOne(db, sql: "SELECT inboxId, blockedAt FROM contact LIMIT 1")
+                _ = try Row.fetchOne(db, sql: "SELECT inboxId FROM inbox LIMIT 1")
                 do {
                     return try db.composeAllConversations(consent: consent)
                 } catch {
