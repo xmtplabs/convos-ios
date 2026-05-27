@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import ConvosCore
+import XMTPiOS
 
 @Suite("PairingCoordinator")
 struct PairingCoordinatorTests {
@@ -203,30 +204,83 @@ struct PairedDeviceNameStoreTests {
 
 @Suite("PairingInvite")
 struct PairingInviteTests {
-    @Test func slugRoundtripsBeforeExpiry() throws {
-        let now = Int64(Date().timeIntervalSince1970)
-        let invite = PairingInvite(
-            initiatorInboxId: "inbox-a",
-            initiatorAddress: "0xabc",
-            nonce: Data(repeating: 0xFF, count: 16),
-            issuedAt: now,
-            expiresAt: now + 60,
-            signature: Data(repeating: 0x01, count: 65)
+    /// Sign a payload the same way `LivePairingService.signInviteSlug` does
+    /// so the roundtrip exercises real signature verification.
+    private func signedInvite(
+        privateKey: PrivateKey,
+        issuedAt: Int64,
+        expiresAt: Int64,
+        nonce: Data = Data(repeating: 0xFF, count: 16),
+        initiatorInboxIdOverride: String? = nil,
+        initiatorAddressOverride: String? = nil
+    ) async throws -> PairingInvite {
+        let address = privateKey.walletAddress
+        let inboxId = "inbox-\(address.suffix(8))"
+        let payload = PairingInvite.signingPayload(
+            initiatorInboxId: initiatorInboxIdOverride ?? inboxId,
+            initiatorAddress: initiatorAddressOverride ?? address,
+            nonce: nonce,
+            issuedAt: issuedAt,
+            expiresAt: expiresAt
         )
+        let signed = try await privateKey.sign(payload.toHexString())
+        return PairingInvite(
+            initiatorInboxId: initiatorInboxIdOverride ?? inboxId,
+            initiatorAddress: initiatorAddressOverride ?? address,
+            nonce: nonce,
+            issuedAt: issuedAt,
+            expiresAt: expiresAt,
+            signature: signed.rawData
+        )
+    }
+
+    @Test func slugRoundtripsBeforeExpiry() async throws {
+        let key = try PrivateKey.generate()
+        let now = Int64(Date().timeIntervalSince1970)
+        let invite = try await signedInvite(privateKey: key, issuedAt: now, expiresAt: now + 60)
         let slug = try invite.toURLSafeSlug()
         let decoded = try PairingInvite.fromURLSafeSlug(slug)
         #expect(decoded == invite)
     }
 
-    @Test func expiredSlugRejected() throws {
+    @Test func expiredSlugRejected() async throws {
+        let key = try PrivateKey.generate()
+        let now = Int64(Date().timeIntervalSince1970)
+        let invite = try await signedInvite(privateKey: key, issuedAt: now - 120, expiresAt: now - 60)
+        let slug = try invite.toURLSafeSlug()
+        #expect(throws: PairingInviteError.self) {
+            _ = try PairingInvite.fromURLSafeSlug(slug)
+        }
+    }
+
+    @Test func tamperedAddressRejected() async throws {
+        let key = try PrivateKey.generate()
+        let now = Int64(Date().timeIntervalSince1970)
+        // Substitute an attacker-chosen address that won't match the
+        // signature recovered from the real signing key. This is the MITM
+        // scenario `verifySignature` defends against.
+        let invite = try await signedInvite(
+            privateKey: key,
+            issuedAt: now,
+            expiresAt: now + 60,
+            initiatorAddressOverride: "0x0000000000000000000000000000000000000bad"
+        )
+        let slug = try invite.toURLSafeSlug()
+        #expect(throws: PairingInviteError.self) {
+            _ = try PairingInvite.fromURLSafeSlug(slug)
+        }
+    }
+
+    @Test func zeroedSignatureRejected() async throws {
+        let key = try PrivateKey.generate()
         let now = Int64(Date().timeIntervalSince1970)
         let invite = PairingInvite(
             initiatorInboxId: "inbox-a",
-            initiatorAddress: "0xabc",
+            initiatorAddress: key.walletAddress,
             nonce: Data(repeating: 0xFF, count: 16),
-            issuedAt: now - 120,
-            expiresAt: now - 60,
-            signature: Data(repeating: 0x01, count: 65)
+            issuedAt: now,
+            expiresAt: now + 60,
+            signature: Data(repeating: 0x00, count: 65)
         )
         let slug = try invite.toURLSafeSlug()
         #expect(throws: PairingInviteError.self) {

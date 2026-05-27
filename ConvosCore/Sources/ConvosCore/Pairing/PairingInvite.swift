@@ -109,7 +109,42 @@ public extension PairingInvite {
         guard invite.expiresAt > now else {
             throw PairingInviteError.expired
         }
+        try invite.verifySignature()
         return invite
+    }
+
+    /// Recovers the signing address from `signature` over the canonical
+    /// signing payload (matches `LivePairingService.signInviteSlug`'s call
+    /// to `PrivateKey.sign(payload.toHexString())`) and checks that it
+    /// equals `initiatorAddress`.
+    ///
+    /// Without this, a slug substituted in transit (intercepted clipboard,
+    /// tampered AirDrop, malicious universal-link relay) could point the
+    /// joiner at an attacker's inbox while still computing a matching
+    /// emoji fingerprint on both sides — the fingerprint hashes
+    /// `(joinerInboxId, initiatorInboxIdFromSlug, pin)`, so an attacker
+    /// who chose the slug also chose the inboxId both sides hash, and the
+    /// user wouldn't catch the swap visually.
+    func verifySignature() throws {
+        let payload = Self.signingPayload(
+            initiatorInboxId: initiatorInboxId,
+            initiatorAddress: initiatorAddress,
+            nonce: nonce,
+            issuedAt: issuedAt,
+            expiresAt: expiresAt
+        )
+        let recovered: String
+        do {
+            recovered = try EthereumSignatureRecovery.recoverAddress(
+                message: payload.toHexString(),
+                signature: signature
+            )
+        } catch {
+            throw PairingInviteError.signatureInvalid
+        }
+        guard recovered.lowercased() == initiatorAddress.lowercased() else {
+            throw PairingInviteError.signatureInvalid
+        }
     }
 
     private static func base64URLEncode(_ data: Data) -> String {

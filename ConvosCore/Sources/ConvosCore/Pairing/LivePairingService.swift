@@ -532,8 +532,16 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
         if let customHost = environment.customLocalAddress {
             XMTPEnvironment.customLocalAddress = customHost
         }
-        let client = try await Client.create(account: signingKey, options: options)
-        return JoinerClientBundle(client: client, signingKey: signingKey, dbDir: dbDir)
+        do {
+            let client = try await Client.create(account: signingKey, options: options)
+            return JoinerClientBundle(client: client, signingKey: signingKey, dbDir: dbDir)
+        } catch {
+            // Don't leave an orphan temp dir behind on a failed Client.create
+            // (network blip, libxmtp init error). iOS will eventually purge
+            // tmp/, but cleaning up eagerly keeps repeat-pair retries tidy.
+            try? FileManager.default.removeItem(at: dbDir)
+            throw error
+        }
     }
 }
 
