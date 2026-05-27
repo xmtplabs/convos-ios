@@ -97,7 +97,7 @@ struct PaywallView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 20, height: 20)
-                .offset(x: 2)
+                .offset(x: 1)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(.colorFillPrimary))
         }
@@ -117,6 +117,7 @@ struct PaywallView: View {
             Image(systemName: boltIcon)
                 .font(.title2)
                 .foregroundStyle(.colorLava)
+                .offset(x: -1)
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
@@ -178,7 +179,7 @@ struct PaywallView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, DesignConstants.Spacing.step4x)
         .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                 .fill(.colorFillSubtle)
         )
     }
@@ -186,7 +187,7 @@ struct PaywallView: View {
     @ViewBuilder
     private var plusPricing: some View {
         let isMonthlySelected: Bool = viewModel.selectedProduct?.period == .monthly
-        HStack(spacing: DesignConstants.Spacing.step3x) {
+        HStack(spacing: 0) {
             if let monthly = viewModel.plusMonthlyProduct {
                 pricePill(
                     price: monthly.displayPrice,
@@ -207,6 +208,11 @@ struct PaywallView: View {
                 )
             }
         }
+        .padding(DesignConstants.Spacing.stepX)
+        .background(
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                .fill(.colorFillSubtle)
+        )
     }
 
     @ViewBuilder
@@ -217,8 +223,6 @@ struct PaywallView: View {
         isSelected: Bool,
         product: PaywallProduct
     ) -> some View {
-        let borderColor: Color = isSelected ? .colorLava : .colorBorderSubtle
-        let lineWidth: CGFloat = isSelected ? 2 : 1
         let selectAction = { viewModel.selectProduct(product) }
         Button(action: selectAction) {
             VStack(spacing: DesignConstants.Spacing.stepX) {
@@ -238,10 +242,11 @@ struct PaywallView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
             .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .stroke(borderColor, lineWidth: lineWidth)
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge - DesignConstants.Spacing.stepX)
+                    .fill(isSelected ? Color.colorBackgroundRaised : Color.clear)
+                    .shadow(color: isSelected ? .black.opacity(0.06) : .clear, radius: 4, y: 2)
             )
         }
     }
