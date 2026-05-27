@@ -42,7 +42,6 @@ struct AppSettingsView: View {
     let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
-    @State private var subscriptionBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -57,9 +56,6 @@ struct AppSettingsView: View {
                 customizeSection
                 linksSection
                 deleteSection
-            }
-            .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
-                subscriptionBalance = newBalance
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
@@ -205,33 +201,31 @@ struct AppSettingsView: View {
         }
     }
 
+    @State private var presentingPaywall: Bool = false
+
     @ViewBuilder
     private var subscriptionSection: some View {
         if !ConfigManager.shared.currentEnvironment.isProduction {
             Section {
-                NavigationLink {
-                    SubscriptionSettingsView()
-                } label: {
-                    subscriptionRowLabel
+                let subscribeAction = { presentingPaywall = true }
+                Button(action: subscribeAction) {
+                    HStack {
+                        Text("Membership")
+                            .foregroundStyle(.colorTextPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote)
+                            .foregroundStyle(.colorFillTertiary)
+                    }
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 .accessibilityIdentifier("subscription-row")
+                .sheet(isPresented: $presentingPaywall) {
+                    let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
+                    PaywallView(viewModel: viewModel)
+                }
             } footer: {
-                Text("Power your agents with credits")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var subscriptionRowLabel: some View {
-        HStack {
-            Text("Subscription")
-                .foregroundStyle(.colorTextPrimary)
-            Spacer()
-            if let subscriptionBalance {
-                Text("\(subscriptionBalance.balance) credits")
-                    .foregroundStyle(.colorTextSecondary)
-                    .monospacedDigit()
+                Text("Power your agents")
             }
         }
     }

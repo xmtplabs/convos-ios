@@ -115,6 +115,13 @@ struct DebugViewSection: View {
                 }
             }
 
+            NavigationLink {
+                SubscriptionSettingsView()
+            } label: {
+                Text("Credits & Subscription Details")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+
             let openPaywallAction = { presentingPaywall = true }
             Button(action: openPaywallAction) {
                 Text("Show Paywall")

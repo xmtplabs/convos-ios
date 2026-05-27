@@ -20,6 +20,7 @@ LowBalanceBanner, credits pill, and NUX paywall are replaced.
 | Step 6: In-conversation "lost power" status (Phase 1) | Next |
 | Step 7: "You power your agents" info sheet | Next |
 | Step 8: Home toolbar membership/power status | Next |
+| Step 9: Settings -> direct PaywallView, move details to Debug | Next |
 
 ## Completed Work
 
