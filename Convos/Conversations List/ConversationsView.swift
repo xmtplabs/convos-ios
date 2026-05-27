@@ -47,9 +47,22 @@ struct ConversationsView: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
+    }
+
+    private var toolbarStatusLabel: String {
+        if creditBalance?.isDepleted == true { return "⚡ No power" }
+        if currentSubscription != nil { return "Plus" }
+        return "Basic"
+    }
+
+    private var toolbarStatusColor: Color {
+        if creditBalance?.isDepleted == true { return .colorLava }
+        return .colorTextSecondary
     }
 
     /// Inbox-to-contact-name override applied across the whole
@@ -277,6 +290,8 @@ struct ConversationsView: View {
             .onDisappear {
                 viewModel.onDisappear()
             }
+            .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
+            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
             .onChange(of: presentingCommittedConversation == nil) { wasNil, isNil in
                 guard !wasNil, isNil else { return }
                 handleCommittedSheetDidDismiss()

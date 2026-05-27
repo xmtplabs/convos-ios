@@ -4,6 +4,8 @@ import SwiftUI
 struct ConvosToolbarButton: View {
     let padding: Bool
     let action: () -> Void
+    var statusLabel: String = "Basic"
+    var statusColor: Color = .colorTextSecondary
 
     var body: some View {
         Button {
@@ -18,10 +20,15 @@ struct ConvosToolbarButton: View {
                     .frame(width: 24.0, height: 24.0)
                     .accessibilityHidden(true)
 
-                Text("Convos")
-                    .font(.body)
-                    .foregroundStyle(.colorFillPrimary)
-                    .padding(.trailing, DesignConstants.Spacing.stepX)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Convos")
+                        .font(.body)
+                        .foregroundStyle(.colorFillPrimary)
+                    Text(statusLabel)
+                        .font(.system(size: 12))
+                        .foregroundStyle(statusColor)
+                }
+                .padding(.trailing, DesignConstants.Spacing.stepX)
             }
             .padding(padding ? DesignConstants.Spacing.step2x : 0)
         }
