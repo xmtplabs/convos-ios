@@ -66,7 +66,7 @@ struct PaywallView: View {
             Text(SubscriptionCopy.heroTitle)
                 .font(.convosTitle)
                 .tracking(Font.convosTitleTracking)
-                .lineSpacing(-8)
+                .lineSpacing(-12)
                 .foregroundStyle(.colorTextPrimary)
         }
     }
@@ -80,49 +80,45 @@ struct PaywallView: View {
             Text("Plus").tag(PaywallPlan.plus)
         }
         .pickerStyle(.segmented)
+        .padding(.vertical, DesignConstants.Spacing.stepX)
     }
 
     // MARK: - Feature Rows
 
     @ViewBuilder
     private var agentsRow: some View {
-        featureRow(
-            headline: SubscriptionCopy.agentsHeadline,
-            subheadline: SubscriptionCopy.agentsSubheadline,
-            iconName: "sparkles",
-            isActive: viewModel.selectedPlan == .plus
-        )
+        let isActive: Bool = viewModel.selectedPlan == .plus
+        let iconOpacity: Double = isActive ? 1.0 : 0.4
+        HStack {
+            featureText(
+                headline: SubscriptionCopy.agentsHeadline,
+                subheadline: SubscriptionCopy.agentsSubheadline
+            )
+            Spacer()
+            Image("convosAgentIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+                .opacity(iconOpacity)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(.colorFillPrimary))
+        }
     }
 
     @ViewBuilder
     private var usageRow: some View {
-        featureRow(
-            headline: SubscriptionCopy.usageHeadline(for: viewModel.selectedPlan),
-            subheadline: SubscriptionCopy.usageSubheadline(for: viewModel.selectedPlan),
-            iconName: "bolt.fill",
-            isActive: viewModel.selectedPlan == .plus
-        )
-    }
-
-    @ViewBuilder
-    private func featureRow(
-        headline: String,
-        subheadline: String,
-        iconName: String,
-        isActive: Bool
-    ) -> some View {
+        let isActive: Bool = viewModel.selectedPlan == .plus
         let iconOpacity: Double = isActive ? 1.0 : 0.4
+        let boltIcon: String = isActive
+            ? "bolt.fill"
+            : "bolt.trianglebadge.exclamationmark.fill"
         HStack {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(headline)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.colorLava)
-                Text(subheadline)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-            }
+            featureText(
+                headline: SubscriptionCopy.usageHeadline(for: viewModel.selectedPlan),
+                subheadline: SubscriptionCopy.usageSubheadline(for: viewModel.selectedPlan)
+            )
             Spacer()
-            Image(systemName: iconName)
+            Image(systemName: boltIcon)
                 .font(.title2)
                 .foregroundStyle(.colorLava)
                 .opacity(iconOpacity)
@@ -131,6 +127,18 @@ struct PaywallView: View {
                     Circle()
                         .fill(Color.colorLava.opacity(isActive ? 0.12 : 0.06))
                 )
+        }
+    }
+
+    @ViewBuilder
+    private func featureText(headline: String, subheadline: String) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+            Text(headline)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.colorLava)
+            Text(subheadline)
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
         }
     }
 
