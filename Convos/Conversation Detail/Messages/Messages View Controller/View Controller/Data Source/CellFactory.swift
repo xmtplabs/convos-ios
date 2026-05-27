@@ -47,6 +47,10 @@ struct CellConfig {
     /// glassEffectTransition(.matchedGeometry)`. Nil when the messages list
     /// isn't part of a builder commit (regular chats).
     let agentBuilderTransitionNamespace: Namespace.ID?
+    /// Shared SwiftUI namespace used to zoom-transition an
+    /// `HTMLAttachmentBubble` into the post-tap `AttachmentPreviewSheet`.
+    /// `MessagesView` owns the namespace and the matching `.sheet(item:)`.
+    let htmlAttachmentTransitionNamespace: Namespace.ID?
     /// Maps an inbox to the user's full `Contact` when the inbox is a
     /// known contact. Cells use it for both the display-name override
     /// (via `?.displayName`) and avatar substitution (so a system-

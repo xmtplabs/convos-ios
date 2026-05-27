@@ -3,6 +3,11 @@ import ConvosLogging
 import SwiftUI
 import UIKit
 
+/// Inline thumbnail used inside a message group for an agent-sent HTML
+/// page. Renders as a 160x160 square with a 20pt corner radius and
+/// leaves the sender avatar to the surrounding `MessagesGroupView` (no
+/// header / no view affordance - the whole tile is tappable to open
+/// the file via the standard message gesture).
 struct HTMLAttachmentBubble: View {
     let attachment: HydratedAttachment
     let profile: Profile
@@ -11,148 +16,84 @@ struct HTMLAttachmentBubble: View {
     var onTapAvatar: (() -> Void)?
     var onTapReactions: (() -> Void)?
     var cornerRadiusOverride: CGFloat?
+    /// Namespace owned by the SwiftUI host (`MessagesView`) and threaded
+    /// down through `MessagesViewController`'s cell config so the bubble
+    /// can pair with the post-tap `AttachmentPreviewSheet`'s
+    /// `.navigationTransition(.zoom(sourceID:in:))` for a matched-geometry
+    /// transition. `nil` in contexts that don't present the sheet (e.g.
+    /// reply parent thumbnails, context-menu snapshots).
+    var transitionNamespace: Namespace.ID?
 
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var renderedImage: UIImage?
     @State private var hasLoadFailed: Bool = false
-    @State private var bottomEdgeColor: Color?
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            preview
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: Constant.cellHeight)
-        .background(Color.colorBackgroundSurfaceless)
-        .overlay(alignment: .bottom) {
-            bottomFade
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(alignment: .bottomLeading) {
-            if !reactions.isEmpty {
-                let tap: () -> Void = {
-                    onTapReactions?()
+        bubble
+            .accessibilityIdentifier("html-attachment-bubble")
+            .accessibilityLabel("HTML page from \(profile.displayName)")
+            .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
+                await loadThumbnail()
+            }
+    }
+
+    @ViewBuilder
+    private var bubble: some View {
+        let base = preview
+            .frame(width: Constant.size, height: Constant.size)
+            .background(Color.colorFillMinimal)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(alignment: .bottomLeading) {
+                if !reactions.isEmpty {
+                    let tap: () -> Void = {
+                        onTapReactions?()
+                    }
+                    MediaContainerReax(reactions: reactions, onTap: tap)
                 }
-                MediaContainerReax(reactions: reactions, onTap: tap)
             }
+        if let transitionNamespace {
+            base.matchedTransitionSource(id: attachment.key, in: transitionNamespace)
+        } else {
+            base
         }
-        .accessibilityIdentifier("html-attachment-bubble")
-        .accessibilityLabel("HTML page from \(profile.displayName)")
-        .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
-            await loadThumbnail()
-        }
-    }
-
-    @ViewBuilder
-    private var header: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            senderTapTarget
-            Spacer()
-            viewAffordance
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .frame(height: Constant.headerHeight)
-        .frame(maxWidth: .infinity)
-        .overlay(alignment: .bottom) {
-            Color.colorBorderSubtle
-                .frame(height: Constant.borderHeight)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-        }
-    }
-
-    @ViewBuilder
-    private var senderTapTarget: some View {
-        let tap: () -> Void = {
-            onTapAvatar?()
-        }
-        Button(action: tap) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                ProfileAvatarView(
-                    profile: profile,
-                    profileImage: nil,
-                    useSystemPlaceholder: false,
-                    agentVerification: agentVerification
-                )
-                .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
-                Text(profile.displayName)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextPrimary)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("html-attachment-bubble-sender")
-            }
-        }
-        .buttonStyle(.plain)
-        .background(GesturePassthroughBackground())
-        .accessibilityLabel("View \(profile.displayName)'s profile")
-    }
-
-    @ViewBuilder
-    private var viewAffordance: some View {
-        HStack(spacing: 4) {
-            Text("View")
-                .font(.footnote)
-            Image(systemName: "chevron.right")
-                .font(.footnote)
-        }
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
     }
 
     @ViewBuilder
     private var preview: some View {
-        GeometryReader { proxy in
-            if let renderedImage {
-                Image(uiImage: renderedImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
-                    .clipped()
-            } else {
-                ZStack {
-                    Rectangle().fill(Color.colorFillMinimal)
-                    if hasLoadFailed {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ProgressView()
-                    }
+        if let renderedImage {
+            Image(uiImage: renderedImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: Constant.size, height: Constant.size, alignment: .top)
+                .clipped()
+        } else {
+            ZStack {
+                Color.clear
+                if hasLoadFailed {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
     }
 
-    @ViewBuilder
-    private var bottomFade: some View {
-        let endColor: Color = bottomEdgeColor ?? .clear
-        LinearGradient(
-            colors: [endColor.opacity(0), endColor],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: Constant.fadeHeight)
-        .allowsHitTesting(false)
-    }
-
     private var cornerRadius: CGFloat {
-        if let cornerRadiusOverride { return cornerRadiusOverride }
-        return horizontalSizeClass == .regular ? DesignConstants.CornerRadius.medium : 0
+        cornerRadiusOverride ?? Constant.cornerRadius
     }
 
     private func loadThumbnail() async {
         let appearance = colorScheme.uiUserInterfaceStyle
         renderedImage = nil
-        bottomEdgeColor = nil
         hasLoadFailed = false
         if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(
             for: attachment.key,
             appearance: appearance
         ) {
             renderedImage = cached
-            bottomEdgeColor = cached.convos_bottomCenterColor()
+            await prewarmLiveContentIfPossible()
             return
         }
         do {
@@ -163,19 +104,30 @@ struct HTMLAttachmentBubble: View {
                 appearance: appearance
             )
             renderedImage = image
-            bottomEdgeColor = image?.convos_bottomCenterColor()
             hasLoadFailed = image == nil
+            HTMLContentPrewarmer.shared.prewarm(attachmentKey: attachment.key, fileURL: fileURL)
         } catch {
             Log.error("Failed to load HTML attachment thumbnail: \(error)")
             hasLoadFailed = true
         }
     }
 
+    /// Cached-thumbnail path doesn't go through `FileAttachmentLoader`, so
+    /// resolve the file URL here so the prewarmer can load the same file
+    /// into a live WebView. Cheap when the file is already on disk; the
+    /// loader caches its result.
+    private func prewarmLiveContentIfPossible() async {
+        do {
+            let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
+            HTMLContentPrewarmer.shared.prewarm(attachmentKey: attachment.key, fileURL: fileURL)
+        } catch {
+            Log.error("Failed to resolve fileURL for HTML prewarm: \(error.localizedDescription)")
+        }
+    }
+
     private enum Constant {
-        static let headerHeight: CGFloat = 56.0
-        static let cellHeight: CGFloat = 500.0
-        static let fadeHeight: CGFloat = 68.0
-        static let borderHeight: CGFloat = 1.0
+        static let size: CGFloat = 160.0
+        static let cornerRadius: CGFloat = 20.0
     }
 }
 
@@ -194,42 +146,5 @@ extension ColorScheme {
         case .light: return .light
         @unknown default: return .light
         }
-    }
-}
-
-private extension UIImage {
-    /// Returns the color of a single pixel sampled near the bottom-center of the image.
-    /// Used to derive a fade-out gradient end color that matches the rendered HTML body bg.
-    func convos_bottomCenterColor() -> Color? {
-        guard let cgImage,
-              cgImage.width > 0,
-              cgImage.height > 0 else { return nil }
-        let x = cgImage.width / 2
-        let imageRowFromTop = max(cgImage.height - 4, 0)
-        // CGContext.draw flips the CGImage along y, so to land `imageRowFromTop` at
-        // context y=0 we offset by `height - 1 - row`. Without this flip we'd sample
-        // 4 rows from the top instead of the bottom.
-        let yOffset = cgImage.height - 1 - imageRowFromTop
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        var pixel: [UInt8] = [0, 0, 0, 0]
-        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-        guard let context = CGContext(
-            data: &pixel,
-            width: 1,
-            height: 1,
-            bitsPerComponent: 8,
-            bytesPerRow: 4,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo
-        ) else { return nil }
-        context.draw(cgImage, in: CGRect(x: -x, y: -yOffset, width: cgImage.width, height: cgImage.height))
-        let alpha = CGFloat(pixel[3]) / 255.0
-        if alpha < 0.05 { return nil }
-        // Pixel buffer is premultipliedLast; SwiftUI's Color expects straight RGB,
-        // so divide by alpha to recover the source channel values.
-        let red = CGFloat(pixel[0]) / 255.0 / alpha
-        let green = CGFloat(pixel[1]) / 255.0 / alpha
-        let blue = CGFloat(pixel[2]) / 255.0 / alpha
-        return Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
     }
 }

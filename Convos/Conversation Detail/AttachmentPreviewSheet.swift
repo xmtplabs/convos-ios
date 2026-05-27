@@ -192,6 +192,7 @@ struct AttachmentPreviewSheet: View {
         if attachment.isHTMLFile {
             AttachmentHTMLContent(
                 fileURL: fileURL,
+                attachmentKey: attachment.key,
                 onBodyBackgroundColor: { color in
                     htmlBodyBackgroundColor = color
                 }
@@ -289,33 +290,26 @@ private struct SentDateFormatter {
 
 struct AttachmentHTMLContent: UIViewRepresentable {
     let fileURL: URL
+    /// Optional attachment key. When provided, `makeUIView` first asks the
+    /// `HTMLContentPrewarmer` for a live WebView that's already loaded and
+    /// painted - the matched-geometry zoom transition then lands on real
+    /// content instead of waiting on a fresh `WKWebView.loadFileURL`.
+    var attachmentKey: String?
     var onBodyBackgroundColor: ((Color?) -> Void)?
 
-    private static let bgScript: String = """
-    (function() {
-        function postBg() {
-            var bg = getComputedStyle(document.body).backgroundColor;
-            if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
-                bg = getComputedStyle(document.documentElement).backgroundColor;
-            }
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.convosBg) {
-                window.webkit.messageHandlers.convosBg.postMessage(bg || '');
-            }
-        }
-        postBg();
-        window.addEventListener('load', postBg);
-    })();
-    """
-
     func makeUIView(context: Context) -> WKWebView {
+        if let key = attachmentKey,
+           let prewarmed = HTMLContentPrewarmer.shared.borrowContent(for: key) {
+            context.coordinator.usingPrewarmedWebView = true
+            context.coordinator.loadedFileURL = fileURL
+            DispatchQueue.main.async {
+                self.onBodyBackgroundColor?(prewarmed.bodyBackgroundColor)
+            }
+            return prewarmed.webView
+        }
         let config = WKWebViewConfiguration()
-        config.userContentController.add(context.coordinator, name: "convosBg")
-        let userScript = WKUserScript(
-            source: Self.bgScript,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-        config.userContentController.addUserScript(userScript)
+        config.userContentController.add(context.coordinator, name: HTMLBodyBackgroundBridge.messageHandlerName)
+        config.userContentController.addUserScript(HTMLBodyBackgroundBridge.makeUserScript())
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -326,6 +320,10 @@ struct AttachmentHTMLContent: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.onBodyBackgroundColor = onBodyBackgroundColor
+        // Prewarmed WebViews already loaded the same file during their
+        // off-screen warm-up; calling `loadFileURL` here would discard
+        // the painted DOM and trigger a fresh load, defeating the prewarm.
+        if context.coordinator.usingPrewarmedWebView { return }
         guard context.coordinator.loadedFileURL != fileURL else { return }
         context.coordinator.loadedFileURL = fileURL
         let readAccessURL = fileURL.deletingLastPathComponent()
@@ -339,6 +337,11 @@ struct AttachmentHTMLContent: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var loadedFileURL: URL?
         var onBodyBackgroundColor: ((Color?) -> Void)?
+        /// True when `makeUIView` returned a `WKWebView` borrowed from
+        /// the prewarmer. The pre-load has already happened, so
+        /// `updateUIView` skips its `loadFileURL` path to avoid kicking
+        /// off a redundant second load that would blank out the view.
+        var usingPrewarmedWebView: Bool = false
 
         init(onBodyBackgroundColor: ((Color?) -> Void)?) {
             self.onBodyBackgroundColor = onBodyBackgroundColor
@@ -364,30 +367,12 @@ struct AttachmentHTMLContent: UIViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard message.name == "convosBg",
+            guard message.name == HTMLBodyBackgroundBridge.messageHandlerName,
                   let raw = message.body as? String else { return }
-            let parsed = Self.parseCSSColor(raw)
+            let parsed = HTMLBodyBackgroundBridge.parseCSSColor(raw)
             DispatchQueue.main.async { [weak self] in
                 self?.onBodyBackgroundColor?(parsed)
             }
-        }
-
-        private static func parseCSSColor(_ raw: String) -> Color? {
-            let trimmed = raw.trimmingCharacters(in: .whitespaces).lowercased()
-            let isRGBA = trimmed.hasPrefix("rgba(")
-            let prefix = isRGBA ? "rgba(" : "rgb("
-            guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(")") else { return nil }
-            let inner = trimmed.dropFirst(prefix.count).dropLast()
-            let parts = inner
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count >= 3,
-                  let r = Double(parts[0]),
-                  let g = Double(parts[1]),
-                  let b = Double(parts[2]) else { return nil }
-            let alpha: Double = parts.count >= 4 ? (Double(parts[3]) ?? 1.0) : 1.0
-            if alpha < 0.05 { return nil }
-            return Color(.sRGB, red: r / 255.0, green: g / 255.0, blue: b / 255.0, opacity: alpha)
         }
     }
 }

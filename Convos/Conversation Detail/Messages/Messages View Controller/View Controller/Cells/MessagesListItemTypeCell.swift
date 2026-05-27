@@ -89,6 +89,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onDeleteMessage: config.onDeleteMessage,
                         onRetryTranscript: config.onRetryTranscript,
                         allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
+                        htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
                         creditsDepleted: config.creditsDepleted
                     )
 
