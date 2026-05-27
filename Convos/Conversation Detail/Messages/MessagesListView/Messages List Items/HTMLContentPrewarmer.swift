@@ -43,11 +43,11 @@ final class HTMLContentPrewarmer {
     /// borrowed WebView would still flash blank for the first frame
     /// after being attached to the sheet's hierarchy.
     private static let paintDelay: TimeInterval = 0.3
-    /// Off-screen render size: matches a typical iPhone canvas so the
-    /// loaded layout already approximates the sheet's frame. Resizing
-    /// after handoff is cheap (WKWebView reflows), but starting at the
-    /// right ballpark avoids a visible layout pop.
-    private static let prewarmSize: CGSize = CGSize(width: 430, height: 932)
+    /// Fallback render size used only when the active window scene's
+    /// screen bounds aren't available (no foreground-active scene yet).
+    /// Picked to match a typical iPhone 17 canvas so the rare fallback
+    /// path still produces a useful layout.
+    private static let fallbackPrewarmSize: CGSize = CGSize(width: 430, height: 932)
 
     /// Insertion-ordered LRU: most recently used appended to the end.
     private var cache: [(key: String, content: PrewarmedContent)] = []
@@ -78,16 +78,34 @@ final class HTMLContentPrewarmer {
             .first { $0.activationState != .unattached }
         guard let scene else { return nil }
         let window = UIWindow(windowScene: scene)
+        let size: CGSize = currentPrewarmSize(scene: scene)
         window.frame = CGRect(
             x: -100_000.0,
             y: -100_000.0,
-            width: prewarmSize.width,
-            height: prewarmSize.height
+            width: size.width,
+            height: size.height
         )
         window.windowLevel = .normal - 1
         window.isUserInteractionEnabled = false
         window.isHidden = false
         return window
+    }
+
+    /// Resolve the prewarm size from the current scene's screen bounds.
+    /// Matches the eventual sheet's content area on the user's device
+    /// (iPhone / iPad, portrait / landscape, Stage Manager window)
+    /// so the off-screen layout doesn't have to reflow on handoff.
+    /// Falls back to a fixed iPhone canvas only when there's no scene
+    /// to ask (early-launch edge case the offscreen window already
+    /// guards against).
+    private static func currentPrewarmSize(scene: UIWindowScene? = nil) -> CGSize {
+        let resolvedScene: UIWindowScene? = scene ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState != .unattached }
+        guard let resolvedScene else { return fallbackPrewarmSize }
+        let bounds: CGRect = resolvedScene.screen.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return fallbackPrewarmSize }
+        return bounds.size
     }
 
     /// Enqueues a background load for `(attachmentKey, fileURL)`. The
@@ -142,8 +160,9 @@ final class HTMLContentPrewarmer {
         let config = WKWebViewConfiguration()
         config.userContentController.add(coordinator, name: HTMLBodyBackgroundBridge.messageHandlerName)
         config.userContentController.addUserScript(HTMLBodyBackgroundBridge.makeUserScript())
+        let size: CGSize = Self.currentPrewarmSize()
         let webView = WKWebView(
-            frame: CGRect(origin: .zero, size: Self.prewarmSize),
+            frame: CGRect(origin: .zero, size: size),
             configuration: config
         )
         webView.isOpaque = false
