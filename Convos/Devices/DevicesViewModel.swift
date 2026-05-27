@@ -205,6 +205,9 @@ final class DevicesViewModel {
     func confirmRemoveDevice() {
         guard let device = devicePendingRemoval, let session else { return }
         isRemovingDevice = true
+        // Clear any prior failure before retrying, so a successful retry
+        // doesn't leave a stale "Couldn't remove the device" banner up.
+        lastErrorMessage = nil
 
         Task { @MainActor in
             defer {

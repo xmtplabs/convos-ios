@@ -298,7 +298,15 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
     }
 
     public func stop() async {
-        let teardown = state.withLock { s -> NonSendableBox<((any XMTPClientProvider)?, URL?)> in
+        // Capture both the teardown payload AND the streaming task ref under
+        // the same lock so we can await the task's cooperative cancellation
+        // before touching the libxmtp DB. Without the await, `cancel()` only
+        // *signals* cancellation; the stream task might still be inside a
+        // libxmtp call (mid-message decrypt / metadata read) when
+        // `deleteLocalDatabase()` fires, which would race on the SQLCipher
+        // store and risk corruption or a libxmtp panic.
+        let (teardown, streamingTaskToAwait) = state.withLock { s -> (NonSendableBox<((any XMTPClientProvider)?, URL?)>, Task<Void, Never>?) in
+            let task = s.streamingTask
             s.streamingTask?.cancel()
             s.streamingTask = nil
             let c = s.joinerClient
@@ -309,8 +317,9 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
                 s.joinerDbDirectory = nil
             }
             s.started = false
-            return NonSendableBox((c, d))
+            return (NonSendableBox((c, d)), task)
         }
+        await streamingTaskToAwait?.value
         if case .joiner = role {
             let (client, dbDir) = teardown.value
             try? client?.deleteLocalDatabase()
@@ -362,6 +371,20 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
 
     private func startMessageStream(clientBox: NonSendableBox<any XMTPClientProvider>, isJoiner: Bool) {
         let task = Task { [weak self] in
+            // The `Task { }` literal starts running immediately, but the
+            // caller below doesn't write us into `state.streamingTask`
+            // until after this closure has been constructed. Yield once
+            // so a racing `stop()` can land (it flips `state.started`
+            // to false and cancels whatever's currently in
+            // `state.streamingTask`, which may be nil or a different
+            // task), then bail before any real work happens.
+            await Task.yield()
+            guard let self else { return }
+            let stillStarted = self.state.withLock { $0.started }
+            guard stillStarted, !Task.isCancelled else {
+                Log.info("Pairing: message stream task aborting before work (started=\(stillStarted), cancelled=\(Task.isCancelled), isJoiner=\(isJoiner))")
+                return
+            }
             Log.info("Pairing: starting message stream (isJoiner=\(isJoiner)) inbox=\(clientBox.value.inboxId)")
             do {
                 _ = try await clientBox.value.conversationsProvider.syncAllConversations(consentStates: nil)
