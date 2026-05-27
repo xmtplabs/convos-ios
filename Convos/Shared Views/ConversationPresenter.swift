@@ -5,6 +5,7 @@ struct ConversationPresenter<Content: View>: View {
     let viewModel: ConversationViewModel?
     let focusCoordinator: FocusCoordinator
     let insetsTopSafeArea: Bool
+    var isReadOnly: Bool = false
     @Binding var sidebarColumnWidth: CGFloat
     /// Overrides the indicator's placeholder name (otherwise falls back to
     /// `ConversationViewModel.untitledConversationPlaceholder`). Used by
@@ -149,12 +150,13 @@ struct ConversationPresenter<Content: View>: View {
             viewModel: viewModel,
             placeholderOverride: indicatorPlaceholderOverride,
             subtitleOverride: indicatorSubtitleOverride,
-            allowsEditing: allowsIndicatorEditing,
+            allowsEditing: allowsIndicatorEditing && !isReadOnly,
             focusState: $focusState,
             focusCoordinator: focusCoordinator
         )
         .environment(\.forcedAgentVerification, pendingAgentOverride)
         .hoverEffect(.lift)
+        .disabled(isReadOnly)
         .matchedGeometryEffect(
             id: AdaptiveAppIndicatorConstant.indicatorShellId,
             in: sharedIndicatorNamespace ?? indicatorNamespace,

@@ -178,6 +178,21 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
     }
+
+    public func initiatorPairingService() async throws -> any PairingServiceProtocol {
+        MockPairingService()
+    }
+
+    public func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
+        InstallationsSnapshot(inboxId: "mock-inbox", currentInstallationId: "mock-installation", installations: [])
+    }
+
+    public func revokeOtherInstallations() async throws -> [String] {
+        []
+    }
+
+    public func revokeInstallation(installationId: String) async throws {
+    }
 }
 
 public final class MockConnectionEventWriter: ConnectionEventWriterProtocol, @unchecked Sendable {

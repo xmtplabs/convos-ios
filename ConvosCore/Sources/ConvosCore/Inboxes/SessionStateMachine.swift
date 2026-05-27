@@ -114,6 +114,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private var isProcessing: Bool = false
     private var networkMonitorTask: Task<Void, Never>?
     private var appLifecycleTask: Task<Void, Never>?
+    /// Observer handle for `installationWasRevokedByPeer`, set when the
+    /// session enters `.ready`. The notification is posted by
+    /// `StreamProcessor` when a `DeviceRemovedContent` self-DM lands.
+    private nonisolated(unsafe) var revocationObserver: (any NSObjectProtocol)?
     private var foregroundRetryCount: Int = 0
     private static let maxForegroundRetries: Int = 2
 
@@ -620,6 +624,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
+        try await assertInstallationActive(client: client)
+
         enqueueAction(.authorized(.init(client: client, apiClient: apiClient)))
     }
 
@@ -651,6 +657,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         emitStateChange(.ready(result))
         await startNetworkMonitoring()
         startAppLifecycleObservation()
+        startRevocationObserver()
         // .inactive is a transient state during launch (scene activating) and
         // routine interruptions (control center, notifications). Only treat
         // .background as a real background launch — otherwise we drop the
@@ -736,6 +743,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleStop() async throws {
         Log.info("Stopping inbox with clientId \(initialClientId)...")
+        stopRevocationObserver()
 
         let clientToClose: (any XMTPClientProvider)?
         switch _state {
@@ -770,6 +778,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         Log.info("App entering background, pausing sync for clientId \(initialClientId)...")
 
         await stopNetworkMonitoring()
+        stopRevocationObserver()
         await syncingManager?.pause()
 
         try result.client.dropLocalDatabaseConnection()
@@ -783,6 +792,13 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await result.client.reconnectLocalDatabase()
 
+        do {
+            try await assertInstallationActive(client: result.client)
+        } catch {
+            try? result.client.dropLocalDatabaseConnection()
+            throw error
+        }
+
         // Drain the backlog in batched form before streams resume.
         await runBatchCatchUp(client: result.client)
 
@@ -790,7 +806,56 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         await syncingManager?.resume()
 
         emitStateChange(.ready(result))
+        startRevocationObserver()
         Log.info("Inbox returned to ready state")
+    }
+
+    /// Probes the XMTP network for whether this device's installation is
+    /// still in the inbox's active set. Throws `DeviceReplacedError`
+    /// (terminal) if it isn't — typically meaning another paired device
+    /// revoked us from its `Devices` screen.
+    private func assertInstallationActive(client: any XMTPClientProvider) async throws {
+        if await XMTPInstallationStateChecker.isInstallationActive(
+            inboxId: client.inboxId,
+            installationId: client.installationId,
+            environment: environment
+        ) {
+            return
+        }
+        Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
+        throw DeviceReplacedError()
+    }
+
+    /// Observes `installationWasRevokedByPeer` (posted by `StreamProcessor`
+    /// when a `DeviceRemovedContent` self-DM arrives whose
+    /// `revokedInstallationId` matches this client). On match, transitions
+    /// the session to `.error(DeviceReplacedError)` — the same terminal
+    /// state the bootstrap / foreground checks land in. This replaces a
+    /// periodic XMTP-API poll with an event-driven path that's effectively
+    /// real-time as long as the device is online and streaming.
+    private func startRevocationObserver() {
+        stopRevocationObserver()
+        revocationObserver = NotificationCenter.default.addObserver(
+            forName: .installationWasRevokedByPeer,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { [weak self] in
+                await self?.emitTerminalError(DeviceReplacedError())
+            }
+        }
+    }
+
+    private func stopRevocationObserver() {
+        if let revocationObserver {
+            NotificationCenter.default.removeObserver(revocationObserver)
+        }
+        revocationObserver = nil
+    }
+
+    private func emitTerminalError(_ error: any Error) {
+        emitStateChange(.error(error))
     }
 
     /// Drain the backlog of activity since the last catch-up frontier, in
@@ -838,6 +903,18 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleRetryFromError() async throws {
         try Task.checkCancellation()
+
+        // Terminal errors (e.g. `DeviceReplacedError`) cannot be cured by
+        // foreground retries — the only resolution is the user resetting
+        // the device. The observer layer (`StaleDeviceBanner`) handles
+        // that surface. Bail before the retry counter advances so a
+        // coincidence (transient refresh, race) doesn't accidentally
+        // land us back in `.ready` without the user ever seeing the
+        // banner.
+        if case let .error(error) = _state, error is TerminalSessionError {
+            Log.info("Not retrying terminal error: \(type(of: error))")
+            return
+        }
 
         guard foregroundRetryCount < Self.maxForegroundRetries else {
             Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
@@ -1037,6 +1114,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 CapabilityRequestResultCodec(),
                 TypingIndicatorCodec(),
                 ReadReceiptCodec(),
+                PairingMessageCodec(),
+                PairingJoinRequestCodec(),
+                IdentityShareCodec(),
+                DeviceRemovedCodec(),
                 ThinkingCodec()
             ] + ConvosConnectionsXMTP.codecs(),
             dbEncryptionKey: keys.databaseKey,

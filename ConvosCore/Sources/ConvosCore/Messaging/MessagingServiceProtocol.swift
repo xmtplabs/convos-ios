@@ -107,4 +107,22 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     /// fires, so the agent's incoming-payload handler can be exercised end-to-end. The UI
     /// entry point is `#if DEBUG`-gated in the main app target.
     func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws
+
+    /// Returns an initiator-side `PairingServiceProtocol` backed by this
+    /// inbox's real XMTP client. Used by the "Add new device" flow in
+    /// Settings → Devices. Throws if the inbox isn't ready yet (e.g. the
+    /// state machine is still authorizing).
+    func initiatorPairingService() async throws -> any PairingServiceProtocol
+
+    /// Snapshot of the inbox's libxmtp installations (this device plus
+    /// any other paired devices). The Devices screen drives off this.
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot
+
+    /// Revokes every installation other than this device's own. Used by
+    /// "Sign out other devices". Returns the installationIds revoked.
+    func revokeOtherInstallations() async throws -> [String]
+
+    /// Revokes a single named installation. Used by the per-row "Delete"
+    /// affordance in Devices. Throws if the id is the current device.
+    func revokeInstallation(installationId: String) async throws
 }

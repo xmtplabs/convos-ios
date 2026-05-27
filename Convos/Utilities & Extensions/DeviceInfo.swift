@@ -30,6 +30,13 @@ struct DeviceInfo {
         return identifierForVendor ?? fallbackIdentifier
     }
 
+    /// Returns the user-facing device name (e.g. "Jarod's iPhone").
+    /// Used by the pairing flow to show "X is requesting to pair" copy
+    /// on the joining device.
+    static var deviceName: String {
+        UIDevice.current.name
+    }
+
     /// Returns the current OS string
     static var osString: String {
         #if targetEnvironment(macCatalyst)
