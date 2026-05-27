@@ -366,10 +366,7 @@ struct PaywallView: View {
             .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
             .disabled(viewModel.selectedProduct == nil || isPurchasing)
 
-            Text("Auto-renews \(periodName.lowercased()) \u{00B7} Cancel anytime")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .frame(maxWidth: .infinity)
+            subscriberFooter
         }
     }
 
@@ -385,18 +382,29 @@ struct PaywallView: View {
             .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorFillPrimary))
             .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
 
-            subscriptionStatusLine
+            subscriberFooter
         }
     }
 
     @ViewBuilder
-    private var subscriptionStatusLine: some View {
+    private var subscriberFooter: some View {
         if let sub = viewModel.currentSubscription {
             let tierName: String = SubscriptionCopy.displayName(for: sub.tier)
             let periodName: String = sub.period == .monthly ? "Monthly" : "Annual"
-            Text("You subscribe to \(tierName) \(periodName)")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
+            VStack(spacing: DesignConstants.Spacing.stepX) {
+                Text("You subscribe to \(tierName) \(periodName)")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                let manageAction = { presentingManageSubscriptions = true }
+                Button(action: manageAction) {
+                    Text(SubscriptionCopy.manageSubscriptionLabel)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .underline()
+                }
+                .manageSubscriptionsSheet(isPresented: $presentingManageSubscriptions)
+            }
+            .frame(maxWidth: .infinity)
                 .frame(maxWidth: .infinity)
         }
     }
