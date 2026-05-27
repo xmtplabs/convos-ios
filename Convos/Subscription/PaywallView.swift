@@ -39,7 +39,7 @@ struct PaywallView: View {
                 .padding(.bottom, DesignConstants.Spacing.step10x)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
-            .contentMargins(.top, DesignConstants.Spacing.step6x, for: .scrollContent)
+            .contentMargins(.top, DesignConstants.Spacing.stepX, for: .scrollContent)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { closeButton }
@@ -60,15 +60,11 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var hero: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             Text(SubscriptionCopy.heroLabel)
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
-            Text(SubscriptionCopy.heroTitle)
-                .font(.convosTitle)
-                .tracking(Font.convosTitleTracking)
-                .lineSpacing(-12)
-                .foregroundStyle(.colorTextPrimary)
+            TightLineHeightText(text: SubscriptionCopy.heroTitle, fontSize: 40, lineHeight: 38)
         }
     }
 

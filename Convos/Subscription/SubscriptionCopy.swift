@@ -8,7 +8,7 @@ enum PaywallPlan: String, CaseIterable {
 
 enum SubscriptionCopy {
     static let heroLabel: String = "Membership"
-    static let heroTitle: String = "Power your\nagents"
+    static let heroTitle: String = "Power your agents"
 
     static let agentsHeadline: String = "Make unlimited agents"
     static let agentsSubheadline: String = "Connect unlimited apps"
