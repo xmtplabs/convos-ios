@@ -16,9 +16,8 @@ final class PaywallViewModel {
     var alertMessage: String?
     private(set) var products: [PaywallProduct] = []
     private(set) var currentSubscription: UserSubscription?
+    private(set) var isLoadingProducts: Bool = false
     @ObservationIgnored private var loadProductsTask: Task<Void, Never>?
-
-    var isLoadingProducts: Bool { loadProductsTask != nil }
 
     var isSubscribed: Bool { currentSubscription != nil }
 
@@ -77,7 +76,11 @@ final class PaywallViewModel {
         }
         let task: Task<Void, Never> = Task { await performLoadProducts() }
         loadProductsTask = task
-        defer { loadProductsTask = nil }
+        isLoadingProducts = true
+        defer {
+            loadProductsTask = nil
+            isLoadingProducts = false
+        }
         await task.value
     }
 
