@@ -194,8 +194,8 @@ struct PaywallView: View {
             let thumbOffset: CGFloat = isMonthlySelected ? 0 : segmentWidth
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: thumbRadius)
-                    .fill(Color.colorBackgroundRaised)
-                    .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+                    .fill(.clear)
+                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: thumbRadius))
                     .frame(width: segmentWidth)
                     .offset(x: inset + thumbOffset)
                     .animation(.snappy(duration: 0.25), value: isMonthlySelected)
