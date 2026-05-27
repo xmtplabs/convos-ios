@@ -492,7 +492,22 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             let privateKey = try PrivateKey(content.privateKeyData)
             let derivedAddress = privateKey.walletAddress.lowercased()
             let expectedAddress = state.withLock { $0.expectedInitiatorAddress }
-            if let expectedAddress, derivedAddress != expectedAddress {
+            // `expectedInitiatorAddress` is set inside `sendPairingJoinRequest`
+            // when the joiner decodes a signed slug. If we somehow received
+            // an `IdentityShareContent` before that ever ran, we have no
+            // anchor to verify the incoming key against — adopting anyway
+            // would let any attacker who can DM the joiner's ephemeral
+            // inbox swap in their own identity. Reject defensively.
+            guard let expectedAddress else {
+                Log.warning("Pairing: IdentityShare received before any JoinRequest was sent — rejecting")
+                NotificationCenter.default.post(
+                    name: .pairingDidReceiveError,
+                    object: nil,
+                    userInfo: ["message": "Pairing rejected: unexpected identity share"]
+                )
+                return
+            }
+            if derivedAddress != expectedAddress {
                 Log.warning("Pairing: address mismatch — expected \(expectedAddress) got \(derivedAddress)")
                 NotificationCenter.default.post(
                     name: .pairingDidReceiveError,
