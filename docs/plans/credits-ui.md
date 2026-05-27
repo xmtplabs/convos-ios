@@ -1,112 +1,145 @@
-# Upgrade Sheet Redesign: Basic vs Plus
+# Credits UI — Upgrade Sheet + In-Conversation Power Status
 
 ## Context
 
-Courter's design spec reimagines the paywall/upgrade sheet from "pick a tier from side-by-side cards" to a "Basic vs Plus comparison" view. The current implementation shows Builder and Pro as separate TierCards with a Monthly/Annual segmented picker. The new design shows a single scrolling view with a Basic/Plus plan picker, inline feature comparison, and a pricing row with Monthly/Annual price pills.
+Courter's design spec reimagines the subscription and credits experience
+across two surfaces: a redesigned upgrade sheet (paywall), and an
+in-conversation "lost power" status with contextual upgrade prompts.
+The old LowBalanceBanner, credits pill, and NUX paywall are replaced
+by these new patterns.
 
-This is scoped to ONLY the upgrade sheet UI. Power usage views, agent profiles, chat indicators, home status pill, and member preview changes come later.
+## Status
 
-## Key Design Changes (from Figma)
-
-| Current | New |
+| Step | Status |
 |---|---|
-| Segmented Monthly/Annual picker at top | Segmented Basic/Plus plan picker at top |
-| Two TierCards (Builder + Pro) stacked vertically | Single view toggling content per selected plan |
-| Each TierCard has its own CTA button + price | Pricing row with two selectable pills (Monthly/Annual) — Plus only |
-| Builder and Pro both purchasable | Only Plus is purchasable; Basic is the free comparison state |
+| Step 1: Model rename (Builder -> Plus, remove Pro) | Done |
+| Step 2: SubscriptionCopy rewrite | Done |
+| Step 3: PaywallViewModel changes | Done |
+| Step 4: PaywallView rewrite + delete TierCard | Done |
+| Step 5: Remove old credits UI (pill, banner, NUX paywall) | In progress |
+| Step 6: In-conversation "lost power" status (Phase 1) | Next |
+| Step 7: "You power your agents" info sheet | Next |
 
-**New layout (top to bottom):**
-1. Hero ("Power your agents")
-2. Plan picker: Basic / Plus (segmented)
-3. Credit headline + lightning bolt icon (red for Plus, dim for Basic)
-4. Feature list with checkmark rows (content changes per plan)
-5. Pricing pills — Monthly and Annual side-by-side (Plus only)
-6. Red "Upgrade" CTA (Plus, non-subscriber) / "Manage subscription" (subscriber)
-7. Legal footer (Terms, Privacy, Restore)
+## Completed Work
 
-## Implementation Steps
+### Upgrade Sheet Redesign
 
-### Step 1: Model layer — rename Builder → Plus, remove Pro
+Single scrolling view with Basic/Plus plan picker replacing the old
+side-by-side TierCards with Monthly/Annual segmented picker.
 
-Single atomic commit across ConvosCore + app target so the build stays green.
+Layout:
+- "Membership" label + "Power your agents" hero (TightLineHeightText)
+- Segmented Basic / Plus picker
+- Feature rows: "Make unlimited agents" (custom A-star icon on black
+  circle) + "Usage maximum" / "Unlimited usage" (bolt icon, conditional)
+- Example uses section (plan-specific outcomes)
+- Custom draggable segmented price picker (Monthly / Annual) with
+  white sliding thumb on colorFillSubtle background
+- CTAs: "Stay Basic" / "Upgrade" / "Switch to Yearly" / "Manage
+  subscription" depending on state
+- "Auto-renews monthly . Cancel anytime" / "You subscribe to Plus
+  Monthly" status lines
+- Terms & Privacy + Restore footer
 
-**Files:**
-- `ConvosCore/.../Storage/Models/Subscription.swift` — rename `case builder` to `case plus`, remove `case pro`, add backward-compatible `init(from:)` that decodes both `"builder"` and `"pro"` as `.plus`
-- `ConvosCore/.../Services/Subscription/SubscriptionProductIDs.swift` — rename constants (`builderMonthly` → `plusMonthly`, `builderAnnual` → `plusAnnual`), remove `proMonthly`, keep the actual string product IDs unchanged (`"app.convos.subs.builder.monthly"` etc.), update `tier(for:)` mapping to return `.plus`, remove `.pro` branches
-- `ConvosCore/.../Services/Credits/CreditsStatePreset.swift` — rename `builderAmple` → `plusAmple`, `builderLow` → `plusLow`, `builderDepleted` → `plusDepleted`, remove `proAmple`, update `subscription()` + `balance()` + `displayName` helpers, add backward-compat `init?(rawValue:)` mapping old names
-- `ConvosCore/.../Services/Subscription/MockSubscriptionService.swift` — update mock products to `.plus`, remove Pro product, update preset mapping
-- `Convos/Subscription/SubscriptionSettingsView.swift` — update preview presets
-- `Convos/Subscription/LowBalanceBanner.swift` — `.builderDepleted` → `.plusDepleted` etc.
-- `Convos/Config/FeatureFlags.swift` — default preset reference
-- `ConvosCore/Tests/.../MockSubscriptionServiceTests.swift` — rename `.builder`/`.pro` → `.plus`
-- `ConvosCore/Tests/.../TestStubAPIClientDefaults.swift` — if tier refs exist
-- `ConvosTests/PaywallViewModelTests.swift` — `.builder` → `.plus` in test product
+Colors: colorLava (#FC4F37) throughout (not colorRed).
+Typography: body.medium for feature headlines, footnote for sub-text.
 
-### Step 2: SubscriptionCopy rewrite
+### Removals (Done or In Progress)
 
-Rewrite `Convos/Subscription/SubscriptionCopy.swift` for the new content structure:
+- TierCard.swift: deleted
+- Credits pill (CreditsBadge in home toolbar): hidden
+- NUX paywall on conversation entry: skipped
+- Close button on paywall sheet: removed
 
-- Keep `heroTitle` ("Power your agents") and `heroSubtitle`
-- Add a `PaywallPlan` enum (`.basic`, `.plus`) — view-layer concept, not a model-layer tier. Basic represents "no subscription" shown for comparison.
-- `creditHeadline(for: PaywallPlan)` → "No monthly credits" / "100,000 credits/month"
-- `outcomes(for: PaywallPlan)` → smaller-scope examples for Basic, richer for Plus
-- Shared features list ("Make unlimited agents")
-- Keep `displayName(for: SubscriptionTier)` returning "Plus" (used by SubscriptionSettingsView)
-- Keep `legalDisclaimer`
+## Remaining Work
 
-### Step 3: PaywallViewModel changes
+### Step 5: Remove old credits UI completely
 
-Update `Convos/Subscription/PaywallViewModel.swift`:
+**Delete or gut these files:**
+- `Convos/Subscription/LowBalanceBanner.swift` — remove entirely.
+  The in-conversation "lost power" status replaces it.
+- `Convos/Subscription/CreditsBadge.swift` — remove entirely.
+  Already hidden from the toolbar; the file is now dead code.
 
-- Replace `selectedPeriod: SubscriptionPeriod` with `selectedPlan: PaywallPlan` (default `.plus` when entering via upgrade door, `.basic` when browsing)
-- Add `selectedProduct: PaywallProduct?` — the product the CTA purchases (defaults to monthly after load)
-- Add `plusMonthlyProduct` / `plusAnnualProduct` computed properties
-- `isAlreadySubscribed: Bool` computed from `currentSubscription != nil`
-- `selectProduct(_:)` method for the pricing pill tap
-- Keep `purchase(product:)` and `loadProducts()` as-is
-- Remove `product(for:period:)` (no longer needed externally) or keep as private
-- Remove `currentTier` (unused, was already flagged)
+**Remove LowBalanceBanner usage from:**
+- `Convos/Conversation Detail/ConversationView.swift` — find where
+  LowBalanceBanner is rendered and remove the view + its state
+- Any other surfaces that show LowBalanceBanner
 
-Update `ConvosTests/PaywallViewModelTests.swift` — rename test product, update assertions.
+### Step 6: In-conversation "lost power" status (Phase 1 — creator only)
 
-### Step 4: PaywallView rewrite + delete TierCard
+**Figma**: node 2909-30729
 
-**Delete** `Convos/Subscription/TierCard.swift` — the new design has no card concept.
+An inline status element in the conversation message list that appears
+when the current user's credits are depleted AND the conversation has
+an agent they created. NOT a real XMTP message — a local-only UI
+element driven by credit state, like the typing indicator or unread
+divider.
 
-**Rewrite** `Convos/Subscription/PaywallView.swift` with extracted `@ViewBuilder` sections:
+**Display logic:**
+- Show when: `CreditBalance.isDepleted == true` AND the conversation
+  contains an agent whose creator matches the current user's inboxId
+- Hide when: credits are replenished (balance > 0) or user navigates
+  away
 
-```
-NavigationStack > ScrollView > VStack:
-  hero                    — kept (same as current)
-  planPicker              — segmented Basic/Plus
-  creditHeadline          — "100,000 credits/month" or "No monthly credits" + bolt icon
-  featureList             — checkmark rows, content switches on plan
-  pricingRow              — two selectable pills (Monthly + Annual), Plus only
-  ctaSection              — "Upgrade" / "Manage subscription" / empty for Basic
-  legal                   — kept (Terms, Privacy, Restore)
-  trialSkipButton         — kept (conditional)
-```
+**Layout (centered in message list area):**
+- "⚡ [AgentName] lost power" (footnote, colorTextSecondary, bolt
+  icon in colorLava)
+- [Upgrade] button (colorLava pill, compact — NOT full width)
+- Tapping Upgrade opens the PaywallView sheet
 
-Each section is a `@ViewBuilder` computed property or extracted private view. Keep bodies under 50 lines per the type-check budget.
+**Placement:** rendered as a trailing element after the last message
+in the messages list, before the compose bar. Could be an item in
+the messages list data source with a special type, or an overlay
+pinned above the compose bar.
 
-The pricing pills are tappable — selected pill gets a red border, unselected gets subtle border. Tapping a pill sets `viewModel.selectedProduct`. The "Upgrade" button purchases `viewModel.selectedProduct`.
+**What we know locally:**
+- Current user's credit balance via `CreditsServices.shared`
+- Which members are agents via the conversation's member list
+- The agent's creator inboxId (already stored on the agent profile)
 
-### Step 5: Update .storekit file (optional)
+**Phase 2 (needs backend — not this PR):**
+- Non-creators see "⚡ Hoodrat lost power" + [Learn more]
+- Backend pushes agent power state to group members
+- "Quarter restored Hoodrat's power" status when credits refill
 
-Update `Convos.storekit` display names from "Convos Builder" to "Convos Plus" for Xcode previews. Product IDs stay unchanged.
+### Step 7: "You power your agents" info sheet
 
-## Backward Compatibility
+**Figma**: node 2909-31050
 
-- **Backend sends `"builder"` as tier**: Custom `init(from:)` on `SubscriptionTier` maps `"builder"` → `.plus`
-- **Backend sends `"pro"` as tier**: Same decoder maps `"pro"` → `.plus` (safe fallback until backend removes Pro)
-- **ASC product IDs unchanged**: `"app.convos.subs.builder.monthly"` still works; the mapping layer in `SubscriptionProductIDs` handles the rename
-- **UserDefaults preset migration**: `CreditsStatePreset` fallback handles old `"builderAmple"` raw values
+A self-sizing info sheet following the same pattern as
+`AssistantsInfoView.swift`. Presented via `.selfSizingSheet`.
+
+**Layout (top to bottom):**
+- "You power your agents" — TightLineHeightText(fontSize: 40,
+  lineHeight: 40)
+- "Agents use Power to think and act" — body.bold
+- "If they run out of power credits, they switch into read-only
+  mode." — body, colorTextSecondary
+- "An agent's creator controls its power" — body.bold
+- "[CreatorName] can restore power to [AgentName]" — body,
+  colorTextSecondary
+- [⚡ View your usage] button — black, full width, rounded
+
+**File:** `Convos/Subscription/AgentPowerInfoView.swift` (new)
+
+**Presentation:** from the [Learn more] button on the non-creator
+"lost power" status (Phase 2), and potentially from the agent
+profile's power section.
+
+Note: Phase 1 only needs the creator's [Upgrade] path. The info
+sheet can be built now as a standalone component for Phase 2
+readiness, or deferred entirely.
 
 ## Verification
 
-1. **Build**: `xcodebuild build` on Convos (Dev) scheme
-2. **Tests**: `swift test --package-path ConvosCore` — all credit/subscription tests green
-3. **PaywallViewModelTests**: verify purchase, loading, concurrent-load, alert mapping
-4. **Visual**: launch in simulator, navigate to paywall from Settings → Subscription → Subscribe/Change plan
-5. **Mock presets**: cycle through CreditsStatePreset options in debug settings and confirm paywall renders each state correctly (no sub, plus subscriber, trial)
-6. **Lint**: `/lint` before committing
+1. Build: Convos (Dev) scheme
+2. Tests: `swift test --package-path ConvosCore`
+3. Visual: Settings -> Subscription -> Subscribe (all 3 preview states)
+4. Visual: Enter a conversation with a mock-depleted agent creator
+   preset — see the "lost power" inline status
+5. Mock presets: cycle through debug presets, confirm paywall +
+   conversation status render correctly
+6. Confirm: LowBalanceBanner and CreditsBadge are fully removed,
+   no dead references
+7. Lint before committing
