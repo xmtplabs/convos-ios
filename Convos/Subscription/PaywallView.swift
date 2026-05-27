@@ -39,10 +39,9 @@ struct PaywallView: View {
                 .padding(.bottom, DesignConstants.Spacing.step10x)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
-            .contentMargins(.top, DesignConstants.Spacing.stepX, for: .scrollContent)
+            .contentMargins(.top, DesignConstants.Spacing.step10x, for: .scrollContent)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { closeButton }
         }
         .task { await viewModel.loadProducts() }
         .alert(
@@ -401,17 +400,6 @@ struct PaywallView: View {
                 .padding(.vertical, DesignConstants.Spacing.step3x)
         }
         .accessibilityIdentifier("paywall-skip-to-trial-button")
-    }
-
-    @ToolbarContentBuilder
-    private var closeButton: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            let dismissAction = { dismiss() }
-            Button(action: dismissAction) {
-                Image(systemName: "xmark")
-                    .foregroundStyle(.colorTextPrimary)
-            }
-        }
     }
 }
 
