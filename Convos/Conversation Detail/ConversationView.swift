@@ -36,6 +36,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
+    /// Lifted out of `MessagesView` so this view can gate the pager
+    /// against horizontal swipes while the long-press context menu is
+    /// presented.
+    @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -58,6 +62,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var messagesView: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return MessagesView(
+            contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
             messages: viewModel.messagesWithThinkingIndicators,
             invite: viewModel.invite,
@@ -335,9 +340,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     var body: some View {
+        let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
+            dotsHidden: contextMenuPresented,
+            scrollingDisabled: contextMenuPresented,
             messagesPage: { messagesView },
             stuffPage: { stuffPage }
         )
