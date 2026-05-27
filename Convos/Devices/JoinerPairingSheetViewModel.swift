@@ -26,7 +26,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
     var enteredPin: String = ""
 
     private let pairingId: String
-    private let expiresAt: Date
+    private var expiresAt: Date
     private let timeoutInterval: TimeInterval
     private let pairingService: any PairingServiceProtocol
     private let initiatorName: String?
@@ -204,6 +204,15 @@ final class JoinerPairingSheetViewModel: Identifiable {
 
     private func onPinReceived(_ pin: String, from senderInboxId: String) {
         initiatorInboxId = senderInboxId
+        // Rebase the countdown when the PIN arrives. The initial window
+        // is the slug's expiresAt — by the time the PIN lands the user
+        // could be at the tail of that window with only seconds left to
+        // type 6 digits. Give them a fresh `timeoutInterval` to enter +
+        // submit, mirroring the way `PairingCoordinator.receivedJoinRequest`
+        // resets the initiator's internal timer.
+        expiresAt = Date().addingTimeInterval(timeoutInterval)
+        secondsRemaining = Int(timeoutInterval)
+        startCountdown()
         flowState = .pinEntry(initiatorInboxId: senderInboxId)
     }
 

@@ -166,6 +166,14 @@ final class PairingSheetViewModel {
             try await coordinator.receivedPinEcho(pin, from: senderInboxId)
             let state = await coordinator.currentState
             if case let .waitingForEmojiConfirmation(emojis, _) = state {
+                // `PairingCoordinator.receivedPinEcho` resets its own
+                // expiration timer for the emoji-confirmation window.
+                // Rebase the VM countdown to match — otherwise the UI
+                // could fire `.expired` while the user is still looking
+                // at the emojis and the coordinator is mid-handshake.
+                expiresAt = Date().addingTimeInterval(timeoutInterval)
+                secondsRemaining = Int(timeoutInterval)
+                startCountdown()
                 title = "Confirm pairing"
                 flowState = .emojiConfirmation(emojis: emojis, deviceName: joinerDeviceName)
             }
