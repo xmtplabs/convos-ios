@@ -4,7 +4,6 @@ import ConvosCore
 import ConvosCoreiOS
 import Foundation
 import Observation
-import Sentry
 import SwiftUI
 import UIKit
 
@@ -168,8 +167,6 @@ final class AgentBuilderViewModel: Identifiable {
     private var didRequestAgentJoin: Bool = false
     @ObservationIgnored
     private(set) var didDiscard: Bool = false
-    @ObservationIgnored
-    private var pendingConnectionGrantTask: Task<Void, Never>?
     /// Whether the composer text field was focused at the moment the user
     /// kicked off a voice memo. Read by the stop-recording action so we can
     /// return the keyboard to the composer where the user left off.
@@ -205,7 +202,6 @@ final class AgentBuilderViewModel: Identifiable {
 
     deinit {
         agentJoinTask?.cancel()
-        pendingConnectionGrantTask?.cancel()
     }
 
     // MARK: - Composer mutations
@@ -396,12 +392,16 @@ final class AgentBuilderViewModel: Identifiable {
             if let textMessageId { bundledMessageIds.insert(textMessageId) }
             if let bundleMessageId { bundledMessageIds.insert(bundleMessageId) }
 
+            var cloudConnectionIdsByRawValue: [String: String] = [:]
+            for (connection, cloudConnectionId) in capturedCloudConnectionIds {
+                cloudConnectionIdsByRawValue[connection.rawValue] = cloudConnectionId
+            }
             let summary: AgentBuilderSummary = buildSummary(
                 prompt: textToSend,
-                voiceMemo: recordedVoiceMemo,
-                voiceMemoLevels: voiceMemoAudioLevels,
+                voiceMemo: voiceMemoSnapshot,
                 mediaAttachments: innerVM.pendingMediaAttachments,
                 connections: enabledConnections,
+                cloudConnectionIds: cloudConnectionIdsByRawValue,
                 bundledMessageIds: bundledMessageIds
             )
             innerVM.agentBuilderSummary = summary
@@ -498,8 +498,12 @@ final class AgentBuilderViewModel: Identifiable {
             self.newConversationViewModel.suppressesContactCard = false
             self.newConversationViewModel.conversationViewModel?.allowsContactCard = true
         }
-
-        scheduleConnectionGrants()
+        // Connection grants are now driven by
+        // `AgentBuilderConnectionGrantReplayer`, which observes the
+        // persisted summary + member rows and fires grants once the
+        // verified agent appears. The replayer survives app death
+        // between Make and agent-join — the in-memory poll-and-timeout
+        // path it replaced did not.
     }
 
     /// Build the AgentBuilderSummary that renders as the first cell of the
@@ -509,15 +513,15 @@ final class AgentBuilderViewModel: Identifiable {
     /// the X buttons.
     private func buildSummary(
         prompt: String,
-        voiceMemo: (url: URL, duration: TimeInterval)?,
-        voiceMemoLevels: [Float],
+        voiceMemo: BuilderVoiceMemoSnapshot?,
         mediaAttachments: [PendingMediaAttachment],
         connections: Set<AgentBuilderConnection>,
+        cloudConnectionIds: [String: String],
         bundledMessageIds: Set<String>
     ) -> AgentBuilderSummary {
         var attachments: [AgentBuilderSummaryAttachment] = []
         if let voiceMemo {
-            attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemoLevels))
+            attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemo.levels))
         }
         for attachment in mediaAttachments {
             switch attachment {
@@ -546,110 +550,13 @@ final class AgentBuilderViewModel: Identifiable {
             prompt: prompt,
             attachments: attachments,
             cutoffDate: Date(),
-            bundledMessageIds: bundledMessageIds
+            bundledMessageIds: bundledMessageIds,
+            cloudConnectionIds: cloudConnectionIds
         )
-    }
-
-    private func scheduleConnectionGrants() {
-        guard !enabledConnections.isEmpty else { return }
-        let connections = enabledConnections
-        let capturedIds = capturedCloudConnectionIds
-        pendingConnectionGrantTask?.cancel()
-        pendingConnectionGrantTask = Task { @MainActor [weak self] in
-            let deadline: Date = Date().addingTimeInterval(Constant.agentJoinTimeoutS)
-            while !Task.isCancelled, Date() < deadline {
-                if let convoVM = self?.newConversationViewModel.conversationViewModel,
-                   convoVM.conversation.hasAgent {
-                    self?.fireConnectionGrants(connections, capturedIds: capturedIds, in: convoVM)
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(Constant.agentPollIntervalMs))
-            }
-            guard !Task.isCancelled else { return }
-            let message: String = "AgentBuilder: timed out after \(Int(Constant.agentJoinTimeoutS))s waiting for agent to join — \(connections.count) connection grant(s) skipped"
-            Log.error(message)
-            SentrySDK.capture(message: message) { scope in
-                scope.setLevel(.warning)
-                scope.setTag(value: "agent_join_timeout", key: "agent_builder")
-                scope.setExtra(value: connections.count, key: "skipped_connection_count")
-                scope.setExtra(value: connections.map(\.id).sorted().joined(separator: ","), key: "skipped_connections")
-            }
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-        }
-    }
-
-    /// Fires the user-enabled connection grants against the now-real conversation.
-    /// Device kinds go through `ConversationConnectionsViewModel.toggleDeviceConnection`
-    /// (it owns the `EnablementStore` write + per-agent fanout + connection event).
-    /// Cloud kinds bypass that VM's `cloudRows` lookup — the freshly-constructed VM's
-    /// `.receive(on:.main)` subscription leaves rows empty for one runloop tick, racy
-    /// when we tap Make right after OAuth completes. We use the
-    /// `CloudConnection.id` we captured at toggle-on time and fan out the grant
-    /// directly via the messaging service's writers, mirroring what
-    /// `ConversationConnectionsViewModel.grant(connectionId:providerId:)` does.
-    private func fireConnectionGrants(
-        _ connections: Set<AgentBuilderConnection>,
-        capturedIds: [AgentBuilderConnection: String],
-        in convoVM: ConversationViewModel
-    ) {
-        let connectionsVM = convoVM.makeConversationConnectionsViewModel()
-        for connection in connections {
-            switch connection {
-            case .appleHealth:
-                connectionsVM.toggleDeviceConnection(.health)
-            case .googleCalendar:
-                guard let connectionId = capturedIds[connection] else {
-                    Log.warning("AgentBuilder: no captured CloudConnection.id for \(connection.id) — grant skipped")
-                    continue
-                }
-                fireCloudGrant(
-                    connectionId: connectionId,
-                    serviceId: AgentBuilderConnection.googleCalendarServiceId,
-                    in: convoVM
-                )
-            }
-        }
-    }
-
-    private func fireCloudGrant(
-        connectionId: String,
-        serviceId: String,
-        in convoVM: ConversationViewModel
-    ) {
-        let agentInboxIds: [String] = convoVM.conversation.members
-            .filter(\.isAgent)
-            .map(\.profile.inboxId)
-        guard !agentInboxIds.isEmpty else { return }
-        let messagingService = session.messagingService()
-        let grantWriter = messagingService.connectionGrantWriter()
-        let connectionEventWriter = messagingService.connectionEventWriter()
-        let conversationId: String = convoVM.conversation.id
-        let providerId: String = "composio.\(serviceId)"
-        Task {
-            var grantedAgents: [String] = []
-            for agent in agentInboxIds {
-                do {
-                    try await grantWriter.grantConnection(connectionId, to: conversationId, grantedToInboxId: agent)
-                    grantedAgents.append(agent)
-                } catch {
-                    Log.error("AgentBuilder: grantConnection failed for \(serviceId) agent \(agent): \(error.localizedDescription)")
-                }
-            }
-            if let representative = grantedAgents.first {
-                try? await connectionEventWriter.sendGranted(
-                    providerId: providerId,
-                    capability: nil,
-                    grantedToInboxId: representative,
-                    in: conversationId
-                )
-            }
-        }
     }
 
     private enum Constant {
         static let contentFadeMs: Int = 180
-        static let agentPollIntervalMs: Int = 250
-        static let agentJoinTimeoutS: TimeInterval = 30
         /// Wall-clock delay from Make tap until the contact card is allowed
         /// to render. ~180ms covers the content fade, ~350ms the overlay
         /// spring; the rest (~970ms) is dwell time so the chat reveals
@@ -695,7 +602,6 @@ final class AgentBuilderViewModel: Identifiable {
         guard !didDiscard else { return }
         didDiscard = true
         agentJoinTask?.cancel()
-        pendingConnectionGrantTask?.cancel()
         didRequestAgentJoin = true // suppress any late retries
         // Skip recording/attachment cleanup while a commit is mid-flight —
         // `sendBuilderBundle` still holds references to those temp files

@@ -29,6 +29,24 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
     /// any writer call returns, so the messages are filtered the moment they
     /// land in the DB — no `sentAt` race.
     public let bundledMessageIds: Set<String>
+    /// Captured `CloudConnection.id`s keyed by the iOS-side
+    /// `AgentBuilderConnection` rawValue (e.g. "googleCalendar"). Snapshotted
+    /// at the moment the user toggled the connection on (or completed the
+    /// OAuth flow). Device-only connections like `appleHealth` are not present
+    /// in this dictionary — they don't need an id, the enablement-store
+    /// write is enough. Persisted alongside the summary so the
+    /// `AgentBuilderConnectionGrantReplayer` can fire missing grants after
+    /// an app death between Make and agent-join. Empty for summaries written
+    /// without any cloud connections enabled.
+    public let cloudConnectionIds: [String: String]
+    /// Set the first time the `AgentBuilderConnectionGrantReplayer` has
+    /// fully processed this summary's connections (every connection
+    /// either fired successfully or was already applied). Once non-nil,
+    /// the replayer skips this summary so it can't re-fire grants the
+    /// user later revoked from the chat UI. `nil` for summaries that
+    /// haven't reached the replayer yet (e.g. the agent hasn't joined,
+    /// or this summary was written before the replayer existed).
+    public let connectionsAppliedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +54,9 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
         attachments: [AgentBuilderSummaryAttachment],
         createdAt: Date = Date(),
         cutoffDate: Date,
-        bundledMessageIds: Set<String> = []
+        bundledMessageIds: Set<String> = [],
+        cloudConnectionIds: [String: String] = [:],
+        connectionsAppliedAt: Date? = nil
     ) {
         self.id = id
         self.prompt = prompt
@@ -44,6 +64,8 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
         self.createdAt = createdAt
         self.cutoffDate = cutoffDate
         self.bundledMessageIds = bundledMessageIds
+        self.cloudConnectionIds = cloudConnectionIds
+        self.connectionsAppliedAt = connectionsAppliedAt
     }
 }
 
