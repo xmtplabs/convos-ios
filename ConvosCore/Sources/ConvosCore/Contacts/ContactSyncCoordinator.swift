@@ -69,14 +69,14 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
     }
 
     private func sync(conversationId: String, force: Bool) async throws {
-        try await databaseWriter.write { [selfInboxIdProvider] db in
+        let newlyInsertedInboxIds: [String] = try await databaseWriter.write { [selfInboxIdProvider] db in
             // Without the local inbox singleton we cannot identify "self" and
             // therefore cannot exclude the local user from the upsert loop.
             // No-op rather than risk adding self as a contact. The next hook
             // (after the singleton is written) retries.
             guard let selfInboxId = try selfInboxIdProvider(db) else {
                 Log.debug("Skipping contacts sync for \(conversationId): inbox singleton not written yet")
-                return
+                return []
             }
 
             // Two short-circuits:
@@ -104,13 +104,13 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                 }()
                 guard selfIsCreator else {
                     Log.debug("Skipping forced contacts sync for never-synced conversation \(conversationId) (local user is not the creator)")
-                    return
+                    return []
                 }
                 Log.debug("Forced contacts sync proceeding for never-synced conversation \(conversationId) (local user is the creator)")
             }
 
             if alreadySynced && force == false {
-                return
+                return []
             }
 
             let members = try DBConversationMember
@@ -125,6 +125,7 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             )
 
             var upsertedCount: Int = 0
+            var insertedInboxIds: [String] = []
             for member in members {
                 if member.inboxId == selfInboxId {
                     continue
@@ -143,12 +144,15 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
                     // AgentVerification.
                     agentVerification: profile?.memberKind?.agentVerification
                 )
-                try ContactsWriter.upsertContactInTransaction(
+                let didInsert = try ContactsWriter.upsertContactInTransaction(
                     db: db,
                     inboxId: member.inboxId,
                     addedViaConversationId: conversationId,
                     profile: snapshot
                 )
+                if didInsert {
+                    insertedInboxIds.append(member.inboxId)
+                }
                 upsertedCount += 1
             }
 
@@ -162,7 +166,7 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             // on every send. Acceptable — it's a few indexed reads.
             guard upsertedCount > 0 else {
                 Log.debug("Contacts sync for \(conversationId) saw no non-self members; skipping marker so next message retries")
-                return
+                return insertedInboxIds
             }
 
             let marker = DBConversationContactsSync(
@@ -172,6 +176,14 @@ final class ContactSyncCoordinator: ContactSyncCoordinatorProtocol, @unchecked S
             try marker.save(db)
 
             Log.debug("Synced \(upsertedCount) contacts for conversation \(conversationId) (force=\(force))")
+            return insertedInboxIds
+        }
+        // Fire `.contactDidUpsert` post-commit so observers (e.g.
+        // `QuarantineSweeper` via `SessionManager`) read a consistent
+        // post-write DB. One notification per newly-inserted contact;
+        // observers can coalesce if they want.
+        for inboxId in newlyInsertedInboxIds {
+            ContactsWriter.postContactDidUpsert(inboxId: inboxId)
         }
     }
 }

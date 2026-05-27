@@ -12,6 +12,18 @@ public extension Notification.Name {
     static let contactBlockingDidChange: Notification.Name = Notification.Name(
         "ContactBlockingDidChange"
     )
+
+    /// Posted on the main queue by `ContactsWriter` when a brand-new
+    /// `DBContact` row is inserted (re-upserts and profile-only updates
+    /// of existing contacts do not fire). `SessionManager` observes
+    /// this to run an immediate `QuarantineSweeper.sweep()` so a
+    /// conversation that was quarantined because its creator wasn't yet
+    /// a contact flows into the main feed as soon as the user adds them
+    /// — without waiting for the next hourly or foreground-entry sweep.
+    /// UserInfo: `inboxId: String`.
+    static let contactDidUpsert: Notification.Name = Notification.Name(
+        "ContactDidUpsert"
+    )
 }
 
 /// Snapshot of profile fields used when upserting a contact. Callers pass
@@ -94,13 +106,16 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
     ) async throws {
-        try await databaseWriter.write { db in
+        let didInsert: Bool = try await databaseWriter.write { db in
             try Self.upsert(
                 db: db,
                 inboxId: inboxId,
                 addedViaConversationId: addedViaConversationId,
                 profile: profile
             )
+        }
+        if didInsert {
+            ContactsWriter.postContactDidUpsert(inboxId: inboxId)
         }
     }
 
@@ -183,12 +198,44 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         }
     }
 
+    /// Posted on the main queue after a brand-new contact row is
+    /// inserted by `upsertContact` or `upsertContactInTransaction`
+    /// (re-upserts on an existing row do not fire). `SessionManager`
+    /// observes this to run an immediate `QuarantineSweeper.sweep()`
+    /// so any conversation quarantined because its creator wasn't a
+    /// contact flows into the main feed as soon as the user adds them.
+    static func postContactDidUpsert(inboxId: String) {
+        let userInfo: [String: Any] = ["inboxId": inboxId]
+        if Thread.isMainThread {
+            NotificationCenter.default.post(
+                name: .contactDidUpsert,
+                object: nil,
+                userInfo: userInfo
+            )
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .contactDidUpsert,
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
+        }
+    }
+
+    /// Returns `true` when a brand-new contact row was inserted, `false`
+    /// when the call hit an existing row (regardless of whether the
+    /// profile snapshot replaced any fields). Callers that need to react
+    /// to "a contact was added" (e.g. release quarantined conversations
+    /// from this peer) use the boolean to decide whether to fire
+    /// `.contactDidUpsert`.
+    @discardableResult
     fileprivate static func upsert(
         db: Database,
         inboxId: String,
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
-    ) throws {
+    ) throws -> Bool {
         if let existing = try DBContact.fetchOne(db, key: inboxId) {
             // Identity columns (addedAt, addedViaConversationId) are
             // intentionally preserved on re-upsert. The profile snapshot is
@@ -196,10 +243,10 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             // the stored one (see `replacingProfile`); untimestamped
             // re-upserts leave the existing row untouched.
             guard let merged = replacingProfile(of: existing, with: profile) else {
-                return
+                return false
             }
             try merged.save(db)
-            return
+            return false
         }
 
         let now = Date()
@@ -217,6 +264,7 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         )
         try row.save(db)
         Log.debug("Inserted new contact for inboxId=\(inboxId) via=\(addedViaConversationId ?? "nil")")
+        return true
     }
 
     /// Returns `existing` with its profile fields replaced by `profile` if
@@ -257,12 +305,18 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
 /// saves onto `DBContact` (`mirrorMemberProfileToContactInTransaction`,
 /// `saveMemberProfileAndMirrorToContactInTransaction`).
 extension ContactsWriter {
+    /// Returns `true` when a brand-new contact row was inserted, so the
+    /// caller can fire `.contactDidUpsert` (via
+    /// `ContactsWriter.postContactDidUpsert(inboxId:)`) once the
+    /// surrounding transaction commits. The transaction-local path
+    /// can't post directly because the write hasn't been visible yet.
+    @discardableResult
     static func upsertContactInTransaction(
         db: Database,
         inboxId: String,
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
-    ) throws {
+    ) throws -> Bool {
         try upsert(
             db: db,
             inboxId: inboxId,

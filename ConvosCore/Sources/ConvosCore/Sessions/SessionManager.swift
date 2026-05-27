@@ -31,6 +31,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var contactBlockingObserver: NSObjectProtocol?
+    private var contactDidUpsertObserver: NSObjectProtocol?
     private var quarantineSweeperTask: Task<Void, Never>?
     private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
 
@@ -176,6 +177,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         if let contactBlockingObserver {
             NotificationCenter.default.removeObserver(contactBlockingObserver)
         }
+        if let contactDidUpsertObserver {
+            NotificationCenter.default.removeObserver(contactDidUpsertObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -216,53 +220,22 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             self?.runQuarantineSweep(reason: "contactBlockingDidChange")
         }
 
+        // Same idea, but for fresh contact insertions: when a stranger
+        // becomes a contact (typically via `ContactSyncCoordinator`
+        // running on the user's first message in a shared group),
+        // promote any DMs from that peer that were quarantined back
+        // when they were still a stranger. Without this hook the user
+        // would have to wait for the next hourly tick or foreground
+        // entry to see the queued DM appear in the main feed.
+        contactDidUpsertObserver = NotificationCenter.default.addObserver(
+            forName: .contactDidUpsert,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.runQuarantineSweep(reason: "contactDidUpsert")
+        }
+
         scheduleQuarantineSweeper()
-    }
-
-    /// Periodic sweeper that promotes quarantined conversations whose
-    /// senders have become contacts and deletes those past the TTL. Runs
-    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
-    /// while the process is alive. The foreground observer above also
-    /// triggers an extra sweep on every foreground entry.
-    private func scheduleQuarantineSweeper() {
-        let sweeper = QuarantineSweeper(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
-        )
-        cachedQuarantineSweeper = sweeper
-
-        quarantineSweeperTask?.cancel()
-        quarantineSweeperTask = Task { [weak self] in
-            // Initial sweep at launch.
-            await Self.invokeSweep(sweeper, reason: "launch")
-            // Hourly sweep while the process lives. Foreground entries also
-            // trigger an extra sweep via the foreground observer.
-            while !Task.isCancelled {
-                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: interval)
-                guard self != nil, !Task.isCancelled else { return }
-                await Self.invokeSweep(sweeper, reason: "interval")
-            }
-        }
-    }
-
-    private func runQuarantineSweep(reason: String) {
-        guard let sweeper = cachedQuarantineSweeper else { return }
-        Task.detached {
-            await Self.invokeSweep(sweeper, reason: reason)
-        }
-    }
-
-    private static func invokeSweep(
-        _ sweeper: any QuarantineSweeperProtocol,
-        reason: String
-    ) async {
-        do {
-            try await sweeper.sweep()
-        } catch {
-            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
-        }
     }
 
     private func updateActiveConversation(_ conversationId: String?) {
@@ -1061,5 +1034,56 @@ public extension SessionManager {
             }
         }
         Log.info("SessionManager: removed \(deletedCount) stale libxmtp file(s) for adopted inboxId after pairing adoption")
+    }
+}
+
+// MARK: - Quarantine Sweeper
+
+extension SessionManager {
+    /// Periodic sweeper that promotes quarantined conversations whose
+    /// senders have become contacts and deletes those past the TTL. Runs
+    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
+    /// while the process is alive. The foreground observer and the
+    /// `.contactDidUpsert` / `.contactBlockingDidChange` observers also
+    /// trigger extra sweeps.
+    func scheduleQuarantineSweeper() {
+        let sweeper = QuarantineSweeper(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            contactsRepository: ContactsRepository(databaseReader: databaseReader)
+        )
+        cachedQuarantineSweeper = sweeper
+
+        quarantineSweeperTask?.cancel()
+        quarantineSweeperTask = Task { [weak self] in
+            // Initial sweep at launch.
+            await Self.invokeSweep(sweeper, reason: "launch")
+            // Hourly sweep while the process lives. Foreground entries also
+            // trigger an extra sweep via the foreground observer.
+            while !Task.isCancelled {
+                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
+                guard self != nil, !Task.isCancelled else { return }
+                await Self.invokeSweep(sweeper, reason: "interval")
+            }
+        }
+    }
+
+    func runQuarantineSweep(reason: String) {
+        guard let sweeper = cachedQuarantineSweeper else { return }
+        Task.detached {
+            await Self.invokeSweep(sweeper, reason: reason)
+        }
+    }
+
+    private static func invokeSweep(
+        _ sweeper: any QuarantineSweeperProtocol,
+        reason: String
+    ) async {
+        do {
+            try await sweeper.sweep()
+        } catch {
+            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
+        }
     }
 }
