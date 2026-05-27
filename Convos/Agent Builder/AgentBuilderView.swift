@@ -276,6 +276,11 @@ struct AgentBuilderView: View {
                 }
                 .toolbarTitleDisplayMode(.inline)
                 .onAppear {
+                    // Voice-memo entry skips the composer focus so the
+                    // keyboard doesn't pop up alongside the mic-permission
+                    // prompt; the body's main `.onAppear` kicks off the
+                    // recording itself.
+                    guard viewModel.entryMode != .voiceMemo else { return }
                     coordinator.moveFocus(to: .agentBuilder)
                 }
         }
