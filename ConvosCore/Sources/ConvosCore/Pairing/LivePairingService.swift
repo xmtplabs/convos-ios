@@ -125,10 +125,28 @@ public final class LivePairingService: PairingServiceProtocol, @unchecked Sendab
             // bootstraps the ephemeral joiner client. Placeholder
             // identities get silently overwritten on a successful share.
             let bundle = try await Self.createJoinerClient(environment: environment)
-            state.withLock { s in
+            // Re-check `started` atomically with the bundle write. A
+            // concurrent `stop()` during the `await` above would have
+            // flipped `started` to false; at that moment the bundle
+            // didn't exist yet, so stop()'s cleanup branch had nothing
+            // to remove. If we just stash the bundle into state and
+            // start the stream, the stream task self-aborts on its own
+            // `started` check — but the libxmtp client + temp dir we
+            // just created stay parked in state with no one left to
+            // release them. Detect that case here and clean up the
+            // freshly-created bundle inline.
+            let stashed = state.withLock { s -> Bool in
+                guard s.started else { return false }
                 s.joinerClient = bundle.client
                 s.joinerSigningKey = bundle.signingKey
                 s.joinerDbDirectory = bundle.dbDir
+                return true
+            }
+            guard stashed else {
+                Log.info("Pairing: stop() raced with createJoinerClient; cleaning up orphan bundle")
+                try? bundle.client.deleteLocalDatabase()
+                try? FileManager.default.removeItem(at: bundle.dbDir)
+                return
             }
             startMessageStream(clientBox: NonSendableBox(bundle.client), isJoiner: true)
         }
