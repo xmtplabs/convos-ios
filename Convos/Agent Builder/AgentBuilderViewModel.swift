@@ -295,8 +295,15 @@ final class AgentBuilderViewModel: Identifiable {
     /// adds short-circuit straight through.
     private func drainInitialAttachmentsIfNeeded() {
         guard !hasDrainedInitialAttachments else { return }
-        hasDrainedInitialAttachments = true
+        // Flip the flag only after confirming the inner VM is available.
+        // Setting it before the guard left the queue full + the flag latched
+        // true when `onReachedReady` ran without a VM ever resolving --
+        // subsequent `addPhotoAttachment`/etc. calls would then route to the
+        // queue (their `if hasDrained, let convoVM` short-circuit fails on
+        // nil VM), and the queue would never drain because the early
+        // `hasDrainedInitialAttachments` guard above returns immediately.
         guard let convoVM = newConversationViewModel.conversationViewModel else { return }
+        hasDrainedInitialAttachments = true
         let queued = queuedInitialAttachments
         queuedInitialAttachments = []
         for item in queued {
