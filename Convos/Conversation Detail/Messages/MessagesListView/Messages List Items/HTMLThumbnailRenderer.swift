@@ -7,12 +7,17 @@ import WebKit
 final class HTMLThumbnailRenderer {
     static let shared: HTMLThumbnailRenderer = HTMLThumbnailRenderer()
 
-    private static let renderSize: CGSize = CGSize(width: 720, height: 1200)
+    // 480x480 = the 160pt in-group tile rendered at @3x. @2x devices
+    // downscale the resulting image cleanly. Larger than necessary
+    // wastes work for every thumbnail; smaller would blur on @3x.
+    private static let renderSize: CGSize = CGSize(width: 480, height: 480)
     fileprivate static let paintDelay: TimeInterval = 0.5
     private static let loadTimeout: TimeInterval = 15.0
-    // v4: direct WKWebView.takeSnapshot via a shared off-screen window.
-    // v3 thumbnails (PDF -> PDFKit raster) get re-rendered when seen.
-    private static let cacheKeyPrefix: String = "html-thumb-v4-"
+    // v5: render size dropped to 480x480 + viewport pinned to width=160
+    // + small-surface attrs stamped before any artifact JS runs. v4
+    // thumbnails (720x1200, no viewport / surface hints) get re-
+    // rendered on demand.
+    private static let cacheKeyPrefix: String = "html-thumb-v5-"
     private static let injectionScript: String = """
     (function() {
         var css = 'html, body { margin-top: 0 !important; padding-top: 0 !important; } ' +
@@ -20,6 +25,30 @@ final class HTMLThumbnailRenderer {
         var style = document.createElement('style');
         style.textContent = css;
         (document.head || document.documentElement).appendChild(style);
+    })();
+    """
+
+    /// Pinned at .atDocumentStart so the artifact's CSS lays out for a
+    /// 160pt-wide tile regardless of whatever <meta viewport> the page
+    /// shipped with. Inserting before the existing tag wins because the
+    /// last meta viewport in the head is what UIKit honors.
+    private static let viewportScript: String = """
+    (function() {
+        var m = document.createElement('meta');
+        m.name = 'viewport';
+        m.content = 'width=160, initial-scale=1, viewport-fit=cover';
+        (document.head || document.documentElement).appendChild(m);
+    })();
+    """
+
+    /// Pinned at .atDocumentStart so the runtime's surface-detection JS
+    /// reads these attributes on first run rather than falling back to
+    /// its `innerHeight >= 900` heuristic - which would resolve to
+    /// "large" at our 480pt height and re-strip the attrs.
+    private static let surfaceScript: String = """
+    (function() {
+        document.documentElement.setAttribute('data-convos-thumbnail', 'true');
+        document.documentElement.setAttribute('data-convos-surface', 'small');
     })();
     """
 
@@ -125,12 +154,24 @@ final class HTMLThumbnailRenderer {
         }
 
         let config = WKWebViewConfiguration()
-        let userScript = WKUserScript(
+        let surfaceUserScript = WKUserScript(
+            source: Self.surfaceScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(surfaceUserScript)
+        let viewportUserScript = WKUserScript(
+            source: Self.viewportScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        config.userContentController.addUserScript(viewportUserScript)
+        let paddingUserScript = WKUserScript(
             source: Self.injectionScript,
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         )
-        config.userContentController.addUserScript(userScript)
+        config.userContentController.addUserScript(paddingUserScript)
 
         let webView = WKWebView(
             frame: CGRect(origin: .zero, size: Self.renderSize),
