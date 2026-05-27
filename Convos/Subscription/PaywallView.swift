@@ -25,11 +25,11 @@ struct PaywallView: View {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
                     hero
                     planPicker
-                    creditRow
                     agentsRow
+                    usageRow
                     exampleUses
                     pricingSection
-                    ctaButton
+                    ctaSection
                     if onSkip != nil {
                         trialSkipButton
                     }
@@ -85,21 +85,21 @@ struct PaywallView: View {
     // MARK: - Feature Rows
 
     @ViewBuilder
-    private var creditRow: some View {
-        featureRow(
-            headline: SubscriptionCopy.creditHeadline(for: viewModel.selectedPlan),
-            subheadline: SubscriptionCopy.creditSubheadline,
-            iconName: "bolt.fill",
-            isActive: viewModel.selectedPlan == .plus
-        )
-    }
-
-    @ViewBuilder
     private var agentsRow: some View {
         featureRow(
             headline: SubscriptionCopy.agentsHeadline,
             subheadline: SubscriptionCopy.agentsSubheadline,
             iconName: "sparkles",
+            isActive: viewModel.selectedPlan == .plus
+        )
+    }
+
+    @ViewBuilder
+    private var usageRow: some View {
+        featureRow(
+            headline: SubscriptionCopy.usageHeadline(for: viewModel.selectedPlan),
+            subheadline: SubscriptionCopy.usageSubheadline(for: viewModel.selectedPlan),
+            iconName: "bolt.fill",
             isActive: viewModel.selectedPlan == .plus
         )
     }
@@ -116,7 +116,7 @@ struct PaywallView: View {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(headline)
                     .font(.title3.weight(.semibold))
-                    .foregroundStyle(.colorRed)
+                    .foregroundStyle(.colorLava)
                 Text(subheadline)
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
@@ -124,12 +124,12 @@ struct PaywallView: View {
             Spacer()
             Image(systemName: iconName)
                 .font(.title2)
-                .foregroundStyle(.colorRed)
+                .foregroundStyle(.colorLava)
                 .opacity(iconOpacity)
                 .frame(width: 44, height: 44)
                 .background(
                     Circle()
-                        .fill(Color.colorRed.opacity(isActive ? 0.12 : 0.06))
+                        .fill(Color.colorLava.opacity(isActive ? 0.12 : 0.06))
                 )
         }
     }
@@ -210,7 +210,7 @@ struct PaywallView: View {
         isSelected: Bool,
         product: PaywallProduct
     ) -> some View {
-        let borderColor: Color = isSelected ? .colorRed : .colorBorderSubtle
+        let borderColor: Color = isSelected ? .colorLava : .colorBorderSubtle
         let lineWidth: CGFloat = isSelected ? 2 : 1
         let selectAction = { viewModel.selectProduct(product) }
         Button(action: selectAction) {
@@ -226,7 +226,7 @@ struct PaywallView: View {
                     if let savingsLabel {
                         Text(savingsLabel)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.colorRed)
+                            .foregroundStyle(.colorLava)
                     }
                 }
             }
@@ -242,17 +242,29 @@ struct PaywallView: View {
     // MARK: - CTA
 
     @ViewBuilder
-    private var ctaButton: some View {
+    private var ctaSection: some View {
         if viewModel.selectedPlan == .basic {
-            let dismissAction = { dismiss() }
-            Button(action: dismissAction) {
-                Text(SubscriptionCopy.stayBasicLabel)
-            }
-            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorRed))
+            basicCTA
         } else if viewModel.isSubscribed {
             manageSubscriptionButton
         } else {
             upgradeButton
+        }
+    }
+
+    @ViewBuilder
+    private var basicCTA: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            let dismissAction = { dismiss() }
+            Button(action: dismissAction) {
+                Text(SubscriptionCopy.stayBasicLabel)
+            }
+            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+
+            Text(SubscriptionCopy.upgradeAnytimeLabel)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -274,7 +286,7 @@ struct PaywallView: View {
                 }
             }
         }
-        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorRed))
+        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
         .disabled(viewModel.selectedProduct == nil || isPurchasing)
     }
 
