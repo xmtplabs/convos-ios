@@ -176,7 +176,7 @@ struct AgentBuilderView: View {
                 }
             }
             if !viewModel.hasCommitted {
-                inlineLegalFooter
+                inlineTermsFooter
             }
         }
         .onAppear {
@@ -194,34 +194,11 @@ struct AgentBuilderView: View {
         }
     }
 
-    /// "Secured by XMTP" + "Terms & Privacy Policy" links rendered under
-    /// the inline composer. Lifted from the deleted "Pop-up private
-    /// convos" CTA so first-run users still have entry points to the
-    /// XMTP and legal pages on the chats-list empty state.
-    private var inlineLegalFooter: some View {
+    /// "Terms & Privacy Policy" link rendered under the inline composer
+    /// so first-run users on the chats-list empty state still have an
+    /// entry point to the legal page.
+    private var inlineTermsFooter: some View {
         HStack(spacing: DesignConstants.Spacing.step4x) {
-            Button {
-                if let url = URL(string: "https://xmtp.org") {
-                    openURL(url, prefersInApp: true)
-                }
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                    Text("Secured by ")
-                    Image("xmtpIcon")
-                        .renderingMode(.template)
-                        .resizable()
-                        .frame(width: 10.0, height: 10.0)
-                        .padding(.leading, 2.0)
-                        .padding(.trailing, 1.0)
-                        .offset(y: 0.5)
-                    Text("XMTP")
-                    Image(systemName: "chevron.right")
-                        .foregroundStyle(.colorTextTertiary)
-                        .padding(.leading, DesignConstants.Spacing.stepX)
-                }
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-            }
             Button {
                 if let url = URL(string: "https://convos.org/terms-and-privacy") {
                     openURL(url, prefersInApp: true)
