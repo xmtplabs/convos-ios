@@ -9,16 +9,23 @@ public enum SubscriptionProductIDs {
         plusAnnual,
     ]
 
+    /// Legacy product ID from the pre-Plus era. Never returned by
+    /// `availableProducts()` (removed from `all`) but still recognized so
+    /// any existing entitlement migrates cleanly to Plus instead of being
+    /// silently dropped. Same intent as `SubscriptionTier.init(from:)`
+    /// mapping the backend "pro" string to `.plus`.
+    private static let legacyProMonthly: String = "app.convos.subs.pro.monthly"
+
     public static func tier(for productID: String) -> SubscriptionTier? {
         switch productID {
-        case plusMonthly, plusAnnual: return .plus
+        case plusMonthly, plusAnnual, legacyProMonthly: return .plus
         default: return nil
         }
     }
 
     public static func period(for productID: String) -> SubscriptionPeriod? {
         switch productID {
-        case plusMonthly: return .monthly
+        case plusMonthly, legacyProMonthly: return .monthly
         case plusAnnual: return .annual
         default: return nil
         }
