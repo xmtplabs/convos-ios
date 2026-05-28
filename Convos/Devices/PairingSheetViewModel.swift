@@ -199,13 +199,11 @@ final class PairingSheetViewModel {
                 if let appGroupIdentifier {
                     PairedDeviceNameStore.setPending(deviceName, appGroup: appGroupIdentifier)
                 }
-                NotificationCenter.default.post(
-                    name: .pairingDidCompleteSuccessfully,
-                    object: nil,
-                    // `isInitiator` gates the post-pair profile-snapshot
-                    // broadcast to the initiator side only (the joiner
-                    // receives the snapshots, it doesn't re-send them).
-                    userInfo: ["joinerDeviceName": deviceName, "isInitiator": true]
+                // `.initiator` gates the post-pair profile-snapshot broadcast
+                // to the initiator side only (the joiner receives the
+                // snapshots, it doesn't re-send them).
+                NotificationCenter.default.postPairingCompleted(
+                    PairingCompletion(role: .initiator(joinerDeviceName: deviceName))
                 )
                 title = "Device added"
                 flowState = .completed(deviceName: deviceName)

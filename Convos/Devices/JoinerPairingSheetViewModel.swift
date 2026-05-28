@@ -234,7 +234,7 @@ final class JoinerPairingSheetViewModel: Identifiable {
         Task { @MainActor in
             await onPairingAdopted?()
             await onApplyAdoptedProfile?(capturedDisplayName, capturedImage)
-            NotificationCenter.default.post(name: .pairingDidCompleteSuccessfully, object: nil)
+            NotificationCenter.default.postPairingCompleted(PairingCompletion(role: .joiner))
             title = "Device paired"
             flowState = .completed
             canDismiss = true
