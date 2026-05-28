@@ -86,15 +86,21 @@ final class DevicesViewModel {
                 let displayName = (userInfo?["joinerDeviceName"] as? String) ?? "New device"
                 let isInitiatorSide = (userInfo?["isInitiator"] as? Bool) ?? false
                 Task { @MainActor in
-                    self?.insertOptimisticDevice(named: displayName)
+                    guard let self else { return }
+                    self.insertOptimisticDevice(named: displayName)
                     // Capture the installation baseline BEFORE the refresh
                     // waits for the joiner -- otherwise the joiner folds
                     // into the baseline and the broadcaster's diff finds
-                    // nothing new (so it never broadcasts).
-                    let baseline = isInitiatorSide ? await self?.currentInstallationIds() : nil
-                    await self?.refreshUntilRealInstallationAppears()
+                    // nothing new (so it never broadcasts). `nil` means we
+                    // couldn't read a trustworthy baseline; skip the
+                    // broadcast entirely rather than fire it against an
+                    // empty set (which would diff true on the initiator's
+                    // own installation and broadcast before the joiner
+                    // appears).
+                    let baseline = isInitiatorSide ? await self.currentInstallationIds() : nil
+                    await self.refreshUntilRealInstallationAppears()
                     if isInitiatorSide, let baseline {
-                        await self?.broadcastProfileSnapshotsAfterPair(baseline: baseline)
+                        await self.broadcastProfileSnapshotsAfterPair(baseline: baseline)
                     }
                 }
             }
@@ -107,15 +113,19 @@ final class DevicesViewModel {
     /// The inbox's currently-known installation IDs (cached, no network
     /// round-trip) -- used as the pre-refresh baseline for the post-pair
     /// broadcast so the joiner's not-yet-visible installation is excluded.
-    private func currentInstallationIds() async -> Set<String> {
-        guard let session else { return [] }
+    /// Returns `nil` (not an empty set) when the baseline can't be read,
+    /// so the caller skips the broadcast: an empty baseline would diff
+    /// true against the initiator's own installation and fire the
+    /// broadcast before the joiner ever appears.
+    private func currentInstallationIds() async -> Set<String>? {
+        guard let session else { return nil }
         do {
             let snapshot = try await session.messagingService()
                 .installationsSnapshot(refreshFromNetwork: false)
             return Set(snapshot.installations.map(\.id))
         } catch {
             Log.warning("DevicesViewModel: failed to read installation baseline before pairing broadcast: \(error.localizedDescription)")
-            return []
+            return nil
         }
     }
 
