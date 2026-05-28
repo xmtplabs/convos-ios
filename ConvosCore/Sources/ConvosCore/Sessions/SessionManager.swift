@@ -563,6 +563,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             try DBCloudConnectionGrant.deleteAll(db)
             try DBCloudConnection.deleteAll(db)
             try DBCapabilityResolution.deleteAll(db)
+            try DBCreditBalance.deleteAll(db)
             try DBConversationReadReceipt.deleteAll(db)
             try DBPendingPhotoUpload.deleteAll(db)
             try DBVoiceMemoTranscript.deleteAll(db)
