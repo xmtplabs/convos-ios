@@ -313,20 +313,23 @@ struct AgentBuilderView: View {
                     }
                 }
             )
-            // Lock the composer card to its full height so switching
-            // into the recording layout (and hiding the hint row below)
-            // doesn't visibly shrink the card. `maxHeight` would let
-            // the recording layout's smaller intrinsic size collapse the
-            // card; explicit `height:` pins it at the standard-layout
-            // size for both states.
-            .frame(height: Constant.composerHeight)
+            // Cap the card at its original height but let it shrink below
+            // that when the keyboard constrains the available space. With a
+            // fixed `height:` the card stayed 375 even when the keyboard
+            // covered its lower content (media row + Make button); with a
+            // plain `maxHeight: .infinity` it ballooned to fill the whole
+            // iPad canvas. `maxHeight: composerHeight` gives both: 375 when
+            // there's room, less when the keyboard pushes up (SwiftUI's
+            // keyboard safe-area inset shrinks the proposed height and the
+            // card follows).
+            .frame(maxHeight: Constant.composerHeight)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step4x)
 
-            // Hidden (not removed) when recording, so the layout below
-            // the composer doesn't have to reflow when the user taps
-            // the voice-memo button. Without this, the recording-
-            // controls' Spacer-centered position would jump on entry.
+            // Hidden (not removed) when recording, so the layout below the
+            // composer doesn't reflow when the user taps the voice-memo
+            // button. Without this, the recording-controls' Spacer-centered
+            // position would jump on entry.
             Text(composerHintText)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
@@ -340,14 +343,10 @@ struct AgentBuilderView: View {
             if viewModel.isRecordingVoiceMemo {
                 Spacer(minLength: 0)
                 recordingControls(focusState: focusState)
-                    // Delay the appearance by `keyboardDismissDelay` so
-                    // the keyboard dismissal animation triggered by the
-                    // voice-memo tap (`focusState = nil`) finishes
-                    // before the controls fade in. Without the delay,
-                    // the Spacer-centered controls appear at the
-                    // keyboard-up Y and visibly slide down as the
-                    // keyboard collapses; with it, the appearance
-                    // lands at the final (keyboard-down) position.
+                    // Delay the appearance by `keyboardDismissDelay` so the
+                    // keyboard dismissal animation triggered by the
+                    // voice-memo tap (`focusState = nil`) finishes before
+                    // the controls fade in.
                     .transition(.blurReplace.animation(
                         .easeInOut(duration: Constant.recordingControlsFadeDuration)
                             .delay(Constant.keyboardDismissDelay)
@@ -439,11 +438,14 @@ struct AgentBuilderView: View {
     }
 
     private enum Constant {
+        /// Cap for the composer card height. The card grows up to this
+        /// (its original fixed size) and shrinks below it when the keyboard
+        /// constrains the available space.
         static let composerHeight: CGFloat = 375.0
         /// iOS keyboard dismissal animation duration. Recording controls
-        /// hold for this long before fading in so their Spacer-centered
-        /// Y position settles after the keyboard collapses rather than
-        /// sliding through the transition.
+        /// hold for this long before fading in so their position settles
+        /// after the keyboard collapses rather than sliding through the
+        /// transition.
         static let keyboardDismissDelay: TimeInterval = 0.25
         static let recordingControlsFadeDuration: TimeInterval = 0.25
     }
