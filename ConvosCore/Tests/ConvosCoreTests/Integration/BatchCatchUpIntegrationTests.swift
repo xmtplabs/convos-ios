@@ -195,6 +195,70 @@ struct BatchCatchUpIntegrationTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("Batch routes thinking messages to the thinking-session store, not normal messages")
+    func batchStoresThinkingViaSessionWriter() async throws {
+        let fixtures = TestFixtures()
+        try await fixtures.createTestClients()
+
+        guard let clientA = fixtures.clientA as? Client,
+              let clientB = fixtures.clientB as? Client,
+              let clientIdB = fixtures.clientIdB else {
+            throw TestError.missingClients
+        }
+        let inboxIdB = clientB.inboxID
+
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdB, clientId: clientIdB, createdAt: Date()).insert(db)
+        }
+
+        let group = try await clientA.conversations.newGroup(
+            with: [clientB.inboxID],
+            name: "Thinking Group"
+        )
+        try await clientB.conversations.sync()
+
+        // A sends one regular message and one thinking message.
+        _ = try await group.send(content: "hello")
+        let thinking = ThinkingContent(
+            state: .start,
+            targetMessageId: "target-message-1",
+            content: "Thinking about hello"
+        )
+        let thinkingMessageId = try await group.send(
+            encodedContent: try ThinkingCodec().encode(content: thinking)
+        )
+
+        let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
+        let conversationWriter = ConversationWriter(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            messageWriter: messageWriter
+        )
+        let batch = BatchCatchUp(
+            conversationWriter: conversationWriter,
+            messageWriter: messageWriter,
+            databaseWriter: fixtures.databaseManager.dbWriter
+        )
+
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+
+        // The backlog thinking message lands in the thinking-session store...
+        let thinkingMomentCount = try await fixtures.databaseManager.dbReader.read { db in
+            try DBThinkingMoment
+                .filter(DBThinkingMoment.Columns.conversationId == group.id)
+                .fetchCount(db)
+        }
+        #expect(thinkingMomentCount == 1, "Expected the backlog thinking message to create one thinking moment, got \(thinkingMomentCount)")
+
+        // ...and is not persisted as a normal chat message.
+        let thinkingAsMessage = try await fixtures.databaseManager.dbReader.read { db in
+            try DBMessage.filter(DBMessage.Columns.id == thinkingMessageId).fetchOne(db)
+        }
+        #expect(thinkingAsMessage == nil, "Thinking message must not be stored as a normal DBMessage")
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("Batch with no missed activity is a near no-op")
     func batchWithEmptyBacklogIsNoOp() async throws {
         let fixtures = TestFixtures()
