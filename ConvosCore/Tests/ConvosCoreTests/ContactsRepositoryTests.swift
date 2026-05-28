@@ -110,7 +110,7 @@ struct ContactsRepositoryTests {
         #expect(alice?.isBlocked == false)
     }
 
-    @Test("Contacts with nil displayName fall back to truncated inboxId in the sort key")
+    @Test("Contacts with nil displayName fall back to \"Somebody\" in the sort key")
     func testNilDisplayNameFallback() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
 
@@ -131,8 +131,9 @@ struct ContactsRepositoryTests {
 
         let repo = ContactsRepository(databaseReader: dbManager.dbReader)
         let names = try repo.fetchAll().map(\.resolvedDisplayName)
-        // "Mid" sorts before "zzzzzzzz" by case-insensitive compare
-        #expect(names == ["Mid", "zzzzzzzz"])
+        // The nil-name contact resolves to "Somebody", not its inboxId, so
+        // it sorts by "Somebody" - after "Mid" by case-insensitive compare.
+        #expect(names == ["Mid", "Somebody"])
     }
 
     @Test("sourceConversations returns the convo name + kind for each id, drops missing ids")

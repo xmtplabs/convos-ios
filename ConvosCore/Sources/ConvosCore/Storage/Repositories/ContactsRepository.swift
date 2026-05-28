@@ -146,7 +146,7 @@ final class ContactsRepository: ContactsRepositoryProtocol, @unchecked Sendable 
         // Case-insensitive sort done in Swift to keep behavior identical
         // across SQLite collations (idx_contact_displayName supports first
         // paint; the in-memory sort handles nil names by deferring to the
-        // shortened inboxId fallback).
+        // "Somebody" fallback in resolvedDisplayName).
         return rows
             .map(Contact.init(dbContact:))
             .sorted { lhs, rhs in
