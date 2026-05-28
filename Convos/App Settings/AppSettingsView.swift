@@ -66,9 +66,9 @@ struct AppSettingsView: View {
             List {
                 headerSection
                 myInfoSection
-                subscriptionSection
                 contactsSection
                 connectionsSection
+                subscriptionSection
                 customizeSection
                 linksSection
                 deleteSection
@@ -79,6 +79,9 @@ struct AppSettingsView: View {
             .contentMargins(.top, 0.0)
             .toolbarTitleDisplayMode(.inline)
             .toolbar { topToolbar }
+            .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
+            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
+            .onReceive(session.messagingService().contactsRepository().contactsPublisher) { contactsCount = $0.count }
         }
     }
 
@@ -119,10 +122,10 @@ struct AppSettingsView: View {
                 myInfoRowLabel
             }
             .accessibilityIdentifier("my-info-row")
-        } footer: {
-            Text("Private unless you choose to share")
         }
     }
+
+    @State private var contactsCount: Int = 0
 
     @ViewBuilder
     private var contactsSection: some View {
@@ -134,7 +137,7 @@ struct AppSettingsView: View {
             }
             .accessibilityIdentifier("contacts-row")
         } footer: {
-            Text("People you've shared a conversation with. Stored only on this device.")
+            Text("People and agents")
         }
     }
 
@@ -177,13 +180,19 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var contactsRowLabel: some View {
         HStack {
-            Image(systemName: "person.2.fill")
+            Image(systemName: "person.crop.circle")
                 .foregroundStyle(.colorTextPrimary)
 
             Text("Contacts")
                 .foregroundStyle(.colorTextPrimary)
 
             Spacer()
+
+            if contactsCount > 0 {
+                Text("\(contactsCount)")
+                    .foregroundStyle(.colorTextSecondary)
+                    .monospacedDigit()
+            }
         }
     }
 
@@ -197,12 +206,13 @@ struct AppSettingsView: View {
             }
             .accessibilityIdentifier("connections-row")
         } footer: {
-            Text("Enable services on this device and share them with agents")
+            Text("Apps and info agents can use")
         }
     }
 
     @ViewBuilder
     private var connectionsRowLabel: some View {
+        let connectionsCount: Int = viewModel.connectionsListViewModel.connections.count
         HStack {
             Image(systemName: "batteryblock.fill")
                 .foregroundStyle(.colorTextPrimary)
@@ -211,10 +221,27 @@ struct AppSettingsView: View {
                 .foregroundStyle(.colorTextPrimary)
 
             Spacer()
+
+            if connectionsCount > 0 {
+                Text("\(connectionsCount)")
+                    .foregroundStyle(.colorTextSecondary)
+                    .monospacedDigit()
+            }
         }
     }
 
     @State private var presentingPaywall: Bool = false
+    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+
+    private var membershipFooterLabel: String {
+        if currentSubscription != nil { return "Plus membership" }
+        return "Basic membership"
+    }
+
+    private var isPowerDepleted: Bool {
+        creditBalance?.isDepleted == true
+    }
 
     @ViewBuilder
     private var subscriptionSection: some View {
@@ -222,14 +249,7 @@ struct AppSettingsView: View {
             Section {
                 let subscribeAction = { presentingPaywall = true }
                 Button(action: subscribeAction) {
-                    HStack {
-                        Text("Membership")
-                            .foregroundStyle(.colorTextPrimary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.footnote)
-                            .foregroundStyle(.colorFillTertiary)
-                    }
+                    powerRowLabel
                 }
                 .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 .accessibilityIdentifier("subscription-row")
@@ -238,8 +258,32 @@ struct AppSettingsView: View {
                     PaywallView(viewModel: viewModel)
                 }
             } footer: {
-                Text("Power your agents")
+                Text(membershipFooterLabel)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var powerRowLabel: some View {
+        HStack {
+            Image(systemName: "bolt.fill")
+                .foregroundStyle(.colorTextPrimary)
+
+            Text("Power")
+                .foregroundStyle(.colorTextPrimary)
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.footnote)
+                .foregroundStyle(.colorFillTertiary)
+                .overlay(alignment: .leading) {
+                    if isPowerDepleted {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.colorLava)
+                            .offset(x: -24)
+                    }
+                }
         }
     }
 
