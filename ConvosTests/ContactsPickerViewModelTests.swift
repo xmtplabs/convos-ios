@@ -32,38 +32,90 @@ final class ContactsPickerViewModelTests: XCTestCase {
         XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, carl.inboxId].sorted())
     }
 
-    /// Verified-agent contacts (Convos / OAuth-attested assistants) live in
-    /// `DBContact` so chat-side surfaces can resolve them, but the picker
-    /// browses humans only. Regression guard: if the predicate ever stops
-    /// filtering them, agents would surface in every "Start a convo" /
-    /// "Add to convo" flow.
-    func testSectionsExcludeVerifiedAgents() {
+    /// New-conversation mode surfaces humans and template-backed agents
+    /// (you can spawn a fresh instance into the new convo). Template-less
+    /// agents - legacy verified assistants and unverified agents - stay
+    /// hidden.
+    func testNewConversationShowsTemplateBackedAgentsOnly() {
         let alice = Contact.mock(displayName: "Alice")
-        let assistant = Contact.mock(
-            displayName: "Convos Assistant",
-            agentVerification: .verified(.convos)
+        let coffeeAgent = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
         )
-        let oauthAgent = Contact.mock(
-            displayName: "OAuth Bot",
-            agentVerification: .verified(.userOAuth)
+        let legacyAssistant = Contact.mock(
+            displayName: "Legacy Assistant",
+            agentVerification: .verified(.convos)
         )
         let unverifiedAgent = Contact.mock(
             displayName: "Unverified Bot",
             agentVerification: .unverified
         )
-        let repo = MockContactsRepository(contacts: [alice, assistant, oauthAgent, unverifiedAgent])
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant, unverifiedAgent])
+
+        let viewModel = ContactsPickerViewModel(mode: .newConversation, contactsRepository: repo)
+
+        let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
+        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, coffeeAgent.inboxId].sorted())
+    }
+
+    /// Add-to-conversation mode is human-only - agents aren't spawned into
+    /// an existing conversation from the picker.
+    func testAddToConversationHidesAgents() {
+        let alice = Contact.mock(displayName: "Alice")
+        let coffeeAgent = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
+        )
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent])
 
         let viewModel = ContactsPickerViewModel(
-            mode: .newConversation,
+            mode: .addToConversation(conversationId: "convo-1", conversationTitle: nil),
             contactsRepository: repo
         )
 
         let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
-        // Alice and the unverified agent pass through; both verified agents
-        // are filtered out. Unverified agents intentionally remain visible
-        // because they're not yet attested - the user may still want to act
-        // on them like any unknown contact.
-        XCTAssertEqual(allRowIds.sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
+        XCTAssertEqual(allRowIds, [alice.inboxId])
+    }
+
+    /// At most one agent may be selected. Once an agent is selected, other
+    /// agents are blocked (selecting a second is a no-op and their rows are
+    /// disabled); the user must deselect the first to pick another. Humans
+    /// are unrestricted.
+    func testSecondAgentSelectionIsBlocked() {
+        let alice = Contact.mock(displayName: "Alice")
+        let coffee = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
+        )
+        let tea = Contact.mock(
+            displayName: "Earl Grey",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-tea"
+        )
+        let repo = MockContactsRepository(contacts: [alice, coffee, tea])
+        let viewModel = ContactsPickerViewModel(mode: .newConversation, contactsRepository: repo)
+
+        viewModel.toggleSelection(for: alice.inboxId)
+        viewModel.toggleSelection(for: coffee.inboxId)
+        XCTAssertEqual(viewModel.selectedAgentTemplateId, "tmpl-coffee")
+        XCTAssertFalse(viewModel.isAgentSelectionBlocked(for: coffee.inboxId), "the selected agent itself isn't blocked")
+        XCTAssertTrue(viewModel.isAgentSelectionBlocked(for: tea.inboxId), "other agents are blocked once one is selected")
+
+        // Tapping a second agent is a no-op: the first stays, the second is not added.
+        viewModel.toggleSelection(for: tea.inboxId)
+        XCTAssertEqual(viewModel.selectedAgentTemplateId, "tmpl-coffee")
+        XCTAssertFalse(viewModel.isSelected(inboxId: tea.inboxId))
+        XCTAssertTrue(viewModel.isSelected(inboxId: coffee.inboxId))
+        XCTAssertTrue(viewModel.isSelected(inboxId: alice.inboxId))
+        XCTAssertEqual(viewModel.selectionCount, 2)
+
+        // Deselecting the agent unblocks the others.
+        viewModel.toggleSelection(for: coffee.inboxId)
+        XCTAssertNil(viewModel.selectedAgentTemplateId)
+        XCTAssertFalse(viewModel.isAgentSelectionBlocked(for: tea.inboxId))
     }
 
     func testHashBucketSortsLastForNonAlphaNames() {

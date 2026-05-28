@@ -34,8 +34,11 @@ enum NewConversationMode {
     /// inbox IDs before emitting `.ready`. Used by the contacts picker
     /// "Start Conversation" path so navigation feels instant and the
     /// conversation arrives at `.ready` with the picked members already
-    /// in it.
-    case newConversationWithMembers(initialMemberInboxIds: [String])
+    /// in it. When `agentTemplateId` is non-nil the picker also selected
+    /// an agent: a fresh instance of that template is spawned into the
+    /// conversation once it reaches `.ready` (at most one agent per
+    /// conversation, enforced in the picker).
+    case newConversationWithMembers(initialMemberInboxIds: [String], agentTemplateId: String?)
     /// Opens an existing conversation in the same sheet presentation we
     /// use for the new-convo flows. Used when "Chat" on a contact card
     /// resolves to a 1:1 the user already has with that person, so the
@@ -218,6 +221,9 @@ class NewConversationViewModel: Identifiable {
         if case .newConversationWithTemplate(let templateId) = mode {
             self.pendingAgentTemplateId = templateId
         }
+        if case .newConversationWithMembers(_, let agentTemplateId) = mode, let agentTemplateId {
+            self.pendingAgentTemplateId = agentTemplateId
+        }
 
         switch mode {
         case .newConversation, .newAgent, .newConversationWithMembers, .newConversationWithTemplate:
@@ -242,7 +248,7 @@ class NewConversationViewModel: Identifiable {
             self.allowsDismissingScanner = true
         }
 
-        if case .newConversationWithMembers(let ids) = mode {
+        if case .newConversationWithMembers(let ids, _) = mode {
             self.startedWithSeededMembers = true
             self.seededMemberInboxIds = ids
         } else {
@@ -339,7 +345,7 @@ class NewConversationViewModel: Identifiable {
                     existingConversationId: existingConversationId
                 )
 
-            case .newConversationWithMembers(let initialMemberInboxIds):
+            case .newConversationWithMembers(let initialMemberInboxIds, _):
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000

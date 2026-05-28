@@ -31,9 +31,13 @@ import SwiftUI
 /// entry-point mapping and the role each mode plays.
 struct ContactsPickerView: View {
     @State private var viewModel: ContactsPickerViewModel
+    @State private var presentingAgentInfo: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
-    let onConfirm: (_ inboxIds: Set<String>) -> Void
+    /// `memberInboxIds` are the selected humans; `agentTemplateId` is the
+    /// template of the single selected agent, if any (the picker allows at
+    /// most one, and only in new-conversation mode).
+    let onConfirm: (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
     /// Optional source conversation that informs the indicator pill's
     /// emoji avatar. For the new-convo flow callers can pass the current
     /// draft so the picker reflects whatever emoji the convo will inherit;
@@ -47,7 +51,7 @@ struct ContactsPickerView: View {
         alreadyInChatInboxIds: Set<String> = [],
         preselectedInboxIds: Set<String> = [],
         pillConversation: Conversation? = nil,
-        onConfirm: @escaping (_ inboxIds: Set<String>) -> Void
+        onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateId: String?) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
             mode: mode,
@@ -66,6 +70,20 @@ struct ContactsPickerView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
         }
+        .onChange(of: viewModel.didSelectAgent) { _, didSelect in
+            guard didSelect else { return }
+            viewModel.didSelectAgent = false
+            guard !UserDefaults.standard.bool(forKey: Constant.seenOneAgentManyConvosKey) else { return }
+            UserDefaults.standard.set(true, forKey: Constant.seenOneAgentManyConvosKey)
+            presentingAgentInfo = true
+        }
+        .selfSizingSheet(isPresented: $presentingAgentInfo) {
+            OneAgentManyConvosInfoSheet()
+        }
+    }
+
+    private enum Constant {
+        static let seenOneAgentManyConvosKey: String = "hasSeenOneAgentManyConvos"
     }
 
     /// The list takes the full sheet and scrolls behind the toolbar
@@ -127,9 +145,15 @@ struct ContactsPickerView: View {
     }
 
     private func handleConfirm() {
-        let ids = viewModel.selectedInboxIds
-        guard !ids.isEmpty else { return }
-        onConfirm(ids)
+        guard viewModel.canConfirm else { return }
+        // Split the selection: the agent (if any) is spawned by template,
+        // not added as a member, so it's excluded from the member ids.
+        let agentTemplateId = viewModel.selectedAgentTemplateId
+        var memberIds = viewModel.selectedInboxIds
+        if let agentInboxId = viewModel.selectedAgentInboxId {
+            memberIds.remove(agentInboxId)
+        }
+        onConfirm(memberIds, agentTemplateId)
         dismiss()
     }
 
@@ -238,6 +262,7 @@ private struct ContactsPickerList: View {
                     ContactsPickerRow(
                         row: row,
                         isSelected: viewModel.isSelected(inboxId: row.id),
+                        isAgentSelectionBlocked: viewModel.isAgentSelectionBlocked(for: row.id),
                         onTap: rowTapAction(for: row)
                     )
                 },
@@ -304,7 +329,7 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(),
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }
 
@@ -313,7 +338,7 @@ private struct ContactsPickerConfirmButton: View {
         mode: .addToConversation(conversationId: "convo-1", conversationTitle: "The Dev Convosation"),
         contactsRepository: MockContactsRepository(),
         alreadyInChatInboxIds: [MockContactsRepository.defaultMockContacts[0].inboxId],
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }
 
@@ -321,7 +346,7 @@ private struct ContactsPickerConfirmButton: View {
     ContactsPickerView(
         mode: .newConversation,
         contactsRepository: MockContactsRepository(contacts: []),
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }
 
@@ -341,6 +366,6 @@ private struct ContactsPickerConfirmButton: View {
         mode: .newConversation,
         contactsRepository: MockContactsRepository(contacts: contacts),
         preselectedInboxIds: preselected,
-        onConfirm: { _ in }
+        onConfirm: { _, _ in }
     )
 }

@@ -51,6 +51,10 @@ final class ContactsPickerViewModel {
     let mode: ContactsPickerMode
     var sections: [Section] = []
     var selectedInboxIds: Set<String> = []
+    /// Set true when the user just selected an agent, so the view can
+    /// present the "One agent, many convos" info sheet. The view resets
+    /// it after handling.
+    var didSelectAgent: Bool = false
     var searchQuery: String = "" {
         didSet { rebuildSections() }
     }
@@ -146,8 +150,27 @@ final class ContactsPickerViewModel {
         if selectedInboxIds.contains(inboxId) {
             selectedInboxIds.remove(inboxId)
         } else {
+            // At most one agent per conversation - agents are
+            // instance-per-conversation and can't share context. Once one
+            // is selected, other agent rows are disabled (see
+            // `isAgentSelectionBlocked`); selecting a second is a no-op.
+            // Humans are unrestricted.
+            if isAgent(inboxId), selectedAgentInboxId != nil {
+                return
+            }
             selectedInboxIds.insert(inboxId)
+            if isAgent(inboxId) {
+                didSelectAgent = true
+            }
         }
+    }
+
+    /// True when `inboxId` is an unselected agent that can't be selected
+    /// because a different agent is already selected. The picker disables
+    /// these rows; the user deselects the current agent to pick another.
+    func isAgentSelectionBlocked(for inboxId: String) -> Bool {
+        guard isAgent(inboxId), !selectedInboxIds.contains(inboxId) else { return false }
+        return selectedAgentInboxId != nil
     }
 
     func deselect(inboxId: String) {
@@ -162,6 +185,29 @@ final class ContactsPickerViewModel {
         selectedInboxIds.contains(inboxId)
     }
 
+    /// `inboxId` of the currently selected agent, if any. At most one
+    /// agent may be selected (see `toggleSelection`).
+    var selectedAgentInboxId: String? {
+        selectedInboxIds.first { isAgent($0) }
+    }
+
+    /// `agentTemplateId` of the currently selected agent, threaded into
+    /// conversation creation so a fresh instance of that template is
+    /// spawned into the new (or existing) conversation.
+    var selectedAgentTemplateId: String? {
+        guard let agentInboxId = selectedAgentInboxId else { return nil }
+        return allContacts.first { $0.inboxId == agentInboxId }?.agentTemplateId
+    }
+
+    private func isAgent(_ inboxId: String) -> Bool {
+        allContacts.first { $0.inboxId == inboxId }?.agentTemplateId != nil
+    }
+
+    private var isNewConversationMode: Bool {
+        if case .newConversation = mode { return true }
+        return false
+    }
+
     // MARK: - Section building
 
     private func applyContacts(_ contacts: [Contact]) {
@@ -172,7 +218,7 @@ final class ContactsPickerViewModel {
         // blocked / a verified agent / unnamed would otherwise stay in
         // `selectedInboxIds`, counting toward `selectionCount` and passing
         // `canConfirm` with no UI for the user to remove it.
-        let visibleInboxIds = Set(allContacts.filter(Self.isVisibleInPicker).map(\.inboxId))
+        let visibleInboxIds = Set(allContacts.filter(isVisibleInPicker).map(\.inboxId))
         selectedInboxIds = selectedInboxIds.intersection(visibleInboxIds)
         rebuildSections()
         isLoading = false
@@ -181,21 +227,25 @@ final class ContactsPickerViewModel {
     /// Single source of truth for "is this contact a valid picker row".
     /// Hidden from the picker:
     ///  - blocked contacts (the user explicitly opted out of contacting them)
-    ///  - verified agents (kept in `DBContact` so chat-side surfaces can
-    ///    resolve them, but not a valid picker target since they don't accept
-    ///    1:1 DMs; agent rows have their own dedicated entry point)
-    ///  - contacts whose displayName is missing/empty (would render as
+    ///  - template-less agents (legacy verified assistants), and all agents
+    ///    in add-to-conversation mode; template-backed agents are selectable
+    ///    only when starting a new conversation, where selecting one spawns
+    ///    a fresh instance into it
+    ///  - humans whose displayName is missing/empty (would render as
     ///    "Somebody" via `resolvedDisplayName`; a name-less row isn't a
     ///    useful picker target -- there's nothing to distinguish one
     ///    "Somebody" from another)
-    private static func isVisibleInPicker(_ contact: Contact) -> Bool {
-        if contact.isBlocked || contact.isVerifiedAgent { return false }
+    private func isVisibleInPicker(_ contact: Contact) -> Bool {
+        guard !contact.isBlocked else { return false }
+        if contact.agentVerification != nil {
+            return isNewConversationMode && contact.agentTemplateId != nil
+        }
         guard let name = contact.displayName, !name.isEmpty else { return false }
         return true
     }
 
     private func rebuildSections() {
-        let visible = allContacts.filter(Self.isVisibleInPicker)
+        let visible = allContacts.filter(isVisibleInPicker)
         let filtered = filterByQuery(visible)
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,

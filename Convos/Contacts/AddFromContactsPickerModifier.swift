@@ -68,7 +68,9 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         )
     }
 
-    private func handleConfirm(_ inboxIds: Set<String>) {
+    private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateId: String?) {
+        // Add-to-conversation is human-only: the picker doesn't surface
+        // agents in this mode, so `agentTemplateId` is always nil here.
         let ids = Array(inboxIds)
         guard !ids.isEmpty else { return }
         Task {

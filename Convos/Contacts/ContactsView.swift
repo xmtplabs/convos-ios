@@ -183,11 +183,14 @@ struct ContactsView: View {
     /// invite-cell-tap pattern (`presentingNewConversationForInvite` on
     /// `ConversationViewModel`) where the sheet is owned by the same view
     /// that hosted the picker.
-    private func handlePickerConfirm(_ inboxIds: Set<String>) {
-        guard !inboxIds.isEmpty, let session else { return }
+    private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateId: String?) {
+        guard !memberInboxIds.isEmpty || agentTemplateId != nil, let session else { return }
         presentingNewConvo = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithMembers(initialMemberInboxIds: Array(inboxIds))
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: Array(memberInboxIds),
+                agentTemplateId: agentTemplateId
+            )
         )
     }
 }
