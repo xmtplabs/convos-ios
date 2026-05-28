@@ -133,6 +133,8 @@ struct ConversationAvatarView: View {
             EmojiAvatarView(emoji: emoji)
         case .monogram(let name):
             MonogramView(name: name)
+        case .pendingAgent:
+            PendingAgentAvatarView()
         }
     }
 }

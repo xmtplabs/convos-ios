@@ -11,7 +11,23 @@ enum ConversationPagerPage: Int, CaseIterable, Identifiable {
 
 struct ConversationPager<MessagesPage: View, StuffPage: View>: View {
     @Binding var selectedPage: ConversationPagerPage
+    /// Whether the dots are mounted at all. Drives the `safeAreaInset`
+    /// itself, so flipping this resizes the pager content — only set it
+    /// based on keyboard presence, which already animates via the
+    /// system. Don't piggyback context-menu-driven hiding on this flag
+    /// or the bottom bar's own fade-out animation has to compete with a
+    /// layout reflow inside MessagesView.
     let showsPageDots: Bool
+    /// Hides the dots in-place when true (opacity + scale only, layout
+    /// space preserved). Used while the long-press context menu is
+    /// presented so the dots fade out without resizing anything around
+    /// them.
+    var dotsHidden: Bool = false
+    /// When true, horizontal paging between `messages` and `stuff` is
+    /// blocked. Used while the message long-press context menu is
+    /// presented — without it the user can drag past the menu into the
+    /// stuff page mid-interaction.
+    var scrollingDisabled: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage
     @ViewBuilder let stuffPage: () -> StuffPage
 
@@ -36,6 +52,7 @@ struct ConversationPager<MessagesPage: View, StuffPage: View>: View {
                     if let newValue { selectedPage = newValue }
                 }
             ))
+            .scrollDisabled(scrollingDisabled)
             .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
                 scrollView.bounces = false
             }
@@ -43,6 +60,10 @@ struct ConversationPager<MessagesPage: View, StuffPage: View>: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsPageDots {
                 ConversationPagerDots(selectedPage: $selectedPage)
+                    .opacity(dotsHidden ? 0 : 1)
+                    .scaleEffect(dotsHidden ? 0.85 : 1)
+                    .allowsHitTesting(!dotsHidden)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.9), value: dotsHidden)
             }
         }
     }

@@ -72,7 +72,8 @@ extension DBConversationDetails {
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
             agentJoinStatus: agentJoinStatus,
-            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
         )
     }
 }

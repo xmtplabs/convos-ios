@@ -136,6 +136,7 @@ struct AgentBuilderBar: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .hoverEffect(.lift)
         .accessibilityLabel(label)
     }
 

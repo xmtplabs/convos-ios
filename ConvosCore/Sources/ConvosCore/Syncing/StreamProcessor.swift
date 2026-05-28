@@ -236,6 +236,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
+        if handleDeviceRemovedFastPath(message: message, params: params) { return }
+
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
             guard let conversation = try await params.client.conversationsProvider.findConversation(
@@ -857,5 +859,40 @@ actor StreamProcessor: StreamProcessorProtocol {
                 context: context
             )
         }
+    }
+}
+
+// MARK: - Device Revocation
+
+extension StreamProcessor {
+    /// Pre-conversation-lookup fast path: `DeviceRemovedContent` doesn't need
+    /// a conversation context — it's a system signal from the user's other
+    /// installation saying "you've been revoked". Check it before the
+    /// (potentially failing) findConversation call so a missing-conversation
+    /// race doesn't suppress the banner trigger.
+    ///
+    /// Sender check: the signal is only meaningful when it comes from one
+    /// of *our own* installations (the paired peer that performed the
+    /// revoke). Without this, any participant in any shared conversation
+    /// could forge a `DeviceRemovedContent` with our installationId and
+    /// falsely trip the stale-device banner.
+    ///
+    /// Returns true when the message was handled and the caller should
+    /// stop further processing.
+    func handleDeviceRemovedFastPath(message: DecodedMessage, params: SyncClientParams) -> Bool {
+        guard let typeId = try? message.encodedContent.type.typeID,
+              typeId == ContentTypeDeviceRemoved.typeID,
+              let removal = try? message.content() as DeviceRemovedContent,
+              removal.revokedInstallationId == params.client.installationId,
+              message.senderInboxId == params.client.inboxId else {
+            return false
+        }
+        Log.info("StreamProcessor: received DeviceRemoved for our own installation \(params.client.installationId) — posting revocation notification")
+        NotificationCenter.default.post(
+            name: .installationWasRevokedByPeer,
+            object: nil,
+            userInfo: ["revokedInstallationId": removal.revokedInstallationId]
+        )
+        return true
     }
 }

@@ -12,7 +12,8 @@ public extension Conversation {
         isPinned: Bool = false,
         isMuted: Bool = false,
         invite: Invite? = nil,
-        lastMessageText: String = "This is a preview of the last message"
+        lastMessageText: String = "This is a preview of the last message",
+        wasCreatedFromAgentBuilder: Bool = false
     ) -> Conversation {
         let mockMembers = members ?? [
             .mock(isCurrentUser: true),
@@ -53,7 +54,8 @@ public extension Conversation {
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: mockMembers.contains(where: \.agentVerification.isConvosAgent)
+            hasHadVerifiedAgent: mockMembers.contains(where: \.agentVerification.isConvosAgent),
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
         )
     }
 
@@ -99,7 +101,8 @@ public extension Conversation {
             debugInfo: .empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
         )
     }
 
@@ -144,7 +147,8 @@ public extension Conversation {
             debugInfo: .empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
         )
     }
 }

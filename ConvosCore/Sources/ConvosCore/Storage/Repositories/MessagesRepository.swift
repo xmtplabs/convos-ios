@@ -796,6 +796,7 @@ fileprivate extension Database {
                     .including(optional: DBConversationMember.memberProfile)
             )
             .including(required: DBConversation.localState)
+            .including(optional: DBConversation.agentBuilderSummary)
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
@@ -822,6 +823,7 @@ private struct LightweightConversationDetails: Codable, FetchableRecord, Hashabl
     let conversationCreator: LightweightCreatorDetails?
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLocalState: ConversationLocalState
+    let conversationAgentBuilderSummary: DBAgentBuilderSummary?
 }
 
 private extension LightweightConversationDetails {
@@ -890,7 +892,8 @@ private extension LightweightConversationDetails {
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent
+            hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
         )
     }
 }

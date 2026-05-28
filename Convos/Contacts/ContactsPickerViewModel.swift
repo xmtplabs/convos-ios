@@ -166,18 +166,36 @@ final class ContactsPickerViewModel {
 
     private func applyContacts(_ contacts: [Contact]) {
         allContacts = contacts
-        // Prune selections that no longer exist in the contact list.
-        let known = Set(contacts.map(\.inboxId))
-        selectedInboxIds = selectedInboxIds.intersection(known)
+        // Prune selections to what's actually pickable. Pruning against the
+        // *visible* set (not just the known set) drops phantom selections --
+        // a preselected inboxId for a contact who's hidden because they're
+        // blocked / a verified agent / unnamed would otherwise stay in
+        // `selectedInboxIds`, counting toward `selectionCount` and passing
+        // `canConfirm` with no UI for the user to remove it.
+        let visibleInboxIds = Set(allContacts.filter(Self.isVisibleInPicker).map(\.inboxId))
+        selectedInboxIds = selectedInboxIds.intersection(visibleInboxIds)
         rebuildSections()
         isLoading = false
     }
 
+    /// Single source of truth for "is this contact a valid picker row".
+    /// Hidden from the picker:
+    ///  - blocked contacts (the user explicitly opted out of contacting them)
+    ///  - verified agents (kept in `DBContact` so chat-side surfaces can
+    ///    resolve them, but not a valid picker target since they don't accept
+    ///    1:1 DMs; agent rows have their own dedicated entry point)
+    ///  - contacts whose displayName is missing/empty (would render as
+    ///    "Somebody" via `resolvedDisplayName`; a name-less row isn't a
+    ///    useful picker target -- there's nothing to distinguish one
+    ///    "Somebody" from another)
+    private static func isVisibleInPicker(_ contact: Contact) -> Bool {
+        if contact.isBlocked || contact.isVerifiedAgent { return false }
+        guard let name = contact.displayName, !name.isEmpty else { return false }
+        return true
+    }
+
     private func rebuildSections() {
-        // Verified agents are kept in `DBContact` so chat-side surfaces can
-        // resolve them, but are hidden from the picker so users only see
-        // human candidates when starting / adding to a conversation.
-        let visible = allContacts.filter { !$0.isBlocked && !$0.isVerifiedAgent }
+        let visible = allContacts.filter(Self.isVisibleInPicker)
         let filtered = filterByQuery(visible)
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,

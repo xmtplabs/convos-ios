@@ -31,6 +31,7 @@ struct MessageGestureModifier: ViewModifier {
     @State private var hasAppeared: Bool = false
     @State private var interactiveExclusionFrames: [CGRect] = []
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
+    @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
     private var isSourceBubble: Bool {
         !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
@@ -63,11 +64,15 @@ struct MessageGestureModifier: ViewModifier {
             .offset(x: swipeOffset)
             .background(alignment: .leading) { swipeReplyIndicator }
             .overlay { gestureOverlay }
-            .accessibilityAction(named: "React") {
-                onToggleReaction(doubleTapEmoji, message.messageId)
-            }
-            .accessibilityAction(named: "Reply") {
-                onReply(message)
+            .accessibilityActions {
+                if !isReadOnly {
+                    Button("React") {
+                        onToggleReaction(doubleTapEmoji, message.messageId)
+                    }
+                    Button("Reply") {
+                        onReply(message)
+                    }
+                }
             }
     }
 
@@ -113,6 +118,7 @@ struct MessageGestureModifier: ViewModifier {
     }
 
     private func handleDoubleTap() {
+        if isReadOnly { return }
         if let onDoubleTap {
             onDoubleTap()
         } else {
@@ -132,6 +138,7 @@ struct MessageGestureModifier: ViewModifier {
     }
 
     private func handleSwipeOffsetChanged(_ offset: CGFloat) {
+        if isReadOnly { return }
         swipeOffset = offset
         externalSwipeOffset?.wrappedValue = offset
     }
@@ -141,7 +148,7 @@ struct MessageGestureModifier: ViewModifier {
             swipeOffset = 0
             externalSwipeOffset?.wrappedValue = 0
         }
-        if triggered { onReply(message) }
+        if triggered && !isReadOnly { onReply(message) }
     }
 
     private enum Constant {

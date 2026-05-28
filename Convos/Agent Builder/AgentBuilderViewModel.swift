@@ -90,11 +90,28 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
     static let googleCalendarServiceId: String = "googlecalendar"
 }
 
+/// How the builder was entered. Drives which surface (composer text
+/// field vs. voice-memo recorder) gets attention on first appear.
+/// `composer` is the default - the builder appears with its text field
+/// focused and the keyboard up. `voiceMemo` is the
+/// `AgentBuilderBar`'s waveform-button path: the builder appears
+/// without focusing the text field (so the keyboard stays down while
+/// the system mic-permission prompt resolves) and the view kicks off
+/// `startVoiceMemoRecording` on appear.
+enum AgentBuilderEntryMode {
+    case composer
+    case voiceMemo
+}
+
 @MainActor
 @Observable
 final class AgentBuilderViewModel: Identifiable {
     let id: UUID = UUID()
     let session: any SessionManagerProtocol
+    /// How the builder was entered. Read by `AgentBuilderView` on appear
+    /// to decide whether to focus the composer (and raise the keyboard)
+    /// or skip focus and start a voice-memo recording instead.
+    let entryMode: AgentBuilderEntryMode
 
     let newConversationViewModel: NewConversationViewModel
 
@@ -107,27 +124,29 @@ final class AgentBuilderViewModel: Identifiable {
         newConversationViewModel.conversationViewModel?.pendingMediaAttachments ?? []
     }
 
-    /// Shares the inner conversation VM's voice-memo recorder so the same
-    /// audio file flows through to `sendVoiceMemo()` on commit. The
-    /// builder's UI reacts to recorder state changes via Observation.
-    var voiceMemoRecorder: VoiceMemoRecorder? {
-        newConversationViewModel.conversationViewModel?.voiceMemoRecorder
-    }
+    /// Builder-owned voice-memo recorder. Lives directly on the
+    /// AgentBuilderViewModel (rather than proxying through the inner
+    /// `ConversationViewModel`) because `NewConversationViewModel` seats
+    /// a placeholder inner VM synchronously and swaps it for the real
+    /// one once `prepareNewConversation()` returns. A proxy would lose
+    /// any recording in flight at the moment of the swap; owning the
+    /// recorder here keeps it stable for the entire builder lifetime.
+    /// The recorded audio file (URL) is what flows through to
+    /// `sendBuilderBundle()` at commit, so post-Make path is unaffected.
+    let voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
 
     var isRecordingVoiceMemo: Bool {
-        guard let recorder = voiceMemoRecorder else { return false }
-        if case .recording = recorder.state { return true }
+        if case .recording = voiceMemoRecorder.state { return true }
         return false
     }
 
     var recordedVoiceMemo: (url: URL, duration: TimeInterval)? {
-        guard let recorder = voiceMemoRecorder else { return nil }
-        if case let .recorded(url, duration) = recorder.state { return (url, duration) }
+        if case let .recorded(url, duration) = voiceMemoRecorder.state { return (url, duration) }
         return nil
     }
 
     var voiceMemoAudioLevels: [Float] {
-        voiceMemoRecorder?.audioLevels ?? []
+        voiceMemoRecorder.audioLevels
     }
 
     /// Connection toggles set in the connections sheet. Drives chip rendering
@@ -173,8 +192,23 @@ final class AgentBuilderViewModel: Identifiable {
     @ObservationIgnored
     private var restoreComposerFocusAfterRecording: Bool = false
 
-    init(session: any SessionManagerProtocol) {
+    /// Attachments captured before the inner `ConversationViewModel`
+    /// finishes its placeholder-to-real swap. Drained into the real
+    /// inner VM from `onReachedReady`.
+    @ObservationIgnored
+    private var queuedInitialAttachments: [QueuedInitialAttachment] = []
+    @ObservationIgnored
+    private var hasDrainedInitialAttachments: Bool = false
+
+    private enum QueuedInitialAttachment {
+        case photo(UIImage)
+        case video(URL)
+        case file(url: URL, filename: String, mimeType: String, fileSize: Int)
+    }
+
+    init(session: any SessionManagerProtocol, entryMode: AgentBuilderEntryMode = .composer) {
         self.session = session
+        self.entryMode = entryMode
         self.newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newAgent
@@ -191,6 +225,7 @@ final class AgentBuilderViewModel: Identifiable {
         // both the placeholder VM and its real replacement stay suppressed.
         self.newConversationViewModel.suppressesContactCard = true
         self.newConversationViewModel.onReachedReady = { [weak self] in
+            self?.drainInitialAttachmentsIfNeeded()
             self?.requestAgentJoinIfNeeded()
         }
         cloudConnectionsCancellable = session.cloudConnectionRepository().connectionsPublisher()
@@ -206,31 +241,113 @@ final class AgentBuilderViewModel: Identifiable {
 
     // MARK: - Composer mutations
 
+    /// Bar-entry attachment paths (camera capture, photo picker, file
+    /// picker) call `addPhotoAttachment` etc. immediately after
+    /// `onStartAgent()` returns - i.e. while `NewConversationViewModel`
+    /// is still on its synchronously-created placeholder
+    /// `ConversationViewModel`. Forwarding straight to the inner VM at
+    /// that moment lands the attachment on the placeholder, which is
+    /// then discarded when `configureWithMessagingService` swaps in the
+    /// real VM. Queue any add that lands before the real-VM swap and
+    /// drain into the real VM at `onReachedReady`, so the eager-upload
+    /// pipeline fires on the real `cachedMessageWriter`.
     func addPhotoAttachment(_ image: UIImage) {
-        newConversationViewModel.conversationViewModel?.addPhotoAttachment(image)
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addPhotoAttachment(image)
+        } else {
+            queuedInitialAttachments.append(.photo(image))
+        }
     }
 
     func addVideoAttachment(url: URL) {
-        newConversationViewModel.conversationViewModel?.addVideoAttachment(url: url)
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addVideoAttachment(url: url)
+        } else {
+            queuedInitialAttachments.append(.video(url))
+        }
     }
 
     func addFileAttachment(url: URL, filename: String, mimeType: String, fileSize: Int) {
-        newConversationViewModel.conversationViewModel?.addFileAttachment(
-            url: url,
-            filename: filename,
-            mimeType: mimeType,
-            fileSize: fileSize
-        )
+        if hasDrainedInitialAttachments,
+           let convoVM = newConversationViewModel.conversationViewModel {
+            convoVM.addFileAttachment(
+                url: url,
+                filename: filename,
+                mimeType: mimeType,
+                fileSize: fileSize
+            )
+        } else {
+            queuedInitialAttachments.append(
+                .file(url: url, filename: filename, mimeType: mimeType, fileSize: fileSize)
+            )
+        }
     }
 
     func removeAttachment(id: UUID) {
         newConversationViewModel.conversationViewModel?.removeMediaAttachment(id: id)
     }
 
+    /// Flush attachments queued during the placeholder window into the
+    /// real inner conversation VM. Called once from `onReachedReady`;
+    /// the `hasDrainedInitialAttachments` flag then lets subsequent
+    /// adds short-circuit straight through.
+    /// Delete temp files owned by attachments still sitting in
+    /// `queuedInitialAttachments`. Called from `discard()` when the user
+    /// bails before the inner VM resolves -- the queue items haven't been
+    /// forwarded to the VM yet, so `cleanupPendingMediaAttachments()` on
+    /// the VM doesn't see them and their `temporaryDirectory` copies would
+    /// otherwise leak. Photos are in-memory `UIImage`s so they have no
+    /// file to delete.
+    private func cleanupQueuedInitialAttachments() {
+        let queued = queuedInitialAttachments
+        queuedInitialAttachments = []
+        for item in queued {
+            switch item {
+            case .photo:
+                continue
+            case .video(let url):
+                try? FileManager.default.removeItem(at: url)
+            case .file(let url, _, _, _):
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    private func drainInitialAttachmentsIfNeeded() {
+        guard !hasDrainedInitialAttachments else { return }
+        // Flip the flag only after confirming the inner VM is available.
+        // Setting it before the guard left the queue full + the flag latched
+        // true when `onReachedReady` ran without a VM ever resolving --
+        // subsequent `addPhotoAttachment`/etc. calls would then route to the
+        // queue (their `if hasDrained, let convoVM` short-circuit fails on
+        // nil VM), and the queue would never drain because the early
+        // `hasDrainedInitialAttachments` guard above returns immediately.
+        guard let convoVM = newConversationViewModel.conversationViewModel else { return }
+        hasDrainedInitialAttachments = true
+        let queued = queuedInitialAttachments
+        queuedInitialAttachments = []
+        for item in queued {
+            switch item {
+            case let .photo(image):
+                convoVM.addPhotoAttachment(image)
+            case let .video(url):
+                convoVM.addVideoAttachment(url: url)
+            case let .file(url, filename, mimeType, fileSize):
+                convoVM.addFileAttachment(
+                    url: url,
+                    filename: filename,
+                    mimeType: mimeType,
+                    fileSize: fileSize
+                )
+            }
+        }
+    }
+
     func startVoiceMemoRecording(restoreComposerFocusAfter: Bool) {
-        guard let recorder = voiceMemoRecorder else { return }
         do {
-            try recorder.startRecording()
+            try voiceMemoRecorder.startRecording()
             restoreComposerFocusAfterRecording = restoreComposerFocusAfter
         } catch {
             Log.error("AgentBuilder: failed to start voice memo recording: \(error.localizedDescription)")
@@ -242,14 +359,14 @@ final class AgentBuilderViewModel: Identifiable {
     /// kicked off the recording.
     @discardableResult
     func stopVoiceMemoRecording() -> Bool {
-        voiceMemoRecorder?.stopRecording()
+        voiceMemoRecorder.stopRecording()
         let shouldRestore = restoreComposerFocusAfterRecording
         restoreComposerFocusAfterRecording = false
         return shouldRestore
     }
 
     func cancelRecordedVoiceMemo() {
-        voiceMemoRecorder?.cancelRecording()
+        voiceMemoRecorder.cancelRecording()
     }
 
     /// Toggle a connection. Device kinds (Apple Health) are local-only —
@@ -608,11 +725,17 @@ final class AgentBuilderViewModel: Identifiable {
         // until `hasCommitted` flips. Cleaning them here would race the
         // in-flight upload and leave the bundle pointing at deleted paths.
         if !isCommitting {
-            voiceMemoRecorder?.cancelRecording()
+            voiceMemoRecorder.cancelRecording()
             // File picker stages copies into `FileManager.default.temporaryDirectory`;
             // those temp copies are otherwise orphaned because `dismissWithDeletion`
             // doesn't iterate `pendingMediaAttachments`. Clean them up explicitly.
             newConversationViewModel.conversationViewModel?.cleanupPendingMediaAttachments()
+            // Attachments staged before the inner VM resolved haven't been
+            // forwarded yet -- `cleanupPendingMediaAttachments()` only walks
+            // what's already inside that VM. Walk the local queue too so the
+            // file-picker / camera / photo-picker temp files don't leak when
+            // the user discards before the placeholder window closes.
+            cleanupQueuedInitialAttachments()
         }
 
         let conversation = newConversationViewModel.conversationViewModel?.conversation

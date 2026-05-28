@@ -12,6 +12,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
+    var isReadOnly: Bool = false
     /// Hide the trailing toolbar item (the "+" add menu / scan button)
     /// without removing the rest of the toolbar. Used by the Agent
     /// Builder to keep the bar clean during the draft phase, then bring
@@ -35,6 +36,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var didReleasePastThreshold: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     @State private var isKeyboardVisible: Bool = false
+    /// Lifted out of `MessagesView` so this view can gate the pager
+    /// against horizontal swipes while the long-press context menu is
+    /// presented.
+    @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -57,6 +62,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var messagesView: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return MessagesView(
+            contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
             messages: viewModel.messagesWithThinkingIndicators,
             invite: viewModel.invite,
@@ -86,6 +92,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
+            isReadOnly: isReadOnly,
             onUserInteraction: {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
@@ -151,7 +158,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             memberContactOverride: contactOverride,
             hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            headerMode: headerMode,
+            headerMode: isReadOnly ? .suppressed : headerMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onBottomOverscrollChanged: { overscroll in
@@ -264,7 +271,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isFull: viewModel.isFull,
             hasAgent: viewModel.conversation.hasAgent,
             isAgentJoinPending: viewModel.isAgentJoinPending,
-            isEnabled: messagesTopBarTrailingItemEnabled,
+            isEnabled: messagesTopBarTrailingItemEnabled && !isReadOnly,
             onConvoCode: {
                 if viewModel.isFull {
                     showingFullInfo = true
@@ -298,7 +305,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             Image(systemName: "viewfinder")
         }
         .buttonBorderShape(.circle)
-        .disabled(!messagesTopBarTrailingItemEnabled)
+        .disabled(!messagesTopBarTrailingItemEnabled || isReadOnly)
         .accessibilityLabel("Scan invite code")
         .accessibilityIdentifier("scan-invite-button")
     }
@@ -333,9 +340,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     var body: some View {
+        let contextMenuPresented: Bool = contextMenuState.isPresented
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             showsPageDots: !isKeyboardVisible,
+            dotsHidden: contextMenuPresented,
+            scrollingDisabled: contextMenuPresented,
             messagesPage: { messagesView },
             stuffPage: { stuffPage }
         )

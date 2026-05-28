@@ -69,6 +69,7 @@ struct AppSettingsView: View {
                 contactsSection
                 connectionsSection
                 subscriptionSection
+                devicesSection
                 customizeSection
                 linksSection
                 deleteSection
@@ -126,6 +127,33 @@ struct AppSettingsView: View {
     }
 
     @State private var contactsCount: Int = 0
+
+    @ViewBuilder
+    private var devicesSection: some View {
+        Section {
+            NavigationLink {
+                DevicesView(
+                    viewModel: DevicesViewModel(
+                        pairingServiceFactory: { [session] in
+                            DeferredInitiatorPairingService(session: session)
+                        },
+                        session: session,
+                        appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+                    )
+                )
+            } label: {
+                HStack {
+                    Image(systemName: "iphone.gen3.sizes")
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Devices")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .accessibilityIdentifier("devices-row")
+        } footer: {
+            Text("Manage and pair other devices")
+        }
+    }
 
     @ViewBuilder
     private var contactsSection: some View {
@@ -300,7 +328,6 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var linksSection: some View {
         Section {
-            securedByXMTPRow
             privacyTermsRow
             sendFeedbackRow
             if !ConfigManager.shared.currentEnvironment.isProduction {
@@ -310,28 +337,6 @@ struct AppSettingsView: View {
             linksFooter
         }
         .listRowSeparatorTint(.colorBorderSubtle)
-    }
-
-    @ViewBuilder
-    private var securedByXMTPRow: some View {
-        Button {
-            openExternalURL("https://xmtp.org")
-        } label: {
-            NavigationLink {
-                EmptyView()
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                    Text("Secured by ")
-                    Image("xmtpIcon")
-                        .renderingMode(.template)
-                        .foregroundStyle(.colorTextPrimary)
-                        .padding(.trailing, 1.0)
-                    Text("XMTP")
-                }
-                .foregroundStyle(.colorTextPrimary)
-            }
-        }
-        .foregroundStyle(.colorTextPrimary)
     }
 
     @ViewBuilder

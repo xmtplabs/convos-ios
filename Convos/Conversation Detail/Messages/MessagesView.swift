@@ -8,6 +8,11 @@ enum MessagesViewTopBarTrailingItem {
 }
 
 struct MessagesView<BottomBarContent: View>: View {
+    /// Owned by the parent (`ConversationView`) so it can react to the
+    /// long-press context menu being presented — currently used to lock
+    /// the conversation/stuff pager so a swipe mid-press doesn't drag the
+    /// user out of the conversation into the stuff page.
+    @Bindable var contextMenuState: MessageContextMenuState
     let conversation: Conversation
     let messages: [MessagesListItemType]
     let invite: Invite
@@ -34,6 +39,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let messagesTextFieldEnabled: Bool
+    var isReadOnly: Bool = false
     let onUserInteraction: () -> Void
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
@@ -92,7 +98,6 @@ struct MessagesView<BottomBarContent: View>: View {
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
-    @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: (() -> Void)?
     @State private var notifyMessageInputFocused: (() -> Void)?
@@ -152,68 +157,72 @@ struct MessagesView<BottomBarContent: View>: View {
                 notifyMessageInputFocused?()
             }
         }
+        .environment(\.isConversationReadOnly, isReadOnly)
         .safeAreaBar(edge: .bottom) {
-            MessagesBottomBar(
-                profile: profile,
-                displayName: $displayName,
-                messageText: $messageText,
-                pendingMediaAttachments: pendingMediaAttachments,
-                composerLinkPreview: composerLinkPreview,
-                pendingInviteURL: pendingInviteURL,
-                pendingInviteEmoji: pendingInviteEmoji,
-                pendingInviteConvoName: $pendingInviteConvoName,
-                pendingInviteImage: $pendingInviteImage,
-                pendingInviteExplodeDuration: pendingInviteExplodeDuration,
-                onSetInviteExplodeDuration: onSetInviteExplodeDuration,
-                onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                sendButtonEnabled: sendButtonEnabled,
-                profileImage: $profileImage,
-                isPhotoPickerPresented: $isPhotoPickerPresented,
-                focusState: $focusState,
-                focusCoordinator: focusCoordinator,
-                onboardingCoordinator: onboardingCoordinator,
-                messagesTextFieldEnabled: messagesTextFieldEnabled,
-                onProfilePhotoTap: onProfilePhotoTap,
-                onSendMessage: {
-                    scrollToBottom?()
-                    onSendMessage()
-                },
-                onClearInvite: onClearInvite,
-                onClearLinkPreview: onClearLinkPreview,
-                onClearMediaAttachment: onClearMediaAttachment,
-                onDisplayNameEndedEditing: onDisplayNameEndedEditing,
-                onPhotoSelected: onPhotoSelected,
-                onVideoSelected: onVideoSelected,
-                onFileSelected: onFileSelected,
-                onProfileSettings: onProfileSettings,
-                onVoiceMemoTap: onVoiceMemoTap,
-                voiceMemoRecorder: voiceMemoRecorder,
-                onSendVoiceMemo: onSendVoiceMemo,
-                onConvosAction: onConvosAction,
-                onDebugAttachmentTap: onDebugAttachmentTap,
-                onBaseHeightChanged: { height in
-                    bottomBarHeight = height
-                },
-                bottomBarContent: {
-                    bottomBarContent()
-                    if let replyingToMessage {
-                        ReplyComposerBar(
-                            message: replyingToMessage,
-                            shouldBlurPhotos: shouldBlurPhotos,
-                            audioTranscriptText: replyingToAudioTranscriptText,
-                            onDismiss: onCancelReply
-                        )
+            if !isReadOnly {
+                MessagesBottomBar(
+                    profile: profile,
+                    displayName: $displayName,
+                    messageText: $messageText,
+                    pendingMediaAttachments: pendingMediaAttachments,
+                    composerLinkPreview: composerLinkPreview,
+                    pendingInviteURL: pendingInviteURL,
+                    pendingInviteEmoji: pendingInviteEmoji,
+                    pendingInviteConvoName: $pendingInviteConvoName,
+                    pendingInviteImage: $pendingInviteImage,
+                    pendingInviteExplodeDuration: pendingInviteExplodeDuration,
+                    onSetInviteExplodeDuration: onSetInviteExplodeDuration,
+                    onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+                    sendButtonEnabled: sendButtonEnabled,
+                    profileImage: $profileImage,
+                    isPhotoPickerPresented: $isPhotoPickerPresented,
+                    focusState: $focusState,
+                    focusCoordinator: focusCoordinator,
+                    onboardingCoordinator: onboardingCoordinator,
+                    messagesTextFieldEnabled: messagesTextFieldEnabled,
+                    onProfilePhotoTap: onProfilePhotoTap,
+                    onSendMessage: {
+                        scrollToBottom?()
+                        onSendMessage()
+                    },
+                    onClearInvite: onClearInvite,
+                    onClearLinkPreview: onClearLinkPreview,
+                    onClearMediaAttachment: onClearMediaAttachment,
+                    onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                    onPhotoSelected: onPhotoSelected,
+                    onVideoSelected: onVideoSelected,
+                    onFileSelected: onFileSelected,
+                    onProfileSettings: onProfileSettings,
+                    onVoiceMemoTap: onVoiceMemoTap,
+                    voiceMemoRecorder: voiceMemoRecorder,
+                    onSendVoiceMemo: onSendVoiceMemo,
+                    onConvosAction: onConvosAction,
+                    onDebugAttachmentTap: onDebugAttachmentTap,
+                    onBaseHeightChanged: { height in
+                        bottomBarHeight = height
+                    },
+                    bottomBarContent: {
+                        bottomBarContent()
+                        if let replyingToMessage {
+                            ReplyComposerBar(
+                                message: replyingToMessage,
+                                shouldBlurPhotos: shouldBlurPhotos,
+                                audioTranscriptText: replyingToAudioTranscriptText,
+                                onDismiss: onCancelReply
+                            )
+                        }
                     }
-                }
-            )
-            .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
-            .allowsHitTesting(!contextMenuState.isPresented)
-            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
+                )
+                .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
+                .allowsHitTesting(!contextMenuState.isPresented)
+                .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
+            }
         }
         .overlay {
             MessageContextMenuOverlay(
                 state: contextMenuState,
                 shouldBlurPhotos: shouldBlurPhotos,
+                isReadOnly: isReadOnly,
                 onReaction: onReaction,
                 onReply: { message in
                     onReply(message)

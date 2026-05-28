@@ -45,10 +45,12 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
+    @Environment(\.scenePhase) private var scenePhase: ScenePhase
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+    @State private var staleDeviceSheetDismissed: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -151,10 +153,12 @@ struct ConversationsView: View {
 
     @ViewBuilder
     private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
+        let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
         ConversationPresenter(
             viewModel: convoVM,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: true,
+            isReadOnly: isReadOnly,
             sidebarColumnWidth: $sidebarWidth,
             appIndicatorContext: nil,
             sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
@@ -170,6 +174,7 @@ struct ConversationsView: View {
                 messagesTopBarTrailingItem: .share,
                 messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
+                isReadOnly: isReadOnly,
                 bottomBarContent: { EmptyView() }
             )
         }
@@ -311,8 +316,21 @@ struct ConversationsView: View {
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
+            staleDeviceSheetDismissed: $staleDeviceSheetDismissed,
             namespace: namespace
         ))
+        .onChange(of: viewModel.staleDeviceObserver.isDeviceRemoved) { _, isRemoved in
+            // If a fresh revoke arrives while the user has previously
+            // dismissed the sheet (e.g. after a separate device re-revokes
+            // them post-reset), clear the dismissal so the sheet returns.
+            if isRemoved { staleDeviceSheetDismissed = false }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Re-present the stale-device sheet on each foreground entry so
+            // a previously-dismissed banner doesn't permanently hide the
+            // fact that the device is in a terminal state.
+            if newPhase == .active { staleDeviceSheetDismissed = false }
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)
@@ -328,7 +346,17 @@ private struct ConversationsSheetModifier: ViewModifier {
     @Bindable var viewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
+    @Binding var staleDeviceSheetDismissed: Bool
     var namespace: Namespace.ID
+
+    private var staleDeviceSheetBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.staleDeviceObserver.isDeviceRemoved && !staleDeviceSheetDismissed },
+            set: { newValue in
+                if !newValue { staleDeviceSheetDismissed = true }
+            }
+        )
+    }
 
     func body(content: Content) -> some View {
         content
@@ -344,11 +372,29 @@ private struct ConversationsSheetModifier: ViewModifier {
                 )
                 .presentationDetents([.medium])
             }
+            .selfSizingSheet(
+                item: $viewModel.pendingJoinerPairing,
+                onDismiss: {
+                    viewModel.pendingPairDevice = nil
+                    viewModel.pendingJoinerPairing = nil
+                },
+                content: { pairingVM in
+                    JoinerPairingSheetView(viewModel: pairingVM)
+                        .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            )
             .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
                 ExplodeInfoView()
             }
             .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
                 PinLimitInfoView()
+            }
+            .selfSizingSheet(isPresented: staleDeviceSheetBinding) {
+                StaleDeviceSheet(
+                    onDelete: { viewModel.resetForStaleDevice() },
+                    onContinue: { staleDeviceSheetDismissed = true },
+                    isDeleting: viewModel.appSettingsViewModel.isDeleting
+                )
             }
             .background {
                 Color.clear

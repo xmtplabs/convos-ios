@@ -69,6 +69,10 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         // No-op for mock
     }
 
+    public func listInstallations(refreshFromNetwork: Bool) async throws -> [InstallationInfo] {
+        []
+    }
+
     public func deleteLocalDatabase() throws {
         // No-op for mock
     }
@@ -137,6 +141,13 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
     }
 
     public func findOrCreateDm(with peerInboxId: String) async throws -> XMTPiOS.Dm {
+        fatalError("not implemented in mock")
+    }
+
+    public func findOrCreateDm(
+        with peerInboxId: String,
+        disappearingMessageSettings: DisappearingMessageSettings?
+    ) async throws -> XMTPiOS.Dm {
         fatalError("not implemented in mock")
     }
 

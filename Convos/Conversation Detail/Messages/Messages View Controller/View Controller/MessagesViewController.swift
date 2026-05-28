@@ -18,12 +18,16 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
 
 /// Controls how the messages list's leading "empty state" content is presented.
 /// `.standard` shows either the invite QR (for the creator of an unlocked,
-/// non-full conversation) or the `ConversationInfoPreview`. `.hidden` suppresses
-/// the leading view entirely — used by the Agent Builder so the
-/// underlying chat doesn't flash a QR while the user is still drafting.
+/// non-full conversation) or the `ConversationInfoPreview`. `.hidden`
+/// suppresses the QR but still renders the "Invite members" affordance —
+/// used by the Agent Builder so the underlying chat doesn't flash a QR
+/// while the user is still drafting. `.suppressed` hides every leading
+/// affordance (QR, invite chip, info preview) — used by read-only
+/// surfaces where the user has no permission to add members.
 enum MessagesHeaderMode {
     case standard
     case hidden
+    case suppressed
 }
 
 final class MessagesViewController: UIViewController {
@@ -661,7 +665,7 @@ extension MessagesViewController {
         // redundant. Without a summary, `.hidden` header mode still renders the
         // `.invite` cell (which surfaces just the "Invite members" affordance - the
         // QR is gated inside the cell on the same `headerMode`).
-        if hasLoadedAllMessages, !conversation.isDraft, agentBuilderSummary == nil {
+        if hasLoadedAllMessages, !conversation.isDraft, agentBuilderSummary == nil, headerMode != .suppressed {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else if headerMode == .standard, !hasVerifiedConvosAgent {

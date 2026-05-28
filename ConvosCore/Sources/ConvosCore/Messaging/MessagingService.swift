@@ -350,4 +350,240 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         }
         try await sender.sendTypingIndicator(isTyping: isTyping)
     }
+
+    func initiatorPairingService() async throws -> any PairingServiceProtocol {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let inboxId = result.client.inboxId
+        let myProfile = try? await databaseReader.read { db in
+            try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db)
+        }
+        return LivePairingService(
+            role: .initiator(
+                client: result.client,
+                identityStore: identityStore,
+                environment: environment,
+                initiatorProfile: myProfile.map { profile in
+                    LivePairingService.InitiatorProfile(
+                        displayName: profile.name,
+                        imageAssetIdentifier: profile.imageAssetIdentifier
+                    )
+                }
+            )
+        )
+    }
+
+    /// Sends a fresh `ProfileSnapshot` (containing the current profile
+    /// metadata for every member) to every group the local user is in.
+    /// Used by the post-pair broadcaster so a newly-paired installation
+    /// has each conversation's member profiles populated locally without
+    /// having to rely on history sync — every group gets one snapshot
+    /// from the initiator immediately after the joiner's installation
+    /// becomes active.
+    ///
+    /// Best-effort per group: a single group's failure is logged and
+    /// skipped so a transient send error doesn't abort the fan-out.
+    /// Returns the count of groups a snapshot was successfully sent to
+    /// (0 when the inbox wasn't ready or the conversation list failed),
+    /// so callers can tell whether the fan-out actually happened.
+    @discardableResult
+    func broadcastProfileSnapshotsToAllGroups() async -> Int {
+        let result: InboxReadyResult
+        do {
+            result = try await sessionStateManager.waitForInboxReadyResult()
+        } catch {
+            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups skipped, inbox not ready: \(error)")
+            return 0
+        }
+        let conversations: [XMTPiOS.Conversation]
+        do {
+            conversations = try await result.client.conversationsProvider.list(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: nil,
+                consentStates: [.allowed],
+                orderBy: .createdAt
+            )
+        } catch {
+            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups list failed: \(error)")
+            return 0
+        }
+        // Sent sequentially rather than via a task group: `XMTPiOS.Group`
+        // is not `Sendable`, so fanning these into concurrent tasks would
+        // trip strict-concurrency errors. Post-pair is a one-time event,
+        // so the sequential cost is acceptable.
+        var sent: Int = 0
+        for conversation in conversations {
+            guard case let .group(group) = conversation else { continue }
+            do {
+                let memberInboxIds = try await group.members.map(\.inboxId)
+                try await ProfileSnapshotBuilder.sendSnapshot(
+                    group: group,
+                    memberInboxIds: memberInboxIds
+                )
+                sent += 1
+            } catch {
+                Log.warning("MessagingService: ProfileSnapshot send failed for group \(group.id): \(error.localizedDescription)")
+            }
+        }
+        Log.info("MessagingService: broadcasted ProfileSnapshot to \(sent) group(s) after pairing")
+        return sent
+    }
+
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        let installations = try await result.client.listInstallations(refreshFromNetwork: refreshFromNetwork)
+        return InstallationsSnapshot(
+            inboxId: result.client.inboxId,
+            currentInstallationId: result.client.installationId,
+            installations: installations.sorted { lhs, rhs in
+                switch (lhs.createdAt, rhs.createdAt) {
+                case let (l?, r?): return l < r
+                case (nil, _?): return false
+                case (_?, nil): return true
+                case (nil, nil): return lhs.id < rhs.id
+                }
+            }
+        )
+    }
+
+    func revokeOtherInstallations() async throws -> [String] {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+        let installations = try await result.client.listInstallations(refreshFromNetwork: true)
+        let currentId = result.client.installationId
+        let others = installations.map(\.id).filter { $0 != currentId }
+        guard !others.isEmpty else { return [] }
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: others
+        )
+        return others
+    }
+
+    func revokeInstallation(installationId: String) async throws {
+        let result = try await sessionStateManager.waitForInboxReadyResult()
+        guard installationId != result.client.installationId else {
+            throw MessagingServiceError.cannotRevokeCurrentDevice
+        }
+        guard let identity = try await identityStore.load() else {
+            throw MessagingServiceError.noIdentity
+        }
+
+        // Best-effort: notify the target installation BEFORE the revoke API
+        // call so it can transition to `.error(DeviceReplacedError)` and
+        // surface the `StaleDeviceBanner` in real time. libxmtp refuses
+        // `findOrCreateDm(with: ownInboxId)` (GroupError.memberCannotBeSelf),
+        // so instead we send the `DeviceRemovedContent` into the most
+        // recent existing conversation the inbox is in — both
+        // installations under the inbox are members of every such
+        // conversation, so the target receives the message via its
+        // shared message stream. Other inboxes in the conversation
+        // ignore the codec (it's a no-op for them).
+        //
+        // Falls through silently if the inbox has no conversations yet
+        // (rare edge case); the receiver still picks up the change on
+        // next session bootstrap or foreground entry.
+        await sendDeviceRemovedSignal(installationId: installationId, client: result.client)
+
+        try await result.client.revokeInstallations(
+            signingKey: identity.keys.signingKey,
+            installationIds: [installationId]
+        )
+    }
+}
+
+enum MessagingServiceError: Error {
+    case noIdentity
+    case cannotRevokeCurrentDevice
+}
+
+private extension MessagingService {
+    /// Sends a `DeviceRemovedContent` so the target installation sees
+    /// `StaleDeviceBanner` in real time. Best-effort — any failure is
+    /// logged and swallowed so the caller's revoke flow still proceeds.
+    ///
+    /// Channel-selection strategy (in priority order):
+    ///   1. The user's pre-warmed unused conversation (`DBConversation`
+    ///      with `isUnused == true`). It exists from silent identity
+    ///      creation, has only the user's own inbox as a member, and is
+    ///      hidden from the UI — so other users never see the codec and
+    ///      no peer logs a decode failure. This is the right channel
+    ///      99% of the time.
+    ///   2. Fallback: any real, allowed, non-unused conversation. We pay
+    ///      the price of a stray codec arriving at peers (they log a
+    ///      decode warning) only when no unused conversation exists.
+    ///   3. If neither exists, log + return; the revoked installation
+    ///      catches up via `assertInstallationActive` on its next
+    ///      foreground entry or auth bootstrap.
+    func sendDeviceRemovedSignal(installationId: String, client: any XMTPClientProvider) async {
+        if let conversationId = try? await findUnusedConversationId(),
+           let conversation = try? await client.conversationsProvider.findConversation(
+               conversationId: conversationId
+           ) {
+            do {
+                try await conversation.send(
+                    content: DeviceRemovedContent(revokedInstallationId: installationId),
+                    options: SendOptions(contentType: ContentTypeDeviceRemoved)
+                )
+                Log.info("MessagingService: sent DeviceRemoved for \(installationId) into hidden unused conversation \(conversationId)")
+                return
+            } catch {
+                Log.warning("MessagingService: send into unused conversation failed (\(error)), falling back to allowed conversation")
+            }
+        }
+
+        do {
+            let conversations = try await client.conversationsProvider.list(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                limit: 5,
+                consentStates: [.allowed],
+                orderBy: .createdAt
+            )
+            // Filter out unused conversations (they'd have been caught
+            // above; this is defensive in case the DB-level lookup
+            // returned nil but libxmtp still has the row).
+            let unusedIds = (try? await findAllUnusedConversationIds()) ?? []
+            guard let target = conversations.first(where: { !unusedIds.contains($0.id) }) else {
+                Log.warning("MessagingService: no usable conversation to send DeviceRemoved into — receiver will catch up on next foreground")
+                return
+            }
+            try await target.send(
+                content: DeviceRemovedContent(revokedInstallationId: installationId),
+                options: SendOptions(contentType: ContentTypeDeviceRemoved)
+            )
+            Log.info("MessagingService: sent DeviceRemoved for \(installationId) into fallback conversation \(target.id)")
+        } catch {
+            Log.warning("MessagingService: failed to send DeviceRemoved signal (proceeding with revoke): \(error)")
+        }
+    }
+
+    func findUnusedConversationId() async throws -> String? {
+        try await databaseReader.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .order(DBConversation.Columns.createdAt.desc)
+                .fetchOne(db)?
+                .id
+        }
+    }
+
+    func findAllUnusedConversationIds() async throws -> Set<String> {
+        try await databaseReader.read { db in
+            Set(
+                try DBConversation
+                    .filter(DBConversation.Columns.isUnused == true)
+                    .fetchAll(db)
+                    .map(\.id)
+            )
+        }
+    }
 }

@@ -106,14 +106,16 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentVerification?.isVerified == true
     }
 
-    /// Display label that always returns something printable. Falls back to a
-    /// truncated inboxId so the alphabetical browse list never renders an
-    /// empty cell.
+    /// Display label that always returns something printable. Falls back
+    /// to "Somebody" rather than a truncated inboxId -- exposing a hex
+    /// prefix in any user-facing surface reads as a bug. Same placeholder
+    /// the message-input and profile-settings surfaces use for unnamed
+    /// participants.
     public var resolvedDisplayName: String {
         if let name = displayName, !name.isEmpty {
             return name
         }
-        return shortInboxId
+        return "Somebody"
     }
 
     /// Used for alphabetical sectioning. Returns "#" for contacts whose
@@ -127,11 +129,6 @@ public struct Contact: Hashable, Identifiable, Sendable {
             return "#"
         }
         return String(firstUpper)
-    }
-
-    private var shortInboxId: String {
-        guard inboxId.count > 8 else { return inboxId }
-        return String(inboxId.prefix(8))
     }
 }
 
