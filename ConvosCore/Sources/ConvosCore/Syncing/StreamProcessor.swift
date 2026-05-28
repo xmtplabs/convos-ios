@@ -314,10 +314,15 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
-                    // Mark unread if needed
-                    if result.contentType.marksConversationAsUnread,
-                       conversation.id != activeConversationId,
-                       message.senderInboxId != params.client.inboxId {
+                    // Mark unread if needed (shared predicate with the
+                    // catch-up paths so the gate can't drift).
+                    if marksConversationUnread(
+                        contentType: result.contentType,
+                        senderInboxId: message.senderInboxId,
+                        currentInboxId: params.client.inboxId,
+                        conversationId: conversation.id,
+                        activeConversationId: activeConversationId
+                    ) {
                         try await localStateWriter.setUnread(true, for: conversation.id)
                     }
 

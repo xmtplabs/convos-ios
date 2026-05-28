@@ -391,22 +391,38 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         currentInboxId: String
     ) async {
         for message in messages {
-            guard !message.isProfileMessage, !message.isTypingIndicator else {
-                continue
-            }
-            if message.isReadReceipt {
-                await storeReadReceipt(message, conversationId: conversation.id)
-                continue
-            }
-            if message.isThinking {
-                await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
-                continue
-            }
             do {
-                _ = try await messageWriter.store(message: message, for: conversation)
+                _ = try await applyCaughtUpMessage(message, for: conversation, currentInboxId: currentInboxId)
             } catch {
                 Log.error("Failed to apply backlog supplemental message \(message.id) in \(conversation.id): \(error)")
             }
+        }
+    }
+
+    /// Applies one caught-up (backlog) message via the correct handler and
+    /// returns its content type when it was stored as a regular message (so
+    /// the caller can evaluate the unread gate), or `nil` for read receipts,
+    /// thinking, or ignored messages. Single routing shared by
+    /// `fetchAndStoreLatestMessages` and `applyBacklogSupplementals` so the
+    /// two catch-up paths can't drift. Reactions flow through `store`, which
+    /// routes them to the reaction handlers.
+    private func applyCaughtUpMessage(
+        _ message: DecodedMessage,
+        for conversation: DBConversation,
+        currentInboxId: String
+    ) async throws -> MessageContentType? {
+        switch CaughtUpMessageKind.of(message) {
+        case .ignore:
+            return nil
+        case .readReceipt:
+            await storeReadReceipt(message, conversationId: conversation.id)
+            return nil
+        case .thinking:
+            await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
+            return nil
+        case .reaction, .regular:
+            let result = try await messageWriter.store(message: message, for: conversation)
+            return result.contentType
         }
     }
 
@@ -855,23 +871,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         Log.debug("Found \(messages.count) new messages, catching up...")
 
-        // Store messages and track if conversation should be marked unread
+        // Store messages and track if conversation should be marked unread.
+        // `activeConversationId` is nil here: this path runs from conversation
+        // discovery and push handling, where there is no foreground
+        // conversation to exempt.
         var marksConversationAsUnread = false
         let myInboxId = currentInboxId
         for message in messages {
-            guard !message.isProfileMessage, !message.isTypingIndicator else { continue }
-            if message.isReadReceipt {
-                await storeReadReceipt(message, conversationId: conversation.id)
-                continue
-            }
-            if message.isThinking {
-                await storeThinking(message, conversationId: conversation.id, currentInboxId: myInboxId)
-                continue
-            }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
-            let result = try await messageWriter.store(message: message, for: dbConversation)
-            if result.contentType.marksConversationAsUnread,
-               message.senderInboxId != myInboxId {
+            guard let contentType = try await applyCaughtUpMessage(
+                message,
+                for: dbConversation,
+                currentInboxId: myInboxId
+            ) else { continue }
+            if marksConversationUnread(
+                contentType: contentType,
+                senderInboxId: message.senderInboxId,
+                currentInboxId: myInboxId,
+                conversationId: conversation.id,
+                activeConversationId: nil
+            ) {
                 marksConversationAsUnread = true
             }
             Log.debug("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
