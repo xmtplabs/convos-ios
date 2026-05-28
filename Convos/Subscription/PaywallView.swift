@@ -95,7 +95,6 @@ struct PaywallView: View {
                 .scaledToFit()
                 .foregroundStyle(.colorLava)
                 .frame(width: 20, height: 20)
-                .offset(x: 1)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(.colorFillPrimary))
         }
