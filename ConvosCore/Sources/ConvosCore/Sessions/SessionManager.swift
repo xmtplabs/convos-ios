@@ -257,8 +257,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
-    /// 7-day hold for stranger conversations before hard delete. Matches
-    /// the previous `QuarantineSweeper` TTL.
+    /// 7-day hold for stranger conversations before hard delete.
     private static let staleStrangerTTL: TimeInterval = 7 * 24 * 60 * 60
     /// Hourly cadence for the foreground GC loop.
     private static let staleStrangerGCInterval: TimeInterval = 60 * 60

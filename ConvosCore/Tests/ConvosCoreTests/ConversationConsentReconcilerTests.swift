@@ -123,9 +123,7 @@ struct ConversationConsentReconcilerTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAgent: false,
-            quarantinedAt: nil,
-            quarantineReleasedAt: nil
+            hasHadVerifiedAgent: false
         ).insert(db)
     }
 }

@@ -373,14 +373,6 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
-    // Note: a `contactBlockingDidChange` notification test used to live
-    // here. The notification was removed when conversation visibility
-    // moved to a live join — there's no longer a sweeper to wake on
-    // block / unblock. The `ConversationsRepository` re-evaluates the
-    // visibility predicate via GRDB's `ValueObservation` on the
-    // `contact` table; the integration is now implicit and covered by
-    // the repository tests.
-
     @Test("block followed by unblock returns the contact to the unblocked state")
     func testBlockUnblockRoundTrip() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

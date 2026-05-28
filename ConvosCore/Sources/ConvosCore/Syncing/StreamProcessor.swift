@@ -719,11 +719,9 @@ actor StreamProcessor: StreamProcessorProtocol {
     /// Used by the message-stream path (`processMessage` → group case) to
     /// gate whether messages from a particular conversation should be
     /// processed. This intentionally does not consult the contact list or
-    /// block list — per the PRD, blocking only affects new inbound
-    /// conversation invitations, not in-group messages from a previously-
-    /// accepted sender. For the new-conversation arrival path with full 3-
-    /// way decision granularity (including quarantine), use
-    /// `decideInboundConversation`.
+    /// block list — blocking only affects new inbound conversation
+    /// invitations, not in-group messages from an already-accepted sender.
+    /// New-conversation arrival uses `decideInboundConversation`.
     /// - Parameters:
     ///   - conversation: The conversation to check
     ///   - params: The sync client parameters
@@ -758,9 +756,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     /// Returns the inbound-conversation decision (deliver / reject) for a
     /// NEW inbound conversation. `processConversation` uses this to decide
-    /// persistence. The message-stream path continues to use the legacy
-    /// `shouldProcessConversation` so blocking does not silence in-group
-    /// messages.
+    /// persistence. The message-stream path uses `shouldProcessConversation`
+    /// so blocking does not silence in-group messages.
     ///
     /// Consent is the source of truth for feed visibility: a conversation
     /// reads as `.allowed` only once the local user has consented to it.

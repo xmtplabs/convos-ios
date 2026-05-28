@@ -120,7 +120,16 @@ final class ConversationConsentReconciler: @unchecked Sendable {
             ) else {
                 return
             }
-            try await conversation.updateConsentState(state: target.consent.consentState)
+            // Only hit the network when XMTP isn't already at the target.
+            // The mismatch was detected against the DB column, so XMTP can
+            // already match (e.g. a prior reconcile flipped XMTP but its DB
+            // write lost a race with a `ConversationWriter` save). Skipping
+            // the redundant `updateConsentState` also narrows the window in
+            // which a concurrent save can observe a stale XMTP value.
+            let targetState: ConsentState = target.consent.consentState
+            if try conversation.consentState() != targetState {
+                try await conversation.updateConsentState(state: targetState)
+            }
             let consent: Consent = target.consent
             let conversationId: String = target.conversationId
             try await databaseWriter.write { db in

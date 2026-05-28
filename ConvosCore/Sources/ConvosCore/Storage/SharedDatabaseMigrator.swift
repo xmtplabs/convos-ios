@@ -161,6 +161,13 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addAgentBuilderSummaryConnectionsAppliedAt", migrate: Self.addAgentBuilderSummaryConnectionsAppliedAt)
 
+        migrator.registerMigration("dropConversationQuarantineFields") { db in
+            try db.alter(table: "conversation") { t in
+                t.drop(column: "quarantinedAt")
+                t.drop(column: "quarantineReleasedAt")
+            }
+        }
+
         return migrator
     }
 

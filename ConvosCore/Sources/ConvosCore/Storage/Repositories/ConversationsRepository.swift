@@ -15,8 +15,8 @@ public protocol ConversationsRepositoryProtocol {
     /// already in a 1:1 with this person falls through to the picker
     /// (the user clearly wants to start a different chat). Honours
     /// the repo's `consent` scope and the same draft / expired /
-    /// quarantined / unused exclusions as `fetchAll`. Returns nil
-    /// when no other match exists.
+    /// unused exclusions as `fetchAll`. Returns nil when no other
+    /// match exists.
     func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation?
 }
 

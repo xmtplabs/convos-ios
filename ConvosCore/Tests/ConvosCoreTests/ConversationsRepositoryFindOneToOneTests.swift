@@ -24,8 +24,6 @@ struct ConversationsRepositoryFindOneToOneTests {
         consent: Consent = .allowed,
         isUnused: Bool = false,
         expiresAt: Date? = nil,
-        quarantinedAt: Date? = nil,
-        quarantineReleasedAt: Date? = nil,
         inviteTag: String? = nil
     ) throws -> String {
         try seedInbox(db: db)
@@ -53,9 +51,7 @@ struct ConversationsRepositoryFindOneToOneTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: isUnused,
-            hasHadVerifiedAgent: false,
-            quarantinedAt: quarantinedAt,
-            quarantineReleasedAt: quarantineReleasedAt
+            hasHadVerifiedAgent: false
         ).insert(db)
 
         try ConversationLocalState(
@@ -294,9 +290,7 @@ struct ConversationsRepositoryFindOneToOneTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAgent: false,
-            quarantinedAt: nil,
-            quarantineReleasedAt: nil
+            hasHadVerifiedAgent: false
         ).insert(db)
         try ConversationLocalState(
             conversationId: id,
