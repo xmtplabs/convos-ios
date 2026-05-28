@@ -300,12 +300,12 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var ctaSection: some View {
-        if viewModel.selectedPlan == .basic {
-            basicCTA
-        } else if viewModel.isChangingPeriod {
+        if viewModel.isChangingPeriod {
             switchPeriodButton
         } else if viewModel.isSubscribed {
             manageSubscriptionButton
+        } else if viewModel.selectedPlan == .basic {
+            basicCTA
         } else {
             upgradeButton
         }
@@ -317,6 +317,7 @@ struct PaywallView: View {
             let dismissAction = { dismiss() }
             Button(action: dismissAction) {
                 Text(SubscriptionCopy.stayBasicLabel)
+                    .foregroundStyle(.white)
             }
             .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
 
@@ -337,11 +338,12 @@ struct PaywallView: View {
                     Image(systemName: "bolt.fill")
                     Text(SubscriptionCopy.upgradeLabel)
                 }
+                .foregroundStyle(.white)
                 .opacity(isPurchasing ? 0 : 1)
                 .overlay {
                     if isPurchasing {
                         ProgressView()
-                            .tint(.colorTextPrimaryInverted)
+                            .tint(.white)
                             .controlSize(.small)
                     }
                 }
@@ -365,11 +367,12 @@ struct PaywallView: View {
             let purchaseAction = { _ = Task { await viewModel.purchase() } }
             Button(action: purchaseAction) {
                 Text("Switch to \(periodName)")
+                    .foregroundStyle(.white)
                     .opacity(isPurchasing ? 0 : 1)
                     .overlay {
                         if isPurchasing {
                             ProgressView()
-                                .tint(.colorTextPrimaryInverted)
+                                .tint(.white)
                                 .controlSize(.small)
                         }
                     }
@@ -414,7 +417,7 @@ struct PaywallView: View {
     @ViewBuilder
     private var legalFooter: some View {
         HStack(spacing: DesignConstants.Spacing.step6x) {
-            if let url = URL(string: "https://convos.org/terms") {
+            if let url = URL(string: "https://hq.convos.org/privacy-and-terms") {
                 Link("Terms & Privacy", destination: url)
                     .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
