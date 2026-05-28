@@ -176,7 +176,8 @@ struct BatchCatchUp {
             supplementalCount += entry.supplementalMessages.count
             await conversationWriter.applyBacklogSupplementals(
                 entry.supplementalMessages,
-                for: entry.conversation.dbConversation
+                for: entry.conversation.dbConversation,
+                currentInboxId: inboxId
             )
         }
 
@@ -337,9 +338,9 @@ struct BatchCatchUp {
         /// Goes through `IncomingMessageWriter.persist` in the batched transaction.
         case regular
         /// Handled post-transaction via `ConversationWriter.applyBacklogSupplementals`
-        /// (reactions, read receipts). These have per-type handlers that
-        /// the stream-driven path also uses; we apply them here because
-        /// the libxmtp stream doesn't replay historical backlog.
+        /// (reactions, read receipts, thinking moments). These have per-type
+        /// handlers that the stream-driven path also uses; we apply them here
+        /// because the libxmtp stream doesn't replay historical backlog.
         case supplemental
         /// Drop entirely (typing indicators, profile messages, undecodable).
         /// Typing indicators are inherently live-only; profile messages
@@ -351,7 +352,11 @@ struct BatchCatchUp {
         if message.isProfileMessage || message.isTypingIndicator {
             return .skip
         }
-        if message.isReadReceipt {
+        // Thinking messages back the thinking-detail view but must never be
+        // persisted as normal chat messages -- the stream path routes them
+        // through `ThinkingSessionWriter` (see `storeThinking`). Treat them
+        // as a supplemental so the batch applies them the same way.
+        if message.isReadReceipt || message.isThinking {
             return .supplemental
         }
         guard let contentType = try? message.encodedContent.type else {
