@@ -508,15 +508,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// when the agent actually joins). Used by
     /// `ConversationViewModel+ThinkingIndicators` to route agent
     /// thinking sessions under the contact card instead of the inline
-    /// footer, and forwarded to the messages-list repo so the processor
-    /// can suppress the legacy "Agent joined" update row for the
-    /// duration of the builder UX. Independent of whether the conversation
-    /// was created via the builder — the same flow will run when adding
-    /// an agent to an existing conversation.
-    var isInAgentBuilderFlow: Bool = false {
-        didSet {
-            messagesListRepository.isInAgentBuilderFlow = isInAgentBuilderFlow
-        }
+    /// footer, and read by the messages-list processor so it can suppress
+    /// the legacy "Agent joined" update row for the duration of the builder
+    /// UX. Independent of whether the conversation was created via the
+    /// builder — the same flow will run when adding an agent to an existing
+    /// conversation.
+    ///
+    /// Backed by `messagesListRepository` (its single owner, which feeds the
+    /// processor) rather than a mirrored stored copy, so there's one value to
+    /// keep in sync across the placeholder-to-real VM swap instead of two.
+    var isInAgentBuilderFlow: Bool {
+        get { messagesListRepository.isInAgentBuilderFlow }
+        set { messagesListRepository.isInAgentBuilderFlow = newValue }
     }
     @ObservationIgnored
     private var videoThumbnailTasks: [UUID: Task<Void, Never>] = [:]
