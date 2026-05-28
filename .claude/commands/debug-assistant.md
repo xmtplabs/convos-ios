@@ -149,7 +149,9 @@ CONV_ID=$(echo "$JOIN" | jq -r '.conversationId')
 echo "🤝 Joined conversation $CONV_ID"
 ```
 
-The CLI mints the attestation itself, signing `sha256(inboxId || now)` once the XMTP client materializes the inboxId. No re-mint, no manual `update-profile` push. The `--metadata emoji=…` is included in the join's profile and persists through every `ProfileUpdate` the serve loop publishes afterward.
+The CLI mints the attestation itself, signing `sha256(inboxId || now)` once the XMTP client materializes the inboxId. No re-mint needed.
+
+Caveat about `--metadata emoji=…`: it is written into the join's profile, but `convos agent serve` (Step 6) publishes its own `ProfileUpdate` at startup built only from `--name` / `--profile-name` — with no metadata — which **overwrites** the join's emoji with empty metadata. So the emoji set here does not survive the serve loop. You must re-push it after serve is up (Step 6 below). Verified on the simulator: without the re-push the agent renders as "FT"-style initials, not the emoji.
 
 **b. Attaching to an existing conversation:**
 
@@ -160,7 +162,7 @@ CONVOS_HOME="$AGENT_HOME" convos conversation update-profile "$CONV_ID" \
     --metadata "emoji=$EMOJI"
 ```
 
-(Skip the join — push the emoji via `update-profile` so the metadata is in the agent's stored profile, then go to step 6. The agent serve loop will publish a fresh ProfileUpdate at startup carrying the attestation + the metadata you just set.)
+(Skip the join — go straight to step 6. As with path (a), the serve loop's startup `ProfileUpdate` carries no metadata, so the emoji has to be pushed *after* serve is up via the stdin `update-profile` command in Step 6, not here.)
 
 ### Step 6: Serve
 
@@ -175,12 +177,23 @@ CONVOS_HOME="$AGENT_HOME" convos agent serve "$CONV_ID" \
 
 Keep this in the foreground — the user interacts via stdin (`{"type":"send","text":"…"}`, `{"type":"react",…}`, etc.). Ctrl-C to stop. Nothing persists beyond `~/.convos-debug-attest.pem`, the `.env` entry, and the agent's identity dir.
 
-When backgrounding via Claude Code (e.g. for QA), pipe a fifo into stdin so the process doesn't see EOF:
+`agent serve` has no `--metadata` flag, so the emoji set at join time is gone after the startup `ProfileUpdate`. Re-publish it through the running loop's stdin once serve is up:
 
 ```bash
-mkfifo /tmp/agent-stdin
-( exec 3>/tmp/agent-stdin; sleep 9999 ) &  # writer keeps fifo open
-cat /tmp/agent-stdin | convos agent serve … &
+echo '{"type":"update-profile","name":"'"$PERSONA_NAME"'","metadata":{"emoji":"'"$EMOJI"'"}}' > "$FIFO"
+```
+
+The loop logs `{"event":"sent","type":"update-profile",...,"metadata":{"emoji":"…"}}` and iOS re-renders the avatar with the emoji within a few seconds.
+
+When backgrounding via Claude Code (e.g. for QA), pipe a fifo into stdin so the process doesn't see EOF — and keep the fifo path so you can send the `update-profile` (and later commands) into it:
+
+```bash
+FIFO=/tmp/agent-stdin-$SLUG
+rm -f "$FIFO"; mkfifo "$FIFO"
+( exec 3>"$FIFO"; sleep 99999 ) &  # writer keeps fifo open
+cat "$FIFO" | CONVOS_HOME="$AGENT_HOME" convos agent serve … &
+# once serve logs the `ready` event, push the emoji:
+echo '{"type":"update-profile","name":"'"$PERSONA_NAME"'","metadata":{"emoji":"'"$EMOJI"'"}}' > "$FIFO"
 ```
 
 ### Step 7: Report
@@ -231,6 +244,7 @@ Subjects: `calendar`, `contacts`, `tasks`, `mail`, `photos`, `fitness`, `music`,
 - **iOS log shows "[Attestation] timestamp too old".** The agent's `attestation_ts` is older than 24 h. Just re-run `agent serve` — `--attestation-private-key` re-signs on each start.
 - **iOS log shows "[Attestation] cached result: unverified".** Either the JWKS pubkey doesn't match the private key (re-derive JWKS in step 2 and re-pin in step 3), or the kid in `Secrets.swift` differs from the kid used to sign — make sure both ends use the same `--kid`.
 - **Two agents joined; only one is verified.** Each XMTP identity has its own inboxId; each agent needs its own `CONVOS_HOME` so the CLI signs against the correct inboxId.
+- **Agent shows initials (e.g. "FT") instead of its emoji.** The `--metadata emoji=…` you passed at join time was overwritten by the serve loop's metadata-less startup `ProfileUpdate`. Push it again through the running loop's stdin: `echo '{"type":"update-profile","name":"<persona>","metadata":{"emoji":"🏋️"}}' > "$FIFO"`. iOS re-renders the avatar within a few seconds. (`agent serve` has no `--metadata` flag, so there's no way to carry it through startup — the post-serve push is the reliable path.)
 
 ## Cleanup
 
