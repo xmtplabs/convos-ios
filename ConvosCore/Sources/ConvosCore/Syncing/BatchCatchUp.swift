@@ -82,7 +82,8 @@ struct BatchCatchUp {
     func run(
         client: any XMTPClientProvider,
         inboxId: String,
-        since: Date?
+        since: Date?,
+        activeConversationId: String?
     ) async throws -> BatchCatchUpResult {
         let started = CFAbsoluteTimeGetCurrent()
         let cursorNs: Int64? = since.map { Int64($0.nanosecondsSince1970) }
@@ -119,7 +120,8 @@ struct BatchCatchUp {
         //     inbox -> `postLeftConversationNotification` after commit
         //   - conversations that received a message whose content type
         //     marks the conversation unread (from a sender that isn't
-        //     us) -> `setUnread(true, ...)` after commit
+        //     us, and that isn't the conversation the user is currently
+        //     viewing) -> `setUnread(true, ...)` after commit
         // Collected inside the transaction (only `persist` knows the
         // result) but dispatched after commit (notification posts +
         // localStateWriter writes are not part of this transaction).
@@ -152,7 +154,11 @@ struct BatchCatchUp {
                         entryMarksUnread = true
                     }
                 }
-                if entryMarksUnread {
+                // Skip the conversation the user is currently viewing, so a
+                // foreground catch-up back into the open conversation doesn't
+                // mark it unread. Mirrors the stream path's gate in
+                // `StreamProcessor` (`conversation.id != activeConversationId`).
+                if entryMarksUnread, entry.conversation.dbConversation.id != activeConversationId {
                     unreadIds.append(entry.conversation.dbConversation.id)
                 }
             }

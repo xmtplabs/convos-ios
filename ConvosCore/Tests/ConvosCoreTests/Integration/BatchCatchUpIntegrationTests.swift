@@ -90,7 +90,7 @@ struct BatchCatchUpIntegrationTests {
         let counter = CommitCounter()
         fixtures.databaseManager.dbWriter.add(transactionObserver: counter)
 
-        let result = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil)
+        let result = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
 
         // Headline assertions: the batch saw the conversation and at least
         // all N user messages. libxmtp emits group-membership update messages
@@ -123,6 +123,74 @@ struct BatchCatchUpIntegrationTests {
             try DBConversation.fetchOne(db, id: group.id)
         }
         #expect(conversationStored != nil, "Expected the group's DBConversation row to exist")
+
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Batch does not mark the conversation the user is viewing as unread")
+    func batchSkipsUnreadForActiveConversation() async throws {
+        let fixtures = TestFixtures()
+        try await fixtures.createTestClients()
+
+        guard let clientA = fixtures.clientA as? Client,
+              let clientB = fixtures.clientB as? Client,
+              let clientIdB = fixtures.clientIdB else {
+            throw TestError.missingClients
+        }
+        let inboxIdB = clientB.inboxID
+
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdB, clientId: clientIdB, createdAt: Date()).insert(db)
+        }
+
+        let group = try await clientA.conversations.newGroup(
+            with: [clientB.inboxID],
+            name: "Active Conversation Group"
+        )
+        try await clientB.conversations.sync()
+
+        let messageCount = 5
+        for i in 1...messageCount {
+            _ = try await group.send(content: "Active msg \(i)")
+        }
+
+        let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
+        let conversationWriter = ConversationWriter(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            messageWriter: messageWriter
+        )
+        let batch = BatchCatchUp(
+            conversationWriter: conversationWriter,
+            messageWriter: messageWriter,
+            databaseWriter: fixtures.databaseManager.dbWriter
+        )
+
+        let counter = CommitCounter()
+        fixtures.databaseManager.dbWriter.add(transactionObserver: counter)
+
+        // The user is currently viewing this conversation, so the backlog
+        // drain must persist the messages but skip the unread mark -- the
+        // same gate the stream path applies in `StreamProcessor`.
+        let result = try await batch.run(
+            client: clientB,
+            inboxId: inboxIdB,
+            since: nil,
+            activeConversationId: group.id
+        )
+
+        #expect(result.messagesProcessed >= messageCount, "Expected at least \(messageCount) messages persisted, got \(result.messagesProcessed)")
+        // One transaction for the persist, and crucially no second
+        // transaction for an unread mark -- the conversation is active.
+        #expect(counter.commitCount == 1, "Expected exactly 1 committed transaction (persist only, no unread mark) for the active conversation, got \(counter.commitCount)")
+
+        let isUnread = try await fixtures.databaseManager.dbReader.read { db in
+            try ConversationLocalState
+                .filter(ConversationLocalState.Columns.conversationId == group.id)
+                .fetchOne(db)?
+                .isUnread ?? false
+        }
+        #expect(isUnread == false, "Active conversation should not be marked unread after batch catch-up")
 
         try? await fixtures.cleanup()
     }
@@ -166,7 +234,8 @@ struct BatchCatchUpIntegrationTests {
         let result = try await batch.run(
             client: clientB,
             inboxId: inboxIdB,
-            since: Date(timeIntervalSinceNow: 60)
+            since: Date(timeIntervalSinceNow: 60),
+            activeConversationId: nil
         )
 
         #expect(result.conversationsProcessed == 0, "Expected 0 changed conversations, got \(result.conversationsProcessed)")

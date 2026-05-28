@@ -253,7 +253,13 @@ actor SyncingManager: SyncingManagerProtocol {
                 messageWriter: messageWriter,
                 databaseWriter: databaseWriter
             )
-            _ = try await batch.run(client: client, inboxId: identity.inboxId, since: since)
+            let activeId = await activeConversationId
+            _ = try await batch.run(
+                client: client,
+                inboxId: identity.inboxId,
+                since: since,
+                activeConversationId: activeId
+            )
         } catch {
             Log.error("catchup.batch.messages failed: \(error.localizedDescription)")
         }
