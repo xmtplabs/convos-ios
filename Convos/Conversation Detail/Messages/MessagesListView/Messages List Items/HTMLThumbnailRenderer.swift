@@ -7,17 +7,23 @@ import WebKit
 final class HTMLThumbnailRenderer {
     static let shared: HTMLThumbnailRenderer = HTMLThumbnailRenderer()
 
-    // 480x480 = the 160pt in-group tile rendered at @3x. @2x devices
-    // downscale the resulting image cleanly. Larger than necessary
-    // wastes work for every thumbnail; smaller would blur on @3x.
-    private static let renderSize: CGSize = CGSize(width: 480, height: 480)
+    // The on-screen HTML tile is 160pt. We lay the WebView out at exactly
+    // that size so the artifact's responsive layout matches the live tile
+    // (paired with `width=160` in viewportScript). Output crispness comes
+    // from snapshotOutputWidth, not from an oversized frame.
+    private static let tileSize: CGSize = CGSize(width: 160, height: 160)
+    // WKWebView.takeSnapshot re-rasterizes the render tree to this width
+    // (points), producing a 480px @3x image of the 160pt layout. This is a
+    // true re-raster - vector text / CSS stay crisp - not a bitmap upscale.
+    // @2x devices downscale 480 cleanly; smaller would blur on @3x.
+    private static let snapshotOutputWidth: CGFloat = 480.0
     fileprivate static let paintDelay: TimeInterval = 0.5
     private static let loadTimeout: TimeInterval = 15.0
-    // v5: render size dropped to 480x480 + viewport pinned to width=160
-    // + small-surface attrs stamped before any artifact JS runs. v4
-    // thumbnails (720x1200, no viewport / surface hints) get re-
-    // rendered on demand.
-    private static let cacheKeyPrefix: String = "html-thumb-v5-"
+    // v6: WebView frame matches the 160pt tile and takeSnapshot upsamples
+    // to 480px via snapshotWidth. v5 laid out at 160 inside a 480 frame, so
+    // content only filled the top-left 160x160 of the capture; those
+    // thumbnails get re-rendered on demand.
+    private static let cacheKeyPrefix: String = "html-thumb-v6-"
 
     /// Runs at .atDocumentEnd so the parser has populated <head> with
     /// the artifact's own <meta viewport>. We strip every existing
@@ -85,8 +91,8 @@ final class HTMLThumbnailRenderer {
         window.frame = CGRect(
             x: -100_000.0,
             y: -100_000.0,
-            width: renderSize.width,
-            height: renderSize.height
+            width: tileSize.width,
+            height: tileSize.height
         )
         window.windowLevel = .normal - 1
         window.isUserInteractionEnabled = false
@@ -166,7 +172,7 @@ final class HTMLThumbnailRenderer {
         config.userContentController.addUserScript(viewportUserScript)
 
         let webView = WKWebView(
-            frame: CGRect(origin: .zero, size: Self.renderSize),
+            frame: CGRect(origin: .zero, size: Self.tileSize),
             configuration: config
         )
         webView.scrollView.isScrollEnabled = false
@@ -181,7 +187,10 @@ final class HTMLThumbnailRenderer {
         window.addSubview(webView)
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
-            let coordinator = LoadCoordinator(renderSize: Self.renderSize) { [weak webView] result in
+            let coordinator = LoadCoordinator(
+                captureRect: CGRect(origin: .zero, size: Self.tileSize),
+                snapshotWidth: Self.snapshotOutputWidth
+            ) { [weak webView] result in
                 webView?.removeFromSuperview()
                 continuation.resume(returning: result)
             }
@@ -206,23 +215,29 @@ final class HTMLThumbnailRenderer {
 
 private final class LoadCoordinator: NSObject, WKNavigationDelegate {
     private let completion: (UIImage?) -> Void
-    private let renderSize: CGSize
+    private let captureRect: CGRect
+    private let snapshotWidth: CGFloat
     private var hasResumed: Bool = false
 
-    init(renderSize: CGSize, completion: @escaping (UIImage?) -> Void) {
-        self.renderSize = renderSize
+    init(captureRect: CGRect, snapshotWidth: CGFloat, completion: @escaping (UIImage?) -> Void) {
+        self.captureRect = captureRect
+        self.snapshotWidth = snapshotWidth
         self.completion = completion
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        let renderSize = renderSize
+        let captureRect = captureRect
+        let snapshotWidth = snapshotWidth
         DispatchQueue.main.asyncAfter(deadline: .now() + HTMLThumbnailRenderer.paintDelay) { [weak self, weak webView] in
             guard let self, !self.hasResumed, let webView else {
                 self?.resume(image: nil)
                 return
             }
             let snapshotConfig = WKSnapshotConfiguration()
-            snapshotConfig.rect = CGRect(origin: .zero, size: renderSize)
+            snapshotConfig.rect = captureRect
+            // Re-rasterize the 160pt render tree to a 480px image - crisp,
+            // not a bitmap upscale - so the tile fills the full capture.
+            snapshotConfig.snapshotWidth = NSNumber(value: Double(snapshotWidth))
             snapshotConfig.afterScreenUpdates = true
             webView.takeSnapshot(with: snapshotConfig) { image, error in
                 if let error {
