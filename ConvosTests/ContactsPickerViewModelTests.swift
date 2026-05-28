@@ -5,7 +5,10 @@ import XCTest
 
 @MainActor
 final class ContactsPickerViewModelTests: XCTestCase {
-    private var cancellables: Set<AnyCancellable> = []
+    // Test-only state, mutated only from main-thread test bodies and the
+    // nonisolated XCTest tearDown; nonisolated(unsafe) lets both reach it
+    // without an isolation hop.
+    nonisolated(unsafe) private var cancellables: Set<AnyCancellable> = []
 
     override func tearDown() {
         cancellables.removeAll()

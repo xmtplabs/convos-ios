@@ -2,9 +2,9 @@
 import ConvosCore
 import XCTest
 
-final class ContactCardModeTests: XCTestCase {
+final class ContactDetailModeTests: XCTestCase {
     func testStandaloneModeReportsNonScoped() {
-        let mode: ContactCardMode = .standalone
+        let mode: ContactDetailMode = .standalone
         XCTAssertFalse(mode.isScopedToConversation)
         XCTAssertNil(mode.conversationId)
         XCTAssertFalse(mode.canRemoveMembers)
@@ -12,10 +12,12 @@ final class ContactCardModeTests: XCTestCase {
     }
 
     func testScopedModeExposesPayload() {
-        let mode: ContactCardMode = .scopedToConversation(
+        let mode: ContactDetailMode = .scopedToConversation(
             conversationId: "convo-1",
             canRemoveMembers: true,
-            isCurrentUser: false
+            isCurrentUser: false,
+            invitedBy: nil,
+            joinedAt: nil
         )
         XCTAssertTrue(mode.isScopedToConversation)
         XCTAssertEqual(mode.conversationId, "convo-1")
@@ -24,10 +26,12 @@ final class ContactCardModeTests: XCTestCase {
     }
 
     func testScopedModeCurrentUserFlag() {
-        let mode: ContactCardMode = .scopedToConversation(
+        let mode: ContactDetailMode = .scopedToConversation(
             conversationId: "convo-1",
             canRemoveMembers: false,
-            isCurrentUser: true
+            isCurrentUser: true,
+            invitedBy: nil,
+            joinedAt: nil
         )
         XCTAssertTrue(mode.isCurrentUser)
         XCTAssertFalse(mode.canRemoveMembers)

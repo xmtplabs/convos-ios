@@ -1,5 +1,6 @@
 import Combine
 @testable import Convos
+import ConvosConnections
 import ConvosCore
 import XCTest
 
@@ -224,16 +225,18 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.inboxId(for: conversationId)
     }
 
-    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        try await base.requestAgentJoin(slug: slug, templateId: templateId, forceErrorCode: forceErrorCode)
-    }
-
-    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await base.redeemInviteCode(code)
-    }
-
-    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
-        try await base.fetchInviteCodeStatus(code)
+    func requestAgentJoin(
+        slug: String,
+        templateId: String?,
+        options: ConvosAPI.AgentJoinOptions?,
+        forceErrorCode: Int?
+    ) async throws -> ConvosAPI.AgentJoinResponse {
+        try await base.requestAgentJoin(
+            slug: slug,
+            templateId: templateId,
+            options: options,
+            forceErrorCode: forceErrorCode
+        )
     }
 
     func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
@@ -248,8 +251,52 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.voiceMemoTranscriptionService()
     }
 
-    func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
-        base.assistantFilesLinksRepository(for: conversationId)
+    func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository {
+        base.agentFilesLinksRepository(for: conversationId)
+    }
+
+    func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
+        base.agentBuilderSummaryWriter()
+    }
+
+    func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol {
+        base.agentBuilderSummaryRepository()
+    }
+
+    func thinkingSessionRepository() -> any ThinkingSessionRepositoryProtocol {
+        base.thinkingSessionRepository()
+    }
+
+    func connectionEnablementStore() -> any EnablementStore {
+        base.connectionEnablementStore()
+    }
+
+    func deviceDataSink(for kind: ConnectionKind) -> (any DataSink)? {
+        base.deviceDataSink(for: kind)
+    }
+
+    func joinerPairingService() -> any PairingServiceProtocol {
+        base.joinerPairingService()
+    }
+
+    func refreshAfterPairingCompleted() async {
+        await base.refreshAfterPairingCompleted()
+    }
+
+    func hasAnyUsedConversations() async -> Bool {
+        await base.hasAnyUsedConversations()
+    }
+
+    func commitClaimedConversation(id conversationId: String) async {
+        await base.commitClaimedConversation(id: conversationId)
+    }
+
+    func releaseClaimedConversation(id conversationId: String) async {
+        await base.releaseClaimedConversation(id: conversationId)
+    }
+
+    func discardClaimedConversation(id conversationId: String) async {
+        await base.discardClaimedConversation(id: conversationId)
     }
 
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
