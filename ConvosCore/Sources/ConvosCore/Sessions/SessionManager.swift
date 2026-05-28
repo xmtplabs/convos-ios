@@ -31,6 +31,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var contactBlockingObserver: NSObjectProtocol?
+    private var contactsWereAddedObserver: NSObjectProtocol?
     private var quarantineSweeperTask: Task<Void, Never>?
     private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
 
@@ -176,6 +177,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         if let contactBlockingObserver {
             NotificationCenter.default.removeObserver(contactBlockingObserver)
         }
+        if let contactsWereAddedObserver {
+            NotificationCenter.default.removeObserver(contactsWereAddedObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -203,7 +207,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
 
         // Trigger an immediate quarantine sweep when a contact gets
-        // unblocked (or blocked — though only unblocking has a UX-visible
+        // unblocked (or blocked - though only unblocking has a UX-visible
         // effect on existing held conversations). Without this, the user
         // would have to wait for the next hourly sweep or app-foreground
         // entry before quarantined-by-block conversations reappear in
@@ -214,6 +218,22 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             queue: .main
         ) { [weak self] _ in
             self?.runQuarantineSweep(reason: "contactBlockingDidChange")
+        }
+
+        // Trigger an immediate quarantine sweep when one or more new
+        // contact rows are committed. Batch callers (e.g.
+        // `ContactSyncCoordinator` syncing a whole group on first send)
+        // accumulate inserted inboxIds inside their transaction and post
+        // a single notification post-commit, so one sweep covers the
+        // entire batch. Without this, a conversation held in quarantine
+        // because its creator was a stranger only reappears on the next
+        // hourly or foreground sweep.
+        contactsWereAddedObserver = NotificationCenter.default.addObserver(
+            forName: .contactsWereAdded,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.runQuarantineSweep(reason: "contactsWereAdded")
         }
 
         scheduleQuarantineSweeper()
@@ -228,7 +248,22 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         let sweeper = QuarantineSweeper(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
+            contactsRepository: ContactsRepository(databaseReader: databaseReader),
+            // Bump XMTP-side consent to `.allowed` before the sweeper
+            // commits the DB promotion. Routed through the messaging
+            // service's `XMTPClientProvider`, the same path
+            // `ConversationConsentWriter.join` uses. Throws if the inbox
+            // isn't ready yet (first-launch race), if the XMTP client
+            // can't find the conversation in its local cache, or on any
+            // network error - the sweeper handles those by deferring the
+            // affected row to the next sweep cycle.
+            consentBumper: { [weak self] conversationId in
+                guard let self else { return }
+                let inboxReady = try await self.loadOrCreateService()
+                    .sessionStateManager
+                    .waitForInboxReadyResult()
+                try await inboxReady.client.update(consent: .allowed, for: conversationId)
+            }
         )
         cachedQuarantineSweeper = sweeper
 

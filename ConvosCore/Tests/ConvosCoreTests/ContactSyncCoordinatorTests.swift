@@ -409,4 +409,118 @@ struct ContactSyncCoordinatorTests {
         }
         #expect(inboxIds == Set(["alice"]))
     }
+
+    @Test("syncContacts posts a single `contactsWereAdded` notification covering the whole batch")
+    func testSyncContactsPostsSingleBatchNotification() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-batch"
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "alice", "bob", "carol"]
+            )
+        }
+
+        let recorder = SyncNotificationRecorder(name: .contactsWereAdded)
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+
+        // Allow the main-queue dispatch from `postContactsWereAdded` to drain.
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        #expect(recorder.notifications.count == 1, "Batch sync must coalesce N inserts into one notification")
+        let payload = recorder.notifications.first?.userInfo?["inboxIds"] as? [String] ?? []
+        #expect(Set(payload) == Set(["alice", "bob", "carol"]))
+
+        // Second sync is a no-op (already-synced) and must not re-fire.
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+        try await Task.sleep(nanoseconds: 30_000_000)
+        #expect(recorder.notifications.count == 1)
+
+        recorder.stop()
+    }
+
+    @Test("syncContacts does not post `contactsWereAdded` when no new contact rows are inserted")
+    func testSyncContactsDoesNotPostWhenNothingInserted() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let selfInboxId = "self-inbox"
+        let conversationId = "conv-noop"
+
+        // Pre-seed the conversation members as contacts so the coordinator's
+        // upserts merge into existing rows rather than inserting new ones.
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: selfInboxId, clientId: "client").save(db)
+            try Self.seedConversation(
+                db: db,
+                conversationId: conversationId,
+                creatorInboxId: selfInboxId,
+                memberInboxIds: [selfInboxId, "alice"]
+            )
+            try DBContact(
+                inboxId: "alice",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "Alice",
+                avatarURL: nil,
+                avatarSalt: nil,
+                avatarNonce: nil,
+                avatarKey: nil,
+                profileUpdatedAt: Date(timeIntervalSince1970: 1),
+                agentVerification: nil
+            ).save(db)
+        }
+
+        let recorder = SyncNotificationRecorder(name: .contactsWereAdded)
+
+        let coordinator = ContactSyncCoordinator(
+            databaseWriter: dbManager.dbWriter,
+            databaseReader: dbManager.dbReader
+        )
+        try await coordinator.syncContactsOnFirstMessage(for: conversationId)
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        #expect(recorder.notifications.isEmpty, "No new contact rows, so no sweep-trigger should fire")
+
+        recorder.stop()
+    }
+}
+
+/// Local copy of the recorder used by `ContactsWriterTests`. Kept private
+/// to this file so each test file can opt into the helper without coupling
+/// suites to a shared scaffolding module.
+private final class SyncNotificationRecorder: @unchecked Sendable {
+    private(set) var notifications: [Notification] = []
+    private var token: NSObjectProtocol?
+    private let lock: NSLock = NSLock()
+
+    init(name: Notification.Name) {
+        token = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let self else { return }
+            self.lock.lock()
+            self.notifications.append(notification)
+            self.lock.unlock()
+        }
+    }
+
+    func stop() {
+        if let token {
+            NotificationCenter.default.removeObserver(token)
+            self.token = nil
+        }
+    }
+
+    deinit { stop() }
 }

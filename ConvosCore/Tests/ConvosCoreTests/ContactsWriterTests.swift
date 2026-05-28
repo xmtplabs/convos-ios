@@ -373,6 +373,54 @@ struct ContactsWriterTests {
         #expect(count == 0)
     }
 
+    @Test("upsertContact posts `contactsWereAdded` only on a brand-new contact row")
+    func testUpsertPostsContactsWereAddedOnInsertOnly() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let inboxId = "inbox-add-1"
+
+        let recorder = NotificationRecorder(name: .contactsWereAdded)
+
+        // First upsert on a fresh inboxId: real insert, post fires with the
+        // singleton inboxId in the userInfo payload.
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Original",
+                profileUpdatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 1)
+        #expect(recorder.notifications.first?.userInfo?["inboxIds"] as? [String] == [inboxId])
+
+        // Idempotent re-upsert with an older timestamp: no row change, no post.
+        try await writer.upsertContact(
+            inboxId: inboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(
+                displayName: "Stale",
+                profileUpdatedAt: Date(timeIntervalSince1970: 50)
+            )
+        )
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 1)
+
+        // Profile-only update on an existing row: still no insert, no post.
+        try await writer.updateProfileIfNewer(
+            inboxId: inboxId,
+            profile: ContactProfileSnapshot(
+                displayName: "Renamed",
+                profileUpdatedAt: Date(timeIntervalSince1970: 200)
+            )
+        )
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(recorder.notifications.count == 1)
+
+        recorder.stop()
+    }
+
     @Test("Block and unblock post `contactBlockingDidChange` on real state changes only")
     func testBlockingPostsNotificationOnRealChanges() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

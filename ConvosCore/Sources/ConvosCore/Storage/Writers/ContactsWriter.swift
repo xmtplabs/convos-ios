@@ -12,6 +12,23 @@ public extension Notification.Name {
     static let contactBlockingDidChange: Notification.Name = Notification.Name(
         "ContactBlockingDidChange"
     )
+
+    /// Posted on the main queue after one or more brand-new `DBContact`
+    /// rows are committed. Idempotent re-upserts and profile-only updates
+    /// do not fire. `SessionManager` observes this to trigger an
+    /// immediate `QuarantineSweeper.sweep()` so a conversation that was
+    /// held in quarantine because its creator was a stranger is promoted
+    /// to the main feed as soon as the creator is added as a contact,
+    /// without waiting for the next hourly or foreground-entry sweep.
+    ///
+    /// Batch callers (e.g. `ContactSyncCoordinator` syncing every
+    /// non-self member of a group when the local user first acts there)
+    /// collect inserted inboxIds inside their transaction and emit a
+    /// single notification after the write commits. UserInfo:
+    /// `inboxIds: [String]`.
+    static let contactsWereAdded: Notification.Name = Notification.Name(
+        "ContactsWereAdded"
+    )
 }
 
 /// Snapshot of profile fields used when upserting a contact. Callers pass
@@ -94,13 +111,16 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
     ) async throws {
-        try await databaseWriter.write { db in
+        let didInsert: Bool = try await databaseWriter.write { db in
             try Self.upsert(
                 db: db,
                 inboxId: inboxId,
                 addedViaConversationId: addedViaConversationId,
                 profile: profile
             )
+        }
+        if didInsert {
+            ContactsWriter.postContactsWereAdded(inboxIds: [inboxId])
         }
     }
 
@@ -183,12 +203,45 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         }
     }
 
+    /// Posted on the main queue after one or more brand-new contact rows
+    /// are committed. Callers in a batch context (e.g.
+    /// `ContactSyncCoordinator`) accumulate inserted inboxIds inside
+    /// their `databaseWriter.write` closure and call this once after the
+    /// write returns, so the eventual `QuarantineSweeper.sweep()` sees
+    /// committed contact rows.
+    ///
+    /// No-op on an empty array so batch callers can call unconditionally
+    /// after their transaction.
+    static func postContactsWereAdded(inboxIds: [String]) {
+        guard !inboxIds.isEmpty else { return }
+        let userInfo: [String: Any] = ["inboxIds": inboxIds]
+        if Thread.isMainThread {
+            NotificationCenter.default.post(
+                name: .contactsWereAdded,
+                object: nil,
+                userInfo: userInfo
+            )
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .contactsWereAdded,
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
+        }
+    }
+
+    /// Returns `true` when this call inserted a brand-new `DBContact` row
+    /// for `inboxId`, `false` when an existing row was merged-into (or
+    /// left untouched). Callers use the return value to decide whether
+    /// to post `contactsWereAdded` after the transaction commits.
     fileprivate static func upsert(
         db: Database,
         inboxId: String,
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
-    ) throws {
+    ) throws -> Bool {
         if let existing = try DBContact.fetchOne(db, key: inboxId) {
             // Identity columns (addedAt, addedViaConversationId) are
             // intentionally preserved on re-upsert. The profile snapshot is
@@ -196,10 +249,10 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             // the stored one (see `replacingProfile`); untimestamped
             // re-upserts leave the existing row untouched.
             guard let merged = replacingProfile(of: existing, with: profile) else {
-                return
+                return false
             }
             try merged.save(db)
-            return
+            return false
         }
 
         let now = Date()
@@ -217,6 +270,7 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         )
         try row.save(db)
         Log.debug("Inserted new contact for inboxId=\(inboxId) via=\(addedViaConversationId ?? "nil")")
+        return true
     }
 
     /// Returns `existing` with its profile fields replaced by `profile` if
@@ -257,12 +311,18 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
 /// saves onto `DBContact` (`mirrorMemberProfileToContactInTransaction`,
 /// `saveMemberProfileAndMirrorToContactInTransaction`).
 extension ContactsWriter {
+    /// In-transaction upsert that returns `true` when a brand-new contact
+    /// row was inserted. Batch callers (e.g. `ContactSyncCoordinator`)
+    /// accumulate the inserted inboxIds inside their `databaseWriter.write`
+    /// closure and call `postContactsWereAdded(inboxIds:)` once after the
+    /// transaction commits, so a single sweep covers the whole batch.
+    @discardableResult
     static func upsertContactInTransaction(
         db: Database,
         inboxId: String,
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
-    ) throws {
+    ) throws -> Bool {
         try upsert(
             db: db,
             inboxId: inboxId,
