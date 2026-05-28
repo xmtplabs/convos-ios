@@ -387,7 +387,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// connection time forward, it does not replay historical backlog.
     func applyBacklogSupplementals(
         _ messages: [XMTPiOS.DecodedMessage],
-        for conversation: DBConversation
+        for conversation: DBConversation,
+        currentInboxId: String
     ) async {
         for message in messages {
             guard !message.isProfileMessage, !message.isTypingIndicator else {
@@ -395,6 +396,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             }
             if message.isReadReceipt {
                 await storeReadReceipt(message, conversationId: conversation.id)
+                continue
+            }
+            if message.isThinking {
+                await storeThinking(message, conversationId: conversation.id, currentInboxId: currentInboxId)
                 continue
             }
             do {
