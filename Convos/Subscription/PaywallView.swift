@@ -5,6 +5,7 @@ import SwiftUI
 struct PaywallView: View {
     @State private var viewModel: PaywallViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     private let onSkip: (() -> Void)?
 
     init(
@@ -186,6 +187,7 @@ struct PaywallView: View {
     }
 
     @State private var thumbDragOffset: CGFloat = 0
+    @State private var pricingSegmentWidth: CGFloat = 0
 
     @ViewBuilder
     private var plusPricing: some View {
@@ -219,8 +221,9 @@ struct PaywallView: View {
                 ZStack(alignment: .topLeading) {
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                         .fill(.colorFillSubtle)
+                    let thumbFill: Color = colorScheme == .dark ? .colorFillTertiary : .white
                     RoundedRectangle(cornerRadius: thumbRadius)
-                        .fill(Color.white)
+                        .fill(thumbFill)
                         .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
                         .frame(width: thumbWidth, height: thumbHeight)
                         .offset(x: thumbInset + clampedDrag, y: thumbInset)
@@ -229,6 +232,8 @@ struct PaywallView: View {
                             value: clampedDrag
                         )
                 }
+                .onAppear { pricingSegmentWidth = thumbWidth }
+                .onChange(of: thumbWidth) { _, newValue in pricingSegmentWidth = newValue }
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
@@ -239,11 +244,11 @@ struct PaywallView: View {
                 }
                 .onEnded { value in
                     let isMonthly: Bool = viewModel.selectedProduct?.period == .monthly
-                    let segmentGuess: CGFloat = 150
-                    let restX: CGFloat = isMonthly ? 0 : segmentGuess
+                    let segmentWidth: CGFloat = pricingSegmentWidth
+                    let restX: CGFloat = isMonthly ? 0 : segmentWidth
                     let landX: CGFloat = restX + value.translation.width
                     thumbDragOffset = 0
-                    if landX > segmentGuess / 2 {
+                    if segmentWidth > 0, landX > segmentWidth / 2 {
                         selectAnnualIfAvailable()
                     } else {
                         selectMonthlyIfAvailable()
