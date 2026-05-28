@@ -145,6 +145,7 @@ struct AppSettingsView: View {
                 HStack {
                     Image(systemName: "iphone.gen3.sizes")
                         .foregroundStyle(.colorTextPrimary)
+                        .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
                     Text("Devices")
                         .foregroundStyle(.colorTextPrimary)
                 }
