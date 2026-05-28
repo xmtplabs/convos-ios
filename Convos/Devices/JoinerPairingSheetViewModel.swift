@@ -41,6 +41,11 @@ final class JoinerPairingSheetViewModel: Identifiable {
     private let checkHasExistingData: (@MainActor () async -> Bool)?
     private var adoptedDisplayName: String?
     private var adoptedImageAssetIdentifier: String?
+    /// Guards `onPairingCompleted` against re-entry. The identity-share
+    /// message that drives completion can be redelivered by the stream, and
+    /// the adopt-profile callbacks + completion notification must run at
+    /// most once.
+    private var didComplete: Bool = false
 
     init(
         pairingId: String,
@@ -218,6 +223,8 @@ final class JoinerPairingSheetViewModel: Identifiable {
     }
 
     func onPairingCompleted() {
+        guard !didComplete else { return }
+        didComplete = true
         countdownTask?.cancel()
         title = "Adopting identity"
         flowState = .syncing
