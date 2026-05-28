@@ -157,7 +157,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "lanyardcard.fill")
                 .foregroundStyle(.colorTextPrimary)
-                .frame(width: Constant.rowIconWidth, alignment: .center)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
             Text("My info")
                 .foregroundStyle(.colorTextPrimary)
@@ -183,7 +183,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "person.crop.circle")
                 .foregroundStyle(.colorTextPrimary)
-                .frame(width: Constant.rowIconWidth, alignment: .center)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
             Text("Contacts")
                 .foregroundStyle(.colorTextPrimary)
@@ -218,7 +218,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "batteryblock.fill")
                 .foregroundStyle(.colorTextPrimary)
-                .frame(width: Constant.rowIconWidth, alignment: .center)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
             Text("Connections")
                 .foregroundStyle(.colorTextPrimary)
@@ -270,7 +270,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "bolt.fill")
                 .foregroundStyle(.colorTextPrimary)
-                .frame(width: Constant.rowIconWidth, alignment: .center)
+                .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
             Text("Power")
                 .foregroundStyle(.colorTextPrimary)
@@ -421,10 +421,6 @@ struct AppSettingsView: View {
     private func openExternalURL(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
         openURL(url)
-    }
-
-    private enum Constant {
-        static let rowIconWidth: CGFloat = 28
     }
 }
 
