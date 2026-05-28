@@ -274,6 +274,17 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         key: "conversationLocalState",
         using: localStateForeignKey
     )
+
+    /// The agent-builder summary row, present iff this conversation was
+    /// created through the Agent Builder (written at "Make"). Its presence
+    /// is the persisted marker that drives the pending-agent display
+    /// (placeholder "New Agent" name + add-agent avatar) until a verified
+    /// agent actually joins.
+    static let agentBuilderSummary: HasOneAssociation<DBConversation, DBAgentBuilderSummary> = hasOne(
+        DBAgentBuilderSummary.self,
+        key: "conversationAgentBuilderSummary",
+        using: ForeignKey([DBAgentBuilderSummary.Columns.conversationId], to: [Columns.id])
+    )
 }
 
 // MARK: - DBConversation Extensions

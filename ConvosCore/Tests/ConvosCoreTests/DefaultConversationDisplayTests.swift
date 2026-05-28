@@ -289,7 +289,8 @@ struct DefaultConversationDisplayTests {
             debugInfo: .empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
         )
         #expect(conversation.avatarType == .customImage)
     }
@@ -331,7 +332,8 @@ struct DefaultConversationDisplayTests {
             debugInfo: .empty,
             isLocked: false,
             agentJoinStatus: nil,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            wasCreatedFromAgentBuilder: false
         )
 
         if case .profile(let profile, _) = conversation.avatarType {
@@ -531,5 +533,111 @@ struct DefaultConversationDisplayTests {
             Profile.empty(inboxId: "anon2")
         ]
         #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 2 others")
+    }
+
+    // MARK: - Pending Agent Builder Draft Tests
+
+    @Test("Builder draft with no agent yet shows New Agent")
+    func builderDraftShowsNewAgent() {
+        let members = [ConversationMember.mock(isCurrentUser: true, name: "You")]
+        let conversation = Conversation.mock(
+            name: nil,
+            members: members,
+            wasCreatedFromAgentBuilder: true
+        )
+        #expect(conversation.isPendingAgentBuilderDraft == true)
+        #expect(conversation.computedDisplayName == "New Agent")
+    }
+
+    @Test("Builder draft with no agent yet uses pendingAgent avatar")
+    func builderDraftUsesPendingAgentAvatar() {
+        let members = [ConversationMember.mock(isCurrentUser: true, name: "You")]
+        let conversation = Conversation.mock(
+            name: nil,
+            members: members,
+            wasCreatedFromAgentBuilder: true
+        )
+        #expect(conversation.avatarType == .pendingAgent)
+    }
+
+    @Test("Builder draft with explicit name keeps the name")
+    func builderDraftWithNameKeepsName() {
+        let conversation = Conversation.mock(
+            name: "Tifoso",
+            members: [ConversationMember.mock(isCurrentUser: true, name: "You")],
+            wasCreatedFromAgentBuilder: true
+        )
+        #expect(conversation.computedDisplayName == "Tifoso")
+    }
+
+    @Test("Non-builder empty conversation still shows New Convo")
+    func nonBuilderEmptyShowsNewConvo() {
+        let members = [ConversationMember.mock(isCurrentUser: true, name: "You")]
+        let conversation = Conversation.mock(name: nil, members: members)
+        #expect(conversation.isPendingAgentBuilderDraft == false)
+        #expect(conversation.computedDisplayName == "New Convo")
+    }
+
+    @Test("Builder conversation that has had a verified agent is no longer pending")
+    func builderWithVerifiedAgentNotPending() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Tifoso")
+        ]
+        let conversation = Conversation.makePendingAgentTestConversation(
+            members: members,
+            wasCreatedFromAgentBuilder: true,
+            hasHadVerifiedAgent: true
+        )
+        #expect(conversation.isPendingAgentBuilderDraft == false)
+        // Falls through to the normal member-driven name.
+        #expect(conversation.computedDisplayName == "Tifoso")
+    }
+}
+
+private extension Conversation {
+    /// Builds a group conversation with explicit control over the two
+    /// flags the pending-agent-builder logic depends on. `Conversation.mock`
+    /// derives `hasHadVerifiedAgent` from member verification, so this
+    /// helper is needed to exercise the "had an agent, it left" case
+    /// independently of the member list.
+    static func makePendingAgentTestConversation(
+        members: [ConversationMember],
+        wasCreatedFromAgentBuilder: Bool,
+        hasHadVerifiedAgent: Bool
+    ) -> Conversation {
+        Conversation(
+            id: "test",
+            clientConversationId: "client-test",
+            creator: members.first ?? .mock(isCurrentUser: true),
+            createdAt: Date(),
+            consent: .allowed,
+            kind: .group,
+            name: nil,
+            description: nil,
+            members: members,
+            otherMember: nil,
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            lastMessage: nil,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            includeInfoInPublicPreview: false,
+            isDraft: false,
+            invite: nil,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            agentJoinStatus: nil,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+        )
     }
 }
