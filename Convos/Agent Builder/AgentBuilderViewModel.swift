@@ -426,6 +426,13 @@ final class AgentBuilderViewModel: Identifiable {
 
     // MARK: - Derived state
 
+    /// Whitespace-/newline-only composer text isn't a prompt — the commit
+    /// planner trims it away and never sends it, so Make must not treat it
+    /// as content either.
+    private var hasPromptText: Bool {
+        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Make button is enabled as soon as the composer has any content.
     /// Tapping Make before the state machine reaches `.ready` is fine —
     /// the morph animates the user into `ConversationView`, which surfaces
@@ -433,7 +440,7 @@ final class AgentBuilderViewModel: Identifiable {
     /// via `ConversationStateMachine.sendMessage` (which already
     /// serializes against `.ready`).
     var isMakeEnabled: Bool {
-        !composerText.isEmpty
+        hasPromptText
             || !pendingMediaAttachments.isEmpty
             || recordedVoiceMemo != nil
             || !enabledConnections.isEmpty
@@ -487,12 +494,6 @@ final class AgentBuilderViewModel: Identifiable {
         composerText = ""
 
         if let innerVM = newConversationViewModel.conversationViewModel {
-            // Allocate the bundle's `clientMessageId`s synchronously so they
-            // can land in `AgentBuilderSummary.bundledMessageIds` BEFORE
-            // the writer ever touches the DB. `MessagesListProcessor` then
-            // filters by id, not by timestamp — a slow multi-remote upload
-            // can no longer leak a bare bundle bubble past the summary card.
-            let textMessageId: String? = textToSend.isEmpty ? nil : UUID().uuidString
             let voiceMemoSnapshot: BuilderVoiceMemoSnapshot?
             if let recorded = recordedVoiceMemo {
                 voiceMemoSnapshot = BuilderVoiceMemoSnapshot(
@@ -503,25 +504,30 @@ final class AgentBuilderViewModel: Identifiable {
             } else {
                 voiceMemoSnapshot = nil
             }
-            let willSendBundle: Bool = voiceMemoSnapshot != nil || !innerVM.pendingMediaAttachments.isEmpty
-            let bundleMessageId: String? = willSendBundle ? UUID().uuidString : nil
-            var bundledMessageIds: Set<String> = []
-            if let textMessageId { bundledMessageIds.insert(textMessageId) }
-            if let bundleMessageId { bundledMessageIds.insert(bundleMessageId) }
 
             var cloudConnectionIdsByRawValue: [String: String] = [:]
             for (connection, cloudConnectionId) in capturedCloudConnectionIds {
                 cloudConnectionIdsByRawValue[connection.rawValue] = cloudConnectionId
             }
-            let summary: AgentBuilderSummary = buildSummary(
-                prompt: textToSend,
+            // `AgentBuilderCommitPlanner` allocates the bundle's
+            // `clientMessageId`s and assembles the summary so they land in
+            // `AgentBuilderSummary.bundledMessageIds` before the writer ever
+            // touches the DB. `MessagesListProcessor` then filters by id, not
+            // by timestamp — a slow multi-remote upload can no longer leak a
+            // bare bundle bubble past the summary card.
+            let attachments: [AgentBuilderSummaryAttachment] = buildSummaryAttachments(
                 voiceMemo: voiceMemoSnapshot,
                 mediaAttachments: innerVM.pendingMediaAttachments,
-                connections: enabledConnections,
-                cloudConnectionIds: cloudConnectionIdsByRawValue,
-                bundledMessageIds: bundledMessageIds
+                connections: enabledConnections
             )
-            innerVM.agentBuilderSummary = summary
+            let plan: AgentBuilderCommitPlan = AgentBuilderCommitPlanner.makePlan(
+                prompt: textToSend,
+                attachments: attachments,
+                cloudConnectionIds: cloudConnectionIdsByRawValue
+            )
+            let textMessageId: String? = plan.textMessageId
+            let bundleMessageId: String? = plan.bundleMessageId
+            innerVM.agentBuilderSummary = plan.summary
             // Hide the staged-chip strip on the chat composer for the
             // duration of the post-commit upload + publish window. Without
             // this the chat view emerges (under the fading-out builder)
@@ -548,12 +554,12 @@ final class AgentBuilderViewModel: Identifiable {
             // conversation send path stays per-attachment so per-item
             // reactions / replies keep working there; the bundle path is
             // builder-only.
-            let summaryToPersist: AgentBuilderSummary = summary
+            let summaryToPersist: AgentBuilderSummary = plan.summary
             let conversationIdForPersist: String = innerVM.conversation.id
             let sessionForPersist = session
-            Task { @MainActor [weak innerVM, textToSend, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
+            Task { @MainActor [weak innerVM, voiceMemoSnapshot, textMessageId, bundleMessageId, summaryToPersist, conversationIdForPersist, sessionForPersist] in
                 guard let innerVM else { return }
-                // Persist the summary (with its `bundledMessageIds`) BEFORE
+                // Persist the summary (with its `bundledMessageIds`) before
                 // any writer call. If the app dies between Make and the
                 // bundle landing, the filter set is already on disk — the
                 // next launch's `summaryPublisher` rehydrates the summary
@@ -577,7 +583,7 @@ final class AgentBuilderViewModel: Identifiable {
                     // stuck pulsing card.
                 }
                 await innerVM.sendBuilderBundle(
-                    text: textToSend,
+                    text: summaryToPersist.prompt,
                     voiceMemo: voiceMemoSnapshot,
                     textMessageId: textMessageId,
                     bundleMessageId: bundleMessageId
@@ -623,19 +629,18 @@ final class AgentBuilderViewModel: Identifiable {
         // path it replaced did not.
     }
 
-    /// Build the AgentBuilderSummary that renders as the first cell of the
-    /// post-Make conversation. Captures chip-ready data (thumbnails encoded as
-    /// PNG, file metadata, voice memo levels, connection identifiers) so the
-    /// summary view can render the same chips the composer just had — minus
-    /// the X buttons.
-    private func buildSummary(
-        prompt: String,
+    /// Map the composer's staged inputs into the `AgentBuilderSummaryAttachment`
+    /// list the summary card renders — thumbnails encoded as JPEG `Data`, file
+    /// metadata, voice memo levels, connection identifiers — so the summary view
+    /// can show the same chips the composer just had, minus the X buttons. The
+    /// id allocation, bundle detection, and summary assembly happen in
+    /// `AgentBuilderCommitPlanner`; this method owns only the iOS-side
+    /// (`UIImage`) encoding that can't live in ConvosCore.
+    private func buildSummaryAttachments(
         voiceMemo: BuilderVoiceMemoSnapshot?,
         mediaAttachments: [PendingMediaAttachment],
-        connections: Set<AgentBuilderConnection>,
-        cloudConnectionIds: [String: String],
-        bundledMessageIds: Set<String>
-    ) -> AgentBuilderSummary {
+        connections: Set<AgentBuilderConnection>
+    ) -> [AgentBuilderSummaryAttachment] {
         var attachments: [AgentBuilderSummaryAttachment] = []
         if let voiceMemo {
             attachments.append(.voiceMemo(id: UUID(), duration: voiceMemo.duration, levels: voiceMemo.levels))
@@ -658,18 +663,7 @@ final class AgentBuilderViewModel: Identifiable {
         for connection in connections.sorted(by: { $0.id < $1.id }) {
             attachments.append(.connection(id: UUID(), identifier: connection.rawValue))
         }
-        // `cutoffDate` still gates agent-side groups (pre-Make hello
-        // messages from the agent) — we don't control the agent's send
-        // timing so timestamps are the only signal there. User-side filtering
-        // is by-id via `bundledMessageIds`, which doesn't suffer the
-        // upload-stretch race that the old user-side cutoff pad did.
-        return AgentBuilderSummary(
-            prompt: prompt,
-            attachments: attachments,
-            cutoffDate: Date(),
-            bundledMessageIds: bundledMessageIds,
-            cloudConnectionIds: cloudConnectionIds
-        )
+        return attachments
     }
 
     private enum Constant {
@@ -777,6 +771,13 @@ final class AgentBuilderViewModel: Identifiable {
         didRequestAgentJoin = true
 
         agentJoinTask?.cancel()
+        // Capture `session` only, not `self`: the join needs nothing back from
+        // the VM, and not capturing `self` avoids a cycle through the stored
+        // `agentJoinTask`. `deinit` and `discard()` cancel the task on teardown,
+        // which is intentional here (and the opposite of the committed-
+        // conversation join in `ConversationViewModel`, which must survive the
+        // view closing): closing the builder discards the draft conversation --
+        // leaving / deleting the group -- so there's nothing left to join.
         agentJoinTask = Task { [session] in
             do {
                 _ = try await session.requestAgentJoin(slug: slug, options: .agentBuilder)

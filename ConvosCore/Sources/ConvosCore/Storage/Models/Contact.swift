@@ -53,6 +53,13 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// Not persisted on `DBContact`; overlaid at resolution time from the
     /// per-conversation member profile (see `Contact.resolved(member:...)`).
     public let agentInstanceId: String?
+    /// The agent's published attestation signature, read from the
+    /// per-conversation member profile metadata at resolution time. Not
+    /// persisted on `DBContact`. Surfaced on the contact card behind a
+    /// debug-build gate alongside `agentVerification` for diagnosing why an
+    /// agent reads as verified or unverified. Overlaid via
+    /// `with(agentAttestation:)`, applied last in `resolved(member:...)`.
+    public let agentAttestation: String?
 
     public init(
         inboxId: String,
@@ -68,7 +75,8 @@ public struct Contact: Hashable, Identifiable, Sendable {
         agentTemplateId: String? = nil,
         agentTemplatePublishedURL: String? = nil,
         profileEmoji: String? = nil,
-        agentInstanceId: String? = nil
+        agentInstanceId: String? = nil,
+        agentAttestation: String? = nil
     ) {
         self.inboxId = inboxId
         self.displayName = displayName
@@ -84,6 +92,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.agentTemplatePublishedURL = agentTemplatePublishedURL
         self.profileEmoji = profileEmoji
         self.agentInstanceId = agentInstanceId
+        self.agentAttestation = agentAttestation
     }
 
     /// True when this contact has the full set of AES-256-GCM material
@@ -295,7 +304,32 @@ extension Contact {
             agentTemplateId: agentTemplateId,
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
-            agentInstanceId: agentInstanceId
+            agentInstanceId: agentInstanceId,
+            agentAttestation: agentAttestation
+        )
+    }
+
+    /// Returns a copy with `agentAttestation` overlaid. The other `with(...)`
+    /// overlays don't carry this field, so apply this one last in
+    /// `resolved(member:...)` -- it copies every current field, so any prior
+    /// overlay in the chain is preserved.
+    public func with(agentAttestation: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId,
+            agentAttestation: agentAttestation
         )
     }
 }

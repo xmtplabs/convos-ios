@@ -164,6 +164,8 @@ struct ContactDetailView: View {
                     agentTemplateShareURL: agentTemplateShareURL,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,
+                    agentAttestation: contact.agentAttestation,
+                    agentVerification: contact.agentVerification,
                     onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -551,6 +553,12 @@ private struct ContactDetailActions: View {
     let agentInstanceId: String?
     /// True on Dev/Local builds. Hides the row on production.
     let showsInstanceIdRow: Bool
+    /// Agent's published attestation signature (`nil` when it joined without
+    /// attaching one). Surfaced in the debug-only attestation row.
+    let agentAttestation: String?
+    /// Last-known agent verification, drives the debug row's valid/invalid
+    /// readout alongside the raw attestation value.
+    let agentVerification: AgentVerification?
     let onSendMessage: () -> Void
     let onRemove: () -> Void
     let onToggleBlock: () -> Void
@@ -580,6 +588,17 @@ private struct ContactDetailActions: View {
             if showsInstanceIdRow, let agentInstanceId {
                 ContactDetailDebugInstanceIdRow(instanceId: agentInstanceId)
             }
+            #if DEBUG
+            // Agents only (provisioned, attested, or verified) -- skip human
+            // contacts, which carry no attestation. Shows even for unverified
+            // agents on purpose: the whole point is to see why one isn't valid.
+            if agentInstanceId != nil || agentAttestation != nil || agentVerification?.isVerified == true {
+                ContactDetailDebugAttestationRow(
+                    attestation: agentAttestation,
+                    verification: agentVerification
+                )
+            }
+            #endif
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
@@ -779,6 +798,86 @@ private struct ContactDetailDebugInstanceIdRow: View {
     }
 }
 
+#if DEBUG
+// MARK: - Debug attestation row (debug builds only)
+
+/// Debug-build-only row surfacing an agent's published attestation signature
+/// and whether it currently verifies, so engineers can diagnose in-app why an
+/// agent reads as verified or unverified (e.g. an agent that joined without
+/// publishing attestation shows "(none)" + "Not verified"). Sits directly
+/// below the instance-id row and mirrors its capsule + footer shape. Tap to
+/// copy the raw attestation value.
+private struct ContactDetailDebugAttestationRow: View {
+    let attestation: String?
+    let verification: AgentVerification?
+
+    @State private var didCopy: Bool = false
+
+    private var displayValue: String {
+        guard let attestation, !attestation.isEmpty else { return "(none)" }
+        return attestation
+    }
+
+    private var validityText: String {
+        switch verification {
+        case .verified(let issuer):
+            return "Valid - \(issuer.rawValue)"
+        case .unverified, .none:
+            return attestation == nil ? "No attestation" : "Invalid (not verified)"
+        }
+    }
+
+    private var isValid: Bool {
+        verification?.isVerified == true
+    }
+
+    var body: some View {
+        let validityColor: Color = isValid ? .colorTextPrimary : .colorTextSecondary
+        let footerText: String = didCopy ? "Copied" : validityText
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            Button(action: copyToClipboard) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Text("Attestation")
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+                    Image(systemName: isValid ? "checkmark.seal.fill" : "xmark.seal")
+                        .foregroundStyle(validityColor)
+                    Text(displayValue)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .background(Capsule().fill(.colorFillMinimal))
+            }
+            .buttonStyle(.plain)
+            .disabled(attestation == nil)
+            .accessibilityLabel("Attestation, \(validityText)")
+            .accessibilityHint("Double tap to copy")
+            .accessibilityIdentifier("contact-detail-debug-attestation")
+            Text(footerText)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+        }
+    }
+
+    private func copyToClipboard() {
+        guard let attestation else { return }
+        UIPasteboard.general.string = attestation
+        didCopy = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            didCopy = false
+        }
+    }
+}
+#endif
+
 // MARK: - Modals modifier
 
 private struct ContactDetailModalsModifier<
@@ -878,6 +977,7 @@ extension Contact {
         let templatePublishedURL: String? = member.profile.agentTemplatePublishedURL
         let emoji: String? = member.profile.profileEmoji
         let instanceId: String? = member.profile.agentInstanceId
+        let attestation: String? = member.profile.agentAttestation
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             return stored
                 .with(agentTemplateId: templateId)
@@ -885,6 +985,7 @@ extension Contact {
                 .with(profileEmoji: emoji)
                 .with(agentInstanceId: instanceId)
                 .with(agentVerification: member.agentVerification)
+                .with(agentAttestation: attestation)
         }
         return .synthetic(
             inboxId: member.profile.inboxId,
@@ -900,6 +1001,7 @@ extension Contact {
             profileEmoji: emoji,
             agentInstanceId: instanceId
         )
+        .with(agentAttestation: attestation)
     }
 }
 

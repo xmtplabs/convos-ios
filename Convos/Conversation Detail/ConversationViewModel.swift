@@ -165,8 +165,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var agentBuilderSummary: AgentBuilderSummary? {
         didSet {
             messagesListRepository.agentBuilderSummary = agentBuilderSummary
+            scheduleAgentBuilderPlaceholderExpiry()
         }
     }
+
+    /// Flips true once the post-commit agent-builder placeholder window
+    /// (`AgentBuilderPlaceholder.displayDuration` past the summary's
+    /// `cutoffDate`) elapses without a verified agent joining. Stops the
+    /// optimistic Convos-verified placeholder from lingering forever on an
+    /// agent that joined but never published attestation -- see
+    /// `shouldRenderAsPendingAgent`.
+    private var agentBuilderPlaceholderExpired: Bool = false
 
     // MARK: - Private
 
@@ -247,6 +256,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var agentBuilderSummaryCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
+    @ObservationIgnored
+    private var agentBuilderPlaceholderExpiryTask: Task<Void, Never>?
     @ObservationIgnored
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
@@ -346,15 +357,49 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// avatar / display name path takes over naturally.
     var shouldRenderAsPendingAgent: Bool {
         guard isInAgentBuilderFlow || agentBuilderSummary != nil else { return false }
-        // While the builder is on screen, always render as pending. The
-        // verified agent may have silently joined the draft conversation
-        // in the background, but the indicator should keep showing the
-        // generic agent icon + "New Agent" / "Draft" copy until the user
-        // taps Make. The post-commit branch (`agentBuilderSummary != nil`)
-        // still flips back to the real agent the moment the verified
-        // member appears.
-        if isInAgentBuilderFlow { return true }
-        return !conversation.members.contains(where: \.isVerifiedConvosAgent)
+        // Pre-commit: while drafting in the builder (no summary yet), always
+        // show the generic agent placeholder -- even if a verified agent has
+        // silently joined the draft in the background. The user hasn't tapped
+        // Make, so the indicator stays generic ("New Agent" / "Draft").
+        if isInAgentBuilderFlow, agentBuilderSummary == nil {
+            return true
+        }
+        // A real verified Convos agent joined -> drop the placeholder
+        // immediately, even while the builder view is still mounted. The
+        // builder view stays on screen through the post-Make morph, so gating
+        // on `isInAgentBuilderFlow` alone pinned "Joining..." on forever even
+        // after the agent verified.
+        guard !conversation.members.contains(where: \.isVerifiedConvosAgent) else { return false }
+        // No verified agent yet -> keep the optimistic verified placeholder
+        // only within the time-box past the commit. If the agent never
+        // verifies (e.g. it joins without publishing attestation), this stops
+        // the placeholder lingering forever and reading an unverified agent as
+        // a verified Convos one.
+        return !agentBuilderPlaceholderExpired
+    }
+
+    /// (Re)arm the post-commit placeholder time-box whenever the summary
+    /// changes. Anchored on the summary's `cutoffDate` so the window is correct
+    /// across relaunches: a summary rehydrated after its window has already
+    /// elapsed expires immediately rather than restarting the clock. Cleared
+    /// (no summary) resets to not-expired so a fresh draft starts clean.
+    private func scheduleAgentBuilderPlaceholderExpiry() {
+        agentBuilderPlaceholderExpiryTask?.cancel()
+        guard let summary = agentBuilderSummary else {
+            agentBuilderPlaceholderExpired = false
+            return
+        }
+        let remaining: TimeInterval = AgentBuilderPlaceholder.remainingDisplayTime(since: summary.cutoffDate)
+        guard remaining > 0 else {
+            agentBuilderPlaceholderExpired = true
+            return
+        }
+        agentBuilderPlaceholderExpired = false
+        agentBuilderPlaceholderExpiryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            self?.agentBuilderPlaceholderExpired = true
+        }
     }
 
     /// Inbox-to-contact-name lookup used for auto-generated unnamed-group
@@ -689,9 +734,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pendingTypingIndicatorTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
-        agentJoinTask?.cancel()
+        // Intentionally not cancelled here. A requested agent join is a
+        // durable backend trigger that should complete even after the user
+        // closes the conversation view (which deallocates this VM). The
+        // in-flight request holds `session` strongly and finishes on its own;
+        // tying it to the view lifecycle was cancelling joins mid-request, so
+        // the backend never provisioned the agent.
         convosButtonTask?.cancel()
         explodeDurationTask?.cancel()
+        agentBuilderPlaceholderExpiryTask?.cancel()
     }
 
     // MARK: - Init
@@ -927,6 +978,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .sink { [weak self] summary in
                 self?.agentBuilderSummary = summary
             }
+        // The summary set during `init` doesn't fire `agentBuilderSummary`'s
+        // `didSet`, so arm the placeholder time-box explicitly here (this runs
+        // from both init paths). Without it, a cold launch of an already-expired
+        // builder convo would briefly render the verified placeholder until the
+        // publisher's first emission rescheduled it.
+        scheduleAgentBuilderPlaceholderExpiry()
     }
 
     /// Subscribe to the GRDB-backed thinking session feed for this
@@ -2640,6 +2697,9 @@ extension ConversationViewModel {
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
+                await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
+                return
+            } catch let urlError as URLError where urlError.code == .cancelled {
                 await MainActor.run { self?.clearAgentJoinTask(id: taskId) }
                 return
             } catch let error as APIError {
