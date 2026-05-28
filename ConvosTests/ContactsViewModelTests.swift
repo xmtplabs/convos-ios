@@ -10,49 +10,55 @@ import XCTest
 final class ContactsViewModelTests: XCTestCase {
     // MARK: - Agents in the browse list
 
-    /// Verified agents appear in the browse list alongside humans (tagged
-    /// with the trailing Agent pill on their row). Regression guard: if the
-    /// browse list re-introduces an agent filter, agents the user shares a
-    /// conversation with would vanish from contacts.
-    func testSectionsIncludeVerifiedAgents() {
+    /// Only template-backed agents appear in the browse list (tagged with
+    /// the trailing Agent pill). Humans always show; agents without a
+    /// template id - legacy verified assistants and unverified agents -
+    /// stay in `DBContact` for chat-side resolution but are hidden here.
+    func testSectionsShowOnlyTemplateBackedAgents() {
         let alice = Contact.mock(displayName: "Alice")
-        let assistant = Contact.mock(
-            displayName: "Convos Assistant",
-            agentVerification: .verified(.convos)
+        let coffeeAgent = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
         )
-        let oauthAgent = Contact.mock(
-            displayName: "OAuth Bot",
-            agentVerification: .verified(.userOAuth)
+        let legacyAssistant = Contact.mock(
+            displayName: "Legacy Assistant",
+            agentVerification: .verified(.convos)
         )
         let unverifiedAgent = Contact.mock(
             displayName: "Unverified Bot",
             agentVerification: .unverified
         )
-        let repo = MockContactsRepository(contacts: [alice, assistant, oauthAgent, unverifiedAgent])
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant, unverifiedAgent])
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(
-            allIds.sorted(),
-            [alice.inboxId, assistant.inboxId, oauthAgent.inboxId, unverifiedAgent.inboxId].sorted()
-        )
+        // Human + template-backed agent show; template-less agents hidden.
+        XCTAssertEqual(allIds.sorted(), [alice.inboxId, coffeeAgent.inboxId].sorted())
     }
 
     /// `contactCount` drives the empty-state vs list-state branch in the
-    /// `ContactsView` body and the compose button's enabled flag. It now
-    /// counts agents too, since they appear in the list.
-    func testContactCountIncludesAgents() {
-        let assistant = Contact.mock(
-            displayName: "Convos Assistant",
+    /// `ContactsView` body and the compose button's enabled flag. It counts
+    /// only browsable rows - humans and template-backed agents - so a
+    /// template-less agent does not inflate the total.
+    func testContactCountCountsBrowsableRowsOnly() {
+        let alice = Contact.mock(displayName: "Alice")
+        let coffeeAgent = Contact.mock(
+            displayName: "Americano",
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-coffee"
+        )
+        let legacyAssistant = Contact.mock(
+            displayName: "Legacy Assistant",
             agentVerification: .verified(.convos)
         )
-        let repo = MockContactsRepository(contacts: [assistant])
+        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant])
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        XCTAssertEqual(viewModel.contactCount, 1)
-        XCTAssertFalse(viewModel.sections.isEmpty)
+        XCTAssertEqual(viewModel.contactCount, 2)
+        XCTAssertEqual(viewModel.sections.flatMap { $0.rows }.count, 2)
     }
 
     // MARK: - Search
@@ -70,19 +76,20 @@ final class ContactsViewModelTests: XCTestCase {
         XCTAssertEqual(allIds, [alice.inboxId])
     }
 
-    func testSearchMatchesHumansAndAgentsAlike() {
+    func testSearchMatchesHumansAndTemplateAgentsAlike() {
         let alice = Contact.mock(displayName: "Alice")
         let aliceAssistant = Contact.mock(
             displayName: "Alice Assistant",
-            agentVerification: .verified(.convos)
+            agentVerification: .verified(.convos),
+            agentTemplateId: "tmpl-alice"
         )
         let bob = Contact.mock(displayName: "Bob")
         let repo = MockContactsRepository(contacts: [alice, aliceAssistant, bob])
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        // Search now spans agents too: both Alice and the Alice Assistant
-        // match "alice"; Bob does not.
+        // Search spans template-backed agents too: both Alice and the
+        // (template-backed) Alice Assistant match "alice"; Bob does not.
         viewModel.searchQuery = "alice"
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds.sorted(), [alice.inboxId, aliceAssistant.inboxId].sorted())
