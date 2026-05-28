@@ -384,13 +384,17 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     ///
     /// Best-effort per group: a single group's failure is logged and
     /// skipped so a transient send error doesn't abort the fan-out.
-    func broadcastProfileSnapshotsToAllGroups() async {
+    /// Returns the count of groups a snapshot was successfully sent to
+    /// (0 when the inbox wasn't ready or the conversation list failed),
+    /// so callers can tell whether the fan-out actually happened.
+    @discardableResult
+    func broadcastProfileSnapshotsToAllGroups() async -> Int {
         let result: InboxReadyResult
         do {
             result = try await sessionStateManager.waitForInboxReadyResult()
         } catch {
             Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups skipped, inbox not ready: \(error)")
-            return
+            return 0
         }
         let conversations: [XMTPiOS.Conversation]
         do {
@@ -405,8 +409,12 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             )
         } catch {
             Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups list failed: \(error)")
-            return
+            return 0
         }
+        // Sent sequentially rather than via a task group: `XMTPiOS.Group`
+        // is not `Sendable`, so fanning these into concurrent tasks would
+        // trip strict-concurrency errors. Post-pair is a one-time event,
+        // so the sequential cost is acceptable.
         var sent: Int = 0
         for conversation in conversations {
             guard case let .group(group) = conversation else { continue }
@@ -422,6 +430,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             }
         }
         Log.info("MessagingService: broadcasted ProfileSnapshot to \(sent) group(s) after pairing")
+        return sent
     }
 
     func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {

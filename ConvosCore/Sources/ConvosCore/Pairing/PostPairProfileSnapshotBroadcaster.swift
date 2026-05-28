@@ -1,17 +1,35 @@
 import Foundation
 
+/// Narrow slice of `MessagingServiceProtocol` the post-pair broadcaster
+/// needs. Segregating it keeps the broadcaster unit-testable with a tiny
+/// double instead of the full messaging-service surface.
+/// `MessagingServiceProtocol` inherits this, so `any MessagingServiceProtocol`
+/// satisfies it directly.
+public protocol PostPairBroadcastMessaging: Sendable {
+    func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot
+    @discardableResult
+    func broadcastProfileSnapshotsToAllGroups() async -> Int
+}
+
 public protocol PostPairProfileSnapshotBroadcasterProtocol: Sendable {
-    /// Waits for the joiner's installation to appear in the inbox's
-    /// installation set, then broadcasts a `ProfileSnapshot` to every
-    /// group the initiator is in. One-shot; idempotent if called
+    /// Waits for an installation outside `baseline` to appear in the
+    /// inbox's installation set, then broadcasts a `ProfileSnapshot` to
+    /// every group the initiator is in. One-shot; idempotent if called
     /// multiple times (each call independently polls + sends).
     ///
-    /// Returns `true` if a new non-current installation was detected
+    /// `baseline` MUST be captured before the joiner's installation could
+    /// have surfaced -- i.e. at the moment pairing completes, before any
+    /// install-list refresh that waits for the joiner. Capturing it later
+    /// (e.g. after a poll that already saw the joiner) folds the joiner
+    /// into the baseline, so the diff finds nothing new and the broadcast
+    /// never fires.
+    ///
+    /// Returns `true` if an installation beyond `baseline` was detected
     /// within the polling window and the broadcast ran; `false` if the
-    /// window elapsed with no new installation visible (snapshot send
-    /// is skipped in that case, since the new installation is the
-    /// whole reason we'd send).
-    func runAfterPairing() async -> Bool
+    /// window elapsed with no new installation visible (snapshot send is
+    /// skipped in that case, since the new installation is the whole
+    /// reason we'd send).
+    func runAfterPairing(baseline: Set<String>) async -> Bool
 }
 
 /// Orchestrates the initiator-side post-pair profile-snapshot fan-out.
@@ -36,33 +54,36 @@ public protocol PostPairProfileSnapshotBroadcasterProtocol: Sendable {
 /// each group, receives those snapshots via its regular message
 /// stream and hydrates its local DB.
 public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBroadcasterProtocol, @unchecked Sendable {
-    private let messagingService: any MessagingServiceProtocol
+    private let messagingService: any PostPairBroadcastMessaging
+    private let pollSchedule: [TimeInterval]
 
-    public init(messagingService: any MessagingServiceProtocol) {
+    public init(messagingService: any PostPairBroadcastMessaging) {
         self.messagingService = messagingService
+        self.pollSchedule = Constant.pollSchedule
     }
 
-    public func runAfterPairing() async -> Bool {
-        // Take an immediate baseline of the inbox's currently-visible
-        // installation IDs *before* the polling loop begins. The
-        // joiner's just-published key-package is the installation that
-        // appears in subsequent snapshots but is NOT in this baseline.
-        // Without the diff, an initiator who already had a paired
-        // device (or any other prior installation) would see a non-
-        // self installation immediately and broadcast before the
-        // joiner's installation actually joined the groups' MLS state -
-        // at which point the snapshot misses the joiner entirely and
-        // the bug we set out to fix recurs.
-        guard let baseline = await fetchInstallationIds() else {
-            Log.warning("PostPairProfileSnapshotBroadcaster: baseline installations fetch failed; skipping snapshot fan-out to avoid an unanchored broadcast")
-            return false
-        }
+    /// Test seam: inject a faster poll schedule so unit tests don't sleep
+    /// through the production cadence.
+    init(messagingService: any PostPairBroadcastMessaging, pollSchedule: [TimeInterval]) {
+        self.messagingService = messagingService
+        self.pollSchedule = pollSchedule
+    }
+
+    public func runAfterPairing(baseline: Set<String>) async -> Bool {
+        // `baseline` is the installation set captured by the caller
+        // *before* the post-pair install-list refresh ran, so the
+        // joiner's just-published key-package is guaranteed to be absent
+        // from it. Any installation that shows up beyond this set is the
+        // joiner. (Capturing the baseline here, after the refresh already
+        // waited for the joiner, would fold it in and the broadcast would
+        // never fire.)
         let didAppear = await waitForInstallationAdded(beyond: baseline)
         guard didAppear else {
             Log.warning("PostPairProfileSnapshotBroadcaster: no new installation appeared within polling window; skipping snapshot fan-out")
             return false
         }
-        await messagingService.broadcastProfileSnapshotsToAllGroups()
+        let sent = await messagingService.broadcastProfileSnapshotsToAllGroups()
+        Log.info("PostPairProfileSnapshotBroadcaster: broadcast ProfileSnapshot to \(sent) group(s)")
         return true
     }
 
@@ -72,7 +93,7 @@ public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBr
     /// wasn't in the baseline set; false if the entire schedule
     /// elapses with no new installation.
     private func waitForInstallationAdded(beyond baseline: Set<String>) async -> Bool {
-        for delay in Constant.pollSchedule {
+        for delay in pollSchedule {
             if delay > 0 {
                 try? await Task.sleep(for: .seconds(delay))
             }

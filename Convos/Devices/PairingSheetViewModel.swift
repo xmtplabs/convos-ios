@@ -202,7 +202,10 @@ final class PairingSheetViewModel {
                 NotificationCenter.default.post(
                     name: .pairingDidCompleteSuccessfully,
                     object: nil,
-                    userInfo: ["joinerDeviceName": deviceName]
+                    // `isInitiator` gates the post-pair profile-snapshot
+                    // broadcast to the initiator side only (the joiner
+                    // receives the snapshots, it doesn't re-send them).
+                    userInfo: ["joinerDeviceName": deviceName, "isInitiator": true]
                 )
                 title = "Device added"
                 flowState = .completed(deviceName: deviceName)
