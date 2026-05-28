@@ -60,20 +60,11 @@ final class ContactsViewModel {
         isLoading = false
     }
 
-    /// Single source of truth for "is this contact rendered in the list".
-    /// Template-backed agents are shown (tagged with the trailing Agent
-    /// pill on their row) so the user can start a conversation with one;
-    /// legacy verified assistants without a template stay hidden. Humans
-    /// whose displayName is missing/empty render as "Somebody" via
-    /// `resolvedDisplayName` and carry no useful info for the browser, so
-    /// they're hidden until a profile name arrives. All agents remain in
-    /// `DBContact` so chat-side surfaces can still resolve them.
+    /// Single source of truth for "is this contact rendered in the list" -
+    /// `Contact.isVisibleInContactsList`, shared with the App Settings
+    /// "Contacts" badge so the count and the list always agree.
     private static func isVisibleInList(_ contact: Contact) -> Bool {
-        if contact.agentVerification != nil {
-            return contact.agentTemplateId != nil
-        }
-        guard let name = contact.displayName, !name.isEmpty else { return false }
-        return true
+        contact.isVisibleInContactsList
     }
 
     /// Recomputes `sections` from `allContacts` honoring the current
