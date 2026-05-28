@@ -4,10 +4,9 @@ import Testing
 
 @Suite("InboundConversationFilter Tests", .serialized)
 struct InboundConversationFilterTests {
-    // Visibility used to be a third decision (`.quarantine`) here. That
-    // moved to `DBConversation.visibleInFeedPredicate` — a live join
-    // the `ConversationsRepository` runs at read time. The filter is
-    // now a thin gate that drops only `.denied` conversations.
+    // The filter is a thin persistence gate: it drops only `.denied`
+    // conversations. Feed visibility is decided downstream from the
+    // stored consent state, not here.
 
     @Test(".allowed → deliver")
     func testAllowedDelivers() {

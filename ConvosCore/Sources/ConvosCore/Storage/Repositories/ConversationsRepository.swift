@@ -31,19 +31,6 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         self.consent = consent
         self.conversationsPublisher = ValueObservation
             .tracking { db in
-                // `composeAllConversations` filters via
-                // `DBConversation.visibleInFeedPredicate`, which embeds
-                // a raw SQL fragment referencing the `contact` and
-                // `inbox` tables. Run a one-row probe that names the
-                // *columns* we depend on (`contact.blockedAt`,
-                // `contact.inboxId`, `inbox.inboxId`) so GRDB widens
-                // the observation region to those tables AND so an
-                // UPDATE that flips `blockedAt` on an existing row
-                // re-fires the publisher — not just inserts/deletes.
-                // `fetchCount` alone is row-count-driven and wouldn't
-                // re-fire on a column update.
-                _ = try Row.fetchOne(db, sql: "SELECT inboxId, blockedAt FROM contact LIMIT 1")
-                _ = try Row.fetchOne(db, sql: "SELECT inboxId FROM inbox LIMIT 1")
                 do {
                     return try db.composeAllConversations(consent: consent)
                 } catch {
@@ -101,7 +88,6 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            .filter(literal: DBConversation.visibleInFeedPredicate)
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)
@@ -149,7 +135,6 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            .filter(literal: DBConversation.visibleInFeedPredicate)
             .filter(literal: oneToOnePredicate)
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)

@@ -17,12 +17,7 @@ class ConversationsCountRepository: ConversationsCountRepositoryProtocol {
         let kinds = kinds
         return ValueObservation
             .tracking { db in
-                // Same column-naming probes as `ConversationsRepository`
-                // so an UPDATE to `contact.blockedAt` re-fires this
-                // count publisher (not just inserts/deletes).
-                _ = try Row.fetchOne(db, sql: "SELECT inboxId, blockedAt FROM contact LIMIT 1")
-                _ = try Row.fetchOne(db, sql: "SELECT inboxId FROM inbox LIMIT 1")
-                return try db.composeConversationsCount(consent: consent, kinds: kinds)
+                try db.composeConversationsCount(consent: consent, kinds: kinds)
             }
             .publisher(in: databaseReader)
             .replaceError(with: 0)
@@ -49,7 +44,6 @@ fileprivate extension Database {
             .filter(!DBConversation.Columns.id.like("draft-%"))
             .filter(kinds.contains(DBConversation.Columns.kind))
             .filter(consent.contains(DBConversation.Columns.consent))
-            .filter(literal: DBConversation.visibleInFeedPredicate)
             .fetchCount(self)
     }
 }

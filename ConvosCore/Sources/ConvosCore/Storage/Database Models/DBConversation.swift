@@ -77,12 +77,10 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
     /// **Deprecated.** No active code path reads or writes this column.
-    /// Conversation visibility is now derived live at read time via
-    /// `DBConversation.visibleInFeedPredicate` (creator ∈ self or
-    /// non-blocked contact). Stale-stranger cleanup is handled by
-    /// `SessionManager.scheduleStaleStrangerGC`. Retained in the
-    /// schema for migration safety; will be dropped in a follow-up
-    /// GRDB migration.
+    /// Conversation visibility is keyed on the `consent` column; stale-
+    /// stranger cleanup is handled by `SessionManager.scheduleStaleStrangerGC`.
+    /// Retained in the schema for migration safety; will be dropped in a
+    /// follow-up GRDB migration.
     let quarantinedAt: Date?
     /// **Deprecated.** Pair with `quarantinedAt` above — no longer
     /// read or written. Same removal plan.
@@ -145,29 +143,6 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         to: [DBConversationMember.Columns.inboxId, DBConversationMember.Columns.conversationId]
     )
 
-    /// Live "is this conversation visible in the main feed?" predicate.
-    /// Visibility is derived from contact state at read time rather than
-    /// stored as a persisted quarantine flag, so adding the creator as a
-    /// contact (or blocking / unblocking them) reflects in the feed on
-    /// the next GRDB observation cycle without any sweeper / notification
-    /// machinery.
-    ///
-    /// A conversation is visible iff:
-    /// - the local user created it (always show our own conversations), OR
-    /// - the creator is a known contact who is not blocked.
-    ///
-    /// Anything else — strangers, blocked creators — is persisted but
-    /// hidden. Stale-stranger TTL deletion is handled separately.
-    static let visibleInFeedPredicate: SQL = """
-        (
-            \(Columns.creatorId) IN (SELECT inboxId FROM inbox)
-            OR EXISTS (
-                SELECT 1 FROM contact
-                WHERE contact.inboxId = \(Columns.creatorId)
-                  AND contact.blockedAt IS NULL
-            )
-        )
-        """
     static let localStateForeignKey: ForeignKey = ForeignKey([ConversationLocalState.Columns.conversationId], to: [Columns.id])
     static let inviteForeignKey: ForeignKey = ForeignKey([DBInvite.Columns.conversationId], to: [Columns.id])
 

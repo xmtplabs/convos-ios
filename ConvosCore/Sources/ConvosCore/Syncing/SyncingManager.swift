@@ -117,6 +117,11 @@ actor SyncingManager: SyncingManagerProtocol {
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
+    /// Reconciles conversation consent against contact-block state (the
+    /// source of truth for feed visibility). Reconstructed per session
+    /// start because it captures the live XMTP client.
+    private var consentReconciler: ConversationConsentReconciler?
+
     private var activeConversationId: String?
 
     // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
@@ -182,6 +187,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     deinit {
         // Clean up tasks
+        consentReconciler?.stop()
         syncTask?.cancel()
         notificationTask?.cancel()
         messageStreamTask?.cancel()
@@ -420,6 +426,8 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
+        restartConsentReconciler(client: client)
+
         // Wait for streams to enter their async iteration loops before proceeding.
         // This ensures streams are actually subscribed to the XMTP network before
         // we signal isSyncReady, preventing race conditions where messages sent
@@ -626,6 +634,8 @@ actor SyncingManager: SyncingManagerProtocol {
 
         Log.info("Pausing sync...")
 
+        consentReconciler?.stop()
+        consentReconciler = nil
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
@@ -666,6 +676,8 @@ actor SyncingManager: SyncingManagerProtocol {
             guard let self else { return }
             await self.runConversationStream(params: params)
         }
+
+        restartConsentReconciler(client: params.client)
 
         // Wait for streams to subscribe before transitioning to ready
         Log.debug("Waiting for streams to subscribe after resume...")
@@ -730,6 +742,8 @@ actor SyncingManager: SyncingManagerProtocol {
     }
 
     private func cancelAndAwaitTasks() async {
+        consentReconciler?.stop()
+        consentReconciler = nil
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
@@ -915,6 +929,21 @@ actor SyncingManager: SyncingManagerProtocol {
             }
         }
         notificationObservers.append(activeConversationObserver)
+    }
+}
+
+extension SyncingManager {
+    /// (Re)start the consent reconciler with the live client. Safe to call
+    /// on every start / resume - the previous instance is stopped first.
+    fileprivate func restartConsentReconciler(client: AnyClientProvider) {
+        consentReconciler?.stop()
+        let reconciler = ConversationConsentReconciler(
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            client: client
+        )
+        reconciler.start()
+        consentReconciler = reconciler
     }
 }
 

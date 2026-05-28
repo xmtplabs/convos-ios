@@ -1,13 +1,12 @@
 import Foundation
 import GRDB
 
-// Note: a `.contactBlockingDidChange` notification used to be posted
-// here so `SessionManager` could wake the (now-deleted)
-// `QuarantineSweeper`. Visibility is derived live now
-// (`DBConversation.visibleInFeedPredicate`), so GRDB's
-// `ValueObservation` of the `contact` table is enough — any block /
-// unblock write triggers a re-fetch in `ConversationsRepository`
-// automatically. No notification needed.
+// Block / unblock are pure contact-row writes here. Feed visibility is
+// keyed on conversation consent, and `ConversationConsentReconciler`
+// observes the `contact` table: a block flips the creator's conversations
+// to `.denied` (hidden) and an unblock restores them to `.allowed`
+// (visible). No notification or direct consent write is needed at this
+// layer.
 
 /// Snapshot of profile fields used when upserting a contact. Callers pass
 /// the most recent snapshot they have for the inbox. A timestamped
@@ -131,9 +130,8 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             }
             try existing.with(blockedAt: Date()).save(db)
         }
-        // GRDB's `ValueObservation` on the `contact` table picks up the
-        // change and triggers `ConversationsRepository` to re-evaluate
-        // `DBConversation.visibleInFeedPredicate`, hiding the row.
+        // `ConversationConsentReconciler` observes the `contact` table and
+        // demotes this creator's conversations to `.denied`, hiding them.
     }
 
     func unblock(inboxId: String) async throws {
@@ -147,9 +145,8 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             }
             try existing.with(blockedAt: nil).save(db)
         }
-        // Same as block(): the live visibility predicate picks up the
-        // change via GRDB observation, no notification needed to wake
-        // a sweeper.
+        // `ConversationConsentReconciler` observes the `contact` table and
+        // restores this creator's conversations to `.allowed`.
     }
 
     fileprivate static func upsert(

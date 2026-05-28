@@ -242,32 +242,24 @@ struct ConversationsRepositoryFindOneToOneTests {
         #expect(match == nil)
     }
 
-    @Test("Stranger-created 1:1 is excluded until the creator becomes a contact")
-    func testStrangerCreatedConversationHiddenUntilContact() throws {
+    @Test("Unsolicited stranger 1:1 stays hidden until its consent is promoted")
+    func testStrangerConversationHiddenUntilConsentPromoted() throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         try dbManager.dbWriter.write { db in
-            try Self.seedOneToOneCreatedByOther(db: db, id: "convo-from-stranger", createdAt: Date())
+            try Self.seedOneToOneCreatedByOther(db: db, id: "convo-from-stranger", createdAt: Date(), consent: .unknown)
         }
 
-        // Stranger creator + no contact entry → hidden by the live
-        // visibility predicate (`DBConversation.visibleInFeedPredicate`).
+        // Unsolicited stranger: consent stays `.unknown`, outside the
+        // [.allowed] feed scope, so it's hidden.
         let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
         #expect(try repo.findOneToOne(with: Self.otherInboxId, excluding: nil) == nil)
 
-        // Add the creator as a contact and the conversation appears.
+        // Promotion (ConversationConsentReconciler flips consent to .allowed
+        // once the creator becomes a contact) brings it into the feed.
         try dbManager.dbWriter.write { db in
-            try DBContact(
-                inboxId: Self.otherInboxId,
-                addedAt: Date(),
-                addedViaConversationId: nil,
-                displayName: nil,
-                avatarURL: nil,
-                avatarSalt: nil,
-                avatarNonce: nil,
-                avatarKey: nil,
-                profileUpdatedAt: Date(),
-                agentVerification: nil
-            ).insert(db)
+            try DBConversation
+                .filter(DBConversation.Columns.id == "convo-from-stranger")
+                .updateAll(db, DBConversation.Columns.consent.set(to: Consent.allowed))
         }
         #expect(try repo.findOneToOne(with: Self.otherInboxId, excluding: nil)?.id == "convo-from-stranger")
     }
@@ -275,7 +267,8 @@ struct ConversationsRepositoryFindOneToOneTests {
     private static func seedOneToOneCreatedByOther(
         db: Database,
         id: String,
-        createdAt: Date
+        createdAt: Date,
+        consent: Consent = .unknown
     ) throws {
         try seedInbox(db: db)
         try DBMember(inboxId: otherInboxId).save(db, onConflict: .ignore)
@@ -285,7 +278,7 @@ struct ConversationsRepositoryFindOneToOneTests {
             inviteTag: "tag-\(id)",
             creatorId: otherInboxId,
             kind: .group,
-            consent: .allowed,
+            consent: consent,
             createdAt: createdAt,
             name: nil,
             description: nil,

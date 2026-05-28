@@ -201,14 +201,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     /// Periodic garbage collector for stranger conversations that have
-    /// sat hidden in the main feed (creator never became a contact,
-    /// creator stayed blocked, etc.) past the retention window. Runs at
-    /// launch and once per `staleStrangerGCInterval` while the process
-    /// is alive; foreground entries also trigger an extra run.
-    ///
-    /// Replaces the previous `QuarantineSweeper` system. Visibility is
-    /// now derived live by `DBConversation.visibleInFeedPredicate`, so
-    /// no promotion path is needed — only deletion of stale rows.
+    /// sat hidden in the main feed (creator never became a contact, so
+    /// consent was never promoted past `.unknown`) beyond the retention
+    /// window. Runs at launch and once per `staleStrangerGCInterval`
+    /// while the process is alive; foreground entries also trigger an
+    /// extra run.
     private func scheduleStaleStrangerGC() {
         staleStrangerGCTask?.cancel()
         staleStrangerGCTask = Task { [weak self] in
@@ -231,9 +228,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
-    /// Hard-deletes any conversation whose creator is neither the local
-    /// user nor a contact, and whose `createdAt` is older than the
-    /// retention TTL. Same TTL the old `QuarantineSweeper` used.
+    /// Hard-deletes any conversation still pending consent (`.unknown`)
+    /// once it is older than the retention TTL. A conversation the user
+    /// created, joined, or whose creator became a contact has had its
+    /// consent promoted to `.allowed` (and a blocked creator's to
+    /// `.denied`), so anything still `.unknown` past the window is an
+    /// unsolicited stranger the user never engaged with.
     private static func deleteStaleStrangerConversations(
         databaseWriter: any DatabaseWriter,
         reason: String
@@ -244,12 +244,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 let sql: SQL = """
                     DELETE FROM conversation
                     WHERE createdAt < \(cutoff)
-                      AND creatorId NOT IN (SELECT inboxId FROM inbox)
-                      AND NOT EXISTS (
-                        SELECT 1 FROM contact
-                        WHERE contact.inboxId = conversation.creatorId
-                          AND contact.blockedAt IS NULL
-                      )
+                      AND consent = \(Consent.unknown.rawValue)
                     """
                 try db.execute(literal: sql)
                 return db.changesCount
