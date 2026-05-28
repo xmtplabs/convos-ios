@@ -29,6 +29,12 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         )
 
         cleanUpUserDefaults()
+
+        // The coordinator reads `ProfileSettingsViewModel.shared` (a
+        // singleton); reset it so a non-default profile left by another
+        // test can't push `start()` down the auto-apply branch.
+        ProfileSettingsViewModel.shared.editingDisplayName = ""
+        ProfileSettingsViewModel.shared.profileImage = nil
     }
 
     override func tearDown() async throws {
