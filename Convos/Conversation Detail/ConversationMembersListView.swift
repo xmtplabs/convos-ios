@@ -151,12 +151,7 @@ private struct MemberRow: View {
             Spacer()
 
             if let roleLabel = member.roleLabel {
-                Text(roleLabel)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .background(.colorTextSecondary.opacity(0.1), in: .capsule)
+                RoleLabelPill(label: roleLabel)
             }
 
             Image(systemName: "chevron.right")

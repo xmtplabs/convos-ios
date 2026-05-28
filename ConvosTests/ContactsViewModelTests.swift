@@ -8,15 +8,13 @@ import XCTest
 /// The picker view model has its own suite in `ContactsPickerViewModelTests`.
 @MainActor
 final class ContactsViewModelTests: XCTestCase {
-    // MARK: - Verified-agent filter
+    // MARK: - Agents in the browse list
 
-    /// Verified-agent contacts stay in `DBContact` so chat-side surfaces
-    /// (member rows, system messages, the contact card opened from a chat
-    /// member tap) can still resolve them. They are filtered out of the
-    /// human-facing contact browser. Regression guard: if the predicate is
-    /// removed, the contacts list would show every Convos / OAuth-attested
-    /// agent alongside real people.
-    func testSectionsExcludeVerifiedAgents() {
+    /// Verified agents appear in the browse list alongside humans (tagged
+    /// with the trailing Agent pill on their row). Regression guard: if the
+    /// browse list re-introduces an agent filter, agents the user shares a
+    /// conversation with would vanish from contacts.
+    func testSectionsIncludeVerifiedAgents() {
         let alice = Contact.mock(displayName: "Alice")
         let assistant = Contact.mock(
             displayName: "Convos Assistant",
@@ -35,18 +33,16 @@ final class ContactsViewModelTests: XCTestCase {
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        // Alice and the unverified agent pass through; both verified agents
-        // are filtered out. Unverified agents intentionally remain visible
-        // because they're not yet attested.
-        XCTAssertEqual(allIds.sorted(), [alice.inboxId, unverifiedAgent.inboxId].sorted())
+        XCTAssertEqual(
+            allIds.sorted(),
+            [alice.inboxId, assistant.inboxId, oauthAgent.inboxId, unverifiedAgent.inboxId].sorted()
+        )
     }
 
     /// `contactCount` drives the empty-state vs list-state branch in the
-    /// `ContactsView` body and the compose button's enabled flag. It must
-    /// reflect the human-visible count, not the raw count - otherwise a
-    /// user whose contacts are all agents would see an empty list with a
-    /// non-empty count (no empty-state CTA, enabled compose button).
-    func testContactCountReflectsVisibleContactsNotRawCount() {
+    /// `ContactsView` body and the compose button's enabled flag. It now
+    /// counts agents too, since they appear in the list.
+    func testContactCountIncludesAgents() {
         let assistant = Contact.mock(
             displayName: "Convos Assistant",
             agentVerification: .verified(.convos)
@@ -55,9 +51,8 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        XCTAssertEqual(viewModel.contactCount, 0,
-                       "Agent-only contacts should not count toward the visible total")
-        XCTAssertTrue(viewModel.sections.isEmpty)
+        XCTAssertEqual(viewModel.contactCount, 1)
+        XCTAssertFalse(viewModel.sections.isEmpty)
     }
 
     // MARK: - Search
@@ -75,7 +70,7 @@ final class ContactsViewModelTests: XCTestCase {
         XCTAssertEqual(allIds, [alice.inboxId])
     }
 
-    func testSearchAndVerifiedAgentFilterComposeCorrectly() {
+    func testSearchMatchesHumansAndAgentsAlike() {
         let alice = Contact.mock(displayName: "Alice")
         let aliceAssistant = Contact.mock(
             displayName: "Alice Assistant",
@@ -86,10 +81,10 @@ final class ContactsViewModelTests: XCTestCase {
 
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
-        // Searching "alice" must not surface the verified Alice Assistant -
-        // the agent filter precedes the search filter in the pipeline.
+        // Search now spans agents too: both Alice and the Alice Assistant
+        // match "alice"; Bob does not.
         viewModel.searchQuery = "alice"
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(allIds, [alice.inboxId])
+        XCTAssertEqual(allIds.sorted(), [alice.inboxId, aliceAssistant.inboxId].sorted())
     }
 }

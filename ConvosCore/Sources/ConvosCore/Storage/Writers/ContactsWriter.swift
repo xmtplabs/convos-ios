@@ -28,6 +28,11 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
     public let avatarKey: Data?
     public let profileUpdatedAt: Date?
     public let agentVerification: AgentVerification?
+    /// Template identity for a template-backed agent, mirrored onto the
+    /// contact so it survives leaving the conversation. `nil` for humans.
+    public let agentTemplateId: String?
+    public let agentTemplatePublishedURL: String?
+    public let agentTemplateEmoji: String?
 
     public init(
         displayName: String? = nil,
@@ -36,7 +41,10 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         profileUpdatedAt: Date? = nil,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) {
         self.displayName = displayName
         self.avatarURL = avatarURL
@@ -45,6 +53,9 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
         self.avatarKey = avatarKey
         self.profileUpdatedAt = profileUpdatedAt
         self.agentVerification = agentVerification
+        self.agentTemplateId = agentTemplateId
+        self.agentTemplatePublishedURL = agentTemplatePublishedURL
+        self.agentTemplateEmoji = agentTemplateEmoji
     }
 }
 
@@ -179,7 +190,10 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             avatarNonce: profile.avatarNonce,
             avatarKey: profile.avatarKey,
             profileUpdatedAt: profile.profileUpdatedAt ?? now,
-            agentVerification: profile.agentVerification
+            agentVerification: profile.agentVerification,
+            agentTemplateId: profile.agentTemplateId,
+            agentTemplatePublishedURL: profile.agentTemplatePublishedURL,
+            agentTemplateEmoji: profile.agentTemplateEmoji
         )
         try row.save(db)
         Log.debug("Inserted new contact for inboxId=\(inboxId) via=\(addedViaConversationId ?? "nil")")
@@ -257,7 +271,10 @@ extension ContactsWriter {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         receivedAt: Date,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) throws {
         guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
             return
@@ -269,7 +286,10 @@ extension ContactsWriter {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             profileUpdatedAt: receivedAt,
-            agentVerification: agentVerification
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentTemplateEmoji: agentTemplateEmoji
         )
         guard let merged = replacingProfile(of: existing, with: snapshot) else {
             return
@@ -296,7 +316,10 @@ extension ContactsWriter {
             avatarNonce: profile.avatarNonce,
             avatarKey: profile.avatarKey,
             receivedAt: receivedAt,
-            agentVerification: profile.memberKind?.agentVerification
+            agentVerification: profile.memberKind?.agentVerification,
+            agentTemplateId: profile.agentTemplateId,
+            agentTemplatePublishedURL: profile.agentTemplatePublishedURL,
+            agentTemplateEmoji: profile.agentTemplateEmoji
         )
     }
 }

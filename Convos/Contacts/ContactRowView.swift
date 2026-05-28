@@ -30,6 +30,9 @@ struct ContactRowView: View {
                 }
             }
             Spacer(minLength: 0.0)
+            if contact.isVerifiedAgent {
+                RoleLabelPill(label: "Agent")
+            }
         }
         .padding(.vertical, DesignConstants.Spacing.stepX)
         .contentShape(Rectangle())

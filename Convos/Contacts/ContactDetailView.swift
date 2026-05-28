@@ -215,13 +215,13 @@ struct ContactDetailView: View {
     @ViewBuilder
     private var headerBadge: some View {
         if mode.isCurrentUser {
-            ContactDetailBadge(
+            RoleLabelPill(
                 label: "You",
                 accessibilityIdentifier: "contact-detail-you-badge"
             )
             .padding(.top, DesignConstants.Spacing.step2x)
         } else if let roleLabel = contact.agentVerification?.roleLabel {
-            ContactDetailBadge(
+            RoleLabelPill(
                 label: roleLabel,
                 accessibilityIdentifier: "contact-detail-role-label-\(contact.inboxId)"
             )
@@ -457,26 +457,6 @@ private struct ContactDetailHeader: View {
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
         }
-    }
-}
-
-/// Small capsule pill rendered below the subtitle. Used for the
-/// verified-agent role label ("Agent", "Verified by ...") and for
-/// the "You" indicator on the current user's own card - same shape so
-/// the spacing around the pill mirrors the surrounding label spacing
-/// regardless of which one is showing.
-private struct ContactDetailBadge: View {
-    let label: String
-    let accessibilityIdentifier: String
-
-    var body: some View {
-        Text(label)
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .background(.colorTextSecondary.opacity(0.1), in: .capsule)
-            .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 

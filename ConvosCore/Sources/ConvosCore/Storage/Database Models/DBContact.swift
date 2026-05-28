@@ -24,6 +24,9 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         static let profileUpdatedAt: Column = Column(CodingKeys.profileUpdatedAt)
         static let blockedAt: Column = Column(CodingKeys.blockedAt)
         static let agentVerification: Column = Column(CodingKeys.agentVerification)
+        static let agentTemplateId: Column = Column(CodingKeys.agentTemplateId)
+        static let agentTemplatePublishedURL: Column = Column(CodingKeys.agentTemplatePublishedURL)
+        static let agentTemplateEmoji: Column = Column(CodingKeys.agentTemplateEmoji)
     }
 
     var id: String { inboxId }
@@ -53,6 +56,19 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
     /// snapshot with `nil` `agentVerification` wholesale-clears the stored
     /// verification (see `ContactsWriter.replacingProfile(of:with:)`).
     var agentVerification: AgentVerification?
+    /// Backend `AgentTemplate.id` for a template-backed agent, mirrored
+    /// most-recent-wins from the per-conversation `DBMemberProfile`
+    /// metadata. Persisted (rather than overlaid live) so the template
+    /// stays resolvable after the user leaves every conversation with a
+    /// running instance - which is what lets the contact spawn a fresh
+    /// instance later. `nil` for humans and template-less agents.
+    var agentTemplateId: String?
+    /// Shareable `publishedUrl` for the agent's template. Drives the
+    /// contact card's Share action. Mirrored alongside `agentTemplateId`.
+    var agentTemplatePublishedURL: String?
+    /// Template emoji glyph, used as the browse-row avatar fallback when
+    /// no live per-conversation profile is available to supply an image.
+    var agentTemplateEmoji: String?
 
     init(
         inboxId: String,
@@ -65,7 +81,10 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         avatarKey: Data? = nil,
         profileUpdatedAt: Date? = nil,
         blockedAt: Date? = nil,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) {
         self.inboxId = inboxId
         self.addedAt = addedAt
@@ -78,6 +97,9 @@ struct DBContact: Codable, FetchableRecord, PersistableRecord, Hashable, Identif
         self.profileUpdatedAt = profileUpdatedAt
         self.blockedAt = blockedAt
         self.agentVerification = agentVerification
+        self.agentTemplateId = agentTemplateId
+        self.agentTemplatePublishedURL = agentTemplatePublishedURL
+        self.agentTemplateEmoji = agentTemplateEmoji
     }
 }
 
@@ -102,7 +124,10 @@ extension DBContact {
             avatarKey: snapshot.avatarKey,
             profileUpdatedAt: timestamp,
             blockedAt: blockedAt,
-            agentVerification: snapshot.agentVerification
+            agentVerification: snapshot.agentVerification,
+            agentTemplateId: snapshot.agentTemplateId,
+            agentTemplatePublishedURL: snapshot.agentTemplatePublishedURL,
+            agentTemplateEmoji: snapshot.agentTemplateEmoji
         )
     }
 
@@ -118,7 +143,10 @@ extension DBContact {
             avatarKey: avatarKey,
             profileUpdatedAt: profileUpdatedAt,
             blockedAt: blockedAt,
-            agentVerification: agentVerification
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentTemplateEmoji: agentTemplateEmoji
         )
     }
 }

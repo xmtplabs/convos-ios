@@ -54,24 +54,24 @@ final class ContactsViewModel {
         allContacts = contacts
         // `contactCount` drives the empty-state vs list-state branch and
         // the compose button's enabled flag. Count what's actually visible
-        // in the list -- verified agents are hidden from this view, and
-        // unnamed contacts are filtered out below in `rebuildSections`,
-        // so include both predicates here too.
+        // in the list (see `isVisibleInList`).
         contactCount = contacts.filter(Self.isVisibleInList).count
         rebuildSections()
         isLoading = false
     }
 
     /// Single source of truth for "is this contact rendered in the list".
-    /// Verified agents stay in `DBContact` so chat-side surfaces (member
-    /// rows, system messages, the contact card opened from a member tap)
-    /// can still resolve them, but they're excluded here so the human
-    /// contact browser stays focused on real people. Contacts whose
-    /// displayName is missing/empty render as "Somebody" via
-    /// `resolvedDisplayName`; a "Somebody" row carries no useful info
-    /// for the browser, so we hide it until a profile name arrives.
+    /// Template-backed agents are shown (tagged with the trailing Agent
+    /// pill on their row) so the user can start a conversation with one;
+    /// legacy verified assistants without a template stay hidden. Humans
+    /// whose displayName is missing/empty render as "Somebody" via
+    /// `resolvedDisplayName` and carry no useful info for the browser, so
+    /// they're hidden until a profile name arrives. All agents remain in
+    /// `DBContact` so chat-side surfaces can still resolve them.
     private static func isVisibleInList(_ contact: Contact) -> Bool {
-        if contact.isVerifiedAgent { return false }
+        if contact.agentVerification != nil {
+            return contact.agentTemplateId != nil
+        }
         guard let name = contact.displayName, !name.isEmpty else { return false }
         return true
     }

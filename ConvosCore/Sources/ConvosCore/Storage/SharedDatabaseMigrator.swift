@@ -168,6 +168,24 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        // Template identity for template-backed agent contacts, mirrored
+        // from the per-conversation member profile so it survives leaving
+        // the conversation. The partial index keeps a future
+        // "group contacts by template" query index-backed without a schema
+        // change - only agent rows carry a non-null templateId.
+        migrator.registerMigration("addContactAgentTemplateFields") { db in
+            try db.alter(table: "contact") { t in
+                t.add(column: "agentTemplateId", .text)
+                t.add(column: "agentTemplatePublishedURL", .text)
+                t.add(column: "agentTemplateEmoji", .text)
+            }
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS contact_on_agentTemplateId
+                ON contact(agentTemplateId)
+                WHERE agentTemplateId IS NOT NULL
+                """)
+        }
+
         return migrator
     }
 
