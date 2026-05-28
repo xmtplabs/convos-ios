@@ -38,6 +38,13 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let isLocked: Bool
     public let agentJoinStatus: AgentJoinStatus?
     public let hasHadVerifiedAgent: Bool
+    /// True when this conversation was created through the Agent Builder
+    /// (an `AgentBuilderSummary` row exists for it). Drives the
+    /// pending-agent presentation -- "New Agent" placeholder name + the
+    /// add-agent avatar instead of the generic "New Convo" + emoji circle
+    /// -- until a verified agent actually joins. See
+    /// `isPendingAgentBuilderDraft`.
+    public let wasCreatedFromAgentBuilder: Bool
 }
 
 public extension Conversation {
@@ -69,9 +76,26 @@ public extension Conversation {
     /// `Profile`/`ConversationMember`'s override semantics). When the
     /// conversation already has an explicit `name`, it's returned verbatim
     /// — the override only affects auto-generated titles.
+    /// True while an Agent-Builder-created conversation is still waiting on
+    /// its verified agent to join. In this window the conversation has only
+    /// the local user as a member, so it would otherwise render as the
+    /// generic "New Convo" + emoji circle; instead we surface the
+    /// pending-agent identity ("New Agent" + add-agent avatar) to match the
+    /// builder indicator. Gated on the sticky `hasHadVerifiedAgent` flag
+    /// (set once any Convos-verified agent has joined) rather than the
+    /// current member list, so the hand-off to normal member-driven
+    /// rendering is permanent -- a builder agent that later leaves doesn't
+    /// flip the conversation back to the "New Agent" placeholder.
+    var isPendingAgentBuilderDraft: Bool {
+        wasCreatedFromAgentBuilder && !hasHadVerifiedAgent
+    }
+
     func computedDisplayName(memberNameOverride: (String) -> String?) -> String {
         if let name, !name.isEmpty {
             return name
+        }
+        if isPendingAgentBuilderDraft {
+            return "New Agent"
         }
         if kind == .dm {
             if let other = otherMember {
@@ -100,6 +124,14 @@ public extension Conversation {
     }
 
     var avatarType: ConversationAvatarType {
+        // A pending agent-builder draft shows the add-agent glyph (matching
+        // the builder bar / indicator) rather than the conversation emoji,
+        // even before the verified agent joins. Checked before the
+        // image/member branches so a user-only draft doesn't fall through
+        // to the emoji circle.
+        if isPendingAgentBuilderDraft {
+            return .pendingAgent
+        }
         if imageURL != nil {
             return .customImage
         }

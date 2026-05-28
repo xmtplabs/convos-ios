@@ -189,6 +189,7 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                     .including(optional: DBConversationMember.inviterProfile)
             )
             .including(required: DBConversation.localState)
+            .including(optional: DBConversation.agentBuilderSummary)
             .with(DBConversation.lastMessageWithSourceCTE)
             .including(optional: lastMessageWithSource)
             .with(DBConversation.latestAgentJoinRequestCTE)
