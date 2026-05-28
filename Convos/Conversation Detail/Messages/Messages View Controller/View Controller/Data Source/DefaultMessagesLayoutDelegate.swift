@@ -38,7 +38,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             case .messages(let group):
                 return .estimated(CGSize(width: width, height: estimatedHeight(for: group, width: width)))
             case .agentOutOfCredits:
-                return .estimated(CGSize(width: width, height: 48.0))
+                return .estimated(CGSize(width: width, height: 100.0))
             case .agentJoinStatus:
                 return .estimated(CGSize(width: width, height: 48.0))
             case .agentPresentInfo:

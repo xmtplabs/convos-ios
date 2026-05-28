@@ -105,10 +105,10 @@ var body: some View {
             ConversationInfoPreview(conversation: conversation)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-        case .agentOutOfCredits(let member):
+        case let .agentOutOfCredits(member, isCurrentUserCreator):
             AgentLostPowerStatus(
                 agentName: member.profile.displayName,
-                isCreator: true,
+                isCreator: isCurrentUserCreator,
                 onUpgrade: onAgentOutOfCredits
             )
             .padding(.vertical, DesignConstants.Spacing.step2x)

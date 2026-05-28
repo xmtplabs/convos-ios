@@ -675,13 +675,14 @@ extension MessagesViewController {
 
         if creditsDepleted, let agentMember = conversation.members.first(where: { $0.isAgent }) {
             let agentInboxId = agentMember.profile.inboxId
+            let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
             }) {
-                cells.insert(.agentOutOfCredits(agentMember), at: lastAgentIndex + 1)
+                cells.insert(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator), at: lastAgentIndex + 1)
             } else {
-                cells.append(.agentOutOfCredits(agentMember))
+                cells.append(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator))
             }
         }
 
