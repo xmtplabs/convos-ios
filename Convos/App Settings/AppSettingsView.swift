@@ -157,6 +157,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "lanyardcard.fill")
                 .foregroundStyle(.colorTextPrimary)
+                .frame(width: Constant.rowIconWidth, alignment: .center)
 
             Text("My info")
                 .foregroundStyle(.colorTextPrimary)
@@ -182,6 +183,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "person.crop.circle")
                 .foregroundStyle(.colorTextPrimary)
+                .frame(width: Constant.rowIconWidth, alignment: .center)
 
             Text("Contacts")
                 .foregroundStyle(.colorTextPrimary)
@@ -216,6 +218,7 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "batteryblock.fill")
                 .foregroundStyle(.colorTextPrimary)
+                .frame(width: Constant.rowIconWidth, alignment: .center)
 
             Text("Connections")
                 .foregroundStyle(.colorTextPrimary)
@@ -251,7 +254,6 @@ struct AppSettingsView: View {
                 Button(action: subscribeAction) {
                     powerRowLabel
                 }
-                .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 .accessibilityIdentifier("subscription-row")
                 .sheet(isPresented: $presentingPaywall) {
                     let viewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)
@@ -268,22 +270,17 @@ struct AppSettingsView: View {
         HStack {
             Image(systemName: "bolt.fill")
                 .foregroundStyle(.colorTextPrimary)
+                .frame(width: Constant.rowIconWidth, alignment: .center)
 
             Text("Power")
                 .foregroundStyle(.colorTextPrimary)
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.footnote)
-                .foregroundStyle(.colorFillTertiary)
-                .overlay(alignment: .leading) {
-                    if isPowerDepleted {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.colorLava)
-                            .offset(x: -24)
-                    }
-                }
+            if isPowerDepleted {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.colorLava)
+            }
         }
     }
 
@@ -293,14 +290,9 @@ struct AppSettingsView: View {
             NavigationLink {
                 CustomizeSettingsView()
             } label: {
-                HStack(spacing: DesignConstants.Spacing.step2x) {
-                    Text("Customize")
-                        .foregroundStyle(.colorTextPrimary)
-
-                    Spacer()
-                }
+                Text("Customize")
+                    .foregroundStyle(.colorTextPrimary)
             }
-            .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
         }
         .listRowSeparatorTint(.colorBorderSubtle)
     }
@@ -429,6 +421,10 @@ struct AppSettingsView: View {
     private func openExternalURL(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
         openURL(url)
+    }
+
+    private enum Constant {
+        static let rowIconWidth: CGFloat = 28
     }
 }
 
