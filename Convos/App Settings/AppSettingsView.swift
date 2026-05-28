@@ -90,9 +90,6 @@ struct AppSettingsView: View {
                     .font(.convosTitle)
                     .tracking(Font.convosTitleTracking)
                     .foregroundStyle(.colorTextPrimary)
-                Text("Private chat for the AI world")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextPrimary)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .listRowBackground(Color.clear)
@@ -372,12 +369,6 @@ struct AppSettingsView: View {
             Button(role: .cancel) {
                 dismiss()
             }
-        }
-
-        ToolbarItem(placement: .principal) {
-            ConvosToolbarButton(padding: true) {}
-                .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
-                .disabled(true)
         }
     }
 
