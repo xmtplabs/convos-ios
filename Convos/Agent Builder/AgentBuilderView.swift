@@ -313,23 +313,23 @@ struct AgentBuilderView: View {
                     }
                 }
             )
-            // Fill the available height so the card grows to occupy the
-            // space between the top and the top of the keyboard, rather
-            // than a fixed height that floats on the large iPad canvas
-            // and lets the keyboard cover its lower content. SwiftUI's
-            // keyboard safe-area inset caps `maxHeight` at the keyboard's
-            // top edge. Because the card fills in *both* the standard and
-            // recording layouts, switching between them no longer changes
-            // the card's height (the old fixed `height:` existed only to
-            // prevent that shrink) -- the recording controls just appear
-            // below it.
-            .frame(maxHeight: .infinity)
+            // Cap the card at its original height but let it shrink below
+            // that when the keyboard constrains the available space. With a
+            // fixed `height:` the card stayed 375 even when the keyboard
+            // covered its lower content (media row + Make button); with a
+            // plain `maxHeight: .infinity` it ballooned to fill the whole
+            // iPad canvas. `maxHeight: composerHeight` gives both: 375 when
+            // there's room, less when the keyboard pushes up (SwiftUI's
+            // keyboard safe-area inset shrinks the proposed height and the
+            // card follows).
+            .frame(maxHeight: Constant.composerHeight)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step4x)
 
-            // Hidden (not removed) when recording so the row below keeps
-            // its slot and the recording controls don't reflow upward when
-            // the user taps the voice-memo button.
+            // Hidden (not removed) when recording, so the layout below the
+            // composer doesn't reflow when the user taps the voice-memo
+            // button. Without this, the recording-controls' Spacer-centered
+            // position would jump on entry.
             Text(composerHintText)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
@@ -341,8 +341,8 @@ struct AgentBuilderView: View {
                 .opacity(viewModel.isRecordingVoiceMemo ? 0 : 1)
 
             if viewModel.isRecordingVoiceMemo {
+                Spacer(minLength: 0)
                 recordingControls(focusState: focusState)
-                    .padding(.bottom, DesignConstants.Spacing.step4x)
                     // Delay the appearance by `keyboardDismissDelay` so the
                     // keyboard dismissal animation triggered by the
                     // voice-memo tap (`focusState = nil`) finishes before
@@ -351,6 +351,9 @@ struct AgentBuilderView: View {
                         .easeInOut(duration: Constant.recordingControlsFadeDuration)
                             .delay(Constant.keyboardDismissDelay)
                     ))
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -435,6 +438,10 @@ struct AgentBuilderView: View {
     }
 
     private enum Constant {
+        /// Cap for the composer card height. The card grows up to this
+        /// (its original fixed size) and shrinks below it when the keyboard
+        /// constrains the available space.
+        static let composerHeight: CGFloat = 375.0
         /// iOS keyboard dismissal animation duration. Recording controls
         /// hold for this long before fading in so their position settles
         /// after the keyboard collapses rather than sliding through the
