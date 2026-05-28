@@ -43,9 +43,23 @@ public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBr
     }
 
     public func runAfterPairing() async -> Bool {
-        let didAppear = await waitForNewInstallation()
+        // Take an immediate baseline of the inbox's currently-visible
+        // installation IDs *before* the polling loop begins. The
+        // joiner's just-published key-package is the installation that
+        // appears in subsequent snapshots but is NOT in this baseline.
+        // Without the diff, an initiator who already had a paired
+        // device (or any other prior installation) would see a non-
+        // self installation immediately and broadcast before the
+        // joiner's installation actually joined the groups' MLS state -
+        // at which point the snapshot misses the joiner entirely and
+        // the bug we set out to fix recurs.
+        guard let baseline = await fetchInstallationIds() else {
+            Log.warning("PostPairProfileSnapshotBroadcaster: baseline installations fetch failed; skipping snapshot fan-out to avoid an unanchored broadcast")
+            return false
+        }
+        let didAppear = await waitForInstallationAdded(beyond: baseline)
         guard didAppear else {
-            Log.warning("PostPairProfileSnapshotBroadcaster: new installation never appeared within polling window; skipping snapshot fan-out")
+            Log.warning("PostPairProfileSnapshotBroadcaster: no new installation appeared within polling window; skipping snapshot fan-out")
             return false
         }
         await messagingService.broadcastProfileSnapshotsToAllGroups()
@@ -54,24 +68,32 @@ public final class PostPairProfileSnapshotBroadcaster: PostPairProfileSnapshotBr
 
     /// Polls libxmtp's installation list on the same schedule
     /// `DevicesViewModel` uses for its optimistic-row reconciliation.
-    /// Returns true as soon as any installation other than the current
-    /// one is visible; returns false if the entire schedule elapses
-    /// with no new installation found.
-    private func waitForNewInstallation() async -> Bool {
-        let schedule: [TimeInterval] = Constant.pollSchedule
-        for delay in schedule {
+    /// Returns true the first time we see an installation id that
+    /// wasn't in the baseline set; false if the entire schedule
+    /// elapses with no new installation.
+    private func waitForInstallationAdded(beyond baseline: Set<String>) async -> Bool {
+        for delay in Constant.pollSchedule {
             if delay > 0 {
                 try? await Task.sleep(for: .seconds(delay))
             }
-            do {
-                let snapshot = try await messagingService.installationsSnapshot(refreshFromNetwork: true)
-                let hasNonSelf = snapshot.installations.contains { $0.id != snapshot.currentInstallationId }
-                if hasNonSelf { return true }
-            } catch {
-                Log.warning("PostPairProfileSnapshotBroadcaster: installationsSnapshot failed: \(error.localizedDescription)")
-            }
+            guard let current = await fetchInstallationIds() else { continue }
+            if !current.subtracting(baseline).isEmpty { return true }
         }
         return false
+    }
+
+    /// One-shot install-list fetch returning the full set of ids.
+    /// Returns nil on failure so the caller can distinguish "no new
+    /// installation" from "we don't know what was there to begin
+    /// with."
+    private func fetchInstallationIds() async -> Set<String>? {
+        do {
+            let snapshot = try await messagingService.installationsSnapshot(refreshFromNetwork: true)
+            return Set(snapshot.installations.map(\.id))
+        } catch {
+            Log.warning("PostPairProfileSnapshotBroadcaster: installationsSnapshot failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private enum Constant {
