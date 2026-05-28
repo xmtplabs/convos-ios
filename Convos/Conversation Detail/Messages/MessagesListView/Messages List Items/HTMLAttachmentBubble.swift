@@ -32,6 +32,7 @@ struct HTMLAttachmentBubble: View {
         bubble
             .accessibilityIdentifier("html-attachment-bubble")
             .accessibilityLabel("HTML page from \(profile.displayName)")
+            .onAppear(perform: seedFromMemoryCache)
             .task(id: AttachmentColorSchemeKey(key: attachment.key, scheme: colorScheme)) {
                 await loadThumbnail()
             }
@@ -84,18 +85,38 @@ struct HTMLAttachmentBubble: View {
         cornerRadiusOverride ?? Constant.cornerRadius
     }
 
+    /// Synchronous memory-cache read so an already-rendered tile shows its
+    /// thumbnail on the first frame after the cell is reconfigured, rather
+    /// than flashing the spinner until `loadThumbnail`'s async path runs.
+    /// The hosting cell rebuilds this view (and resets `@State`) on every
+    /// reuse, so without this seed every scroll back into view flickers.
+    /// Mirrors the no-flicker pattern in `View.cachedImage(for:into:)`.
+    private func seedFromMemoryCache() {
+        guard renderedImage == nil else { return }
+        if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(
+            for: attachment.key,
+            appearance: colorScheme.uiUserInterfaceStyle
+        ) {
+            renderedImage = cached
+            hasLoadFailed = false
+        }
+    }
+
     private func loadThumbnail() async {
         let appearance = colorScheme.uiUserInterfaceStyle
-        renderedImage = nil
-        hasLoadFailed = false
         if let cached = HTMLThumbnailRenderer.shared.cachedThumbnail(
             for: attachment.key,
             appearance: appearance
         ) {
             renderedImage = cached
+            hasLoadFailed = false
             await prewarmLiveContentIfPossible()
             return
         }
+        // No in-memory thumbnail. Keep showing whatever we already have - a
+        // thumbnail seeded on appear, or the other-appearance image during a
+        // color-scheme swap - while we resolve the file and read disk or
+        // re-render, so a shown tile never blanks back to a spinner.
         do {
             let fileURL = try await FileAttachmentLoader.loadFile(for: attachment)
             let image = await HTMLThumbnailRenderer.shared.thumbnail(
@@ -103,12 +124,21 @@ struct HTMLAttachmentBubble: View {
                 fileURL: fileURL,
                 appearance: appearance
             )
-            renderedImage = image
-            hasLoadFailed = image == nil
+            if let image {
+                renderedImage = image
+                hasLoadFailed = false
+            } else if renderedImage == nil {
+                // Only surface the warning when there's nothing to show; a
+                // transient render miss shouldn't replace a good thumbnail
+                // (the bytes are usually still on disk for the next pass).
+                hasLoadFailed = true
+            }
             HTMLContentPrewarmer.shared.prewarm(attachmentKey: attachment.key, fileURL: fileURL)
         } catch {
             Log.error("Failed to load HTML attachment thumbnail: \(error)")
-            hasLoadFailed = true
+            if renderedImage == nil {
+                hasLoadFailed = true
+            }
         }
     }
 
