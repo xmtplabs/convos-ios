@@ -243,6 +243,22 @@ extension Profile {
     public var agentInstanceId: String? {
         metadata?[Constant.instanceIdKey]?.stringValue
     }
+
+    /// The Ed25519 attestation signature this agent published in its
+    /// per-conversation profile metadata. `nil` when the agent joined
+    /// without attaching attestation (it then reads as unverified). The
+    /// metadata key matches the verification guard in
+    /// `verifyCachedAgentAttestation`. Surfaced on the contact card behind a
+    /// debug-build gate for diagnosing agent verification.
+    public var agentAttestation: String? {
+        metadata?["attestation"]?.stringValue
+    }
+
+    /// The key id (`kid`) the attestation was signed with, matched against
+    /// the published agent keyset. `nil` when no attestation is present.
+    public var agentAttestationKid: String? {
+        metadata?["attestation_kid"]?.stringValue
+    }
 }
 
 // MARK: - Array Extensions

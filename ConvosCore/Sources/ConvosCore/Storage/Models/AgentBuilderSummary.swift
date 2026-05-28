@@ -1,14 +1,17 @@
 import Foundation
 
-/// In-memory, session-scoped summary of an Agent Builder draft, captured
-/// at the moment the user taps "Make". Rendered as the first cell of the
-/// post-commit `MessagesListView` in place of the user's prompt messages and
-/// any pre-Make agent chatter — see `MessagesListItemType.agentBuilderSummary`.
+/// Summary of an Agent Builder draft, captured at the moment the user taps
+/// "Make". Rendered as the first cell of the post-commit `MessagesListView`
+/// in place of the user's prompt messages and any pre-Make agent chatter —
+/// see `MessagesListItemType.agentBuilderSummary`.
 ///
-/// Not persisted: if the user navigates away and comes back, the conversation
-/// shows the natural message history. This struct intentionally avoids
-/// iOS-only types (no `UIImage`) so it can live in ConvosCore and be embedded
-/// in `MessagesListItemType` without a circular import.
+/// Persisted via `DBAgentBuilderSummary` (written by `AgentBuilderSummaryWriter`
+/// before any send), so a force-quit between Make and the bundle landing still
+/// rehydrates the summary + its `bundledMessageIds` filter on next launch, and
+/// the `AgentBuilderConnectionGrantReplayer` can fire missing grants after the
+/// agent joins. This struct intentionally avoids iOS-only types (no `UIImage`)
+/// so it can live in ConvosCore and be embedded in `MessagesListItemType`
+/// without a circular import.
 public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, Hashable {
     public let id: UUID
     public let prompt: String
