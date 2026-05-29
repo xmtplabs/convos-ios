@@ -903,12 +903,14 @@ extension NewConversationViewModel {
 
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
-            // pending templateId. One-shot - `.ready` may re-emit.
+            // pending templateId. Uses the batched fan-out method so all
+            // N joins fire in parallel -- the single-flight
+            // `requestAgentJoin(templateId:)` would cancel each prior
+            // call as the loop advances, leaving only the last to land.
+            // One-shot - `.ready` may re-emit.
             if !pendingAgentTemplateIds.isEmpty, !didTriggerAgentJoin {
                 didTriggerAgentJoin = true
-                for templateId in pendingAgentTemplateIds {
-                    conversationViewModel?.requestAgentJoin(templateId: templateId)
-                }
+                conversationViewModel?.requestAgentJoins(templateIds: pendingAgentTemplateIds)
             }
 
         case .joinFailed(_, let error):
