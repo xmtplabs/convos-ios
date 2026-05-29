@@ -65,9 +65,9 @@ extension ConvosAPIClientProtocol {
                 accountIdMatchesJwt: nil, updatedAt: nil
             ),
             subscriptionSnapshot: .init(
-                exists: false, topicCount: nil, topicHash: nil, kindSummary: nil,
+                exists: false, topicCount: nil, topicHash: nil, hasKindSummary: false,
                 lastContext: nil, lastSubscribeAt: nil, lastRemoteApplySucceeded: nil,
-                lastRemoteApplyError: nil, pushTokenMatchesAtApply: nil,
+                hasLastRemoteApplyError: false, pushTokenMatchesAtApply: nil,
                 apnsEnvMatchesAtApply: nil, isActualRemoteState: false
             )
         )

@@ -116,8 +116,8 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
             client: .init(exists: false, mappedDeviceId: nil, deviceIdMatchesJwt: nil,
                           accountIdMatchesJwt: nil, updatedAt: nil),
             subscriptionSnapshot: .init(exists: false, topicCount: nil, topicHash: nil,
-                                        kindSummary: nil, lastContext: nil, lastSubscribeAt: nil,
-                                        lastRemoteApplySucceeded: nil, lastRemoteApplyError: nil,
+                                        hasKindSummary: false, lastContext: nil, lastSubscribeAt: nil,
+                                        lastRemoteApplySucceeded: nil, hasLastRemoteApplyError: false,
                                         pushTokenMatchesAtApply: nil, apnsEnvMatchesAtApply: nil,
                                         isActualRemoteState: false)
         )

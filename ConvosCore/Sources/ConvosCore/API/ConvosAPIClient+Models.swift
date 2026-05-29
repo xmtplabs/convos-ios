@@ -269,11 +269,15 @@ public enum ConvosAPI {
             public let exists: Bool
             public let topicCount: Int?
             public let topicHash: String?
-            public let kindSummary: [String: Int]?
+            // Backend returns presence flags only - raw kindSummary and
+            // lastRemoteApplyError can carry attacker-controlled topic
+            // strings or upstream error text and would break the
+            // hashes-only contract of the debug endpoint.
+            public let hasKindSummary: Bool
             public let lastContext: String?
             public let lastSubscribeAt: String?
             public let lastRemoteApplySucceeded: Bool?
-            public let lastRemoteApplyError: String?
+            public let hasLastRemoteApplyError: Bool
             public let pushTokenMatchesAtApply: Bool?
             public let apnsEnvMatchesAtApply: Bool?
             public let isActualRemoteState: Bool
