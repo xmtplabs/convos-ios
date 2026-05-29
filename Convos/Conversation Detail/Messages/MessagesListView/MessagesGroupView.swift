@@ -28,6 +28,11 @@ struct MessagesGroupView: View {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    /// Threaded through to `HTMLAttachmentBubble`'s
+    /// `.matchedTransitionSource(...)` so the bubble pairs with the
+    /// `AttachmentPreviewSheet` zoom transition. nil outside the main
+    /// messages list path.
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     /// Mirrors `ConversationViewModel.creditsDepleted`. Drives the inline
     /// `bolt.fill` glyph next to an agent sender's display name when
     /// the global credit balance is depleted.
@@ -342,6 +347,7 @@ struct MessagesGroupView: View {
                     onPhotoHidden: onPhotoHidden,
                     onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                     onOpenFile: onOpenFile,
+                    htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
                     onTapReactions: onTapReactions,
                     onReaction: onReaction,
                     onToggleReaction: onToggleReaction,

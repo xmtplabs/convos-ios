@@ -102,10 +102,11 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     }
 
     private func estimatedAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
-        // HTML attachments render via HTMLAttachmentBubble at a fixed 500pt cellHeight
-        // regardless of mediaType, so check before falling into the .file branch.
+        // HTML attachments render via HTMLAttachmentBubble as a 160×160 tile
+        // inside the message group, regardless of mediaType, so check before
+        // falling into the .file branch.
         if attachment.isHTMLFile {
-            return 500.0
+            return 160.0
         }
         switch attachment.mediaType {
         case .audio:

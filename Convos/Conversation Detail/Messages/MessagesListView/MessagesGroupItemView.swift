@@ -16,6 +16,11 @@ struct MessagesGroupItemView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
+    /// Namespace owned by `MessagesView` and threaded down via the cell
+    /// config; pairs the HTML bubble with the matched-geometry zoom on
+    /// the post-tap `AttachmentPreviewSheet`. nil outside the main
+    /// messages list path (reply parents, etc.).
+    var htmlAttachmentTransitionNamespace: Namespace.ID?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReaction: ((String, String) -> Void)?
     let onToggleReaction: (String, String) -> Void
@@ -276,7 +281,8 @@ struct MessagesGroupItemView: View {
                 reactions: message.reactions,
                 agentVerification: message.sender.agentVerification,
                 onTapAvatar: avatarTap,
-                onTapReactions: reactionsTap
+                onTapReactions: reactionsTap,
+                transitionNamespace: htmlAttachmentTransitionNamespace
             )
             .messageGesture(
                 message: message,
