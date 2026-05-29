@@ -539,29 +539,65 @@ struct ContactDetailView: View {
         }
     }
 
+    /// Caches the freshly-published `publishedUrl` onto the local
+    /// `DBAgentTemplateContact` row so the next visit to this template
+    /// (here or in the standalone agent-template card) seeds the share
+    /// row without re-POSTing.
+    ///
+    /// Two safety properties this method has to preserve:
+    ///
+    /// 1. Do not nil out other profile fields. `Contact` doesn't carry the
+    ///    template's `emoji` or `descriptionText`, and a timestamped
+    ///    `AgentTemplateContactSnapshot` wholesale-replaces every field on
+    ///    the row (see `AgentTemplateContactsWriter.replacingProfile`). A
+    ///    naive `upsert` with `emoji: nil, descriptionText: nil` would
+    ///    wipe values written by the standalone card's prior upsert.
+    ///    Instead, read the existing row and re-pass every field through
+    ///    the snapshot unchanged, only swapping in `publishedURL`.
+    ///
+    /// 2. Do not auto-add a contact. If the agent has no row in
+    ///    `DBAgentTemplateContact`, the user has never opened the
+    ///    standalone agent-template card for this template, so we
+    ///    shouldn't promote them into the user's agent-template contacts
+    ///    as a side effect of tapping Share. Skip the write; the in-memory
+    ///    `resolvedAgentTemplateShareURL` covers this view session, and a
+    ///    future open of the standalone card (which has the full profile
+    ///    to hand) will populate the row properly. Repeat shares from a
+    ///    fresh `ContactDetailView` pay the POST cost again, which is
+    ///    idempotent and cheap.
     private func persistAgentTemplatePublishedURL(
         _ urlString: String,
         templateId: String,
         session: any SessionManagerProtocol
     ) async {
+        let repository = session.messagingService().agentTemplateContactsRepository()
+        let existing: AgentTemplateContact?
+        do {
+            existing = try repository.fetchContact(templateId: templateId)
+        } catch {
+            Log.error("Failed to read existing agent-template contact for templateId=\(templateId): \(String(describing: error))")
+            return
+        }
+        guard let existing else { return }
+
         let writer = session.messagingService().agentTemplateContactsWriter()
         let snapshot = AgentTemplateContactSnapshot(
-            displayName: contact.displayName,
-            emoji: nil,
-            descriptionText: nil,
+            displayName: existing.displayName,
+            emoji: existing.emoji,
+            descriptionText: existing.descriptionText,
             publishedURL: urlString,
-            avatarURL: contact.avatarURL,
-            agentVerification: contact.agentVerification,
+            avatarURL: existing.avatarURL,
+            agentVerification: existing.agentVerification,
             profileUpdatedAt: Date()
         )
         do {
             try await writer.upsert(
                 templateId: templateId,
-                addedViaConversationId: contact.addedViaConversationId ?? mode.conversationId,
+                addedViaConversationId: existing.addedViaConversationId,
                 profile: snapshot
             )
         } catch {
-            Log.error("Failed to persist publishedURL for templateId=\(templateId): \(error.localizedDescription)")
+            Log.error("Failed to persist publishedURL for templateId=\(templateId): \(String(describing: error))")
         }
     }
 

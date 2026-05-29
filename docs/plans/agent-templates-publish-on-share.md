@@ -122,9 +122,29 @@ and isn't part of the share button's intent.
         repeat visit skip the POST until the member profile catches
         up. Sync `throws` call; treat misses and errors as a no-op
         and fall through to the publish-and-share row.
-   - On success, persist locally via the writer obtained from
-     `session.messagingService().agentTemplateContactsWriter()`. Best
-     effort - persistence failures are logged but don't block the share.
+   - On success, persist locally - but only when an existing
+     `DBAgentTemplateContact` row is present. Read the row via
+     `session.messagingService().agentTemplateContactsRepository()
+     .fetchContact(templateId:)`, then upsert via
+     `session.messagingService().agentTemplateContactsWriter()` with a
+     snapshot that re-passes every existing field unchanged and swaps in
+     only the new `publishedURL`. Two reasons:
+     - `Contact` doesn't carry the template's `emoji` /
+       `descriptionText`, and a timestamped
+       `AgentTemplateContactSnapshot` wholesale-replaces every field on
+       the row (see `AgentTemplateContactsWriter.replacingProfile`). A
+       naive upsert with `emoji: nil, descriptionText: nil` would wipe
+       values written by the standalone card's prior upsert.
+     - If the row doesn't exist, the user has never opened the
+       standalone agent-template card for this template, so the view
+       must not promote them into the user's agent-template contacts as
+       a side effect of tapping Share. Skip the write in that case;
+       in-memory `resolvedAgentTemplateShareURL` covers this view
+       session, and a future open of the standalone card (which has the
+       full profile to hand) will populate the row properly. Repeat
+       shares from a fresh `ContactDetailView` re-POST, which is
+       idempotent and cheap.
+     Persistence failures are logged but don't block the share.
    - Bundle the new share concerns into a `ContactDetailShareModifier`
      view modifier (sheet-presenter background + "Couldn't share" alert
      + the `onAppear` seed) so the body's modifier chain stays under the
