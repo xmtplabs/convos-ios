@@ -376,10 +376,13 @@ struct ContactsWriterTests {
     @Test("upsertContact posts `contactsWereAdded` only on a brand-new contact row")
     func testUpsertPostsContactsWereAddedOnInsertOnly() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
-        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        // Private center so sibling tests posting on `.default` cannot leak
+        // into the recorded set.
+        let center = NotificationCenter()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter, notificationCenter: center)
         let inboxId = "inbox-add-1"
 
-        let recorder = NotificationRecorder(name: .contactsWereAdded)
+        let recorder = NotificationRecorder(name: .contactsWereAdded, center: center)
 
         // First upsert on a fresh inboxId: real insert, post fires with the
         // singleton inboxId in the userInfo payload.
@@ -424,7 +427,10 @@ struct ContactsWriterTests {
     @Test("Block and unblock post `contactBlockingDidChange` on real state changes only")
     func testBlockingPostsNotificationOnRealChanges() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
-        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        // Private center so sibling tests posting on `.default` cannot leak
+        // into the recorded set.
+        let center = NotificationCenter()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter, notificationCenter: center)
         let inboxId = "inbox-1"
 
         try await writer.upsertContact(
@@ -433,7 +439,7 @@ struct ContactsWriterTests {
             profile: ContactProfileSnapshot(displayName: "Test")
         )
 
-        let recorder = NotificationRecorder(name: .contactBlockingDidChange)
+        let recorder = NotificationRecorder(name: .contactBlockingDidChange, center: center)
 
         // First block: real change → post.
         try await writer.block(inboxId: inboxId)
@@ -756,13 +762,20 @@ struct ContactsWriterTests {
 
 /// Records every `Notification` posted on a given name so tests can assert
 /// what the writer fired. Removes its observer on `stop()`.
+///
+/// `center` lets a test bind the recorder to a private `NotificationCenter()`
+/// so a concurrently-running sibling test posting on `.default` can't leak
+/// into the recorded set. Pair with `ContactsWriter(databaseWriter:,
+/// notificationCenter:)` so the writer posts to the same private center.
 private final class NotificationRecorder: @unchecked Sendable {
+    private let center: NotificationCenter
     private(set) var notifications: [Notification] = []
     private var token: NSObjectProtocol?
     private let lock: NSLock = NSLock()
 
-    init(name: Notification.Name) {
-        token = NotificationCenter.default.addObserver(
+    init(name: Notification.Name, center: NotificationCenter = .default) {
+        self.center = center
+        token = center.addObserver(
             forName: name,
             object: nil,
             queue: nil
@@ -776,7 +789,7 @@ private final class NotificationRecorder: @unchecked Sendable {
 
     func stop() {
         if let token {
-            NotificationCenter.default.removeObserver(token)
+            center.removeObserver(token)
             self.token = nil
         }
     }
