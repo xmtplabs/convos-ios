@@ -1,35 +1,12 @@
 import Foundation
 import GRDB
 
-public extension Notification.Name {
-    /// Posted on the main queue by `ContactsWriter.block` / `unblock` when
-    /// a contact's blocked state actually changes (idempotent no-ops do
-    /// not fire). `SessionManager` observes this to run an immediate
-    /// `QuarantineSweeper.sweep()`; unblocking should restore held-by-
-    /// block conversations to the main feed without waiting for the next
-    /// hourly or foreground-entry sweep. UserInfo:
-    /// `inboxId: String`, `blocked: Bool`.
-    static let contactBlockingDidChange: Notification.Name = Notification.Name(
-        "ContactBlockingDidChange"
-    )
-
-    /// Posted on the main queue after one or more brand-new `DBContact`
-    /// rows are committed. Idempotent re-upserts and profile-only updates
-    /// do not fire. `SessionManager` observes this to trigger an
-    /// immediate `QuarantineSweeper.sweep()` so a conversation that was
-    /// held in quarantine because its creator was a stranger is promoted
-    /// to the main feed as soon as the creator is added as a contact,
-    /// without waiting for the next hourly or foreground-entry sweep.
-    ///
-    /// Batch callers (e.g. `ContactSyncCoordinator` syncing every
-    /// non-self member of a group when the local user first acts there)
-    /// collect inserted inboxIds inside their transaction and emit a
-    /// single notification after the write commits. UserInfo:
-    /// `inboxIds: [String]`.
-    static let contactsWereAdded: Notification.Name = Notification.Name(
-        "ContactsWereAdded"
-    )
-}
+// Block / unblock are pure contact-row writes here. Feed visibility is
+// keyed on conversation consent, and `ConversationConsentReconciler`
+// observes the `contact` table: a block flips the creator's conversations
+// to `.denied` (hidden) and an unblock restores them to `.allowed`
+// (visible). No notification or direct consent write is needed at this
+// layer.
 
 /// Snapshot of profile fields used when upserting a contact. Callers pass
 /// the most recent snapshot they have for the inbox. A timestamped
@@ -51,6 +28,11 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
     public let avatarKey: Data?
     public let profileUpdatedAt: Date?
     public let agentVerification: AgentVerification?
+    /// Template identity for a template-backed agent, mirrored onto the
+    /// contact so it survives leaving the conversation. `nil` for humans.
+    public let agentTemplateId: String?
+    public let agentTemplatePublishedURL: String?
+    public let agentTemplateEmoji: String?
 
     public init(
         displayName: String? = nil,
@@ -59,7 +41,10 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         profileUpdatedAt: Date? = nil,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) {
         self.displayName = displayName
         self.avatarURL = avatarURL
@@ -68,6 +53,9 @@ public struct ContactProfileSnapshot: Sendable, Hashable {
         self.avatarKey = avatarKey
         self.profileUpdatedAt = profileUpdatedAt
         self.agentVerification = agentVerification
+        self.agentTemplateId = agentTemplateId
+        self.agentTemplatePublishedURL = agentTemplatePublishedURL
+        self.agentTemplateEmoji = agentTemplateEmoji
     }
 }
 
@@ -101,14 +89,9 @@ public protocol ContactsWriterProtocol: Sendable {
 
 final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
-    private let notificationCenter: NotificationCenter
 
-    init(
-        databaseWriter: any DatabaseWriter,
-        notificationCenter: NotificationCenter = .default
-    ) {
+    init(databaseWriter: any DatabaseWriter) {
         self.databaseWriter = databaseWriter
-        self.notificationCenter = notificationCenter
     }
 
     func upsertContact(
@@ -116,18 +99,12 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
     ) async throws {
-        let didInsert: Bool = try await databaseWriter.write { db in
+        try await databaseWriter.write { db in
             try Self.upsert(
                 db: db,
                 inboxId: inboxId,
                 addedViaConversationId: addedViaConversationId,
                 profile: profile
-            )
-        }
-        if didInsert {
-            ContactsWriter.postContactsWereAdded(
-                inboxIds: [inboxId],
-                notificationCenter: notificationCenter
             )
         }
     }
@@ -151,128 +128,44 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
     }
 
     func block(inboxId: String) async throws {
-        let didChange: Bool = try await databaseWriter.write { db in
+        try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 // Blocking is action-gated on an existing contact row. We
                 // never auto-create a contact just to flag it as blocked.
                 Log.debug("block(inboxId:) skipped, no contact row for \(inboxId)")
-                return false
+                return
             }
             guard existing.blockedAt == nil else {
                 // Idempotent: leave the original blockedAt timestamp.
-                return false
+                return
             }
             try existing.with(blockedAt: Date()).save(db)
-            return true
         }
-        if didChange {
-            ContactsWriter.postBlockingDidChange(
-                inboxId: inboxId,
-                blocked: true,
-                notificationCenter: notificationCenter
-            )
-        }
+        // `ConversationConsentReconciler` observes the `contact` table and
+        // demotes this creator's conversations to `.denied`, hiding them.
     }
 
     func unblock(inboxId: String) async throws {
-        let didChange: Bool = try await databaseWriter.write { db in
+        try await databaseWriter.write { db in
             guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
                 Log.debug("unblock(inboxId:) skipped, no contact row for \(inboxId)")
-                return false
+                return
             }
             guard existing.blockedAt != nil else {
-                return false
+                return
             }
             try existing.with(blockedAt: nil).save(db)
-            return true
         }
-        if didChange {
-            ContactsWriter.postBlockingDidChange(
-                inboxId: inboxId,
-                blocked: false,
-                notificationCenter: notificationCenter
-            )
-        }
+        // `ConversationConsentReconciler` observes the `contact` table and
+        // restores this creator's conversations to `.allowed`.
     }
 
-    /// Posted on the main queue after `block` / `unblock` writes a real
-    /// state change (idempotent no-ops do not fire). `SessionManager`
-    /// observes this to trigger an immediate `QuarantineSweeper.sweep()`
-    /// so unblocking restores held-by-block conversations to the main
-    /// feed without waiting for the next hourly/foreground sweep.
-    ///
-    /// The `notificationCenter` parameter exists so tests can scope
-    /// observers to a private center and avoid cross-suite leakage
-    /// through `.default`.
-    private static func postBlockingDidChange(
-        inboxId: String,
-        blocked: Bool,
-        notificationCenter: NotificationCenter
-    ) {
-        let userInfo: [String: Any] = ["inboxId": inboxId, "blocked": blocked]
-        if Thread.isMainThread {
-            notificationCenter.post(
-                name: .contactBlockingDidChange,
-                object: nil,
-                userInfo: userInfo
-            )
-        } else {
-            DispatchQueue.main.async {
-                notificationCenter.post(
-                    name: .contactBlockingDidChange,
-                    object: nil,
-                    userInfo: userInfo
-                )
-            }
-        }
-    }
-
-    /// Posted on the main queue after one or more brand-new contact rows
-    /// are committed. Callers in a batch context (e.g.
-    /// `ContactSyncCoordinator`) accumulate inserted inboxIds inside
-    /// their `databaseWriter.write` closure and call this once after the
-    /// write returns, so the eventual `QuarantineSweeper.sweep()` sees
-    /// committed contact rows.
-    ///
-    /// No-op on an empty array so batch callers can call unconditionally
-    /// after their transaction.
-    ///
-    /// The `notificationCenter` parameter exists so tests can scope
-    /// observers to a private center and avoid cross-suite leakage
-    /// through `.default`. Production callers omit it and get `.default`.
-    static func postContactsWereAdded(
-        inboxIds: [String],
-        notificationCenter: NotificationCenter = .default
-    ) {
-        guard !inboxIds.isEmpty else { return }
-        let userInfo: [String: Any] = ["inboxIds": inboxIds]
-        if Thread.isMainThread {
-            notificationCenter.post(
-                name: .contactsWereAdded,
-                object: nil,
-                userInfo: userInfo
-            )
-        } else {
-            DispatchQueue.main.async {
-                notificationCenter.post(
-                    name: .contactsWereAdded,
-                    object: nil,
-                    userInfo: userInfo
-                )
-            }
-        }
-    }
-
-    /// Returns `true` when this call inserted a brand-new `DBContact` row
-    /// for `inboxId`, `false` when an existing row was merged-into (or
-    /// left untouched). Callers use the return value to decide whether
-    /// to post `contactsWereAdded` after the transaction commits.
     fileprivate static func upsert(
         db: Database,
         inboxId: String,
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
-    ) throws -> Bool {
+    ) throws {
         if let existing = try DBContact.fetchOne(db, key: inboxId) {
             // Identity columns (addedAt, addedViaConversationId) are
             // intentionally preserved on re-upsert. The profile snapshot is
@@ -280,10 +173,10 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             // the stored one (see `replacingProfile`); untimestamped
             // re-upserts leave the existing row untouched.
             guard let merged = replacingProfile(of: existing, with: profile) else {
-                return false
+                return
             }
             try merged.save(db)
-            return false
+            return
         }
 
         let now = Date()
@@ -297,11 +190,13 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             avatarNonce: profile.avatarNonce,
             avatarKey: profile.avatarKey,
             profileUpdatedAt: profile.profileUpdatedAt ?? now,
-            agentVerification: profile.agentVerification
+            agentVerification: profile.agentVerification,
+            agentTemplateId: profile.agentTemplateId,
+            agentTemplatePublishedURL: profile.agentTemplatePublishedURL,
+            agentTemplateEmoji: profile.agentTemplateEmoji
         )
         try row.save(db)
         Log.debug("Inserted new contact for inboxId=\(inboxId) via=\(addedViaConversationId ?? "nil")")
-        return true
     }
 
     /// Returns `existing` with its profile fields replaced by `profile` if
@@ -342,18 +237,12 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
 /// saves onto `DBContact` (`mirrorMemberProfileToContactInTransaction`,
 /// `saveMemberProfileAndMirrorToContactInTransaction`).
 extension ContactsWriter {
-    /// In-transaction upsert that returns `true` when a brand-new contact
-    /// row was inserted. Batch callers (e.g. `ContactSyncCoordinator`)
-    /// accumulate the inserted inboxIds inside their `databaseWriter.write`
-    /// closure and call `postContactsWereAdded(inboxIds:)` once after the
-    /// transaction commits, so a single sweep covers the whole batch.
-    @discardableResult
     static func upsertContactInTransaction(
         db: Database,
         inboxId: String,
         addedViaConversationId: String?,
         profile: ContactProfileSnapshot
-    ) throws -> Bool {
+    ) throws {
         try upsert(
             db: db,
             inboxId: inboxId,
@@ -382,7 +271,10 @@ extension ContactsWriter {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         receivedAt: Date,
-        agentVerification: AgentVerification? = nil
+        agentVerification: AgentVerification? = nil,
+        agentTemplateId: String? = nil,
+        agentTemplatePublishedURL: String? = nil,
+        agentTemplateEmoji: String? = nil
     ) throws {
         guard let existing = try DBContact.fetchOne(db, key: inboxId) else {
             return
@@ -394,7 +286,10 @@ extension ContactsWriter {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             profileUpdatedAt: receivedAt,
-            agentVerification: agentVerification
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            agentTemplateEmoji: agentTemplateEmoji
         )
         guard let merged = replacingProfile(of: existing, with: snapshot) else {
             return
@@ -421,7 +316,10 @@ extension ContactsWriter {
             avatarNonce: profile.avatarNonce,
             avatarKey: profile.avatarKey,
             receivedAt: receivedAt,
-            agentVerification: profile.memberKind?.agentVerification
+            agentVerification: profile.memberKind?.agentVerification,
+            agentTemplateId: profile.agentTemplateId,
+            agentTemplatePublishedURL: profile.agentTemplatePublishedURL,
+            agentTemplateEmoji: profile.agentTemplateEmoji
         )
     }
 }

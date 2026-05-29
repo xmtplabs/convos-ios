@@ -55,4 +55,19 @@ extension ConvosAPIClientProtocol {
             publishedUrl: "https://agents.example.com/test.\(id.prefix(5))"
         )
     }
+
+    /// Default for the agent-template fetch backing the contacts-list
+    /// canonical-identity cache. Stubs that don't exercise template fetching
+    /// inherit this; tests that do should override it on their fixture.
+    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse {
+        ConvosAPI.AgentTemplateResponse(
+            id: templateId,
+            agentName: nil,
+            emoji: nil,
+            avatarUrl: nil,
+            description: nil,
+            publishedUrl: nil,
+            status: nil
+        )
+    }
 }

@@ -1,82 +1,49 @@
 import Foundation
 
 /// Decision returned by `InboundConversationFilter` when an inbound
-/// conversation arrives. The caller is responsible for the side effects:
-/// `.deliver` persists normally; `.quarantine` persists with the
-/// `quarantinedAt` flag set; `.reject` drops on the floor (matches today's
-/// behavior for non-allowed conversations).
+/// conversation arrives. `.deliver` persists normally; `.reject` drops
+/// on the floor.
+///
+/// Persistence is orthogonal to feed visibility: we store inbound
+/// conversations unless XMTP reports `.denied`. Visibility is keyed on
+/// the stored consent state - `StreamProcessor` leaves an unsolicited
+/// stranger at `.unknown` (hidden) and only bumps consent to `.allowed`
+/// once the local user has consented (joined, or the creator is already
+/// a contact). `ConversationConsentReconciler` promotes / demotes later
+/// as contact state changes, and stale-stranger TTL cleanup runs as a
+/// small periodic GC.
 public enum InboundConversationDecision: Equatable, Sendable {
     case deliver
-    case quarantine
     case reject
 }
 
-/// Pure decision function for the inbound-conversation gate. Extends today's
-/// consent + invite-flow + creator-self check (`StreamProcessor.shouldProcessConversation`)
-/// with two new branches: blocked-contact rejection and contact-list-driven
-/// delivery / stranger quarantine.
+/// Pure decision function for the inbound-conversation gate. Persistence
+/// happens for everything except `.denied`; visibility is keyed on the
+/// stored consent state downstream.
 ///
-/// The filter is intentionally side-effect-free. It does not mutate XMTP
-/// consent state — `StreamProcessor` performs the `updateConsentState(.allowed)`
-/// call when this filter returns `.deliver` for a previously-`.unknown`
-/// conversation, preserving the existing behavior verbatim.
+/// The filter is intentionally side-effect-free. `StreamProcessor` owns
+/// the `updateConsentState(.allowed)` bump (gated on the local user
+/// having consented - joined, or the creator already being a contact).
 public struct InboundConversationFilter: Sendable {
-    private let contactsRepository: any ContactsRepositoryProtocol
+    public init() {}
 
-    public init(contactsRepository: any ContactsRepositoryProtocol) {
-        self.contactsRepository = contactsRepository
-    }
-
-    /// Decides what to do with an inbound conversation given its context.
-    ///
-    /// - Parameters:
-    ///   - consentState: XMTP-reported consent state at delivery time.
-    ///   - creatorInboxId: `inboxId` of the sender / conversation creator.
-    ///   - clientInboxId: the local user's `inboxId`.
-    ///   - hasOutgoingJoinRequest: whether the local user has a pending
-    ///     invite-flow join request for this conversation. Caller looks this
-    ///     up via the existing `InviteJoinRequestsManager`.
+    /// Decides whether to persist an inbound conversation. `creatorInboxId`,
+    /// `clientInboxId`, and `hasOutgoingJoinRequest` are accepted so the
+    /// call site can keep them to hand for the consent-bump decision that
+    /// `StreamProcessor` makes after this returns `.deliver`.
     public func decide(
         consentState: Consent,
-        creatorInboxId: String,
-        clientInboxId: String,
-        hasOutgoingJoinRequest: Bool
+        creatorInboxId _: String = "",
+        clientInboxId _: String = "",
+        hasOutgoingJoinRequest _: Bool = false
     ) -> InboundConversationDecision {
-        // Already-accepted conversations bypass every other check. Blocking
-        // does not retroactively quarantine an existing accepted convo;
-        // see PRD, "Blocking" effects list. The user can still post in
-        // groups they shared before the block; only new inbound from a
-        // blocked sender is held.
-        if consentState == .allowed { return .deliver }
-
-        // Self-creator: the local user created this conversation.
-        if creatorInboxId == clientInboxId { return .deliver }
-
-        // Block path: quarantine instead of dropping. Held conversations
-        // are persisted but hidden from the main feed; the
-        // `QuarantineSweeper` promotes them on unblock or deletes them
-        // past the TTL. This restores the conversation when the user
-        // unblocks within the hold window.
-        if (try? contactsRepository.isBlocked(inboxId: creatorInboxId)) == true {
-            return .quarantine
+        // .denied -> drop. Everything else persists; consent state keyed
+        // downstream decides whether it shows in the feed.
+        switch consentState {
+        case .allowed, .unknown:
+            return .deliver
+        case .denied:
+            return .reject
         }
-
-        if consentState == .unknown {
-            // Existing invite-flow path. Caller bumps consent → .allowed
-            // after delivery.
-            if hasOutgoingJoinRequest { return .deliver }
-
-            // New: known contact path. Caller bumps consent the same way.
-            if (try? contactsRepository.isContact(inboxId: creatorInboxId)) == true {
-                return .deliver
-            }
-
-            // Stranger — held in quarantine until the sender becomes a
-            // contact (promoted) or the TTL expires (deleted).
-            return .quarantine
-        }
-
-        // .denied or any future consent state we don't recognize — drop.
-        return .reject
     }
 }

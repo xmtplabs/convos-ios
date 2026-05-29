@@ -13,11 +13,10 @@ import Observation
 /// shape (mode enum + parameterized view) over duplicating the view.
 enum ContactsPickerMode: Hashable {
     case newConversation
-    /// Compose entry point: the picker is the first step of the Compose
-    /// flow and selecting contacts is optional. The bottom CTA reads
-    /// "Skip" with nothing selected and "Continue" once a contact is
-    /// picked, and is always enabled (Skip is a valid action). Proceeding
-    /// pushes the new-conversation view rather than dismissing.
+    /// First step of the compose flow (`ComposeFlowView`): the picker is the
+    /// root of the host navigation stack and selecting contacts is optional
+    /// (the CTA reads "Skip" with an empty selection), then the new
+    /// conversation is pushed rather than presented.
     case compose
     case addToConversation(conversationId: String, conversationTitle: String?)
 
@@ -29,174 +28,93 @@ enum ContactsPickerMode: Hashable {
             return true
         }
     }
+
+    var isCompose: Bool {
+        if case .compose = self { return true }
+        return false
+    }
 }
 
-/// View model backing the contact picker. Subscribes to both the human and
-/// the agent-template contact repositories, drops blocked humans, applies
-/// search filtering, groups the merged result into alphabetical sections,
-/// and tracks a heterogeneous selection of inboxIds and templateIds.
+/// View model backing the contact picker. Subscribes to the contacts
+/// repository, drops blocked contacts, applies search filtering, groups the
+/// result into alphabetical sections, and tracks the selected inboxIds.
 @Observable
 @MainActor
 final class ContactsPickerViewModel {
-    /// A single picked entity. Heterogeneous so a session can spawn agents
-    /// alongside inviting humans in one confirm.
-    enum Selection: Hashable {
-        case human(inboxId: String)
-        case agentTemplate(templateId: String)
-
-        var inboxId: String? {
-            if case .human(let id) = self { return id }
-            return nil
-        }
-
-        var templateId: String? {
-            if case .agentTemplate(let id) = self { return id }
-            return nil
-        }
-    }
-
     struct Section: Identifiable, Hashable {
         let id: String
         let title: String
         let rows: [Row]
     }
 
-    /// Row backing a picker cell. The kind discriminator carries the full
-    /// presentation model so cells can render human/agent affordances
-    /// without re-fetching from the repository.
     struct Row: Identifiable, Hashable {
         let id: String
-        let kind: Kind
+        let contact: Contact
         let isAlreadyInChat: Bool
-        /// Caption rendered under the contact name. For humans this is the
-        /// source conversation name / DM / agent role label resolver; for
-        /// agent templates it's the template description.
+        /// Caption rendered under the contact name. Resolves to the name of
+        /// the conversation that promoted the inbox to a contact, falling
+        /// back to the agent role label (for verified agents) or "DM" (no
+        /// group convo name available).
         let subtitle: String
-
-        enum Kind: Hashable {
-            case human(Contact)
-            case agentTemplate(AgentTemplateContact)
-        }
-
-        var selection: Selection {
-            switch kind {
-            case .human(let contact):
-                return .human(inboxId: contact.inboxId)
-            case .agentTemplate(let agent):
-                return .agentTemplate(templateId: agent.templateId)
-            }
-        }
-
-        var resolvedDisplayName: String {
-            switch kind {
-            case .human(let contact):
-                return contact.resolvedDisplayName
-            case .agentTemplate(let agent):
-                return agent.resolvedDisplayName
-            }
-        }
-
-        var alphabeticalSectionKey: String {
-            switch kind {
-            case .human(let contact):
-                return contact.alphabeticalSectionKey
-            case .agentTemplate(let agent):
-                return agent.alphabeticalSectionKey
-            }
-        }
     }
 
     let mode: ContactsPickerMode
     var sections: [Section] = []
-    var selected: Set<Selection> = []
+    var selectedInboxIds: Set<String> = []
+    /// Set true when the user just selected an agent, so the view can
+    /// present the "One agent, many convos" info sheet. The view resets
+    /// it after handling.
+    var didSelectAgent: Bool = false
     var searchQuery: String = "" {
         didSet { rebuildSections() }
     }
     var isLoading: Bool = true
 
     private let contactsRepository: any ContactsRepositoryProtocol
-    private let agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
     private let alreadyInChatInboxIds: Set<String>
     private var allContacts: [Contact] = []
-    private var allAgentContacts: [AgentTemplateContact] = []
-    private var cancellables: Set<AnyCancellable> = []
+    private var cancellable: AnyCancellable?
 
     init(
         mode: ContactsPickerMode,
         contactsRepository: any ContactsRepositoryProtocol,
-        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
-            = MockAgentTemplateContactsRepository(contacts: []),
         alreadyInChatInboxIds: Set<String> = [],
         preselectedInboxIds: Set<String> = []
     ) {
         self.mode = mode
         self.contactsRepository = contactsRepository
-        self.agentTemplateContactsRepository = agentTemplateContactsRepository
         self.alreadyInChatInboxIds = alreadyInChatInboxIds
-        let preselected: Set<Selection> = preselectedInboxIds
-            .subtracting(alreadyInChatInboxIds)
-            .map { Selection.human(inboxId: $0) }
-            .reduce(into: Set<Selection>()) { $0.insert($1) }
-        self.selected = preselected
+        self.selectedInboxIds = preselectedInboxIds.subtracting(alreadyInChatInboxIds)
 
-        contactsRepository.contactsPublisher
+        cancellable = contactsRepository.contactsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] contacts in
                 self?.applyContacts(contacts)
             }
-            .store(in: &cancellables)
 
-        agentTemplateContactsRepository.agentTemplateContactsPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] agentContacts in
-                self?.applyAgentContacts(agentContacts)
-            }
-            .store(in: &cancellables)
-
-        if let initialContacts = try? contactsRepository.fetchAll() {
-            allContacts = initialContacts
+        if let initial = try? contactsRepository.fetchAll() {
+            applyContacts(initial)
         }
-        if let initialAgentContacts = try? agentTemplateContactsRepository.fetchAll() {
-            allAgentContacts = initialAgentContacts
-        }
-        // Prune before `rebuildSections` so a preselected inboxId for a
-        // contact that's blocked, a verified agent, or unnamed (i.e. one
-        // `isVisibleInPicker` will drop) doesn't survive in `selected`
-        // until the async publisher fires. Without this, `selectionCount`
-        // is inflated, `canConfirm` passes with no visible UI to remove
-        // the phantom, and `pillSubtitle` shows the wrong count.
-        pruneSelectionToKnownEntities()
-        rebuildSections()
-        // A repository whose publisher doesn't emit synchronously on
-        // subscription would otherwise leave `isLoading` stuck at `true`
-        // even though `sections` is populated from the fetch above.
-        isLoading = false
     }
 
     // MARK: - Derived state
 
     var selectedContacts: [Contact] {
-        let humanIds: Set<String> = selected.compactMap(\.inboxId).reduce(into: Set<String>()) { $0.insert($1) }
-        return allContacts.filter { humanIds.contains($0.inboxId) }
-    }
-
-    var selectedAgentContacts: [AgentTemplateContact] {
-        let templateIds: Set<String> = selected.compactMap(\.templateId).reduce(into: Set<String>()) { $0.insert($1) }
-        return allAgentContacts.filter { templateIds.contains($0.templateId) }
+        allContacts.filter { selectedInboxIds.contains($0.inboxId) }
     }
 
     var selectionCount: Int {
-        selected.count
+        selectedInboxIds.count
     }
 
     var canConfirm: Bool {
-        // Compose allows skipping (no selection required); the other modes
-        // need at least one contact picked before the CTA enables.
+        // Compose always allows proceeding (selection is optional - "Skip"
+        // creates an empty draft); other modes need at least one contact.
         switch mode {
         case .compose:
             return true
         case .newConversation, .addToConversation:
-            return !selected.isEmpty
+            return !selectedInboxIds.isEmpty
         }
     }
 
@@ -229,7 +147,7 @@ final class ContactsPickerViewModel {
 
     /// Subtitle below the title in the indicator pill. Reads "Draft" when
     /// the user hasn't picked anyone yet, then transitions to "N selected"
-    /// once they start picking. Identical wording across both modes - the
+    /// once they start picking. Identical wording across both modes — the
     /// title already disambiguates the intent.
     var pillSubtitle: String {
         if selectionCount == 0 {
@@ -239,7 +157,7 @@ final class ContactsPickerViewModel {
     }
 
     var confirmButtonTitle: String {
-        if case .compose = mode, selected.isEmpty {
+        if case .compose = mode, selectedInboxIds.isEmpty {
             return "Skip"
         }
         return "Continue"
@@ -247,186 +165,162 @@ final class ContactsPickerViewModel {
 
     // MARK: - Mutations
 
-    func toggleSelection(_ selection: Selection) {
-        if case .human(let inboxId) = selection, alreadyInChatInboxIds.contains(inboxId) {
-            return
-        }
-        if selected.contains(selection) {
-            selected.remove(selection)
+    func toggleSelection(for inboxId: String) {
+        guard !alreadyInChatInboxIds.contains(inboxId) else { return }
+        if selectedInboxIds.contains(inboxId) {
+            selectedInboxIds.remove(inboxId)
         } else {
-            selected.insert(selection)
+            // At most one agent per conversation - agents are
+            // instance-per-conversation and can't share context. Once one
+            // is selected, other agent rows are disabled (see
+            // `isAgentSelectionBlocked`); selecting a second is a no-op.
+            // Humans are unrestricted.
+            if isAgent(inboxId), selectedAgentInboxId != nil {
+                return
+            }
+            selectedInboxIds.insert(inboxId)
+            if isAgent(inboxId) {
+                didSelectAgent = true
+            }
         }
     }
 
-    func deselect(_ selection: Selection) {
-        selected.remove(selection)
+    /// True when `inboxId` is an unselected agent that can't be selected
+    /// because a different agent is already selected. The picker disables
+    /// these rows; the user deselects the current agent to pick another.
+    func isAgentSelectionBlocked(for inboxId: String) -> Bool {
+        guard isAgent(inboxId), !selectedInboxIds.contains(inboxId) else { return false }
+        return selectedAgentInboxId != nil
+    }
+
+    func deselect(inboxId: String) {
+        selectedInboxIds.remove(inboxId)
     }
 
     func clearSelection() {
-        selected.removeAll()
+        selectedInboxIds.removeAll()
     }
 
-    func isSelected(_ selection: Selection) -> Bool {
-        selected.contains(selection)
+    func isSelected(inboxId: String) -> Bool {
+        selectedInboxIds.contains(inboxId)
+    }
+
+    /// `inboxId` of the currently selected agent, if any. At most one
+    /// agent may be selected (see `toggleSelection`).
+    var selectedAgentInboxId: String? {
+        selectedInboxIds.first { isAgent($0) }
+    }
+
+    /// `agentTemplateId` of the currently selected agent, threaded into
+    /// conversation creation so a fresh instance of that template is
+    /// spawned into the new (or existing) conversation.
+    var selectedAgentTemplateId: String? {
+        guard let agentInboxId = selectedAgentInboxId else { return nil }
+        return allContacts.first { $0.inboxId == agentInboxId }?.agentTemplateId
+    }
+
+    private func isAgent(_ inboxId: String) -> Bool {
+        allContacts.first { $0.inboxId == inboxId }?.agentTemplateId != nil
+    }
+
+    /// True for the modes that start a fresh conversation (the standalone
+    /// new-conversation picker and the compose flow's first step), where
+    /// selecting a template-backed agent spawns a fresh instance into it.
+    /// False for add-to-existing-conversation.
+    private var isNewConversationMode: Bool {
+        switch mode {
+        case .newConversation, .compose:
+            return true
+        case .addToConversation:
+            return false
+        }
+    }
+
+    /// Contacts selectable in the compose / new-conversation picker, used by
+    /// `ConversationsViewModel` to size its compose entry point. Mirrors the
+    /// new-conversation branch of `isVisibleInPicker` (template-backed agents
+    /// plus named, unblocked humans).
+    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
+        contacts.filter { contact in
+            guard !contact.isBlocked else { return false }
+            if contact.agentVerification != nil {
+                return contact.agentTemplateId != nil
+            }
+            guard let name = contact.displayName, !name.isEmpty else { return false }
+            return true
+        }
     }
 
     // MARK: - Section building
 
     private func applyContacts(_ contacts: [Contact]) {
         allContacts = contacts
-        pruneSelectionToKnownEntities()
+        // Prune selections to what's actually pickable. Pruning against the
+        // *visible* set (not just the known set) drops phantom selections --
+        // a preselected inboxId for a contact who's hidden because they're
+        // blocked / a verified agent / unnamed would otherwise stay in
+        // `selectedInboxIds`, counting toward `selectionCount` and passing
+        // `canConfirm` with no UI for the user to remove it.
+        let visibleInboxIds = Set(allContacts.filter(isVisibleInPicker).map(\.inboxId))
+        selectedInboxIds = selectedInboxIds.intersection(visibleInboxIds)
         rebuildSections()
         isLoading = false
-    }
-
-    private func applyAgentContacts(_ agentContacts: [AgentTemplateContact]) {
-        allAgentContacts = agentContacts
-        pruneSelectionToKnownEntities()
-        rebuildSections()
-        isLoading = false
-    }
-
-    /// Contacts the picker would actually show. Shared with
-    /// `ConversationsViewModel` so Compose can decide whether the picker is
-    /// worth presenting (vs. opening the new-conversation view directly) --
-    /// the raw contact count includes agents / blocked / unnamed entries that
-    /// never appear here.
-    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
-        contacts.filter(isVisibleInPicker)
     }
 
     /// Single source of truth for "is this contact a valid picker row".
     /// Hidden from the picker:
     ///  - blocked contacts (the user explicitly opted out of contacting them)
-    ///  - verified agents (kept in `DBContact` so chat-side surfaces can
-    ///    resolve them, but not a valid picker target since they don't accept
-    ///    1:1 DMs; agent rows have their own dedicated entry point)
-    ///  - contacts whose displayName is missing/empty (would render as
+    ///  - template-less agents (legacy verified assistants), and all agents
+    ///    in add-to-conversation mode; template-backed agents are selectable
+    ///    only when starting a new conversation, where selecting one spawns
+    ///    a fresh instance into it
+    ///  - humans whose displayName is missing/empty (would render as
     ///    "Somebody" via `resolvedDisplayName`; a name-less row isn't a
     ///    useful picker target -- there's nothing to distinguish one
     ///    "Somebody" from another)
-    private static func isVisibleInPicker(_ contact: Contact) -> Bool {
-        if contact.isBlocked || contact.isVerifiedAgent { return false }
+    private func isVisibleInPicker(_ contact: Contact) -> Bool {
+        guard !contact.isBlocked else { return false }
+        if contact.agentVerification != nil {
+            return isNewConversationMode && contact.agentTemplateId != nil
+        }
         guard let name = contact.displayName, !name.isEmpty else { return false }
         return true
     }
 
-    /// Drops selections whose underlying entity is either gone or no longer
-    /// visible in the picker. Pruning against the *visible* set (not just
-    /// the known set) drops phantom selections -- a preselected inboxId
-    /// for a contact who's hidden (blocked / verified / unnamed) would
-    /// otherwise stay in `selected`, counting toward `selectionCount` and
-    /// passing `canConfirm` with no UI for the user to remove it.
-    private func pruneSelectionToKnownEntities() {
-        let visibleInboxIds: Set<String> = Set(
-            allContacts.filter(Self.isVisibleInPicker).map(\.inboxId)
-        )
-        let knownTemplateIds: Set<String> = Set(allAgentContacts.map(\.templateId))
-        selected = selected.filter { selection in
-            switch selection {
-            case .human(let inboxId):
-                return visibleInboxIds.contains(inboxId)
-            case .agentTemplate(let templateId):
-                return knownTemplateIds.contains(templateId)
-            }
-        }
-    }
-
     private func rebuildSections() {
-        // Humans go through `isVisibleInPicker` (drops blocked, verified
-        // agents, and unnamed rows). Agent-template contacts live in
-        // their own table and are always shown. Sort the merged list by
-        // `resolvedDisplayName` (case-insensitive, matching each
-        // repository's sort) before grouping so humans and agents
-        // interleave alphabetically within each section -
-        // `Dictionary(grouping:)` preserves source order within each
-        // bucket, so without this sort all humans would render before
-        // any agent in every section.
-        let visibleHumans: [Contact] = allContacts.filter(Self.isVisibleInPicker)
-        let humanItems: [Row.Kind] = visibleHumans.map { .human($0) }
-        let agentItems: [Row.Kind] = allAgentContacts.map { .agentTemplate($0) }
-        let filtered: [Row.Kind] = filterByQuery(humanItems + agentItems)
-            .sorted { (lhs: Row.Kind, rhs: Row.Kind) -> Bool in
-                displayName(for: lhs)
-                    .localizedCaseInsensitiveCompare(displayName(for: rhs)) == .orderedAscending
-            }
-
-        let grouped: [String: [Row.Kind]] = Dictionary(grouping: filtered) { kind in
-            sectionKey(for: kind)
-        }
+        let visible = allContacts.filter(isVisibleInPicker)
+        let filtered = filterByQuery(visible)
+        let grouped: [String: [Contact]] = Dictionary(
+            grouping: filtered,
+            by: { $0.alphabeticalSectionKey }
+        )
         let sortedKeys = grouped.keys.sorted(by: Self.sectionKeyOrder)
 
-        // Batched read of source-conversation metadata so each human row's
-        // subtitle can show the convo the user met the contact in. Agent
-        // rows skip this fetch (their subtitle is the template description).
-        let viaIds: Set<String> = Set(
-            filtered.compactMap { kind -> String? in
-                if case .human(let contact) = kind {
-                    return contact.addedViaConversationId
-                }
-                return nil
-            }
-        )
+        // Batched read of source-conversation metadata so each row's subtitle
+        // can show the convo the user met the contact in. Missing entries
+        // (deleted convo, never-recorded source) fall through to the agent
+        // label or empty in the subtitle resolver below.
+        let viaIds: Set<String> = Set(filtered.compactMap { $0.addedViaConversationId })
         let sources: [String: ContactSourceConversation] = (try? contactsRepository.sourceConversations(forIds: viaIds)) ?? [:]
 
         sections = sortedKeys.map { key in
-            let rows = (grouped[key] ?? []).map { kind in
-                makeRow(kind: kind, sources: sources)
+            let rows = (grouped[key] ?? []).map { contact in
+                Row(
+                    id: contact.inboxId,
+                    contact: contact,
+                    isAlreadyInChat: alreadyInChatInboxIds.contains(contact.inboxId),
+                    subtitle: contact.listSubtitle(sources: sources)
+                )
             }
             return Section(id: key, title: key, rows: rows)
         }
     }
 
-    private func makeRow(
-        kind: Row.Kind,
-        sources: [String: ContactSourceConversation]
-    ) -> Row {
-        switch kind {
-        case .human(let contact):
-            return Row(
-                id: "human:\(contact.inboxId)",
-                kind: kind,
-                isAlreadyInChat: alreadyInChatInboxIds.contains(contact.inboxId),
-                subtitle: contact.listSubtitle(sources: sources)
-            )
-        case .agentTemplate(let agent):
-            return Row(
-                id: "agent:\(agent.templateId)",
-                kind: kind,
-                isAlreadyInChat: false,
-                subtitle: agent.descriptionText ?? ""
-            )
-        }
-    }
-
-    private func sectionKey(for kind: Row.Kind) -> String {
-        switch kind {
-        case .human(let contact):
-            return contact.alphabeticalSectionKey
-        case .agentTemplate(let agent):
-            return agent.alphabeticalSectionKey
-        }
-    }
-
-    private func displayName(for kind: Row.Kind) -> String {
-        switch kind {
-        case .human(let contact):
-            return contact.resolvedDisplayName
-        case .agentTemplate(let agent):
-            return agent.resolvedDisplayName
-        }
-    }
-
-    private func filterByQuery(_ items: [Row.Kind]) -> [Row.Kind] {
+    private func filterByQuery(_ contacts: [Contact]) -> [Contact] {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return items }
-        return items.filter { kind in
-            switch kind {
-            case .human(let contact):
-                return contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
-            case .agentTemplate(let agent):
-                return agent.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
-            }
+        guard !trimmed.isEmpty else { return contacts }
+        return contacts.filter { contact in
+            contact.resolvedDisplayName.localizedCaseInsensitiveContains(trimmed)
         }
     }
 

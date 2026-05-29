@@ -95,6 +95,9 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the backend hands back a non-null `publishedUrl`. The share flow on
     /// builder-created templates calls this lazily on first tap.
     func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate
+    /// Fetches the canonical published identity of an agent template by id.
+    /// Public endpoint - published templates resolve for any caller.
+    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse
 
     // Connections
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse
@@ -820,6 +823,11 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             Log.error("publishAgentTemplate status=\(httpResponse.statusCode) for id=\(id): \(message ?? "<no message>")")
             throw APIError.serverError(message)
         }
+    }
+
+    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse {
+        let request = try authenticatedRequest(for: "v2/agent-templates/\(templateId)", method: "GET")
+        return try await performRequest(request)
     }
 
     // MARK: - Connections

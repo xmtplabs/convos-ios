@@ -2734,10 +2734,7 @@ extension ConversationViewModel {
     /// caller-facing `agents/join` body no longer accepts `instructions`.
     ///
     /// Single-flight: a new call cancels any prior in-flight join request
-    /// (retry-from-error semantics for the chat-header "+" menu). For
-    /// multi-template fan-out (picker confirms N templates at once) use
-    /// `requestAgentJoins(templateIds:)` instead -- it spawns a TaskGroup
-    /// so N calls run in parallel without cancelling each other.
+    /// (retry-from-error semantics for the chat-header "+" menu).
     func requestAgentJoin(templateId: String?) {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
@@ -2771,59 +2768,6 @@ extension ConversationViewModel {
     /// affordances. Kept so their call sites don't change.
     func requestAgentJoin() {
         requestAgentJoin(templateId: nil)
-    }
-
-    /// Sequential batched variant of `requestAgentJoin(templateId:)`. Used
-    /// by the new-conversation flow when the picker confirmed multiple
-    /// agent templates at once. Awaits each call to completion before
-    /// firing the next, with a short inter-call delay so the previous
-    /// broadcast's libxmtp activity fully settles before the next API
-    /// call starts. Does not touch `agentJoinTask` / `agentJoinTaskId`
-    /// (those remain dedicated to the single-flight retry path).
-    ///
-    /// Band-aid for an unresolved issue where parallel `agents/join`
-    /// dispatch results in 2 of 3 URLSession data tasks being cancelled
-    /// (`URLError.cancelled`) — see "concurrent agents/join cancellation"
-    /// investigation notes. Manual one-at-a-time clicks work fine, so
-    /// serialization mirrors what the user can do by hand. Slow but
-    /// reliable: ~10 seconds per agent. Remove and restore TaskGroup
-    /// fan-out once the underlying cancellation is root-caused (likely
-    /// libxmtp + URLSession shared-connection-pool interaction or a
-    /// transient `SessionStateError.clientIdInboxInconsistency` in the
-    /// session state machine under concurrent waiters).
-    func requestAgentJoins(templateIds: [String]) {
-        guard !templateIds.isEmpty else { return }
-        let slug = invite.urlSlug
-        guard !slug.isEmpty else { return }
-        Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
-
-        let forceErrorCode = agentJoinForceErrorCode
-        let conversationId = conversation.id
-        let session = self.session
-        Task { [weak self] in
-            var anyFailed = false
-            for (index, templateId) in templateIds.enumerated() {
-                if index > 0 {
-                    // Brief gap between calls so the previous broadcast's
-                    // libxmtp message-send fully settles before the next
-                    // call's broadcast / API races against it.
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-                let requestId = UUID().uuidString
-                let success = await Self.performAgentJoinCall(
-                    templateId: templateId,
-                    slug: slug,
-                    conversationId: conversationId,
-                    requestId: requestId,
-                    forceErrorCode: forceErrorCode,
-                    session: session
-                )
-                if !success { anyFailed = true }
-            }
-            if anyFailed {
-                await MainActor.run { self?.onAgentJoinError() }
-            }
-        }
     }
 
     /// Performs a single `agents/join` call: broadcasts `.pending` before,

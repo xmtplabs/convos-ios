@@ -164,6 +164,12 @@ extension SharedDatabaseMigrator {
 
         migrator.registerMigration("addAgentBuilderSummaryExistingConversation", migrate: Self.addAgentBuilderSummaryExistingConversation)
 
+        migrator.registerMigration("dropConversationQuarantineFields", migrate: Self.dropConversationQuarantineFields)
+
+        migrator.registerMigration("addContactAgentTemplateFields", migrate: Self.addContactAgentTemplateFields)
+
+        migrator.registerMigration("createAgentTemplateCache", migrate: Self.createAgentTemplateCache)
+
         return migrator
     }
 
@@ -261,6 +267,45 @@ extension SharedDatabaseMigrator {
     private static func addAgentBuilderSummaryExistingConversation(_ db: Database) throws {
         try db.alter(table: "agentBuilderSummary") { t in
             t.add(column: "existingConversation", .boolean).notNull().defaults(to: false)
+        }
+    }
+
+    private static func dropConversationQuarantineFields(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.drop(column: "quarantinedAt")
+            t.drop(column: "quarantineReleasedAt")
+        }
+    }
+
+    /// Template identity for template-backed agent contacts, mirrored from
+    /// the per-conversation member profile so it survives leaving the
+    /// conversation. The partial index keeps a future "group contacts by
+    /// template" query index-backed without a schema change - only agent
+    /// rows carry a non-null templateId.
+    private static func addContactAgentTemplateFields(_ db: Database) throws {
+        try db.alter(table: "contact") { t in
+            t.add(column: "agentTemplateId", .text)
+            t.add(column: "agentTemplatePublishedURL", .text)
+            t.add(column: "agentTemplateEmoji", .text)
+        }
+        try db.execute(sql: """
+            CREATE INDEX IF NOT EXISTS contact_on_agentTemplateId
+            ON contact(agentTemplateId)
+            WHERE agentTemplateId IS NOT NULL
+            """)
+    }
+
+    /// Read-through cache of canonical agent-template identity (name, emoji,
+    /// avatar), keyed by templateId. Lets the contacts list collapse a
+    /// template's running instances into one stable row.
+    private static func createAgentTemplateCache(_ db: Database) throws {
+        try db.create(table: "agentTemplate") { t in
+            t.column("templateId", .text).notNull().primaryKey()
+            t.column("agentName", .text)
+            t.column("emoji", .text)
+            t.column("avatarURL", .text)
+            t.column("publishedURL", .text)
+            t.column("fetchedAt", .datetime).notNull()
         }
     }
 

@@ -151,16 +151,12 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockContactsWriter()
     }
 
+    public func agentTemplateCacheWriter() -> any AgentTemplateCacheWriterProtocol {
+        MockAgentTemplateCacheWriter()
+    }
+
     public func contactSyncCoordinator() -> any ContactSyncCoordinatorProtocol {
         MockContactSyncCoordinator()
-    }
-
-    public func agentTemplateContactsRepository() -> any AgentTemplateContactsRepositoryProtocol {
-        MockAgentTemplateContactsRepository()
-    }
-
-    public func agentTemplateContactsWriter() -> any AgentTemplateContactsWriterProtocol {
-        MockAgentTemplateContactsWriter()
     }
 
     public func uploadImage(data: Data, filename: String) async throws -> String {

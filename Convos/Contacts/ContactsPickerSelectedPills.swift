@@ -18,34 +18,20 @@ import SwiftUI
 
 /// Wrapping row of selected-contact pills shown below the picker search bar.
 /// Tapping anywhere on a pill removes the contact from the selection.
-/// Renders human pills and agent-template pills in one flow row; both kinds
-/// share the same capsule shape with the kind-appropriate avatar inside.
 struct ContactsPickerSelectedPills: View {
-    let humans: [Contact]
-    let agentTemplates: [AgentTemplateContact]
-    let onRemoveHuman: (String) -> Void
-    let onRemoveAgentTemplate: (String) -> Void
-
-    private var isEmpty: Bool {
-        humans.isEmpty && agentTemplates.isEmpty
-    }
+    let contacts: [Contact]
+    let onRemove: (String) -> Void
 
     var body: some View {
-        if !isEmpty {
+        if !contacts.isEmpty {
             SelectedPillsFlowLayout(
                 horizontalSpacing: DesignConstants.Spacing.step2x,
                 verticalSpacing: DesignConstants.Spacing.step2x
             ) {
-                ForEach(humans, id: \.inboxId) { contact in
+                ForEach(contacts, id: \.inboxId) { contact in
                     SelectedContactPill(
                         contact: contact,
-                        onRemove: removeHumanAction(for: contact.inboxId)
-                    )
-                }
-                ForEach(agentTemplates, id: \.templateId) { agent in
-                    SelectedAgentTemplatePill(
-                        agentTemplateContact: agent,
-                        onRemove: removeAgentTemplateAction(for: agent.templateId)
+                        onRemove: removeAction(for: contact.inboxId)
                     )
                 }
             }
@@ -55,12 +41,8 @@ struct ContactsPickerSelectedPills: View {
         }
     }
 
-    private func removeHumanAction(for inboxId: String) -> () -> Void {
-        { onRemoveHuman(inboxId) }
-    }
-
-    private func removeAgentTemplateAction(for templateId: String) -> () -> Void {
-        { onRemoveAgentTemplate(templateId) }
+    private func removeAction(for inboxId: String) -> () -> Void {
+        { onRemove(inboxId) }
     }
 }
 
@@ -102,55 +84,6 @@ private struct SelectedContactPill: View {
     /// type sizes; tune `Constant.maxDisplayNameLength` to widen or tighten.
     private var truncatedDisplayName: String {
         let name = contact.resolvedDisplayName
-        let limit = Constant.maxDisplayNameLength
-        guard name.count > limit else { return name }
-        return String(name.prefix(limit - 1)) + "\u{2026}"
-    }
-
-    private enum Constant {
-        static let avatarSize: CGFloat = 24.0
-        static let removeIconOpacity: Double = 0.6
-        static let maxDisplayNameLength: Int = 20
-    }
-}
-
-// MARK: - Agent template pill
-
-private struct SelectedAgentTemplatePill: View {
-    let agentTemplateContact: AgentTemplateContact
-    let onRemove: () -> Void
-
-    var body: some View {
-        Button(action: onRemove) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                AgentTemplateAvatarView(
-                    agentTemplateContact: agentTemplateContact,
-                    emojiPointSize: 14.0
-                )
-                .frame(width: Constant.avatarSize, height: Constant.avatarSize)
-
-                Text(truncatedDisplayName)
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimaryInverted)
-                    .lineLimit(1)
-
-                Image(systemName: "xmark.circle.fill")
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimaryInverted.opacity(Constant.removeIconOpacity))
-            }
-            .padding(DesignConstants.Spacing.step3x)
-            .background(
-                Capsule().fill(.colorTextPrimary)
-            )
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Remove \(agentTemplateContact.resolvedDisplayName)")
-        .accessibilityIdentifier("contacts-picker-agent-pill-\(agentTemplateContact.templateId)")
-    }
-
-    private var truncatedDisplayName: String {
-        let name = agentTemplateContact.resolvedDisplayName
         let limit = Constant.maxDisplayNameLength
         guard name.count > limit else { return name }
         return String(name.prefix(limit - 1)) + "\u{2026}"
@@ -247,30 +180,11 @@ private struct SelectedPillsFlowLayout: Layout {
 
 #Preview("Few pills") {
     ContactsPickerSelectedPills(
-        humans: [
+        contacts: [
             .mock(displayName: "Zed"),
             .mock(displayName: "Andy"),
         ],
-        agentTemplates: [],
-        onRemoveHuman: { _ in },
-        onRemoveAgentTemplate: { _ in }
-    )
-    .padding()
-    .background(.colorBackgroundRaisedSecondary)
-}
-
-#Preview("Humans + agents") {
-    ContactsPickerSelectedPills(
-        humans: [
-            .mock(displayName: "Alice"),
-            .mock(displayName: "Bob"),
-        ],
-        agentTemplates: [
-            .mock(displayName: "Tifoso", emoji: "🚴"),
-            .mock(displayName: "Trip Planner", emoji: "🗺️"),
-        ],
-        onRemoveHuman: { _ in },
-        onRemoveAgentTemplate: { _ in }
+        onRemove: { _ in }
     )
     .padding()
     .background(.colorBackgroundRaisedSecondary)
@@ -278,7 +192,7 @@ private struct SelectedPillsFlowLayout: Layout {
 
 #Preview("Many pills (wrap)") {
     ContactsPickerSelectedPills(
-        humans: [
+        contacts: [
             .mock(displayName: "Alice"),
             .mock(displayName: "Bob"),
             .mock(displayName: "Carol"),
@@ -288,9 +202,7 @@ private struct SelectedPillsFlowLayout: Layout {
             .mock(displayName: "Genevieve"),
             .mock(displayName: "Hieronymus"),
         ],
-        agentTemplates: [],
-        onRemoveHuman: { _ in },
-        onRemoveAgentTemplate: { _ in }
+        onRemove: { _ in }
     )
     .padding()
     .background(.colorBackgroundRaisedSecondary)
@@ -298,10 +210,8 @@ private struct SelectedPillsFlowLayout: Layout {
 
 #Preview("Empty (renders nothing)") {
     ContactsPickerSelectedPills(
-        humans: [],
-        agentTemplates: [],
-        onRemoveHuman: { _ in },
-        onRemoveAgentTemplate: { _ in }
+        contacts: [],
+        onRemove: { _ in }
     )
     .padding()
     .background(.colorBackgroundRaisedSecondary)
@@ -309,16 +219,12 @@ private struct SelectedPillsFlowLayout: Layout {
 
 #Preview("Long names truncate") {
     ContactsPickerSelectedPills(
-        humans: [
+        contacts: [
             .mock(displayName: "Alice"),
             .mock(displayName: "Fitzwilliam-Bartholomew Maximilian Featherington"),
             .mock(displayName: "Rumpelstiltskin"),
         ],
-        agentTemplates: [
-            .mock(displayName: "Globe-Trotting Adventure Concierge", emoji: "🌍"),
-        ],
-        onRemoveHuman: { _ in },
-        onRemoveAgentTemplate: { _ in }
+        onRemove: { _ in }
     )
     .padding()
     .background(.colorBackgroundRaisedSecondary)

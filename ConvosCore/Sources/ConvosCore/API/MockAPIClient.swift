@@ -112,6 +112,18 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
+    func fetchAgentTemplate(templateId: String) async throws -> ConvosAPI.AgentTemplateResponse {
+        .init(
+            id: templateId,
+            agentName: "Mock Template",
+            emoji: "🤖",
+            avatarUrl: nil,
+            description: nil,
+            publishedUrl: nil,
+            status: "published"
+        )
+    }
+
     // MARK: - Connections
 
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {

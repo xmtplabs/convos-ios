@@ -63,37 +63,19 @@ private struct AddFromContactsPickerModifier: ViewModifier {
                 conversationTitle: viewModel.conversation.name
             ),
             contactsRepository: viewModel.messagingService.contactsRepository(),
-            agentTemplateContactsRepository: viewModel.messagingService.agentTemplateContactsRepository(),
             alreadyInChatInboxIds: alreadyInChat,
             onConfirm: handleConfirm
         )
     }
 
-    /// Splits the mixed selection into humans and agent templates. Humans
-    /// go through the existing `addMembersFromContacts` flow. Templates go
-    /// through `requestAgentJoins(templateIds:)` -- the batched (serialized)
-    /// variant -- which reuses the existing conversation's invite slug to
-    /// spawn a fresh instance per templateId (no new backend endpoint, see
-    /// Phase 2 PRD add-to-existing question 1).
-    ///
-    /// Important: do NOT loop `requestAgentJoin(templateId:)` here. That
-    /// method is single-flight (each call cancels the prior task), so a
-    /// for-loop ends up running only the LAST templateId to completion --
-    /// every prior call gets `URLError.cancelled` mid-dispatch and silently
-    /// dropped.
-    private func handleConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
-        let humanInboxIds: [String] = selection.compactMap(\.inboxId)
-        let templateIds: [String] = selection.compactMap(\.templateId)
-        guard !humanInboxIds.isEmpty || !templateIds.isEmpty else { return }
-
-        if !templateIds.isEmpty {
-            viewModel.requestAgentJoins(templateIds: templateIds)
-        }
-
-        guard !humanInboxIds.isEmpty else { return }
+    private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateId: String?) {
+        // Add-to-conversation is human-only: the picker doesn't surface
+        // agents in this mode, so `agentTemplateId` is always nil here.
+        let ids = Array(inboxIds)
+        guard !ids.isEmpty else { return }
         Task {
             do {
-                try await viewModel.addMembersFromContacts(humanInboxIds)
+                try await viewModel.addMembersFromContacts(ids)
             } catch {
                 Log.error("Add from contacts failed: \(error.localizedDescription)")
                 errorMessage = "We couldn't add those contacts. Please try again."

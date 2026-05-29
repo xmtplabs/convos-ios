@@ -217,4 +217,88 @@ struct ContactsRepositoryTests {
 
         #expect(sources.isEmpty)
     }
+
+    @Test("fetchAll collapses agent instances of one template into a single canonical row")
+    func testAgentInstancesDedupedToCanonicalRow() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: "agent-instance-1",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "Trip Helper",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-trip",
+                agentTemplateEmoji: "🧳"
+            ).save(db)
+            try DBContact(
+                inboxId: "agent-instance-2",
+                addedAt: Date(timeIntervalSince1970: 2),
+                addedViaConversationId: nil,
+                displayName: "Vacation Buddy",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-trip",
+                agentTemplateEmoji: "🏖️"
+            ).save(db)
+            try DBContact(
+                inboxId: "human",
+                addedAt: Date(timeIntervalSince1970: 3),
+                addedViaConversationId: nil,
+                displayName: "Dana"
+            ).save(db)
+            try DBAgentTemplate(
+                templateId: "tmpl-trip",
+                agentName: "Travel Agent",
+                emoji: "✈️",
+                avatarURL: nil,
+                publishedURL: "https://convos.org/a/travel",
+                fetchedAt: Date()
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let contacts = try repo.fetchAll()
+
+        let agents = contacts.filter { $0.agentTemplateId == "tmpl-trip" }
+        #expect(agents.count == 1)
+        // Canonical published identity overlays the per-instance profile.
+        #expect(agents.first?.displayName == "Travel Agent")
+        #expect(agents.first?.profileEmoji == "✈️")
+        #expect(agents.first?.agentTemplatePublishedURL == "https://convos.org/a/travel")
+        // Humans are never collapsed.
+        #expect(contacts.contains { $0.inboxId == "human" })
+    }
+
+    @Test("fetchAll still collapses instances when the template cache is cold, keeping instance identity")
+    func testAgentInstancesDedupedWithColdCache() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+
+        try dbManager.dbWriter.write { db in
+            try DBContact(
+                inboxId: "agent-instance-1",
+                addedAt: Date(timeIntervalSince1970: 1),
+                addedViaConversationId: nil,
+                displayName: "First Instance",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-uncached"
+            ).save(db)
+            try DBContact(
+                inboxId: "agent-instance-2",
+                addedAt: Date(timeIntervalSince1970: 2),
+                addedViaConversationId: nil,
+                displayName: "Second Instance",
+                agentVerification: .verified(.convos),
+                agentTemplateId: "tmpl-uncached"
+            ).save(db)
+        }
+
+        let repo = ContactsRepository(databaseReader: dbManager.dbReader)
+        let contacts = try repo.fetchAll()
+
+        let agents = contacts.filter { $0.agentTemplateId == "tmpl-uncached" }
+        #expect(agents.count == 1)
+        // No cache row yet, so the representative keeps its instance name.
+        #expect(agents.first?.displayName == "First Instance")
+    }
 }

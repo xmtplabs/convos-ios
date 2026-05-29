@@ -132,9 +132,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             databaseWriter: databaseWriter
         )
         self.thinkingSessionWriter = ThinkingSessionWriter(databaseWriter: databaseWriter)
-        self.inboundFilter = InboundConversationFilter(
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
-        )
+        self.inboundFilter = InboundConversationFilter()
     }
 
     // MARK: - Public Interface
@@ -170,12 +168,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             return
         case .deliver:
             try await persistDeliveredConversation(
-                conversation,
-                params: params,
-                clientConversationId: clientConversationId
-            )
-        case .quarantine:
-            try await persistQuarantinedConversation(
                 conversation,
                 params: params,
                 clientConversationId: clientConversationId
@@ -222,26 +214,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             conversationId: conversation.id,
             params: params,
             context: "on stream"
-        )
-    }
-
-    /// Persists an inbound conversation with the `quarantinedAt` flag set,
-    /// hiding it from the main feed. The QuarantineSweeper will later either
-    /// promote the row (if the sender becomes a contact within the TTL) or
-    /// delete it (if the TTL expires first). We deliberately do NOT subscribe
-    /// to push notifications here — quarantined conversations should be
-    /// silent until promoted.
-    private func persistQuarantinedConversation(
-        _ conversation: XMTPiOS.Group,
-        params: SyncClientParams,
-        clientConversationId: String?
-    ) async throws {
-        Log.info("Quarantining inbound conversation from non-contact: \(conversation.id)")
-        try await conversationWriter.storeWithLatestMessages(
-            conversation: conversation,
-            inboxId: params.client.inboxId,
-            clientConversationId: clientConversationId,
-            quarantinedAt: Date()
         )
     }
 
@@ -754,11 +726,9 @@ actor StreamProcessor: StreamProcessorProtocol {
     /// Used by the message-stream path (`processMessage` → group case) to
     /// gate whether messages from a particular conversation should be
     /// processed. This intentionally does not consult the contact list or
-    /// block list — per the PRD, blocking only affects new inbound
-    /// conversation invitations, not in-group messages from a previously-
-    /// accepted sender. For the new-conversation arrival path with full 3-
-    /// way decision granularity (including quarantine), use
-    /// `decideInboundConversation`.
+    /// block list — blocking only affects new inbound conversation
+    /// invitations, not in-group messages from an already-accepted sender.
+    /// New-conversation arrival uses `decideInboundConversation`.
     /// - Parameters:
     ///   - conversation: The conversation to check
     ///   - params: The sync client parameters
@@ -791,16 +761,19 @@ actor StreamProcessor: StreamProcessorProtocol {
         return consentState == .allowed
     }
 
-    /// Returns the full inbound-conversation decision (deliver / quarantine /
-    /// reject) for a NEW inbound conversation. `processConversation` uses
-    /// this to drive the new quarantine path. The message-stream path
-    /// continues to use the legacy `shouldProcessConversation` so blocking
-    /// does not silence in-group messages.
+    /// Returns the inbound-conversation decision (deliver / reject) for a
+    /// NEW inbound conversation. `processConversation` uses this to decide
+    /// persistence. The message-stream path uses `shouldProcessConversation`
+    /// so blocking does not silence in-group messages.
     ///
-    /// As a side effect, when the decision is `.deliver` and consent was
-    /// `.unknown`, this method bumps XMTP consent to `.allowed` so future
-    /// deliveries flow through without re-running the gate. This preserves
-    /// the legacy invite-flow behavior verbatim.
+    /// Consent is the source of truth for feed visibility: a conversation
+    /// reads as `.allowed` only once the local user has consented to it.
+    /// As a side effect, this bumps XMTP consent `.unknown -> .allowed`
+    /// when the local user has either requested to join (invite handshake)
+    /// or already has the creator as a non-blocked contact. Unsolicited
+    /// strangers stay `.unknown` (delivered but hidden from the feed) until
+    /// the creator becomes a contact, at which point `SyncingManager`'s
+    /// consent promoter flips them.
     private func decideInboundConversation(
         _ conversation: XMTPiOS.Group,
         params: SyncClientParams
@@ -810,8 +783,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         let clientInboxId = params.client.inboxId
 
         // Only do the (potentially expensive) outgoing-join-request lookup
-        // when the filter would actually need it — preserves the legacy
-        // call-skip behavior for `.allowed` and creator-self paths.
+        // when the conversation is still unknown and not self-created.
         let hasOutgoingJoinRequest: Bool
         if consent == .unknown && creatorInboxId != clientInboxId {
             hasOutgoingJoinRequest = try await joinRequestsManager.hasOutgoingJoinRequest(
@@ -829,15 +801,29 @@ actor StreamProcessor: StreamProcessorProtocol {
             hasOutgoingJoinRequest: hasOutgoingJoinRequest
         )
 
-        // Side effect parity with the legacy gate: when delivering a
-        // previously-unknown conversation (via invite-flow handshake or
-        // contact-list match), bump XMTP consent so future welcomes flow
-        // through without re-running the gate.
-        if decision == .deliver && consent == .unknown && creatorInboxId != clientInboxId {
-            try await conversation.updateConsentState(state: .allowed)
+        // Bump XMTP consent to `.allowed` only when the local user has
+        // consented to this conversation - either by requesting to join,
+        // or because the creator is already a non-blocked contact. Strangers
+        // are delivered but left `.unknown` so they stay out of the feed.
+        if decision == .deliver, consent == .unknown, creatorInboxId != clientInboxId {
+            let creatorIsContact = try await isNonBlockedContact(creatorInboxId)
+            if hasOutgoingJoinRequest || creatorIsContact {
+                try await conversation.updateConsentState(state: .allowed)
+            }
         }
 
         return decision
+    }
+
+    /// True when `inboxId` is a stored contact that is not blocked. Mirrors
+    /// the join used by the feed query and the consent promoter.
+    private func isNonBlockedContact(_ inboxId: String) async throws -> Bool {
+        try await databaseReader.read { db in
+            try DBContact
+                .filter(DBContact.Columns.inboxId == inboxId)
+                .filter(DBContact.Columns.blockedAt == nil)
+                .fetchCount(db) > 0
+        }
     }
 
     // MARK: - Push Notifications

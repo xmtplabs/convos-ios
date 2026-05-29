@@ -207,12 +207,11 @@ public enum ConvosAPI {
     }
 
     // MARK: - v2/agent-templates/:id
-    // Subset of the agent-template object the backend returns from the
-    // agent-template endpoints (POST /:id/publish, PATCH /:id, GET /:id).
-    // We only model the fields the share flow consumes today (id, status,
-    // publishedUrl); decoding is tolerant of extra keys via the default
-    // Codable behavior.
 
+    // Subset of the agent-template object the backend returns from the
+    // publish endpoint (POST /:id/publish). We only model the fields the
+    // share flow consumes today (id, status, publishedUrl); decoding is
+    // tolerant of extra keys via the default Codable behavior.
     public struct AgentTemplate: Codable, Sendable {
         public let id: String
         public let status: String
@@ -222,6 +221,38 @@ public enum ConvosAPI {
             self.id = id
             self.status = status
             self.publishedUrl = publishedUrl
+        }
+    }
+
+    /// `GET /api/v2/agent-templates/{idOrUrlSlug}` - the canonical, published
+    /// identity of an agent template (name, emoji, avatar), distinct from any
+    /// running instance's per-conversation profile. Decodes a subset of the
+    /// serialized template; extra fields on the wire are ignored.
+    public struct AgentTemplateResponse: Codable {
+        public let id: String
+        public let agentName: String?
+        public let emoji: String?
+        public let avatarUrl: String?
+        public let description: String?
+        public let publishedUrl: String?
+        public let status: String?
+
+        public init(
+            id: String,
+            agentName: String?,
+            emoji: String?,
+            avatarUrl: String?,
+            description: String?,
+            publishedUrl: String?,
+            status: String?
+        ) {
+            self.id = id
+            self.agentName = agentName
+            self.emoji = emoji
+            self.avatarUrl = avatarUrl
+            self.description = description
+            self.publishedUrl = publishedUrl
+            self.status = status
         }
     }
 
