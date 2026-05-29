@@ -624,7 +624,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
-    var presentingAgentConfirmation: Bool = false
     /// Drives the "New Agent" context-menu builder sheet, scoped to this
     /// existing conversation. The builder defers the agent join until the
     /// user taps Make (see `AgentBuilderViewModel.existingConversationId`),
@@ -662,12 +661,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
-    private static let hasShownAgentConfirmationKey: String = "hasShownAgentConfirmation"
-    private var hasShownAgentConfirmation: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.hasShownAgentConfirmationKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownAgentConfirmationKey) }
-    }
-
     private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
     private var hasShownRevealInfoSheet: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
@@ -686,7 +679,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
-        defaults.removeObject(forKey: hasShownAgentConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
@@ -697,15 +689,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // The "Pics are personal" first-attachment info sheet is disabled
         // for now — neither the agent-builder flow nor the regular
         // composer should interrupt the user with it on attach.
-    }
-
-    func onRequestAgentJoin() {
-        guard !hasShownAgentConfirmation else {
-            requestAgentJoin()
-            return
-        }
-        hasShownAgentConfirmation = true
-        presentingAgentConfirmation = true
     }
 
     /// A fresh agent builder scoped to this conversation. The "New Agent"

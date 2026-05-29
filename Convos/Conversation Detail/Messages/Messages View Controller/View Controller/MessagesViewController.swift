@@ -251,9 +251,6 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
-    var onBottomOverscrollChanged: ((CGFloat) -> Void)?
-    var onBottomOverscrollReleased: ((CGFloat) -> Void)?
-    private var lastBottomOverscroll: CGFloat = 0.0
 
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
@@ -833,8 +830,6 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
             interruptCurrentUpdateAnimation()
         }
 
-        reportBottomOverscroll(scrollView)
-
         guard !currentControllerActions.options.contains(.loadingInitialMessages),
               !currentControllerActions.options.contains(.loadingPreviousMessages),
               !currentInterfaceActions.options.contains(.scrollingToTop),
@@ -844,30 +839,6 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         if scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top {
             loadPreviousMessages()
-        }
-    }
-
-    private func reportBottomOverscroll(_ scrollView: UIScrollView) {
-        let bottomInset = scrollView.adjustedContentInset.bottom
-        let topInset = scrollView.adjustedContentInset.top
-        let contentHeight = scrollView.contentSize.height
-        let frameHeight = scrollView.frame.height
-        let minOffset = -topInset
-        let maxOffset = max(minOffset, contentHeight - frameHeight + bottomInset)
-        let bottomOverscroll = max(0, scrollView.contentOffset.y - maxOffset)
-        if bottomOverscroll > 0, scrollView.isDragging {
-            lastBottomOverscroll = bottomOverscroll
-            onBottomOverscrollChanged?(bottomOverscroll)
-        } else {
-            lastBottomOverscroll = 0.0
-            onBottomOverscrollChanged?(0.0)
-        }
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate _: Bool) {
-        if lastBottomOverscroll > 0 {
-            onBottomOverscrollReleased?(lastBottomOverscroll)
-            lastBottomOverscroll = 0.0
         }
     }
 

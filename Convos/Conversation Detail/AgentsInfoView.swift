@@ -1,9 +1,6 @@
 import SwiftUI
 
 struct AgentsInfoView: View {
-    var isConfirmation: Bool = false
-    var onConfirm: (() -> Void)?
-
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var safariURL: URL?
@@ -33,24 +30,12 @@ struct AgentsInfoView: View {
                 .padding(.top, DesignConstants.Spacing.step2x)
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
-                if isConfirmation {
-                    let confirmAction = {
-                        onConfirm?()
-                        dismiss()
-                    }
-                    Button(action: confirmAction) {
-                        Text("Add an instant agent")
-                            .font(.body)
-                    }
-                    .convosButtonStyle(.rounded(fullWidth: true))
-                } else {
-                    let dismissAction = { dismiss() }
-                    Button(action: dismissAction) {
-                        Text("Awesome")
-                            .font(.body)
-                    }
-                    .convosButtonStyle(.rounded(fullWidth: true))
+                let dismissAction = { dismiss() }
+                Button(action: dismissAction) {
+                    Text("Awesome")
+                        .font(.body)
                 }
+                .convosButtonStyle(.rounded(fullWidth: true))
 
                 let learnMoreAction = { safariURL = URL(string: "https://learn.convos.org/assistants") }
                 Button(action: learnMoreAction) {
@@ -267,12 +252,4 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) { AgentsInfoView().padding(.top, 20) }
-}
-
-#Preview("Confirmation") {
-    @Previewable @State var isPresented: Bool = true
-    VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) {
-            AgentsInfoView(isConfirmation: true, onConfirm: { }).padding(.top, 20)
-        }
 }

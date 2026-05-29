@@ -191,8 +191,6 @@ struct ThinkingDetailView: View {
             bottomBarHeight: bottomBarHeight,
             hasBottomBar: true,
             topContentInset: topBarHeight,
-            onBottomOverscrollChanged: { _ in },
-            onBottomOverscrollReleased: { _ in },
             scrollToBottomTrigger: { _ in },
             messageInputFocusTrigger: { _ in }
         )
