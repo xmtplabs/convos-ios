@@ -9,7 +9,6 @@ import UserNotifications
 @MainActor
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
-    var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
     private var leftConversationObserver: Any?
     private var foregroundObserver: Any?
 
@@ -32,13 +31,40 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         return true
     }
 
+    // Lifecycle ordering invariant for the singleton-based token handoff:
+    //
+    //   ConvosApp.init
+    //     |
+    //     +--> PlatformProviders.iOS
+    //     |       |
+    //     |       +--> PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
+    //     |                            (singleton _shared is set HERE)
+    //     v
+    //   UIKit lifecycle starts
+    //     |
+    //     +--> application(_:didFinishLaunchingWithOptions:)
+    //     |       |
+    //     |       +--> UIApplication.registerForRemoteNotifications()
+    //     v
+    //   APNS callback
+    //     |
+    //     +--> didRegisterForRemoteNotificationsWithDeviceToken
+    //             |
+    //             +--> PushNotificationRegistrar.save(token:)
+    //                     |
+    //                     +-- _shared != nil (normal lifecycle) -> save + post notification
+    //                     +-- _shared == nil (test / extension)  -> Log.error + no-op (D10)
+    //
+    // The singleton is configured before UIKit fires didFinishLaunching, so the
+    // happy path is race-free by construction. The graceful no-op covers UI tests
+    // and any future lifecycle change without crashing the process.
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let tokenParts = deviceToken.map { data in String(format: "%02.2hhx", data) }
         let token = tokenParts.joined()
 
         Log.info("Received device token from APNS")
-        pushNotificationRegistrar?.save(token: token)
+        PushNotificationRegistrar.save(token: token)
     }
 
     func application(_ application: UIApplication,
