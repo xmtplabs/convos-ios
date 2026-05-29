@@ -93,7 +93,9 @@ struct ConvosApp: App {
         }
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session
-        appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
+        // PushNotificationRegistrar.configure(...) ran inside `PlatformProviders.iOS`
+        // above, so AppDelegate's APNS callback uses the static accessor directly
+        // (see ConvosAppDelegate.didRegisterForRemoteNotificationsWithDeviceToken).
         profileSettingsViewModel.bind(session: convos.session)
     }
 

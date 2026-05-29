@@ -108,7 +108,7 @@ actor SyncingManager: SyncingManagerProtocol {
     // MARK: - Properties
 
     private let identityStore: any KeychainIdentityStoreProtocol
-    private let streamProcessor: any StreamProcessorProtocol
+    let streamProcessor: any StreamProcessorProtocol
     // Maximum consecutive stream failures before giving up. Prevents FD exhaustion when
     // XMTP service is unavailable (each failed connection attempt can leak file descriptors).
     private let maxStreamRetries: Int = 10
@@ -124,7 +124,7 @@ actor SyncingManager: SyncingManagerProtocol {
     private var conversationStreamReadyContinuation: AsyncStream<Void>.Continuation?
 
     // State machine
-    private var _state: State = .idle
+    var _state: State = .idle
     private var actionQueue: [Action] = []
 
     var isSyncReady: Bool {
@@ -137,7 +137,7 @@ actor SyncingManager: SyncingManagerProtocol {
     // Notification handling
     // Safe to use nonisolated(unsafe) because the array is only mutated during actor-isolated
     // setup, and deinit only runs after all actor tasks complete (no concurrent access possible).
-    nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
+    nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
     private var notificationTask: Task<Void, Never>?
 
     // MARK: - Initialization
@@ -491,7 +491,15 @@ actor SyncingManager: SyncingManagerProtocol {
     /// missing groups that the conversation stream failed to deliver (e.g., stream timeout,
     /// inbox paused during approval, app backgrounded). This method provides a fallback
     /// by listing all groups and storing any that aren't already in the DB.
-    private func discoverNewConversations(params: SyncClientParams) async {
+    ///
+    /// Returns the count of conversations actually processed and written. The count is
+    /// load-bearing for `requestDiscovery`'s D3 gate: when the join-poll fires every 3
+    /// seconds while waiting for a welcome that hasn't arrived yet, count==0 short-circuits
+    /// the downstream push reconcile so the device stops flooding `/v2/notifications/subscribe`.
+    /// A best-effort listing failure returns 0 (treat "I couldn't tell" as "nothing new"
+    /// so we don't reconcile on a partial signal).
+    @discardableResult
+    private func discoverNewConversations(params: SyncClientParams) async -> Int {
         do {
             let groups = try params.client.conversationsProvider.listGroups(
                 createdAfterNs: nil,
@@ -530,8 +538,10 @@ actor SyncingManager: SyncingManagerProtocol {
             if discoveredCount > 0 {
                 Log.info("Discovered \(discoveredCount) new conversations after sync")
             }
+            return discoveredCount
         } catch {
             Log.error("Failed to discover new conversations: \(error)")
+            return 0
         }
     }
 
@@ -693,6 +703,23 @@ actor SyncingManager: SyncingManagerProtocol {
         )
     }
 
+    // D3: ConversationStateMachine.joinFlow polls requestDiscovery every 3s
+    // while waiting for the joined group. Before this gate, every tick fired
+    // a full /v2/notifications/subscribe (topicCount: 50 in Datadog). Now we
+    // only reconcile when discoverNewConversations actually wrote a new row.
+    // Token rotation is brought through by the .convosPushTokenDidChange
+    // listener (D14), not through here.
+    /// Force-drop the iOS-side push topic hash cache. Exposed for sign-out /
+    /// "Delete all data" paths AND for tests that need a deterministic
+    /// cache-miss without going through the global PushNotificationRegistrar
+    /// singleton (which other test suites mutate via resetForTesting and
+    /// would race against). Production callers should NOT invoke this on
+    /// every resume — the cache key partitioning handles routine state
+    /// changes naturally.
+    func clearPushSubscriptionCache() async {
+        await streamProcessor.clearPushSubscriptionCache()
+    }
+
     func requestDiscovery() async {
         guard case .ready(let params) = _state else {
             Log.debug("requestDiscovery ignored - not in ready state (\(_state))")
@@ -703,7 +730,11 @@ actor SyncingManager: SyncingManagerProtocol {
             _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
-            await discoverNewConversations(params: params)
+            let discoveredCount = await discoverNewConversations(params: params)
+            guard discoveredCount > 0 else {
+                Log.debug("requestDiscovery: no new conversations, skipping push topic reconcile")
+                return
+            }
             await streamProcessor.reconcilePushSubscriptions(
                 params: params,
                 context: "after requested discovery"
@@ -915,6 +946,7 @@ actor SyncingManager: SyncingManagerProtocol {
             }
         }
         notificationObservers.append(activeConversationObserver)
+        installPushTokenObserver()
     }
 }
 

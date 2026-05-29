@@ -73,9 +73,24 @@ public enum PushNotificationRegistrar {
     }
 
     /// Saves the push token and notifies observers of the change.
-    /// Convenience accessor for `PushNotificationRegistrar.shared.save(token:)`
+    ///
+    /// Unlike `shared`, this convenience does not fatalError when the singleton
+    /// hasn't been configured. The intended hot path (`AppDelegate.didRegister
+    /// ForRemoteNotificationsWithDeviceToken`) lands after `configure()` runs
+    /// under the normal SwiftUI lifecycle, but UI tests that exercise the
+    /// AppDelegate directly, the `.iOSExtension` provider path, and any
+    /// future lifecycle change still need to degrade safely. A crash on the
+    /// APNS callback is higher blast radius than a logged drop, which can be
+    /// detected by the absence of a registered token in the backend.
     public static func save(token: String) {
-        shared.save(token: token)
+        lock.lock()
+        let registrar = _shared
+        lock.unlock()
+        guard let registrar = registrar else {
+            Log.error("PushNotificationRegistrar.save(token:) called before configure() — token dropped")
+            return
+        }
+        registrar.save(token: token)
     }
 
     /// Requests notification authorization if not already granted, then registers for remote notifications.
