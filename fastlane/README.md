@@ -23,6 +23,14 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 
 Sync match profiles for all bundle IDs (run after Matchfile changes)
 
+### ios sync_devices
+
+```sh
+[bundle exec] fastlane ios sync_devices
+```
+
+Regenerate every profile type (adhoc + development) for new devices. Used by the daily sync-devices workflow.
+
 ### ios firebase_pr
 
 ```sh
@@ -38,6 +46,14 @@ Build Convos (PR Preview) ad-hoc and upload to Firebase App Distribution
 ```
 
 Sanity check API Key
+
+### ios latest_build
+
+```sh
+[bundle exec] fastlane ios latest_build
+```
+
+
 
 ### ios bootstrap
 

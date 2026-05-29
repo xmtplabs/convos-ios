@@ -1,0 +1,149 @@
+# Prod TestFlight Release
+#
+# Builds the Convos (Prod) scheme for the App Store on every push to `dev`
+# and uploads the IPA to the prod app's internal TestFlight tester groups.
+# These builds are signed with the prod bundle ID (org.convos.ios) and talk
+# to the prod backend (config.prod.json) - testers are exercising prod.
+#
+# PR ad-hoc builds (firebase-pr.yml) are unaffected: they keep the dev bundle
+# ID, the dev network, and Firebase App Distribution.
+#
+# Concurrency: only the latest commit's build completes. If a new commit
+# lands while a previous build is running, the in-flight build is cancelled.
+#
+# Required repository secrets:
+#   CONVOS_CERTIFICATES_TOKEN          - GitHub PAT with read access to
+#                                        xmtplabs/convos-certificates
+#   MATCH_PASSWORD                     - Passphrase for the match repo
+#                                        encryption
+#   APP_STORE_CONNECT_API_KEY_ID       - Key ID for the ASC API key
+#   APP_STORE_CONNECT_ISSUER_ID        - Issuer ID for the ASC API key
+#   APP_STORE_CONNECT_API_PRIVATE_KEY  - Raw .p8 contents of the ASC API key
+#   CACHIX_AUTH_TOKEN                  - Auth token for the xmtp Cachix cache
+#
+# Prod builds disable Sentry at compile time (generate-secrets-secure.sh sets
+# an empty DSN for the Release configuration), so no Sentry secrets are wired.
+
+name: Prod TestFlight Release
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+# Single-slot queue: a new commit on dev cancels the in-flight build so
+# only the latest commit's build reaches TestFlight.
+concurrency:
+  group: testflight-prod
+  cancel-in-progress: true
+
+jobs:
+  testflight_prod:
+    name: Build & upload to TestFlight (Prod)
+    runs-on: warp-macos-latest-arm64-12x
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Bump both together when Xcode upgrades; the hash is from
+      # `nix store add /Applications/Xcode_NN.N.app`.
+      XCODE_APP_PATH: /Applications/Xcode_26.3.app
+      XCODE_NIX_PATH: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # latest_testflight_build_number doesn't need history, but
+          # git rev-list --count HEAD does; the deeper of the two wins.
+          fetch-depth: 0
+
+      - name: Checkout convos-certificates (match repo)
+        uses: actions/checkout@v6
+        with:
+          repository: xmtplabs/convos-certificates
+          token: ${{ secrets.CONVOS_CERTIFICATES_TOKEN }}
+          path: convos-certificates
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: nixbuild/nix-quick-install-action@v33
+        with:
+          nix_conf: |
+            experimental-features = nix-command flakes
+
+      - name: Pin Xcode into /nix/store
+        uses: xmtplabs/xmtp-cache-apple@v1
+        with:
+          xcode-path: ${{ env.XCODE_APP_PATH }}
+          xcode-nix-path: ${{ env.XCODE_NIX_PATH }}
+
+      # Action installs cachix + substituter; push happens manually after
+      # the build so we can exclude Xcode's closure (EULA + 11 GiB).
+      - name: Set up xmtp Cachix cache
+        uses: cachix/cachix-action@v15
+        with:
+          name: xmtp
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Snapshot pre-build store paths
+        run: nix path-info --all | sort > /tmp/store-paths-before
+
+      - name: Enter dev shell
+        uses: nicknovitski/nix-develop@v1
+        with:
+          arguments: "--accept-flake-config --impure"
+
+      - name: Verify Xcode
+        run: xcodebuild -version
+
+      - name: Generate Secrets.swift
+        env:
+          BUILD_CONFIGURATION: Prod
+        run: ./Scripts/generate-secrets-secure.sh
+
+      - name: Run fastlane testflight_prod
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          # CI uses the local match checkout; local dev uses SSH (Matchfile default).
+          MATCH_GIT_URL: ${{ github.workspace }}/convos-certificates
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          # Passed directly to fastlane's app_store_connect_api_key via key_content;
+          # stays in memory, never written to disk, redacted from logs.
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: fastlane testflight_prod
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Convos-Prod-TestFlight-${{ github.run_id }}
+          path: build/Convos-Prod-TestFlight.ipa
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Push paths produced this job, minus Xcode and anything whose
+      # closure references it. Skipped on failure to avoid caching
+      # half-built derivations that would poison subsequent runs.
+      - name: Push new paths to xmtp Cachix
+        if: success()
+        run: |
+          set -e
+          new_paths=$(comm -13 \
+            /tmp/store-paths-before \
+            <(nix path-info --all | sort))
+          if [ -z "$new_paths" ]; then
+            echo "No new paths to push."
+            exit 0
+          fi
+          tainted=$(nix-store --query --referrers-closure "$XCODE_NIX_PATH" | sort -u)
+          to_push=$(comm -23 <(echo "$new_paths" | sort -u) <(echo "$tainted"))
+          if [ -z "$to_push" ]; then
+            echo "Nothing to push after filtering."
+            exit 0
+          fi
+          echo "Pushing $(echo "$to_push" | wc -l | tr -d ' ') paths to xmtp cache"
+          echo "$to_push" | xargs cachix push xmtp
