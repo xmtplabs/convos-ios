@@ -19,24 +19,10 @@ struct AgentTemplateContactRowView: View {
 
             Spacer()
 
-            AgentBadge()
+            RoleLabelPill(label: "Agent")
         }
         .padding(.vertical, 2.0)
         .accessibilityIdentifier("agent-template-row-\(agentTemplateContact.templateId)")
-    }
-}
-
-/// The "Agent" capsule tag shared by the agent-template list row and the
-/// standalone agent-template contact card. Matches the verified-agent
-/// role-label capsule styling `ContactRowView` already uses.
-struct AgentBadge: View {
-    var body: some View {
-        Text("Agent")
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .background(.colorTextSecondary.opacity(0.1), in: .capsule)
     }
 }
 
