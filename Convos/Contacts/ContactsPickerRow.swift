@@ -25,7 +25,7 @@ struct ContactsPickerRow: View {
                 Spacer(minLength: 0.0)
 
                 if case .agentTemplate = row.kind {
-                    AgentBadge()
+                    RoleLabelPill(label: "Agent")
                         .padding(.trailing, DesignConstants.Spacing.step2x)
                 }
 

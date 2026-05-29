@@ -83,7 +83,7 @@ struct AgentTemplateContactCardView: View {
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
 
-            AgentBadge()
+            RoleLabelPill(label: "Agent")
 
             if let description = agentTemplateContact.descriptionText, !description.isEmpty {
                 Text(description)
