@@ -10,6 +10,7 @@ public protocol MessageSender {
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
+    func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String
     func publish() async throws
     func publishMessage(messageId: String) async throws
     func consentState() throws -> ConsentState
@@ -300,6 +301,13 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(
             content: reply,
             options: .init(contentType: ContentTypeReply)
+        )
+    }
+
+    public func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
+        return try await prepareMessage(
+            content: builderBundleManifest,
+            options: .init(contentType: BuilderBundleManifestCodec().contentType)
         )
     }
 

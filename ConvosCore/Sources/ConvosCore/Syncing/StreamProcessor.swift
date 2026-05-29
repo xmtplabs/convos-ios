@@ -281,6 +281,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if await processBuilderBundleManifest(message, conversationId: conversation.id) {
+                        return
+                    }
+
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId
@@ -459,6 +463,10 @@ actor StreamProcessor: StreamProcessorProtocol {
         return true
     }
 
+    /// Persist the message ids a `BuilderBundleManifest` flags as an
+    /// agent-builder bundle so the chat hides them on every client (see
+    /// `MessagesListProcessor`). Returns true when the message was a manifest
+    /// (handled, never stored as a chat row).
     private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
         guard let contentType = try? message.encodedContent.type else {
             return false
@@ -859,6 +867,35 @@ actor StreamProcessor: StreamProcessorProtocol {
                 context: context
             )
         }
+    }
+}
+
+// MARK: - Builder Bundle Manifest
+
+extension StreamProcessor {
+    /// Persist the hidden bundle ids a `BuilderBundleManifest` carries so the
+    /// messages list filters the agent brief out (see
+    /// `BuilderBundleHiddenMessagesRepository`). Returns `true` when the message
+    /// was a manifest (handled), so the caller stops further routing.
+    func processBuilderBundleManifest(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard message.isBuilderBundleManifest else {
+            return false
+        }
+        guard let manifest = try? BuilderBundleManifestCodec().decode(content: message.encodedContent),
+              !manifest.messageIds.isEmpty else {
+            return true
+        }
+        do {
+            try await databaseWriter.write { db in
+                for messageId in manifest.messageIds {
+                    try DBBuilderBundleHiddenMessage(conversationId: conversationId, messageId: messageId)
+                        .save(db, onConflict: .ignore)
+                }
+            }
+        } catch {
+            Log.warning("Failed to store builder bundle manifest: \(error.localizedDescription)")
+        }
+        return true
     }
 }
 

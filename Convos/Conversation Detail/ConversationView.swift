@@ -150,7 +150,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.presentingShareView = true
                 }
             },
-            onInviteAgent: { viewModel.onRequestAgentJoin() },
+            onInviteAgent: { viewModel.presentAgentBuilder() },
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
@@ -283,7 +283,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.copyInviteLink()
             },
             onInviteAgent: {
-                viewModel.onRequestAgentJoin()
+                viewModel.presentAgentBuilder()
             },
             onAddFromContacts: handleAddFromContactsTap
         )
@@ -425,6 +425,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 onConfirm: { viewModel.requestAgentJoin() }
             )
             .padding(.top, 20)
+        }
+        .sheet(item: $viewModel.presentingAgentBuilder) { builderViewModel in
+            AgentBuilderView(
+                viewModel: builderViewModel,
+                profileSettingsViewModel: profileSettingsViewModel
+            )
         }
         .sheet(isPresented: $viewModel.presentingPaywall) {
             let paywallViewModel = PaywallViewModel(subscriptionService: SubscriptionServices.shared)

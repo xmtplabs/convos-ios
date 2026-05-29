@@ -659,13 +659,17 @@ extension MessagesViewController {
         dataSource.hidesInviteCard = conversation.hidesInviteCard
 
         // Add invite or conversation info at the beginning if all messages are loaded.
-        // When the Agent Builder summary is present, suppress this whole block -
-        // the summary card already announces the agent via its "You created an
-        // agent" footer, so showing the "+ Invite members" pill on top of it is
-        // redundant. Without a summary, `.hidden` header mode still renders the
-        // `.invite` cell (which surfaces just the "Invite members" affordance - the
-        // QR is gated inside the cell on the same `headerMode`).
-        if hasLoadedAllMessages, !conversation.isDraft, agentBuilderSummary == nil, headerMode != .suppressed {
+        // A home-flow Agent Builder summary suppresses this whole block - the
+        // summary card already announces the agent via its "You created an
+        // agent" footer, so the "+ Invite members" pill on top of it is
+        // redundant. The in-chat "New Agent" flow (`existingConversation`) is
+        // different: it targets a real group, so its invite affordances stay
+        // visible while the card shows. Without a summary, `.hidden` header
+        // mode still renders the `.invite` cell (which surfaces just the
+        // "Invite members" affordance - the QR is gated inside the cell on the
+        // same `headerMode`).
+        let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
+        if hasLoadedAllMessages, !conversation.isDraft, summaryAllowsInvite, headerMode != .suppressed {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else if headerMode == .standard, !hasVerifiedConvosAgent {

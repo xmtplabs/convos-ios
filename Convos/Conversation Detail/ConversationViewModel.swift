@@ -625,6 +625,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
     var presentingAgentConfirmation: Bool = false
+    /// Drives the "New Agent" context-menu builder sheet, scoped to this
+    /// existing conversation. The builder defers the agent join until the
+    /// user taps Make (see `AgentBuilderViewModel.existingConversationId`),
+    /// so we only add the agent once they confirm.
+    var presentingAgentBuilder: AgentBuilderViewModel?
     var presentingExplodedInviteInfo: Bool = false
     /// Drives the upsell sheet shown when the user taps the
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
@@ -701,6 +706,24 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         hasShownAgentConfirmation = true
         presentingAgentConfirmation = true
+    }
+
+    /// A fresh agent builder scoped to this conversation. The "New Agent"
+    /// entries take the user through the same builder flow as the home screen
+    /// but defer the agent join until they tap Make, so the brief they compose
+    /// is what the agent receives. Surfaces nested inside another sheet (the
+    /// Info sheet, Members list) present this from their own `.sheet` so it
+    /// stacks on top; the top-level chat menu uses `presentAgentBuilder()`.
+    func makeAgentBuilderViewModel() -> AgentBuilderViewModel {
+        AgentBuilderViewModel(session: session, existingConversationId: conversation.id)
+    }
+
+    /// Present the agent builder from the top-level `ConversationView` (the
+    /// in-chat "+"/context menu and the new-convo "Invite members" capsule,
+    /// neither of which has another sheet up).
+    func presentAgentBuilder() {
+        guard presentingAgentBuilder == nil else { return }
+        presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 
     var shouldBlurPhotos: Bool {
@@ -794,6 +817,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let messagesListRepo = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversation.id,
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
@@ -888,6 +912,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let messagesListRepo2 = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
+            hiddenBundleMessagesRepository: session.builderBundleHiddenMessagesRepository(),
             conversationId: conversation.id,
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
@@ -2120,37 +2145,29 @@ extension ConversationViewModel {
             voiceMemoRecorder.resetState()
         }
 
-        // Send the multi-remote attachment bundle first, then the prompt
-        // text. The backend agent expects this ordering so it can resolve
-        // attachment references before processing the textual prompt.
-        if !bundleItems.isEmpty {
-            do {
-                if let bundleMessageId {
-                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems, clientMessageId: bundleMessageId)
-                } else {
-                    _ = try await writer.sendMultiRemoteAttachment(items: bundleItems)
-                }
-            } catch {
-                Log.error("AgentBuilder bundle: failed to send media bundle: \(error.localizedDescription)")
-                // Restore pending attachments so the user can retry from the
-                // chat composer. The eager-upload state inside the writer may
-                // already be partially consumed; in practice this only fires
-                // on a network-level failure, and the failed-send UI surfaces
-                // individual item retries.
-                pendingMediaAttachments = attachmentsSnapshot
-            }
-        }
-
-        if !text.isEmpty {
-            do {
-                if let textMessageId {
-                    try await writer.send(text: text, clientMessageId: textMessageId)
-                } else {
-                    try await writer.send(text: text)
-                }
-            } catch {
-                Log.error("AgentBuilder bundle: failed to send prompt text: \(error.localizedDescription)")
-            }
+        // Send a `BuilderBundleManifest` first, then the media bundle, then the
+        // prompt text. The manifest lists the bundle's prepared XMTP ids so
+        // every recipient hides the brief before it renders; the agent still
+        // sees attachments before the prompt. `sendBuilderBundle` prepares all
+        // three up front so the manifest can reference real ids and publish
+        // ahead of them. The optimistic ids match the summary's
+        // `bundledMessageIds`, keeping the sender's own copy hidden too.
+        let resolvedBundleClientMessageId: String = bundleMessageId ?? UUID().uuidString
+        let resolvedTextClientMessageId: String = textMessageId ?? UUID().uuidString
+        do {
+            try await writer.sendBuilderBundle(
+                text: text,
+                bundleItems: bundleItems,
+                textClientMessageId: resolvedTextClientMessageId,
+                bundleClientMessageId: resolvedBundleClientMessageId
+            )
+        } catch {
+            Log.error("AgentBuilder bundle: failed to send builder bundle: \(error.localizedDescription)")
+            // Restore pending attachments so the user can retry from the chat
+            // composer. The eager-upload state inside the writer may already be
+            // partially consumed; in practice this only fires on a network-level
+            // failure, and the failed-send UI surfaces individual item retries.
+            pendingMediaAttachments = attachmentsSnapshot
         }
     }
 

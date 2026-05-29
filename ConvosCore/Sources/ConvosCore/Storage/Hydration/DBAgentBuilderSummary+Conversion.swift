@@ -36,7 +36,8 @@ extension DBAgentBuilderSummary {
             cutoffDate: cutoffDate,
             bundledMessageIds: bundledIds,
             cloudConnectionIds: cloudConnectionIds,
-            connectionsAppliedAt: connectionsAppliedAt
+            connectionsAppliedAt: connectionsAppliedAt,
+            existingConversation: existingConversation
         )
     }
 }
@@ -64,7 +65,8 @@ extension AgentBuilderSummary {
             cutoffDate: cutoffDate,
             bundledMessageIdsJSON: bundledMessageIdsJSON,
             cloudConnectionIdsJSON: cloudConnectionIdsJSON,
-            connectionsAppliedAt: connectionsAppliedAt
+            connectionsAppliedAt: connectionsAppliedAt,
+            existingConversation: existingConversation
         )
     }
 }

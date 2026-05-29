@@ -5,6 +5,10 @@ struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
     @State private var presentingAddFromContactsPicker: Bool = false
+    /// "New Agent" builder, presented from here so it stacks on top of the
+    /// Members list (itself inside the Info sheet) rather than racing the
+    /// chat view's own builder sheet.
+    @State private var presentingAgentBuilder: AgentBuilderViewModel?
 
     /// Same pattern as `ConversationView`. Substitutes contact-list
     /// display names for members whose per-conversation profile name is
@@ -22,6 +26,12 @@ struct ConversationMembersListView: View {
                 viewModel: viewModel,
                 isPresented: $presentingAddFromContactsPicker
             )
+            .sheet(item: $presentingAgentBuilder) { builderViewModel in
+                AgentBuilderView(
+                    viewModel: builderViewModel,
+                    profileSettingsViewModel: .shared
+                )
+            }
     }
 
     private var membersList: some View {
@@ -59,7 +69,7 @@ struct ConversationMembersListView: View {
                         viewModel.copyInviteLink()
                     },
                     onInviteAgent: {
-                        viewModel.requestAgentJoin()
+                        presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
                     },
                     onAddFromContacts: {
                         presentingAddFromContactsPicker = true

@@ -86,6 +86,9 @@ struct ConversationInfoView: View {
     @State private var metadataDebugText: String = "Loading…"
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
+    /// "New Agent" builder, presented from here so it stacks on top of the
+    /// Info sheet rather than racing the chat view's own builder sheet.
+    @State private var presentingAgentBuilder: AgentBuilderViewModel?
 
     private let maxMembersToShow: Int = 6
     private var displayedMembers: [ConversationMember] {
@@ -591,7 +594,7 @@ struct ConversationInfoView: View {
                             viewModel.copyInviteLink()
                         },
                         onInviteAgent: {
-                            viewModel.requestAgentJoin()
+                            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
                         },
                         onAddFromContacts: {
                             presentingAddFromContactsPicker = true
@@ -653,6 +656,12 @@ struct ConversationInfoView: View {
                     FullConvoInfoView(onDismiss: {
                         showingFullInfo = false
                     })
+                }
+                .sheet(item: $presentingAgentBuilder) { builderViewModel in
+                    AgentBuilderView(
+                        viewModel: builderViewModel,
+                        profileSettingsViewModel: .shared
+                    )
                 }
                 .overlay {
                     if presentingShareView {

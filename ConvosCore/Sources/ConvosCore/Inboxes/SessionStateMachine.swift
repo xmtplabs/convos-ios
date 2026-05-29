@@ -1118,7 +1118,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 PairingJoinRequestCodec(),
                 IdentityShareCodec(),
                 DeviceRemovedCodec(),
-                ThinkingCodec()
+                ThinkingCodec(),
+                BuilderBundleManifestCodec()
             ] + ConvosConnectionsXMTP.codecs(),
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,

@@ -14,7 +14,7 @@ struct NewConvoIdentityView: View {
     private var agentSubtitle: String {
         if hasAgent { return "Already here" }
         if isAgentJoinPending { return "Joining…" }
-        return "Helps the group do things"
+        return "Made for this group"
     }
 
     var body: some View {
@@ -54,9 +54,10 @@ struct NewConvoIdentityView: View {
 
                     let agentAction: () -> Void = { onInviteAgent?() }
                     Button(action: agentAction) {
-                        Text("Instant agent")
+                        Text("New Agent")
                         Text(agentSubtitle)
-                        Image(systemName: "a.circle")
+                        Image("addAgentIcon")
+                            .renderingMode(.template)
                     }
                     .disabled(isAgentActionDisabled)
                 } label: {

@@ -1273,4 +1273,19 @@ extension ConversationStateMachine {
         let writer = try await getOrCreateMessageWriter()
         return try await writer.sendMultiRemoteAttachment(items: items, clientMessageId: clientMessageId)
     }
+
+    func sendBuilderBundle(
+        text: String,
+        bundleItems: [MultiAttachmentBundleItem],
+        textClientMessageId: String,
+        bundleClientMessageId: String
+    ) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendBuilderBundle(
+            text: text,
+            bundleItems: bundleItems,
+            textClientMessageId: textClientMessageId,
+            bundleClientMessageId: bundleClientMessageId
+        )
+    }
 }

@@ -17,12 +17,12 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
     public let prompt: String
     public let attachments: [AgentBuilderSummaryAttachment]
     public let createdAt: Date
-    /// Agent-side cutoff: messages sent by *other* members with
-    /// `sentAt < cutoffDate` are filtered out of the post-commit list (pre-Make
-    /// hello chatter from the agent). User-side filtering goes through
-    /// `bundledMessageIds` instead — timestamps proved unreliable there
-    /// because uploads can stretch a multi-remote bundle's `sentAt` well past
-    /// the moment the user tapped Make.
+    /// The moment the user tapped Make. Anchors the post-commit placeholder
+    /// display window (`AgentBuilderPlaceholder.remainingDisplayTime`). No
+    /// longer used to filter messages by time -- the backend now skips the
+    /// agent's pre-Make greeting, and the user's own bundle is hidden by id
+    /// (`bundledMessageIds` + the `BuilderBundleManifest` / local hidden rows),
+    /// so the old `sentAt < cutoffDate` filter was removed.
     public let cutoffDate: Date
     /// `clientMessageId`s of the sends the builder issued on the user's behalf
     /// (prompt text + multi-remote attachment bundle today; voice memo etc.
@@ -50,6 +50,12 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
     /// haven't reached the replayer yet (e.g. the agent hasn't joined,
     /// or this summary was written before the replayer existed).
     public let connectionsAppliedAt: Date?
+    /// True when the summary belongs to a conversation the user was already in
+    /// (the in-chat "New Agent" entry) rather than a fresh home-flow agent
+    /// chat. The messages list keeps the conversation's invite affordances
+    /// (QR / "Invite members") visible while this card shows, instead of
+    /// suppressing them the way the home flow does.
+    public let existingConversation: Bool
 
     public init(
         id: UUID = UUID(),
@@ -59,7 +65,8 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
         cutoffDate: Date,
         bundledMessageIds: Set<String> = [],
         cloudConnectionIds: [String: String] = [:],
-        connectionsAppliedAt: Date? = nil
+        connectionsAppliedAt: Date? = nil,
+        existingConversation: Bool = false
     ) {
         self.id = id
         self.prompt = prompt
@@ -69,6 +76,7 @@ public struct AgentBuilderSummary: Sendable, Equatable, Codable, Identifiable, H
         self.bundledMessageIds = bundledMessageIds
         self.cloudConnectionIds = cloudConnectionIds
         self.connectionsAppliedAt = connectionsAppliedAt
+        self.existingConversation = existingConversation
     }
 }
 
