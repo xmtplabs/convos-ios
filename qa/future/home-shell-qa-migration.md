@@ -62,14 +62,29 @@ entry was removed and may be re-enabled later.
   the deep-link path. New `blocked` test convention documented in
   `structured/README.md`.
 
-## 4. Remaining nav-foundation work (next chunk)
+## 4. Foundation cleanup (done)
 
-- `qa/TOOLS-CLAUDE.md`: stale `scan-button` bottom-toolbar caveat + the
-  `(292, 823)` coordinate.
-- Markdown docs (`qa/tests/*.md`) lag the YAMLs: `18`, `04`, and especially
-  `25-conversations-list-baseline.md` (documents the old toolbar:
-  `app-settings-button`, `scan-button`, `filter-button`). `25-baseline` is a
-  larger rewrite tied to the whole list UI.
+- `qa/TOOLS-CLAUDE.md`: the "bottom-toolbar caveat" is now a "toolbar
+  caveat" - compose moved from `.bottomBar` to `.topBarTrailing`; dropped
+  the stale `scan-button` + `(354,823)`/`(292,823)` coords.
+- `.pi/skills/...` references in the QA docs are valid (that dir exists) -
+  left as-is.
+- Markdown docs reconciled with the YAMLs: `18` (settings entry), `22`
+  (dropped paste-rejoin), `04` (blocked banner), `25-conversations-list-
+  baseline.md` (stale banner; see below).
+
+### Still open
+
+- **`25-conversations-list-baseline.md`** - bannered as stale but needs a
+  full re-capture against the #910 list/shell (old toolbar, tabs, filter).
+- **Test 16 `conversation-filters` is broken** - the conversations-list
+  filter picker (`filter-button`, the All/Unread/Exploding/Pending PopUp)
+  was removed around the Agent Builder work (#830), before #910. The filter
+  *logic* still exists in `ConversationsViewModel` (`activeFilter`,
+  `applyFilter`), but the only remaining UI assignments set it back to
+  `.all` (empty-state "Show all"); `stuff-filter-button` is a separate
+  Stuff-tab control. Needs product / on-sim clarity on whether Chats-list
+  filtering is gone or moved before the test can be fixed or blocked.
 
 ## 5. Beyond the shell: missing coverage (later chunks)
 
