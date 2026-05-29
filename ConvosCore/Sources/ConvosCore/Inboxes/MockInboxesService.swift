@@ -106,6 +106,14 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         return .init(success: true, joined: true)
     }
 
+    public func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
+        ConvosAPI.AgentTemplate(
+            id: id,
+            status: "published",
+            publishedUrl: "https://agents.example.com/mock.\(id.prefix(5))"
+        )
+    }
+
     public func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
