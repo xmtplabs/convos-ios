@@ -61,10 +61,6 @@ final class ContactsPickerViewModel {
     let mode: ContactsPickerMode
     var sections: [Section] = []
     var selectedInboxIds: Set<String> = []
-    /// Set true when the user just selected an agent, so the view can
-    /// present the "One agent, many convos" info sheet. The view resets
-    /// it after handling.
-    var didSelectAgent: Bool = false
     var searchQuery: String = "" {
         didSet { rebuildSections() }
     }
@@ -179,9 +175,6 @@ final class ContactsPickerViewModel {
                 return
             }
             selectedInboxIds.insert(inboxId)
-            if isAgent(inboxId) {
-                didSelectAgent = true
-            }
         }
     }
 

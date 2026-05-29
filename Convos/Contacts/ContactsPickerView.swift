@@ -32,6 +32,9 @@ import SwiftUI
 struct ContactsPickerView: View {
     @State private var viewModel: ContactsPickerViewModel
     @State private var presentingAgentInfo: Bool = false
+    /// Set by the "One agent, many convos" sheet's "Got it" button so the
+    /// sheet's `onDismiss` knows to proceed with creation (vs a cancel).
+    @State private var agentInfoConfirmed: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     /// `memberInboxIds` are the selected humans; `agentTemplateId` is the
@@ -72,16 +75,11 @@ struct ContactsPickerView: View {
 
     var body: some View {
         pickerBody
-            .onChange(of: viewModel.didSelectAgent) { _, didSelect in
-            guard didSelect else { return }
-            viewModel.didSelectAgent = false
-            guard !UserDefaults.standard.bool(forKey: Constant.seenOneAgentManyConvosKey) else { return }
-            UserDefaults.standard.set(true, forKey: Constant.seenOneAgentManyConvosKey)
-            presentingAgentInfo = true
-        }
-        .selfSizingSheet(isPresented: $presentingAgentInfo) {
-            OneAgentManyConvosInfoSheet()
-        }
+            .selfSizingSheet(
+                isPresented: $presentingAgentInfo,
+                onDismiss: handleAgentInfoDismiss,
+                content: { OneAgentManyConvosInfoSheet(onConfirm: { agentInfoConfirmed = true }) }
+            )
     }
 
     @ViewBuilder
@@ -101,8 +99,10 @@ struct ContactsPickerView: View {
             .toolbar { toolbarContent }
     }
 
-    private enum Constant {
-        static let seenOneAgentManyConvosKey: String = "hasSeenOneAgentManyConvos"
+    private func handleAgentInfoDismiss() {
+        guard agentInfoConfirmed else { return }
+        agentInfoConfirmed = false
+        performConfirm()
     }
 
     /// The list takes the full sheet and scrolls behind the toolbar
@@ -165,6 +165,18 @@ struct ContactsPickerView: View {
 
     private func handleConfirm() {
         guard viewModel.canConfirm else { return }
+        // Starting a conversation that includes an agent shows the
+        // "One agent, many convos" sheet as a confirmation step first; its
+        // "Got it" button proceeds via `performConfirm`. Human-only
+        // selections create the conversation immediately.
+        if viewModel.selectedAgentTemplateId != nil {
+            presentingAgentInfo = true
+        } else {
+            performConfirm()
+        }
+    }
+
+    private func performConfirm() {
         // Split the selection: the agent (if any) is spawned by template,
         // not added as a member, so it's excluded from the member ids.
         let agentTemplateId = viewModel.selectedAgentTemplateId

@@ -68,6 +68,12 @@ struct ContactDetailView: View {
     @State private var presentingAgentShareSheet: Bool = false
     @State private var presentingPublishError: Bool = false
     @State private var publishErrorMessage: String?
+    /// Gates the "One agent, many convos" confirmation before the "Chat"
+    /// button spawns a new conversation with this agent. `agentInfoConfirmed`
+    /// distinguishes a "Got it" tap from a drag-to-cancel in the sheet's
+    /// `onDismiss`.
+    @State private var presentingAgentInfo: Bool = false
+    @State private var agentInfoConfirmed: Bool = false
 
     init(
         contact: Contact,
@@ -109,6 +115,9 @@ struct ContactDetailView: View {
                 agentShareURL: resolvedAgentShareURL,
                 presentingPublishError: $presentingPublishError,
                 publishErrorMessage: publishErrorMessage,
+                presentingAgentInfo: $presentingAgentInfo,
+                onAgentInfoConfirm: { agentInfoConfirmed = true },
+                onAgentInfoDismiss: handleAgentInfoDismiss,
                 blockAlertActions: { blockAlertActions },
                 pickerSheet: { pickerSheet }
             ))
@@ -461,12 +470,26 @@ struct ContactDetailView: View {
     /// `presentingNewConvo`, the same sheet anchor `handlePickerConfirm`
     /// uses; the `.newConversationWithTemplate` mode creates the
     /// conversation and joins the agent once it reaches `.ready`.
+    /// Chat with a template-backed agent shows the "One agent, many convos"
+    /// confirmation first; its "Got it" proceeds via `confirmChatWithAgentTemplate`
+    /// (run from the sheet's `onDismiss` so the new-convo sheet presents after
+    /// this one closes).
     private func handleChatWithAgentTemplate() {
+        presentingAgentInfo = true
+    }
+
+    private func confirmChatWithAgentTemplate() {
         guard let session, let templateId = contact.agentTemplateId else { return }
         presentingNewConvo = NewConversationViewModel(
             session: session,
             mode: .newConversationWithTemplate(templateId: templateId)
         )
+    }
+
+    private func handleAgentInfoDismiss() {
+        guard agentInfoConfirmed else { return }
+        agentInfoConfirmed = false
+        confirmChatWithAgentTemplate()
     }
 
     /// Resolves a shareable template link and presents the share sheet. Uses
@@ -903,6 +926,9 @@ private struct ContactDetailModalsModifier<
     let agentShareURL: URL?
     @Binding var presentingPublishError: Bool
     let publishErrorMessage: String?
+    @Binding var presentingAgentInfo: Bool
+    let onAgentInfoConfirm: () -> Void
+    let onAgentInfoDismiss: () -> Void
     let blockAlertActions: () -> BlockActions
     let pickerSheet: () -> PickerContent
 
@@ -936,6 +962,9 @@ private struct ContactDetailModalsModifier<
             }
             .sheet(isPresented: $presentingAgentShareSheet) {
                 agentShareSheet
+            }
+            .selfSizingSheet(isPresented: $presentingAgentInfo, onDismiss: onAgentInfoDismiss) {
+                OneAgentManyConvosInfoSheet(onConfirm: onAgentInfoConfirm)
             }
     }
 
