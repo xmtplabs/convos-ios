@@ -70,18 +70,24 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     }
 
     /// Splits the mixed selection into humans and agent templates. Humans
-    /// go through the existing `addMembersFromContacts` flow. Templates are
-    /// dispatched via `requestAgentJoin(templateId:)` per id, which reuses
-    /// the existing conversation's invite slug to spawn a fresh instance
-    /// into this conversation (no new backend endpoint - see Phase 2 PRD
-    /// add-to-existing question 1).
+    /// go through the existing `addMembersFromContacts` flow. Templates go
+    /// through `requestAgentJoins(templateIds:)` -- the batched (serialized)
+    /// variant -- which reuses the existing conversation's invite slug to
+    /// spawn a fresh instance per templateId (no new backend endpoint, see
+    /// Phase 2 PRD add-to-existing question 1).
+    ///
+    /// Important: do NOT loop `requestAgentJoin(templateId:)` here. That
+    /// method is single-flight (each call cancels the prior task), so a
+    /// for-loop ends up running only the LAST templateId to completion --
+    /// every prior call gets `URLError.cancelled` mid-dispatch and silently
+    /// dropped.
     private func handleConfirm(_ selection: Set<ContactsPickerViewModel.Selection>) {
         let humanInboxIds: [String] = selection.compactMap(\.inboxId)
         let templateIds: [String] = selection.compactMap(\.templateId)
         guard !humanInboxIds.isEmpty || !templateIds.isEmpty else { return }
 
-        for templateId in templateIds {
-            viewModel.requestAgentJoin(templateId: templateId)
+        if !templateIds.isEmpty {
+            viewModel.requestAgentJoins(templateIds: templateIds)
         }
 
         guard !humanInboxIds.isEmpty else { return }
