@@ -23,6 +23,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     var onJoinConvo: (() -> Void)?
     var onShowAllFilter: (() -> Void)?
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    var topChromeInset: CGFloat = 0
     var bottomChromeInset: CGFloat = 0
 
     func makeUIViewController(context: Context) -> ConversationsViewController {
@@ -44,6 +45,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
         )
         viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)
+        viewController.topChromeInset = topChromeInset
         viewController.bottomChromeInset = bottomChromeInset
 
         // Update callbacks in case they changed

@@ -115,11 +115,21 @@ final class ConversationsViewController: UIViewController {
     /// the list is at the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
 
-    /// Extra bottom inset to clear the SwiftUI bottom chrome (builder
-    /// bar + custom tab bar) that lives in the host's safe-area inset
-    /// chain. The chain doesn't always propagate to UIKit-hosted
+    /// Extra top inset to clear the SwiftUI top chrome (the agent builder
+    /// bar that lives under the nav bar in the host's safe-area inset
+    /// chain). The chain doesn't always propagate to UIKit-hosted
     /// collection views, so the SwiftUI host pushes this value down and
     /// we apply it via `additionalSafeAreaInsets`.
+    var topChromeInset: CGFloat = 0 {
+        didSet {
+            guard isViewLoaded, oldValue != topChromeInset else { return }
+            additionalSafeAreaInsets.top = topChromeInset
+        }
+    }
+
+    /// Bottom counterpart to `topChromeInset`, used when the agent builder
+    /// bar pins to the bottom edge (iPad, where the standard tab bar is at
+    /// the top).
     var bottomChromeInset: CGFloat = 0 {
         didSet {
             guard isViewLoaded, oldValue != bottomChromeInset else { return }
@@ -132,9 +142,12 @@ final class ConversationsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
-        // Apply any inset value that landed before the view loaded —
-        // `bottomChromeInset.didSet` short-circuits while `isViewLoaded`
-        // is false, so without this the value silently vanishes.
+        // Apply any inset values that landed before the view loaded —
+        // the `didSet`s short-circuit while `isViewLoaded` is false, so
+        // without this the values silently vanish.
+        if topChromeInset != 0 {
+            additionalSafeAreaInsets.top = topChromeInset
+        }
         if bottomChromeInset != 0 {
             additionalSafeAreaInsets.bottom = bottomChromeInset
         }
