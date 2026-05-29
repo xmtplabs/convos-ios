@@ -192,10 +192,23 @@ public enum ConvosAPI {
         public let snapshot: Snapshot
         public let skipped: String?
 
+        public init(ok: Bool, remoteApplied: Bool, snapshot: Snapshot, skipped: String?) {
+            self.ok = ok
+            self.remoteApplied = remoteApplied
+            self.snapshot = snapshot
+            self.skipped = skipped
+        }
+
         public struct Snapshot: Codable, Sendable {
             public let hash: String
             public let count: Int
             public let lastSubscribeAt: String
+
+            public init(hash: String, count: Int, lastSubscribeAt: String) {
+                self.hash = hash
+                self.count = count
+                self.lastSubscribeAt = lastSubscribeAt
+            }
         }
     }
 

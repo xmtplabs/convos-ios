@@ -396,10 +396,18 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
                 let hash = precomputedHash ?? PushTopicHash.of(subscriptions.map(\.topic))
                 cache.storeHash(hash, forKey: cacheKey)
             } else if let skipped = response.skipped {
-                Log.info(
-                    "Skipping cache write for \(context): backend returned skipped=\(skipped) "
-                    + "(remoteApplied=\(response.remoteApplied)); next reconcile will retry"
-                )
+                // "idempotent" is the expected steady-state path - backend snapshot already
+                // matches our hash. Anything else (no_push_token / disabled / etc.) means the
+                // device is in a degraded state where push delivery cannot work; surface that
+                // at warning level so it shows up in log review.
+                let isIdempotent = skipped == "idempotent"
+                let message = "Skipping cache write for \(context): backend returned skipped=\(skipped) " +
+                    "(remoteApplied=\(response.remoteApplied)); next reconcile will retry"
+                if isIdempotent {
+                    Log.info(message)
+                } else {
+                    Log.warning(message)
+                }
             }
         } catch {
             Log.warning("Failed subscribing to push topics \(context): \(error)")
