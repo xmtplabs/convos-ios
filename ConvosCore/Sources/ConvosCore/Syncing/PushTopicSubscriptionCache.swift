@@ -75,6 +75,19 @@ final class PushTopicSubscriptionCache: @unchecked Sendable {
 /// Components of the cache key, kept here so the same canonicalization is
 /// used at write-time (inside subscribe's success branch) and lookup-time
 /// (top of reconcile).
+///
+/// The plan (D8) lists `environment + accountId + apnsEnv` as separate
+/// components. We don't need them as explicit fields because they are all
+/// functionally encoded by `inboxId`:
+/// - Each build environment (Dev / Local / Prod) uses a distinct keychain
+///   access group, so the inbox set is partitioned per environment. A user
+///   reinstalling across builds gets a fresh inboxId.
+/// - `accountId` -> `inboxId` is 1:1 (one XMTP inbox per account).
+/// - `apnsEnv` is constant per build (sandbox on non-prod, production on
+///   prod), so it never varies independently of the environment.
+/// Adding them as separate fields would be redundant; the partition is the
+/// same. If the build environments ever start sharing keychain groups,
+/// revisit this.
 struct PushTopicCacheKey: Sendable {
     let inboxId: String
     let clientId: String
