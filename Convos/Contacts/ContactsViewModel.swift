@@ -161,14 +161,22 @@ final class ContactsViewModel {
 
     /// Recomputes `sections` from `allContacts` + `allAgentContacts`
     /// honoring the current `searchQuery`. Humans (filtered through
-    /// `isVisibleInList`) and agent-template contacts are merged and
-    /// bucketed into shared alphabetical sections.
+    /// `isVisibleInList`) and agent-template contacts are merged, sorted
+    /// alphabetically by `resolvedDisplayName` (case-insensitive, matching
+    /// each repository's own sort), and bucketed into shared sections.
+    /// The sort is applied before grouping because `Dictionary(grouping:)`
+    /// preserves source order within each bucket - without it, all humans
+    /// would render before any agent in every section.
     private func rebuildSections() {
         let humanItems: [ListItem] = allContacts
             .filter(Self.isVisibleInList)
             .map { ListItem.human($0) }
         let agentItems: [ListItem] = allAgentContacts.map { ListItem.agentTemplate($0) }
         let filtered: [ListItem] = filterByQuery(humanItems + agentItems)
+            .sorted { (lhs: ListItem, rhs: ListItem) -> Bool in
+                lhs.resolvedDisplayName
+                    .localizedCaseInsensitiveCompare(rhs.resolvedDisplayName) == .orderedAscending
+            }
 
         let grouped: [String: [ListItem]] = Dictionary(grouping: filtered) { $0.alphabeticalSectionKey }
         let sortedKeys: [String] = grouped.keys.sorted { lhs, rhs in

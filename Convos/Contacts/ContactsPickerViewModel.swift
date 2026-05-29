@@ -303,11 +303,21 @@ final class ContactsPickerViewModel {
     private func rebuildSections() {
         // Humans go through `isVisibleInPicker` (drops blocked, verified
         // agents, and unnamed rows). Agent-template contacts live in
-        // their own table and are always shown.
+        // their own table and are always shown. Sort the merged list by
+        // `resolvedDisplayName` (case-insensitive, matching each
+        // repository's sort) before grouping so humans and agents
+        // interleave alphabetically within each section -
+        // `Dictionary(grouping:)` preserves source order within each
+        // bucket, so without this sort all humans would render before
+        // any agent in every section.
         let visibleHumans: [Contact] = allContacts.filter(Self.isVisibleInPicker)
         let humanItems: [Row.Kind] = visibleHumans.map { .human($0) }
         let agentItems: [Row.Kind] = allAgentContacts.map { .agentTemplate($0) }
         let filtered: [Row.Kind] = filterByQuery(humanItems + agentItems)
+            .sorted { (lhs: Row.Kind, rhs: Row.Kind) -> Bool in
+                displayName(for: lhs)
+                    .localizedCaseInsensitiveCompare(displayName(for: rhs)) == .orderedAscending
+            }
 
         let grouped: [String: [Row.Kind]] = Dictionary(grouping: filtered) { kind in
             sectionKey(for: kind)
@@ -363,6 +373,15 @@ final class ContactsPickerViewModel {
             return contact.alphabeticalSectionKey
         case .agentTemplate(let agent):
             return agent.alphabeticalSectionKey
+        }
+    }
+
+    private func displayName(for kind: Row.Kind) -> String {
+        switch kind {
+        case .human(let contact):
+            return contact.resolvedDisplayName
+        case .agentTemplate(let agent):
+            return agent.resolvedDisplayName
         }
     }
 
