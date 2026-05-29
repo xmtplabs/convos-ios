@@ -48,10 +48,14 @@ prevents flaky test starts caused by leftover navigation state.
 
 | Screen ID | How the agent verifies it | How the agent navigates to it |
 |-----------|--------------------------|-------------------------------|
-| `conversations_list` | `compose-button` is visible | Tap `BackButton` or `close-new-conversation` repeatedly until `compose-button` appears |
+| `conversations_list` | `compose-button` is visible (the **Chats** tab) | Tap the "Chats" tab; tap `BackButton` / `close-new-conversation` / swipe a sheet down until `compose-button` appears |
 | `conversation_detail` | `message-text-field` is visible and `BackButton` exists | Navigate from `conversations_list`, then tap the target conversation |
-| `settings` | `settings-view` is visible | Tap settings tab or gear icon from `conversations_list` |
-| `profile_editor` | `profile-display-name-field` is visible | Open from settings or conversation toolbar |
+| `settings` | A settings row such as `my-info-row` or `delete-all-data-button` is visible | Tap `app-indicator-pill` from `conversations_list` (no settings tab / gear icon). Dismiss with a swipe-down. |
+| `profile_editor` | `profile-display-name-field` is visible | Open from settings (`my-info-row`) or the conversation toolbar |
+
+> Shell note: the home is a standard `TabView` with **Chats** and **Stuff**
+> tabs (Search was removed). Settings opens from the `app-indicator-pill`,
+> not a tab. See `qa/RULES.md` "Home Shell & Navigation" for the full map.
 
 If `screen` is omitted, the agent checks current state and navigates as
 needed based on the first step's actions (legacy behavior).
