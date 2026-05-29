@@ -109,7 +109,37 @@ identifiers), pending on-sim validation:
   `html-attachment-bubble`, preview sheet `attachment-preview-close` /
   `-share` / `-sender`. Needs the CLI upload provider (`CONVOS_API_KEY`).
 
-## 6. Still missing (later, separate PRs)
+## 6. First validation run (test 39, run c8ed5edc151b)
+
+Ran the new `qa-run` workflow (`.claude/workflows/qa-run.js`) on test 39 only,
+on iPhone 17 with the #910 build. The workflow harness worked (dispatched a
+`qa-runner`, ran ~15 min, aggregated). Test 39 itself came back ERROR -
+**blocked by setup, not a feature defect**:
+
+- No shared app<->CLI conversation could be established in **either**
+  direction on the dev XMTP network: app-side `invite.join_request_sent`
+  fired but the CLI's `process-join-requests --watch` never received the DM
+  (member count stayed 1 across 4 attempts); reverse `add-members` succeeded
+  server-side (count -> 2) but the app never received the MLS welcome (group
+  topic never appeared, app stuck on "Verifying") even after relaunch+sync.
+  This blocks every multi-party test (02/03/04/33/34/38/39, ...) until the
+  delivery issue is resolved - likely a dev-environment / sync problem, worth
+  a manual check or retry before another run.
+- App-level log noise during the run: recurring
+  `auto reveal preference: conversationNotFound`, `refresh credit balance:
+  forbidden`, `Sentry DSN is empty`.
+
+### Findings to action
+
+- **App a11y gap:** the share affordance inside `invite-qr-code` (new-convo
+  QR view) has no `accessibilityIdentifier` and isn't enumerable by idb;
+  recommend adding `invite-share-button`. The runner read the invite URL from
+  the CLI instead.
+- **Docs:** `cli_process_joins` `timeout` param is now documented in the
+  structured README (it wraps `--watch` + kill; `process-join-requests` has
+  no `--timeout` flag).
+
+## 7. Still missing (later, separate PRs)
 
 - Agent builder / templates flow (new; large)
 - Credits / subscription UI (`subscription-row`)
