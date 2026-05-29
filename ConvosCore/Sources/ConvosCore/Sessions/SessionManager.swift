@@ -31,6 +31,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var contactBlockingObserver: NSObjectProtocol?
+    private var contactsWereAddedObserver: NSObjectProtocol?
     private var quarantineSweeperTask: Task<Void, Never>?
     private var cachedQuarantineSweeper: (any QuarantineSweeperProtocol)?
 
@@ -176,6 +177,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         if let contactBlockingObserver {
             NotificationCenter.default.removeObserver(contactBlockingObserver)
         }
+        if let contactsWereAddedObserver {
+            NotificationCenter.default.removeObserver(contactsWereAddedObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -203,7 +207,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
 
         // Trigger an immediate quarantine sweep when a contact gets
-        // unblocked (or blocked — though only unblocking has a UX-visible
+        // unblocked (or blocked - though only unblocking has a UX-visible
         // effect on existing held conversations). Without this, the user
         // would have to wait for the next hourly sweep or app-foreground
         // entry before quarantined-by-block conversations reappear in
@@ -216,53 +220,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             self?.runQuarantineSweep(reason: "contactBlockingDidChange")
         }
 
+        // Trigger an immediate quarantine sweep when one or more new
+        // contact rows are committed. Batch callers (e.g.
+        // `ContactSyncCoordinator` syncing a whole group on first send)
+        // accumulate inserted inboxIds inside their transaction and post
+        // a single notification post-commit, so one sweep covers the
+        // entire batch. Without this, a conversation held in quarantine
+        // because its creator was a stranger only reappears on the next
+        // hourly or foreground sweep.
+        contactsWereAddedObserver = NotificationCenter.default.addObserver(
+            forName: .contactsWereAdded,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.runQuarantineSweep(reason: "contactsWereAdded")
+        }
+
         scheduleQuarantineSweeper()
-    }
-
-    /// Periodic sweeper that promotes quarantined conversations whose
-    /// senders have become contacts and deletes those past the TTL. Runs
-    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
-    /// while the process is alive. The foreground observer above also
-    /// triggers an extra sweep on every foreground entry.
-    private func scheduleQuarantineSweeper() {
-        let sweeper = QuarantineSweeper(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            contactsRepository: ContactsRepository(databaseReader: databaseReader)
-        )
-        cachedQuarantineSweeper = sweeper
-
-        quarantineSweeperTask?.cancel()
-        quarantineSweeperTask = Task { [weak self] in
-            // Initial sweep at launch.
-            await Self.invokeSweep(sweeper, reason: "launch")
-            // Hourly sweep while the process lives. Foreground entries also
-            // trigger an extra sweep via the foreground observer.
-            while !Task.isCancelled {
-                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
-                try? await Task.sleep(nanoseconds: interval)
-                guard self != nil, !Task.isCancelled else { return }
-                await Self.invokeSweep(sweeper, reason: "interval")
-            }
-        }
-    }
-
-    private func runQuarantineSweep(reason: String) {
-        guard let sweeper = cachedQuarantineSweeper else { return }
-        Task.detached {
-            await Self.invokeSweep(sweeper, reason: reason)
-        }
-    }
-
-    private static func invokeSweep(
-        _ sweeper: any QuarantineSweeperProtocol,
-        reason: String
-    ) async {
-        do {
-            try await sweeper.sweep()
-        } catch {
-            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
-        }
     }
 
     private func updateActiveConversation(_ conversationId: String?) {
@@ -923,6 +897,76 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     )
                 }
             }
+        }
+    }
+}
+
+// MARK: - Quarantine Sweeping
+
+extension SessionManager {
+    /// Thrown when the consent-bump closure outlives its owning
+    /// `SessionManager` (the `Task.detached` fan-out in
+    /// `runQuarantineSweep` can do this). Forces the sweeper to defer
+    /// the row instead of committing a DB promotion whose XMTP-side
+    /// bump never happened.
+    private struct ConsentBumpSessionDeinitError: Error {}
+
+    /// Periodic sweeper that promotes quarantined conversations whose
+    /// senders have become contacts and deletes those past the TTL. Runs
+    /// once at session-observe time and once per `Constant.foregroundSweepInterval`
+    /// while the process is alive. The foreground observer also triggers
+    /// an extra sweep on every foreground entry.
+    private func scheduleQuarantineSweeper() {
+        let sweeper = QuarantineSweeper(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            contactsRepository: ContactsRepository(databaseReader: databaseReader),
+            // Bump XMTP-side consent via the same path
+            // `ConversationConsentWriter.join` uses. Any throw (inbox
+            // not ready, conversation missing from local cache, network
+            // error, session deinit) defers the row to the next sweep.
+            consentBumper: { [weak self] conversationId in
+                guard let self else {
+                    throw ConsentBumpSessionDeinitError()
+                }
+                let inboxReady = try await self.loadOrCreateService()
+                    .sessionStateManager
+                    .waitForInboxReadyResult()
+                try await inboxReady.client.update(consent: .allowed, for: conversationId)
+            }
+        )
+        cachedQuarantineSweeper = sweeper
+
+        quarantineSweeperTask?.cancel()
+        quarantineSweeperTask = Task { [weak self] in
+            // Initial sweep at launch.
+            await Self.invokeSweep(sweeper, reason: "launch")
+            // Hourly sweep while the process lives. Foreground entries also
+            // trigger an extra sweep via the foreground observer.
+            while !Task.isCancelled {
+                let interval: UInt64 = UInt64(QuarantineSweeper.Constant.foregroundSweepInterval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: interval)
+                guard self != nil, !Task.isCancelled else { return }
+                await Self.invokeSweep(sweeper, reason: "interval")
+            }
+        }
+    }
+
+    private func runQuarantineSweep(reason: String) {
+        guard let sweeper = cachedQuarantineSweeper else { return }
+        Task.detached {
+            await Self.invokeSweep(sweeper, reason: reason)
+        }
+    }
+
+    private static func invokeSweep(
+        _ sweeper: any QuarantineSweeperProtocol,
+        reason: String
+    ) async {
+        do {
+            try await sweeper.sweep()
+        } catch {
+            Log.error("QuarantineSweeper sweep (reason=\(reason)) failed: \(error.localizedDescription)")
         }
     }
 }
