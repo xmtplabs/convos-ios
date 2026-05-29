@@ -73,18 +73,16 @@ entry was removed and may be re-enabled later.
   (dropped paste-rejoin), `04` (blocked banner), `25-conversations-list-
   baseline.md` (stale banner; see below).
 
+- **Test 16 `conversation-filters`**: marked `blocked: true`. The
+  conversations-list filter picker (`filter-button`) is not currently
+  surfaced (removed around the Agent Builder work #830); filter logic
+  remains in `ConversationsViewModel`. Filters may be re-added later -
+  re-enable then. (`stuff-filter-button` is a separate Stuff-tab control.)
+
 ### Still open
 
 - **`25-conversations-list-baseline.md`** - bannered as stale but needs a
   full re-capture against the #910 list/shell (old toolbar, tabs, filter).
-- **Test 16 `conversation-filters` is broken** - the conversations-list
-  filter picker (`filter-button`, the All/Unread/Exploding/Pending PopUp)
-  was removed around the Agent Builder work (#830), before #910. The filter
-  *logic* still exists in `ConversationsViewModel` (`activeFilter`,
-  `applyFilter`), but the only remaining UI assignments set it back to
-  `.all` (empty-state "Show all"); `stuff-filter-button` is a separate
-  Stuff-tab control. Needs product / on-sim clarity on whether Chats-list
-  filtering is gone or moved before the test can be fixed or blocked.
 
 ## 5. Beyond the shell: missing coverage (later chunks)
 
