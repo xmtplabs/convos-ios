@@ -422,6 +422,26 @@ struct MainTabView: View {
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { _ in
             updateTrafficLightWindowState()
         })
+        .task {
+            // The geometry callback above fires once on first layout, often
+            // before the scene's window has settled into its windowed frame --
+            // so `updateTrafficLightWindowState()` hits its scene/window guard
+            // and the flag stays `false`, leaving the indicator pill flush
+            // against the traffic-light controls until a manual resize
+            // re-triggers detection. Re-check across the launch window so the
+            // settle can't be missed.
+            for delayMilliseconds in [0, 150, 400, 800] {
+                // Stop on cancellation (view disappeared) rather than letting
+                // `try?` swallow it -- otherwise every remaining iteration runs
+                // immediately, firing the state update several extra times.
+                do {
+                    try await Task.sleep(for: .milliseconds(delayMilliseconds))
+                } catch {
+                    return
+                }
+                updateTrafficLightWindowState()
+            }
+        }
     }
 
     /// Update the traffic-light-window flag by comparing the active

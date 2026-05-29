@@ -202,7 +202,14 @@ struct ConversationsView: View {
     }
 
     var conversationsCollectionView: some View {
-        ConversationsViewRepresentable(
+        // The builder bar is rendered as a `safeAreaInset` by `MainTabView`
+        // (reserving its edge) *and* its height is re-applied here as the
+        // collection view's `additionalSafeAreaInsets`. To avoid counting it
+        // twice we ignore the system safe area on the bar's edge: `.top` on
+        // iPhone (bar pins to the top) and additionally `.bottom` on iPad
+        // (bar pins to the bottom, signalled by a non-zero bottom inset).
+        let ignoredSafeAreaEdges: Edge.Set = bottomChromeInset > 0 ? [.top, .bottom] : .top
+        return ConversationsViewRepresentable(
             pinnedConversations: viewModel.pinnedConversations,
             unpinnedConversations: viewModel.unpinnedConversations,
             selectedConversationId: viewModel.selectedConversationId,
@@ -234,7 +241,7 @@ struct ConversationsView: View {
             topChromeInset: topChromeInset,
             bottomChromeInset: bottomChromeInset
         )
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: ignoredSafeAreaEdges)
     }
 
     @ViewBuilder

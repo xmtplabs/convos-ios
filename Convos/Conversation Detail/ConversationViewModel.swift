@@ -686,6 +686,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        defaults.removeObject(forKey: hasShownAgentsIntroKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
@@ -2180,11 +2181,21 @@ extension ConversationViewModel {
             )
         } catch {
             Log.error("AgentBuilder bundle: failed to send builder bundle: \(error.localizedDescription)")
-            // Restore pending attachments so the user can retry from the chat
-            // composer. The eager-upload state inside the writer may already be
-            // partially consumed; in practice this only fires on a network-level
-            // failure, and the failed-send UI surfaces individual item retries.
+            // Restore pending attachments and the voice memo so the user can
+            // retry from the chat composer. Both were cleared optimistically
+            // above; without restoring the recorder, the recording is lost
+            // with no way to retry. The eager-upload state inside the writer
+            // may already be partially consumed; in practice this only fires
+            // on a network-level failure, and the failed-send UI surfaces
+            // individual item retries.
             pendingMediaAttachments = attachmentsSnapshot
+            if let voiceMemo {
+                voiceMemoRecorder.restoreRecorded(
+                    url: voiceMemo.url,
+                    duration: voiceMemo.duration,
+                    audioLevels: voiceMemo.levels
+                )
+            }
         }
     }
 

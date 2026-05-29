@@ -3,11 +3,17 @@ import SwiftUI
 /// Bar that lets the user kick off an agent-builder draft. Renders one
 /// stable glass capsule whose width + tint animate between two states:
 ///
-/// - **Expanded**: full-width capsule with the agent avatar leading, a
-///   "Make an agent" placeholder label, and three trailing icon buttons
-///   for photo / camera / voice-memo entry points.
-/// - **Collapsed**: a 56pt circle at the trailing edge (the capsule shrunk
+/// - **Expanded**: a capsule -- agent avatar leading, a "Make an agent"
+///   placeholder label, and three trailing icon buttons for photo / camera
+///   / voice-memo entry points. Capped at the width it would occupy on the
+///   largest iPhone in portrait so it doesn't stretch the full width of a
+///   wide iPad, and centered within the available width.
+/// - **Collapsed**: a 52pt circle at the trailing edge (the capsule shrunk
 ///   to its height with a black tint so it reads as a solid agent avatar).
+///
+/// The expanded capsule is centered while the collapsed circle pins to the
+/// trailing edge, so the morph slides the shape from center to trailing as
+/// it shrinks.
 ///
 /// `MainTabView` drives `isExpanded` from scroll position. On iPhone the bar
 /// pins to the top and fades out entirely on scroll (a compact "add agent"
@@ -32,10 +38,17 @@ struct AgentBuilderBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if !isExpanded {
+            // The expanded capsule is centered (a spacer on each side); the
+            // collapsed circle keeps only the leading spacer so it pins to
+            // the trailing edge. The morph slides the shape from center to
+            // trailing as it shrinks. On a phone the capsule fills the
+            // available width (the cap doesn't bind), so the spacers
+            // collapse to zero.
+            Spacer(minLength: 0)
+            glassShape
+            if isExpanded {
                 Spacer(minLength: 0)
             }
-            glassShape
         }
         .animation(.smooth(duration: 0.25), value: isExpanded)
     }
@@ -50,7 +63,7 @@ struct AgentBuilderBar: View {
                 .allowsHitTesting(!isExpanded)
         }
         .frame(
-            maxWidth: isExpanded ? .infinity : Constant.collapsedSize,
+            maxWidth: isExpanded ? Constant.maxExpandedWidth : Constant.collapsedSize,
             minHeight: Constant.barHeight
         )
         .contentShape(.capsule)
@@ -82,7 +95,7 @@ struct AgentBuilderBar: View {
 
             attachmentButtonGroup
         }
-        .padding(DesignConstants.Spacing.step3x)
+        .padding(DesignConstants.Spacing.step2x)
         .frame(maxWidth: .infinity)
     }
 
@@ -106,18 +119,17 @@ struct AgentBuilderBar: View {
     }
 
     private var agentAvatar: some View {
-        ZStack {
-            Circle()
-                .fill(Color.black)
-            Image("addAgentIcon")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(.white)
-                .frame(width: Constant.avatarSize * 0.42, height: Constant.avatarSize * 0.42)
-        }
-        .frame(width: Constant.avatarSize, height: Constant.avatarSize)
-        .accessibilityLabel("Make an agent")
+        // Expanded state: the bare glyph on the glass bar (no enclosing
+        // circle). The collapsed state still reads as a solid agent avatar --
+        // its circle is the black-tinted glass shrunk to its height.
+        Image("addAgentIcon")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(Color.colorTextPrimary)
+            .padding(Constant.expandedIconInsets)
+            .frame(width: Constant.expandedIconFrameSize, height: Constant.expandedIconFrameSize)
+            .accessibilityLabel("Make an agent")
     }
 
     private func attachmentButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
@@ -134,12 +146,23 @@ struct AgentBuilderBar: View {
     }
 
     private enum Constant {
-        /// Height of both visual states (32pt avatar + step3x*2 padding) so
-        /// the vertical footprint stays constant across the morph.
-        static let barHeight: CGFloat = 56.0
-        static let collapsedSize: CGFloat = 56.0
+        /// Height of both visual states: the expanded content's natural height
+        /// (36pt glyph footprint + step2x*2 padding = 52pt). The collapsed
+        /// circle matches it, so the morph keeps a constant vertical footprint.
+        static let barHeight: CGFloat = 52.0
+        static let collapsedSize: CGFloat = 52.0
         static let collapsedIconSize: CGFloat = 24.0
-        static let avatarSize: CGFloat = 32.0
+        /// Widest the expanded capsule grows. Matches the width it would have
+        /// on the largest iPhone in portrait (440pt screen less the bar's
+        /// step4x side margins on each edge), so on a wide iPad it stays a
+        /// trailing capsule rather than stretching edge to edge. On a phone
+        /// the available width is always <= this, so the cap never binds.
+        static let maxExpandedWidth: CGFloat = 408.0
+        /// The leading glyph sits in a 36x36 footprint, inset per the design so
+        /// the visible mark (~16.7x18) reads in line with the trailing icons.
+        /// The asset has no internal padding, so the inset is applied here.
+        static let expandedIconFrameSize: CGFloat = 36.0
+        static let expandedIconInsets: EdgeInsets = EdgeInsets(top: 8, leading: 10.67, bottom: 10, trailing: 8.67)
         static let attachmentIconWidth: CGFloat = 20.0
         static let attachmentIconHeight: CGFloat = 18.0
         static let attachmentIconSpacing: CGFloat = 24.0
