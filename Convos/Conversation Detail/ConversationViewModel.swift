@@ -629,6 +629,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// user taps Make (see `AgentBuilderViewModel.existingConversationId`),
     /// so we only add the agent once they confirm.
     var presentingAgentBuilder: AgentBuilderViewModel?
+    /// Drives the first-run agents explainer shown before the builder. Its
+    /// "Make an agent" button sets `pendingAgentBuilderAfterIntro` and dismisses;
+    /// the sheet's onDismiss then opens the builder. Dismissing without the
+    /// button leaves the builder unopened.
+    var presentingAgentsIntro: Bool = false
+    var pendingAgentBuilderAfterIntro: Bool = false
     var presentingExplodedInviteInfo: Bool = false
     /// Drives the upsell sheet shown when the user taps the
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
@@ -701,11 +707,39 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         AgentBuilderViewModel(session: session, existingConversationId: conversation.id)
     }
 
+    private static let hasShownAgentsIntroKey: String = "hasShownAgentsIntro"
+
+    /// First-run gate for the "New Agent" agents explainer: returns `true`
+    /// exactly once (the first "New Agent" tap, from any in-chat surface) and
+    /// marks it shown. Callers present `AgentsInfoView` when this is true and
+    /// open the builder only if the user taps its "Make an agent" button.
+    func consumeAgentsIntroGate() -> Bool {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.hasShownAgentsIntroKey) else { return false }
+        defaults.set(true, forKey: Self.hasShownAgentsIntroKey)
+        return true
+    }
+
     /// Present the agent builder from the top-level `ConversationView` (the
     /// in-chat "+"/context menu and the new-convo "Invite members" capsule,
-    /// neither of which has another sheet up).
+    /// neither of which has another sheet up). On the first-ever tap, show the
+    /// agents explainer first; the builder opens only if the user taps
+    /// "Make an agent" (handled by `presentAgentBuilderAfterIntroIfNeeded()`
+    /// from the intro sheet's onDismiss).
     func presentAgentBuilder() {
-        guard presentingAgentBuilder == nil else { return }
+        guard presentingAgentBuilder == nil, !presentingAgentsIntro else { return }
+        if consumeAgentsIntroGate() {
+            presentingAgentsIntro = true
+        } else {
+            presentingAgentBuilder = makeAgentBuilderViewModel()
+        }
+    }
+
+    /// Called from the intro sheet's onDismiss: opens the builder only if the
+    /// user opted in via "Make an agent" (which sets the pending flag).
+    func presentAgentBuilderAfterIntroIfNeeded() {
+        guard pendingAgentBuilderAfterIntro else { return }
+        pendingAgentBuilderAfterIntro = false
         presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 

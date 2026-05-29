@@ -89,6 +89,11 @@ struct ConversationInfoView: View {
     /// "New Agent" builder, presented from here so it stacks on top of the
     /// Info sheet rather than racing the chat view's own builder sheet.
     @State private var presentingAgentBuilder: AgentBuilderViewModel?
+    /// First-run agents explainer shown before the builder; its "Make an agent"
+    /// button sets `pendingAgentBuilderAfterIntro` and the sheet's onDismiss
+    /// then opens the builder.
+    @State private var presentingAgentsIntro: Bool = false
+    @State private var pendingAgentBuilderAfterIntro: Bool = false
 
     private let maxMembersToShow: Int = 6
     private var displayedMembers: [ConversationMember] {
@@ -594,7 +599,11 @@ struct ConversationInfoView: View {
                             viewModel.copyInviteLink()
                         },
                         onInviteAgent: {
-                            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+                            if viewModel.consumeAgentsIntroGate() {
+                                presentingAgentsIntro = true
+                            } else {
+                                presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+                            }
                         },
                         onAddFromContacts: {
                             presentingAddFromContactsPicker = true
@@ -662,6 +671,14 @@ struct ConversationInfoView: View {
                         viewModel: builderViewModel,
                         profileSettingsViewModel: .shared
                     )
+                }
+                .selfSizingSheet(isPresented: $presentingAgentsIntro, onDismiss: {
+                    guard pendingAgentBuilderAfterIntro else { return }
+                    pendingAgentBuilderAfterIntro = false
+                    presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
+                }) {
+                    AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
+                        .padding(.top, 20)
                 }
                 .overlay {
                     if presentingShareView {
