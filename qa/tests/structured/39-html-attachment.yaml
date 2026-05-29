@@ -1,0 +1,182 @@
+id: "39"
+name: "HTML Attachment Rendering"
+description: >
+  Verify that an HTML file attachment sent from the CLI is received and
+  rendered correctly. HTML attachments are special-cased
+  (HydratedAttachment.isHTMLFile, detected by a .html/.htm extension or a
+  text/html mime type) and treated as full-bleed: instead of a generic file
+  bubble they render as a tall html-attachment-bubble tile with a sender
+  header ("View ->") on top and a page thumbnail below (rendered at 160pt
+  wide and upsampled to fill the tile). Tapping the tile opens
+  AttachmentPreviewSheet full-screen, where the HTML renders live in a
+  WKWebView with a close button, a sender indicator, and a share affordance.
+tags: [messaging, files, attachments, html]
+depends_on: ["28"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  cli_upload_provider_configured: true
+  shared_conversation: false
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_reset
+    note: >
+      convos reset && convos init --env dev --force
+  - action: create_test_files
+    note: >
+      Create a small HTML file with a visible heading and a distinct
+      background color so the rendered tile and preview are easy to judge
+      visually:
+
+      cat > /tmp/convos-qa-tile.html <<'HTML'
+      <!DOCTYPE html>
+      <html><head><meta charset="utf-8"><title>QA Tile</title></head>
+      <body style="background:#1E88E5;color:#fff;font-family:-apple-system,sans-serif;margin:0;padding:32px;">
+      <h1>Convos QA HTML Tile</h1>
+      <p>If you can read this, the HTML attachment rendered.</p>
+      </body></html>
+      HTML
+  - action: verify_upload_provider
+    note: >
+      cli_send_attachment always encrypts, uploads via the configured upload
+      provider, and sends a *remote* attachment (there is no inline path), so
+      the app exercises its remote-attachment loader
+      (FileAttachmentLoader.loadFile) for both the tile thumbnail and the
+      preview. The provider must be configured before sending: set
+      CONVOS_API_KEY (auto-selects the convos-api provider) or
+      CONVOS_UPLOAD_PROVIDER in the CLI .env, or pass
+      --upload-provider / --upload-provider-token on the command. If no
+      provider is configured, send-attachment fails and the test cannot
+      proceed. This precondition is captured by
+      prerequisites.cli_upload_provider_configured.
+  - action: cli_create_conversation
+    args: { name: "HTML Test", profile_name: "Agent" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.invite_url
+  - action: open_deep_link
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id", watch: true, timeout: 30 }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+
+steps:
+  - id: receive_html_attachment
+    name: "Receive an HTML attachment from CLI"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/convos-qa-tile.html"
+      - wait_for_element: { id: "html-attachment-bubble", timeout: 30 }
+    verify:
+      - element_exists: { id: "html-attachment-bubble" }
+      - element_not_exists: { id: "file-attachment-bubble" }
+    criteria: html_renders_as_tile
+    expect_event_with: { name: "message.received", conversation: "$conversation_id" }
+    note: >
+      The CLI auto-detects the mime type as text/html (or the .html extension
+      drives detection). The app should render an html-attachment-bubble tile
+      via isHTMLFile, not the generic file-attachment-bubble. The remote
+      attachment is fetched and decrypted before the thumbnail renders, so the
+      tile may briefly show a ProgressView; wait for the rendered state.
+
+  - id: tile_shows_sender_header
+    name: "Tile shows sender header and View affordance"
+    actions:
+      - find_elements: { pattern: "html-attachment-bubble-sender" }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "html-attachment-bubble-sender" }
+      - visual_check: >
+          The tile header shows the sender avatar and name "Agent" on the left
+          and a "View ->" affordance (text + chevron) on the right, with a thin
+          divider beneath the header.
+    criteria: tile_header_present
+
+  - id: tile_renders_content
+    name: "Tile thumbnail renders the page content filled"
+    actions:
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          Below the header the tile shows a rendered thumbnail of the HTML page
+          filling the tile width (rounded corners): the blue (#1E88E5)
+          background and the "Convos QA HTML Tile" heading are visible. The
+          tile is not blank, not a document-icon placeholder, and does not show
+          the error triangle.
+    criteria: tile_thumbnail_filled
+    note: >
+      The thumbnail is rendered at 160pt wide and upsampled to fill the tile,
+      so text may look soft but the heading and background color must be
+      recognizable. A spinner or exclamationmark.triangle here means the
+      remote load or render failed.
+
+  - id: tap_tile_opens_preview
+    name: "Tap the tile to open the full-screen preview"
+    actions:
+      - tap: { id: "html-attachment-bubble" }
+      - wait_for_element: { id: "attachment-preview-close", timeout: 15 }
+    verify:
+      - element_exists: { id: "attachment-preview-close" }
+      - element_exists: { id: "attachment-preview-sender" }
+      - element_exists: { id: "attachment-preview-share" }
+    criteria: preview_opens_with_controls
+    note: >
+      AttachmentPreviewSheet routes isHTMLFile to AttachmentHTMLContent (a live
+      WKWebView). The share affordance is always present for HTML
+      (canShareImage returns true), though the ShareLink only becomes active
+      once the rendered share image is written.
+
+  - id: preview_renders_html
+    name: "HTML renders live in the preview web view"
+    actions:
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The preview renders the live HTML at full size: the "Convos QA HTML
+          Tile" heading and the body sentence are readable, and the blue page
+          background fills behind the content. The toolbar shows the close
+          button, the sender indicator ("Agent" with a date), and the share
+          icon.
+    criteria: preview_renders_html_live
+
+  - id: close_preview
+    name: "Close the preview and return to the conversation"
+    actions:
+      - tap: { id: "attachment-preview-close" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_exists: { id: "html-attachment-bubble" }
+      - element_not_exists: { id: "attachment-preview-close" }
+    criteria: preview_dismissable
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  html_renders_as_tile:
+    description: "HTML attachment from CLI renders as html-attachment-bubble tile, not a generic file bubble"
+  tile_header_present:
+    description: "Tile shows the sender header (avatar, name, View affordance)"
+  tile_thumbnail_filled:
+    description: "Tile thumbnail renders the page content filled (heading + background color visible)"
+  preview_opens_with_controls:
+    description: "Tapping the tile opens AttachmentPreviewSheet with close, sender, and share controls"
+  preview_renders_html_live:
+    description: "HTML renders live in the preview web view (heading and body text visible)"
+  preview_dismissable:
+    description: "Closing the preview returns to the conversation with the tile still present"

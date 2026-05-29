@@ -124,6 +124,7 @@ element. See `qa/RULES.md` "No Sleep Calls" for the full rationale.
 | `cli_join_conversation: { invite_url, profile_name }` | `convos conversations join "$url" --profile-name "$name" --env dev` |
 | `cli_create_conversation: { name, profile_name }` | `convos conversations create --name "$name" --profile-name "$pn" --env dev` |
 | `cli_generate_invite: { conversation }` | `convos conversation invite $id --env dev --json` |
+| `cli_inspect_invite: { invite }` | `convos conversations inspect-invite "$invite" --env dev --json` (decodes invite metadata: name, emoji, signatureValid - no identity/join) |
 | `cli_process_joins: { conversation, watch }` | `convos conversations process-join-requests --conversation $id [--watch] --env dev` |
 | `explode_conversation: { id }` | `convos conversation explode $id --env dev` |
 | `download_test_photo: { url, path }` | `curl -sL "$url" -o "$path"` |

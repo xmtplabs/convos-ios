@@ -84,18 +84,37 @@ entry was removed and may be re-enabled later.
 - **`25-conversations-list-baseline.md`** - bannered as stale but needs a
   full re-capture against the #910 list/shell (old toolbar, tabs, filter).
 
-## 5. Beyond the shell: missing coverage (later chunks)
+## 5. New coverage added in this PR
 
-New / changed areas with `.md` docs but no structured YAML, or no test at all:
+Structured YAMLs authored code-read (against actual app behavior + real
+identifiers), pending on-sim validation:
+
+- `32-voice-memo-transcription.yaml` - single device + CLI. Built against
+  actual behavior (inline transcript, tap opens `VoiceMemoTranscriptSheet`,
+  no inline chevron expand, no expansion-persistence store, no retry
+  capsule). The `32-*.md` describes those unshipped features and is
+  bannered as aspirational; the YAML is authoritative.
+- `33-read-receipts.yaml` - two devices + CLI. `read-receipts-toggle` and
+  `read-receipt-avatars` confirmed real (the md's "needs identifier" note
+  was stale). Setting reached via app-indicator-pill -> "Customize".
+- `34-side-convo-stable-emoji.yaml` - two devices. Uses `cli_inspect_invite`
+  (added to the README action vocab) for an exact emoji/metadata cross-check.
+- `38-pair-device.yaml` - two devices. Real revoke controls are
+  `stale-device-sheet` + `hold-to-delete-device-button` (the md's
+  `stale-device-banner` / `hold-to-reset-device-button` do not exist). Uses
+  the `pairing.pairing_url_created` event to grab the URL. Auth-probe and
+  iCloud-keychain checks omitted (not expressible via the QA action
+  vocabulary - debug menu / Settings.app).
+- `39-html-attachment.{md,yaml}` - new test. Single device + CLI. Tile id
+  `html-attachment-bubble`, preview sheet `attachment-preview-close` /
+  `-share` / `-sender`. Needs the CLI upload provider (`CONVOS_API_KEY`).
+
+## 6. Still missing (later, separate PRs)
 
 - Agent builder / templates flow (new; large)
 - Credits / subscription UI (`subscription-row`)
-- Device pairing (`38-pair-device.md`, `devices-row`)
-- HTML attachment tiles + zoom preview (recently shipped)
-- Contacts system (`contacts-row`) and Connections (`connections-row`)
+- Contacts (`contacts-row`) and Connections (`connections-row`)
 - Focus mode (assistant builder bubble states)
-- `33-read-receipts.md`, `32-voice-memo-transcription.md`,
-  `34-side-convo-stable-emoji.md` (md only, no YAML)
 - "New Agent" pending drafts in the conversations list
 
-Prioritize by release-criticality once the nav foundation is solid.
+Prioritize by release-criticality.
