@@ -163,6 +163,12 @@ struct DebugViewSection: View {
                 .disabled(notificationAuthGranted)
                 .opacity(notificationAuthGranted ? 0.5 : 1.0)
             }
+            NavigationLink {
+                DebugPushNotificationsView(environment: environment, session: session)
+            } label: {
+                Text("Push Registration Probe…")
+                    .foregroundStyle(.colorTextPrimary)
+            }
         }
     }
 

@@ -337,6 +337,42 @@ struct PushTopicSubscriptionManagerTests {
         #expect(apiClient.subscribeCalls.count == 2)
     }
 
+    @Test("Reconcile does NOT write the cache when backend returns remoteApplied:false")
+    func reconcileSkipsCacheOnRemoteAppliedFalse() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = SkippedRemoteApplyPushAPIClient(skippedReason: "no_push_token")
+        let conversationLister = RecordingPushConversationLister(groupIds: ["group-1"], dmIds: [])
+        let cache = isolatedCache()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { "fake-apns-token" }
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "first"
+        )
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "second"
+        )
+
+        // Codex D16 regression: HTTP 200 with remoteApplied:false (e.g. backend
+        // sees no_push_token / disabled / idempotency-skip) MUST NOT prime the
+        // iOS cache. Otherwise iOS would silently debounce future reconciles
+        // even though XMTP server never got the subscribe. Both calls should
+        // hit the wire because the cache never got written on the first.
+        #expect(apiClient.subscribeCallCount == 2)
+    }
+
     @Test("clearCache forces the next reconcile to hit the wire")
     func clearCacheForcesWire() async throws {
         let identityStore = MockKeychainIdentityStore()
@@ -471,10 +507,20 @@ private final class RecordingPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         ""
     }
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
         state.withLock {
             $0.subscribeCalls.append(SubscribeCall(deviceId: deviceId, clientId: clientId, topics: topics))
         }
+        return .init(
+            ok: true, remoteApplied: true,
+            snapshot: .init(hash: "mock", count: topics.count, lastSubscribeAt: ""),
+            skipped: nil
+        )
     }
 
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {
@@ -550,7 +596,12 @@ private final class ThrowingPushAPIClient: ConvosAPIClientProtocol, @unchecked S
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String { "" }
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
         counter.withLock { $0 += 1 }
         throw ThrowingPushAPIClientError.subscribeFailure
     }
@@ -705,4 +756,74 @@ private final class TokenBox: @unchecked Sendable {
     func set(_ value: String?) {
         state.withLock { $0 = value }
     }
+}
+
+/// Mock API client that returns a 200 with `remoteApplied: false` and a
+/// caller-supplied `skipped` reason (Stack 2 D16). Used to assert that iOS
+/// does NOT prime the local hash cache when the backend tells us nothing
+/// was actually applied at XMTP — the previous "any 200 = success" contract
+/// silently broke push delivery for the no_push_token / disabled paths.
+private final class SkippedRemoteApplyPushAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
+    private let skippedReason: String
+    private let counter: OSAllocatedUnfairLock<Int> = OSAllocatedUnfairLock(initialState: 0)
+
+    var subscribeCallCount: Int { counter.withLock { $0 } }
+
+    init(skippedReason: String) {
+        self.skippedReason = skippedReason
+    }
+
+    func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
+        guard let url = URL(string: "https://example.com") else { throw URLError(.badURL) }
+        return URLRequest(url: url)
+    }
+
+    func registerDevice(deviceId: String, pushToken: String?) async throws {}
+    func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "token" }
+    func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String { "siwe-token" }
+    func updateSIWESigningContext(_ context: BackendAuthSigningContext?) {}
+    func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
+    func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
+    func uploadAttachmentAndExecute(
+        data: Data,
+        filename: String,
+        afterUpload: @escaping (String) async throws -> Void
+    ) async throws -> String { "" }
+
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
+        counter.withLock { $0 += 1 }
+        return ConvosAPI.SubscribeResponse(
+            ok: true,
+            remoteApplied: false,
+            snapshot: ConvosAPI.SubscribeResponse.Snapshot(
+                hash: "mock", count: topics.count, lastSubscribeAt: ""
+            ),
+            skipped: skippedReason
+        )
+    }
+
+    func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}
+    func unregisterInstallation(clientId: String) async throws {}
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
+    func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
+        ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
+    }
+    func requestAgentJoin(slug: String, templateId: String?, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
+    }
+    func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
+        .init(connectionRequestId: "", redirectUrl: "")
+    }
+    func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
+        .init(connectionId: "", serviceId: "", serviceName: "", composioEntityId: "", composioConnectionId: "", status: "")
+    }
+    func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
+    func revokeCloudConnection(connectionId: String) async throws {}
 }

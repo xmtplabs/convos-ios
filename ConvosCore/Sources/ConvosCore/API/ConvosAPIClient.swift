@@ -75,9 +75,27 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     ) async throws -> (uploadURL: String, assetURL: String)
 
     // Push notifications
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws
+    /// Subscribe to push topics. Stack 2 D16: returns the full backend
+    /// response so callers can gate local cache writes on `remoteApplied`.
+    /// `context`/`source`/`kindSummary`/`force` are diagnostic fields the
+    /// backend logs and persists alongside the snapshot.
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws
     func unregisterInstallation(clientId: String) async throws
+    /// Probe backend's view of device/client/subscription state. Stack 2 T12.
+    /// Production-safe (hashes-only response); rate-limited at the backend.
+    func debugStatus(
+        deviceId: String,
+        clientId: String,
+        pushTokenSha256: String?,
+        pushTokenType: String?,
+        apnsEnv: String?
+    ) async throws -> ConvosAPI.DebugStatusResponse
 
     // Asset renewal
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
@@ -638,7 +656,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Push Notification Management (JWT-authenticated, inbox-level)
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions = ConvosAPI.SubscribeOptions()
+    ) async throws -> ConvosAPI.SubscribeResponse {
         var request = try authenticatedRequest(for: "v2/notifications/subscribe", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -649,11 +672,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let body = ConvosAPI.SubscribeRequest(
             deviceId: deviceId,
             clientId: clientId,
-            topics: topicSubscriptions
+            topics: topicSubscriptions,
+            context: options.context,
+            source: options.source,
+            kindSummary: options.kindSummary,
+            force: options.force
         )
         request.httpBody = try JSONEncoder().encode(body)
 
-        let _: EmptyResponse = try await performRequest(request)
+        let response: ConvosAPI.SubscribeResponse = try await performRequest(request)
+        return response
     }
 
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {
@@ -670,6 +698,27 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let path = "v2/notifications/unregister/\(clientId)"
         let request = try authenticatedRequest(for: path, method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
+    }
+
+    func debugStatus(
+        deviceId: String,
+        clientId: String,
+        pushTokenSha256: String? = nil,
+        pushTokenType: String? = nil,
+        apnsEnv: String? = nil
+    ) async throws -> ConvosAPI.DebugStatusResponse {
+        var request = try authenticatedRequest(for: "v2/notifications/debug/status", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body = ConvosAPI.DebugStatusRequest(
+            deviceId: deviceId,
+            clientId: clientId,
+            pushTokenSha256: pushTokenSha256,
+            pushTokenType: pushTokenType,
+            apnsEnv: apnsEnv
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+        let response: ConvosAPI.DebugStatusResponse = try await performRequest(request)
+        return response
     }
 
     // MARK: - Asset Renewal

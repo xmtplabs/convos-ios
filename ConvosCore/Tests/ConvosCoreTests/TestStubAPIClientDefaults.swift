@@ -43,4 +43,33 @@ extension ConvosAPIClientProtocol {
     ) async throws -> ConvosAPI.AgentJoinResponse {
         ConvosAPI.AgentJoinResponse(success: true, joined: true)
     }
+
+    /// Default for the Stack 2 T12 debug-status endpoint so existing test
+    /// fixtures don't need to re-stub it. Tests that exercise the debug
+    /// screen specifically should override on their fixture.
+    func debugStatus(
+        deviceId: String,
+        clientId: String,
+        pushTokenSha256: String?,
+        pushTokenType: String?,
+        apnsEnv: String?
+    ) async throws -> ConvosAPI.DebugStatusResponse {
+        ConvosAPI.DebugStatusResponse(
+            device: .init(
+                exists: false, hasPushToken: false, pushTokenMatches: nil,
+                pushTokenTypeMatches: nil, apnsEnvMatches: nil, disabled: nil,
+                pushFailures: nil, lastSentAt: nil, lastFailureAt: nil, updatedAt: nil
+            ),
+            client: .init(
+                exists: false, mappedDeviceId: nil, deviceIdMatchesJwt: nil,
+                accountIdMatchesJwt: nil, updatedAt: nil
+            ),
+            subscriptionSnapshot: .init(
+                exists: false, topicCount: nil, topicHash: nil, kindSummary: nil,
+                lastContext: nil, lastSubscribeAt: nil, lastRemoteApplySucceeded: nil,
+                lastRemoteApplyError: nil, pushTokenMatchesAtApply: nil,
+                apnsEnvMatchesAtApply: nil, isActualRemoteState: false
+            )
+        )
+    }
 }

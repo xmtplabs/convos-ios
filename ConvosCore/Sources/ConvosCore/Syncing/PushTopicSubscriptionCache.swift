@@ -99,11 +99,19 @@ struct PushTopicCacheKey: Sendable {
     }
 }
 
-/// Canonical hashing routine shared by the iOS cache and the eventual Stack 2
+/// Canonical hashing routine shared by the iOS cache and the Stack 2
 /// backend snapshot. Topics are sorted lexicographically as UTF-8 strings,
 /// joined with a single LF separator, and run through SHA-256 with lowercase
-/// hex output. Match this byte-for-byte on the Node side when the snapshot
-/// table needs to compare hashes across the wire.
+/// hex output.
+///
+/// Cross-stack pin (Stack 2 T19): backend implementation lives at
+/// `convos-backend/src/notifications/hash.ts`. If you change either side,
+/// change BOTH, and add a matching test on the OTHER side proving the
+/// same input still produces the same output. Stack 2 tests for the backend
+/// helper:
+///   - `convos-backend/tests/notifications-hash.test.ts`: 11 cases pinning
+///     sorted, LF separator, SHA-256 hex lowercase, sentinel for no-token.
+/// Stack 2 idempotency depends on these two staying in sync byte-for-byte.
 enum PushTopicHash {
     static func of(_ topics: [String]) -> String {
         let canonical = topics.sorted().joined(separator: "\n")

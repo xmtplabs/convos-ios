@@ -16,6 +16,15 @@ public protocol SessionStateManagerProtocol: AnyObject, Sendable {
 
     func requestDiscovery() async
 
+    /// Stack 2 T17: force-drop the iOS-side push topic hash cache AND
+    /// fire a fresh full reconcile, regardless of whether the conversation
+    /// set changed. Intended for the debug screen's "Force Reconcile"
+    /// button so an engineer can exercise the full subscribe path on
+    /// demand. Production code should NEVER call this; routine state
+    /// changes are covered by the cache key partitioning and the D14
+    /// token-change listener.
+    func forceReconcilePushTopics() async
+
     func addObserver(_ observer: SessionStateObserver)
     func removeObserver(_ observer: SessionStateObserver)
 

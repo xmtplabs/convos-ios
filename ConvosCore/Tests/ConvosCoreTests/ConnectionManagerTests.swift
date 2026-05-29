@@ -614,7 +614,16 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         (uploadURL: "https://example.com/upload/\(filename)", assetURL: "https://example.com/asset/\(filename)")
     }
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {}
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
+        .init(ok: true, remoteApplied: true,
+              snapshot: .init(hash: "mock", count: topics.count, lastSubscribeAt: ""),
+              skipped: nil)
+    }
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}
     func unregisterInstallation(clientId: String) async throws {}
 

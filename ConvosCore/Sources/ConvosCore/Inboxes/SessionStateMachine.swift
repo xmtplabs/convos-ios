@@ -374,6 +374,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         await syncingManager.requestDiscovery()
     }
 
+    public func forceReconcilePushTopics() async {
+        guard let syncingManager else { return }
+        await syncingManager.forceReconcilePushTopics()
+    }
+
     // MARK: - SessionStateManagerProtocol
 
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
