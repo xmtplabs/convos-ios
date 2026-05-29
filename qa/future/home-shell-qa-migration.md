@@ -28,7 +28,7 @@ The home is now a standard SwiftUI `TabView`:
 | Open settings | `app-settings-button` / `convos-settings-button` | `app-indicator-pill` -> `AppSettingsView` sheet |
 | Settings rows | `settings-view` | `my-info-row`, `devices-row`, `contacts-row`, `connections-row`, `subscription-row`, `delete-all-data-button` |
 | Dismiss settings | `close-app-settings` | swipe-down (interactive dismiss) |
-| Scan / paste join | bottom-toolbar `scan-button` | restructured - see section 3 |
+| Scan / paste join | bottom-toolbar `scan-button` | removed; join via camera QR or deep-link URL - see section 3 |
 | Compose | `compose-button` | unchanged |
 
 All of `app-settings-button`, `convos-settings-button`, `close-app-settings`,
@@ -45,16 +45,25 @@ All of `app-settings-button`, `convos-settings-button`, `close-app-settings`,
   - `25b-global-defaults.yaml` (entry id)
   - `14-profile.yaml` (entry id x2; `close-app-settings` -> swipe-down x2)
 
-## 3. Remaining nav-foundation work (next chunk)
+## 3. Scan / paste-join flow (done)
 
-- **Scan / paste-join flow restructure** - tests `04-invite-join-paste`,
-  `22-rejoin-existing-conversation`, `24-pending-invite-recovery`, and the
-  `RULES.md` multi-simulator example all use the removed bottom-toolbar
-  `scan-button`. The standalone "scan/join from home" entry no longer
-  exists: `onScanInviteCode` is a no-op at the `MainTabView` level, and the
-  scanner now opens either inside a conversation (`scan-invite-button`
-  viewfinder) or when the new-conversation VM is started in scanner mode.
-  These tests need flow decisions, not an identifier swap - verify on-sim.
+Joining is now: device-camera QR scan (not automatable on the simulator),
+or opening a deep-link invite URL (`sim_open_url`, the automatable path -
+test 03). The old bottom-toolbar `scan-button` / in-app paste-in-scanner
+entry was removed and may be re-enabled later.
+
+- `04-invite-join-paste.yaml`: marked `blocked: true` (preserved for when
+  the scan button returns; URL-join is covered by test 03).
+- `22-rejoin-existing-conversation.yaml`: dropped the `rejoin_via_paste`
+  step; keeps the deep-link rejoin.
+- `24-pending-invite-recovery.yaml`: already deep-link only (`sim_open_url`)
+  - no change needed.
+- `RULES.md`: "Joining a conversation" section + multi-sim example now use
+  the deep-link path. New `blocked` test convention documented in
+  `structured/README.md`.
+
+## 4. Remaining nav-foundation work (next chunk)
+
 - `qa/TOOLS-CLAUDE.md`: stale `scan-button` bottom-toolbar caveat + the
   `(292, 823)` coordinate.
 - Markdown docs (`qa/tests/*.md`) lag the YAMLs: `18`, `04`, and especially
@@ -62,7 +71,7 @@ All of `app-settings-button`, `convos-settings-button`, `close-app-settings`,
   `app-settings-button`, `scan-button`, `filter-button`). `25-baseline` is a
   larger rewrite tied to the whole list UI.
 
-## 4. Beyond the shell: missing coverage (later chunks)
+## 5. Beyond the shell: missing coverage (later chunks)
 
 New / changed areas with `.md` docs but no structured YAML, or no test at all:
 

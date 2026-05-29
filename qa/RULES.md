@@ -137,14 +137,22 @@ test's `screen` prerequisite or a navigation step doesn't match the screen.
   is enabled except mid-deletion). The old `close-app-settings` identifier
   is gone.
 
-### Join via scan / paste
+### Joining a conversation
 
-- Reached through the new-conversation flow: `compose-button` ->
-  `NewConversationView`, which hosts `JoinConversationView`
-  (`paste-invite-button` and the QR scanner `qr-scanner-camera`).
-- The old bottom-toolbar `scan-button` is gone. `scan-invite-button` (a
-  viewfinder inside an open conversation) is a separate scan-from-within-a-
-  conversation control, not the primary join entry.
+- Two ways in: scanning a QR code with the **device camera**, or opening a
+  **deep-link invite URL**.
+  - Camera QR scanning is not automatable on the simulator (no camera) -
+    treat it as manual / physical-device only.
+  - Deep-link join is the automatable path: `sim_open_url(url: "$invite_url")`.
+    See test 03 for the canonical flow.
+- The old bottom-toolbar `scan-button` / in-app paste-in-scanner entry was
+  removed in the home-shell rework (may return later). `compose-button`
+  opens the *create* flow, not a join/scan screen, so there is no in-app
+  "paste invite URL" entry point right now. `JoinConversationView` /
+  `paste-invite-button` still exist in code but are not reachable from the
+  home screen.
+- `scan-invite-button` (a viewfinder inside an open conversation) is a
+  separate scan-from-within-a-conversation control, not a primary join entry.
 
 ## Simulator Selection
 
@@ -216,8 +224,8 @@ Pass the correct UDID to every simulator tool call. The `udid` parameter on all 
 # Tap on Device A
 sim_tap_id(identifier="compose-button", udid=DEVICE_A_UDID)
 
-# Tap on Device B
-sim_tap_id(identifier="scan-button", udid=DEVICE_B_UDID)
+# Device B joins by opening the invite deep link (no in-app scan view)
+sim_open_url(url="$invite_url", udid=DEVICE_B_UDID)
 
 # Screenshot Device B
 sim_screenshot(udid=DEVICE_B_UDID)

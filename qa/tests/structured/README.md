@@ -167,6 +167,22 @@ internally, not just that the UI updated. Use alongside `verify` checks for stro
 | `expect_event: "event.name"` | Verify the app emitted this [EVENT] after the step |
 | `expect_events: [...]` | Verify multiple [EVENT]s after the step |
 
+## Blocked Tests
+
+A test whose flow no longer exists in the app (e.g. a UI entry point was
+removed) is marked with two top-level keys instead of being deleted:
+
+```yaml
+blocked: true
+blocked_reason: >
+  Why the flow can't run today, and what to do to re-enable it.
+```
+
+The agent skips a `blocked: true` test (records it as skipped, not failed)
+and leaves its steps intact so it can be revived when the flow returns.
+Example: `04-invite-join-paste.yaml` (the in-app scan/paste entry was
+removed in the #910 home-shell rework).
+
 ## Validated Tests
 
 Tests that have been run against the live iOS app in the simulator and
