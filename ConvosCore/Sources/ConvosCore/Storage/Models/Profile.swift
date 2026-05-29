@@ -222,8 +222,17 @@ extension Profile {
     /// legacy agents that do not carry a template. The metadata key must
     /// match the agent runtime's profile builder; see the matching
     /// accessor on `DBMemberProfile`.
+    ///
+    /// Empty / whitespace-only values are coerced to nil so downstream
+    /// guards like `contact.agentTemplateId != nil` cannot pass for a
+    /// value the API would reject. Mirrors `profileEmoji` and
+    /// `agentDescription` above; the runtime occasionally writes an
+    /// empty string when its template lookup hasn't resolved yet.
     public var agentTemplateId: String? {
-        metadata?[Constant.templateIdKey]?.stringValue
+        metadata?[Constant.templateIdKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
     }
 
     /// The shareable web URL for a template-backed agent (the backend's
