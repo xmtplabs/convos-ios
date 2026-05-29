@@ -69,8 +69,13 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     }
 
     private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateId: String?) {
-        // Add-to-conversation is human-only: the picker doesn't surface
-        // agents in this mode, so `agentTemplateId` is always nil here.
+        // Selecting an agent spawns a fresh instance of its template into
+        // this conversation (the picker already showed the "one agent, many
+        // convos" confirmation). Humans are added as members; both can be
+        // present in a single confirm.
+        if let agentTemplateId {
+            viewModel.requestAgentJoin(templateId: agentTemplateId)
+        }
         let ids = Array(inboxIds)
         guard !ids.isEmpty else { return }
         Task {

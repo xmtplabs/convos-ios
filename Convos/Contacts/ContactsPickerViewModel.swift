@@ -216,23 +216,9 @@ final class ContactsPickerViewModel {
         allContacts.first { $0.inboxId == inboxId }?.agentTemplateId != nil
     }
 
-    /// True for the modes that start a fresh conversation (the standalone
-    /// new-conversation picker and the compose flow's first step), where
-    /// selecting a template-backed agent spawns a fresh instance into it.
-    /// False for add-to-existing-conversation.
-    private var isNewConversationMode: Bool {
-        switch mode {
-        case .newConversation, .compose:
-            return true
-        case .addToConversation:
-            return false
-        }
-    }
-
-    /// Contacts selectable in the compose / new-conversation picker, used by
-    /// `ConversationsViewModel` to size its compose entry point. Mirrors the
-    /// new-conversation branch of `isVisibleInPicker` (template-backed agents
-    /// plus named, unblocked humans).
+    /// Contacts selectable in the picker, used by `ConversationsViewModel` to
+    /// size its compose entry point. Mirrors `isVisibleInPicker` (template-
+    /// backed agents plus named, unblocked humans).
     static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
         contacts.filter { contact in
             guard !contact.isBlocked else { return false }
@@ -263,10 +249,10 @@ final class ContactsPickerViewModel {
     /// Single source of truth for "is this contact a valid picker row".
     /// Hidden from the picker:
     ///  - blocked contacts (the user explicitly opted out of contacting them)
-    ///  - template-less agents (legacy verified assistants), and all agents
-    ///    in add-to-conversation mode; template-backed agents are selectable
-    ///    only when starting a new conversation, where selecting one spawns
-    ///    a fresh instance into it
+    ///  - template-less agents (legacy verified assistants); template-backed
+    ///    agents are selectable in both modes - starting a new conversation
+    ///    spawns a fresh instance, and adding to an existing conversation
+    ///    spawns one into that conversation
     ///  - humans whose displayName is missing/empty (would render as
     ///    "Somebody" via `resolvedDisplayName`; a name-less row isn't a
     ///    useful picker target -- there's nothing to distinguish one
@@ -274,7 +260,7 @@ final class ContactsPickerViewModel {
     private func isVisibleInPicker(_ contact: Contact) -> Bool {
         guard !contact.isBlocked else { return false }
         if contact.agentVerification != nil {
-            return isNewConversationMode && contact.agentTemplateId != nil
+            return contact.agentTemplateId != nil
         }
         guard let name = contact.displayName, !name.isEmpty else { return false }
         return true
