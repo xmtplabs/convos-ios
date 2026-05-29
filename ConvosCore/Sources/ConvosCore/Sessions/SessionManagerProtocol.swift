@@ -99,6 +99,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
+    /// PATCH /api/v2/agent-templates/:id flipping the template to
+    /// `published`. Used by the agent-template contact card's share action
+    /// for builder-created templates that don't yet carry a `publishedUrl`
+    /// in their profile data.
+    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate
+
     func conversationRepository(for conversationId: String) -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol

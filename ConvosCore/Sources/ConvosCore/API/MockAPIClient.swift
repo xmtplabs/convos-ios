@@ -104,6 +104,14 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, joined: true)
     }
 
+    func publishAgentTemplate(id: String) async throws -> ConvosAPI.AgentTemplate {
+        .init(
+            id: id,
+            status: "published",
+            publishedUrl: "https://agents.example.com/mock.\(id.prefix(5))"
+        )
+    }
+
     // MARK: - Connections
 
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
