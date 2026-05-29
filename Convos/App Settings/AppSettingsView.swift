@@ -82,7 +82,7 @@ struct AppSettingsView: View {
             .toolbar { topToolbar }
             .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
-            .onReceive(session.messagingService().contactsRepository().contactsPublisher) { contactsCount = $0.count }
+            .onReceive(session.messagingService().contactsRepository().contactsPublisher) { contactsCount = ContactsViewModel.visibleContacts($0).count }
         }
     }
 

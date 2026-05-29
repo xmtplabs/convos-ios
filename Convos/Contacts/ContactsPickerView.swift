@@ -40,6 +40,12 @@ struct ContactsPickerView: View {
     /// for the add-to-conversation flow callers can pass the destination
     /// conversation. Nil shows a stable default avatar.
     let pillConversation: Conversation?
+    /// When `true` (the default) the picker wraps its content in its own
+    /// `NavigationStack`, suitable for being presented standalone as a
+    /// sheet. The Compose flow sets this to `false` so the picker is the
+    /// root of the host's stack and can push the new-conversation view onto
+    /// it instead of dismissing.
+    let embedsNavigationStack: Bool
 
     init(
         mode: ContactsPickerMode,
@@ -47,6 +53,7 @@ struct ContactsPickerView: View {
         alreadyInChatInboxIds: Set<String> = [],
         preselectedInboxIds: Set<String> = [],
         pillConversation: Conversation? = nil,
+        embedsNavigationStack: Bool = true,
         onConfirm: @escaping (_ inboxIds: Set<String>) -> Void
     ) {
         _viewModel = State(initialValue: ContactsPickerViewModel(
@@ -56,16 +63,23 @@ struct ContactsPickerView: View {
             preselectedInboxIds: preselectedInboxIds
         ))
         self.pillConversation = pillConversation
+        self.embedsNavigationStack = embedsNavigationStack
         self.onConfirm = onConfirm
     }
 
     var body: some View {
-        NavigationStack {
-            content
-                .background(.colorBackgroundRaisedSecondary)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { toolbarContent }
+        if embedsNavigationStack {
+            NavigationStack { pickerContent }
+        } else {
+            pickerContent
         }
+    }
+
+    private var pickerContent: some View {
+        content
+            .background(.colorBackgroundRaisedSecondary)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
     }
 
     /// The list takes the full sheet and scrolls behind the toolbar
@@ -128,6 +142,13 @@ struct ContactsPickerView: View {
 
     private func handleConfirm() {
         let ids = viewModel.selectedInboxIds
+        if case .compose = viewModel.mode {
+            // Compose: Skip/Continue proceeds even with no selection, and the
+            // host pushes the new-conversation view onto the stack, so the
+            // picker stays put as the root rather than dismissing itself.
+            onConfirm(ids)
+            return
+        }
         guard !ids.isEmpty else { return }
         onConfirm(ids)
         dismiss()
@@ -247,18 +268,7 @@ private struct ContactsPickerList: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: "person.crop.circle.badge.questionmark")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 48.0, height: 48.0)
-                .foregroundStyle(.colorTextTertiary)
-            Text("No contacts to show")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(DesignConstants.Spacing.step6x)
+        ContactsEmptyStateView()
     }
 
     private func rowTapAction(for row: ContactsPickerViewModel.Row) -> () -> Void {

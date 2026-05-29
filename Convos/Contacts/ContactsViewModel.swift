@@ -62,6 +62,13 @@ final class ContactsViewModel {
         isLoading = false
     }
 
+    /// Contacts actually rendered in the browser list. Shared with App
+    /// Settings so its "Contacts" count matches what the list shows -- the
+    /// raw contact count includes hidden verified agents / unnamed entries.
+    static func visibleContacts(_ contacts: [Contact]) -> [Contact] {
+        contacts.filter(isVisibleInList)
+    }
+
     /// Single source of truth for "is this contact rendered in the list".
     /// Verified agents stay in `DBContact` so chat-side surfaces (member
     /// rows, system messages, the contact card opened from a member tap)

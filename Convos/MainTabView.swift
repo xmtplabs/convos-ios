@@ -762,5 +762,22 @@ private struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
+            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow, onDismiss: {
+                conversationsViewModel.endComposeFlow()
+            }) {
+                if let composeViewModel = conversationsViewModel.composeConversationViewModel {
+                    ComposeFlowView(
+                        conversationsViewModel: conversationsViewModel,
+                        composeConversationViewModel: composeViewModel,
+                        profileSettingsViewModel: profileSettingsViewModel,
+                        contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
+                    )
+                    .background(.colorBackgroundSurfaceless)
+                    .presentationSizing(.page)
+                    .navigationTransition(
+                        .zoom(sourceID: "composer-transition-source", in: namespace)
+                    )
+                }
+            }
     }
 }
