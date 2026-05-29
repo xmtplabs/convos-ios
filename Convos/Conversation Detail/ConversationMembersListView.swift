@@ -99,6 +99,7 @@ struct ConversationMembersListView: View {
     private func memberContactDetailDestination(for member: ConversationMember) -> some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
+        let agentTemplateContactsRepository = messagingService.agentTemplateContactsRepository()
         let contactsWriter = messagingService.contactsWriter()
         let resolvedContact = Contact.resolved(
             member: member,
@@ -117,6 +118,7 @@ struct ConversationMembersListView: View {
             ),
             contactsWriter: contactsWriter,
             contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository,
             session: viewModel.session,
             showsCloseButton: false,
             onRemove: onRemove

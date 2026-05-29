@@ -132,6 +132,7 @@ struct ContactsView: View {
                     contact: contact,
                     contactsWriter: contactsWriter,
                     contactsRepository: contactsRepository,
+                    agentTemplateContactsRepository: agentTemplateContactsRepository,
                     session: session,
                     profileSettingsViewModel: profileSettingsViewModel,
                     showsCloseButton: false
