@@ -13,6 +13,10 @@ public protocol SyncingManagerProtocol: Actor {
     func pause() async
     func resume() async
     func requestDiscovery() async
+    /// Stack 2 T17 debug-screen "Force Reconcile" button. Clears the
+    /// iOS-side push topic hash cache AND drives a full reconcile through
+    /// the wire regardless of conversation count.
+    func forceReconcilePushTopics() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
 
@@ -719,6 +723,10 @@ actor SyncingManager: SyncingManagerProtocol {
     func clearPushSubscriptionCache() async {
         await streamProcessor.clearPushSubscriptionCache()
     }
+
+    // forceReconcilePushTopics() lives in SyncingManager+PushTokenObserver.swift
+    // so the type body length stays under the SwiftLint cap. Thematically
+    // adjacent — both bypass the normal state-machine to drive reconcile.
 
     func requestDiscovery() async {
         guard case .ready(let params) = _state else {

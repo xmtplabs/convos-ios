@@ -127,15 +127,160 @@ public enum ConvosAPI {
         }
     }
 
+    /// Optional diagnostic + control fields for `subscribeToTopics`.
+    /// Bundled into a struct to keep the API client signature under the
+    /// 6-parameter SwiftLint cap and to give callers an obvious "this is
+    /// the meta side of the request" shape to pass.
+    public struct SubscribeOptions: Sendable {
+        public let context: String?
+        public let source: String?
+        public let kindSummary: [String: Int]?
+        public let force: Bool?
+
+        public init(
+            context: String? = nil,
+            source: String? = nil,
+            kindSummary: [String: Int]? = nil,
+            force: Bool? = nil
+        ) {
+            self.context = context
+            self.source = source
+            self.kindSummary = kindSummary
+            self.force = force
+        }
+    }
+
     public struct SubscribeRequest: Codable {
         public let deviceId: String
         public let clientId: String
         public let topics: [TopicSubscription]
+        // Stack 2 D6: optional diagnostic fields. Older builds keep working
+        // by omitting these (backend Zod marks them optional).
+        public let context: String?
+        public let source: String?
+        public let kindSummary: [String: Int]?
+        public let force: Bool?
 
-        public init(deviceId: String, clientId: String, topics: [TopicSubscription]) {
+        public init(
+            deviceId: String,
+            clientId: String,
+            topics: [TopicSubscription],
+            context: String? = nil,
+            source: String? = nil,
+            kindSummary: [String: Int]? = nil,
+            force: Bool? = nil
+        ) {
             self.deviceId = deviceId
             self.clientId = clientId
             self.topics = topics
+            self.context = context
+            self.source = source
+            self.kindSummary = kindSummary
+            self.force = force
+        }
+    }
+
+    /// Response shape for `POST /v2/notifications/subscribe` (Stack 2 D16).
+    /// `remoteApplied` distinguishes "200 + actually subscribed at XMTP" from
+    /// "200 + skipped at the boundary". Callers MUST gate their local cache
+    /// write on `remoteApplied == true`; the previous "any 200 = success"
+    /// contract silently broke push delivery when backend returned 200 for
+    /// the no-push-token / disabled / idempotent paths.
+    public struct SubscribeResponse: Codable, Sendable {
+        public let ok: Bool
+        public let remoteApplied: Bool
+        public let snapshot: Snapshot
+        public let skipped: String?
+
+        public init(ok: Bool, remoteApplied: Bool, snapshot: Snapshot, skipped: String?) {
+            self.ok = ok
+            self.remoteApplied = remoteApplied
+            self.snapshot = snapshot
+            self.skipped = skipped
+        }
+
+        public struct Snapshot: Codable, Sendable {
+            public let hash: String
+            public let count: Int
+            public let lastSubscribeAt: String
+
+            public init(hash: String, count: Int, lastSubscribeAt: String) {
+                self.hash = hash
+                self.count = count
+                self.lastSubscribeAt = lastSubscribeAt
+            }
+        }
+    }
+
+    // MARK: - v2/notifications/debug/status (Stack 2 T12)
+    // POST /v2/notifications/debug/status
+    // JWT-gated, hashes-only response, rate-limited 1/sec/JWT.
+    // Surfaces backend's view of device + client + subscription snapshot.
+
+    public struct DebugStatusRequest: Codable {
+        public let deviceId: String
+        public let clientId: String
+        public let pushTokenSha256: String?
+        public let pushTokenType: String?
+        public let apnsEnv: String?
+
+        public init(
+            deviceId: String,
+            clientId: String,
+            pushTokenSha256: String? = nil,
+            pushTokenType: String? = nil,
+            apnsEnv: String? = nil
+        ) {
+            self.deviceId = deviceId
+            self.clientId = clientId
+            self.pushTokenSha256 = pushTokenSha256
+            self.pushTokenType = pushTokenType
+            self.apnsEnv = apnsEnv
+        }
+    }
+
+    public struct DebugStatusResponse: Codable, Sendable {
+        public let device: Device
+        public let client: Client
+        public let subscriptionSnapshot: SubscriptionSnapshot
+
+        public struct Device: Codable, Sendable {
+            public let exists: Bool
+            public let hasPushToken: Bool
+            public let pushTokenMatches: Bool?
+            public let pushTokenTypeMatches: Bool?
+            public let apnsEnvMatches: Bool?
+            public let disabled: Bool?
+            public let pushFailures: Int?
+            public let lastSentAt: String?
+            public let lastFailureAt: String?
+            public let updatedAt: String?
+        }
+
+        public struct Client: Codable, Sendable {
+            public let exists: Bool
+            public let mappedDeviceId: String?
+            public let deviceIdMatchesJwt: Bool?
+            public let accountIdMatchesJwt: Bool?
+            public let updatedAt: String?
+        }
+
+        public struct SubscriptionSnapshot: Codable, Sendable {
+            public let exists: Bool
+            public let topicCount: Int?
+            public let topicHash: String?
+            // Backend returns presence flags only - raw kindSummary and
+            // lastRemoteApplyError can carry attacker-controlled topic
+            // strings or upstream error text and would break the
+            // hashes-only contract of the debug endpoint.
+            public let hasKindSummary: Bool
+            public let lastContext: String?
+            public let lastSubscribeAt: String?
+            public let lastRemoteApplySucceeded: Bool?
+            public let hasLastRemoteApplyError: Bool
+            public let pushTokenMatchesAtApply: Bool?
+            public let apnsEnvMatchesAtApply: Bool?
+            public let isActualRemoteState: Bool
         }
     }
 

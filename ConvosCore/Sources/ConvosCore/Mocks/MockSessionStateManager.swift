@@ -43,6 +43,9 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
     public func requestDiscovery() async {
     }
 
+    public func forceReconcilePushTopics() async {
+    }
+
     public func addObserver(_ observer: any SessionStateObserver) {
         observers.removeAll { $0.observer == nil }
         observers.append(WeakStateObserver(observer: observer))

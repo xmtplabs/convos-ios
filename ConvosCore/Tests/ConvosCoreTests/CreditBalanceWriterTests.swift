@@ -159,8 +159,15 @@ private final class StubCreditBalanceAPIClient: ConvosAPIClientProtocol, @unchec
     func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
         try await delegate.getPresignedUploadURL(filename: filename, contentType: contentType)
     }
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
-        try await delegate.subscribeToTopics(deviceId: deviceId, clientId: clientId, topics: topics)
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
+        try await delegate.subscribeToTopics(
+            deviceId: deviceId, clientId: clientId, topics: topics, options: options
+        )
     }
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {
         try await delegate.unsubscribeFromTopics(clientId: clientId, topics: topics)

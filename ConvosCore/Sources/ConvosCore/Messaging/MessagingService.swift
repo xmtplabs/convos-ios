@@ -328,11 +328,29 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
         if enabled {
             let deviceId = DeviceInfo.deviceIdentifier
-            try await result.apiClient.subscribeToTopics(
+            let response = try await result.apiClient.subscribeToTopics(
                 deviceId: deviceId,
                 clientId: clientId,
-                topics: [topic]
+                topics: [topic],
+                options: ConvosAPI.SubscribeOptions(context: "mute toggle", source: "ios-main")
             )
+            // D16: HTTP 200 != remote applied. When backend skipped the
+            // XMTP server call (no push token, disabled device, idempotent
+            // for a stale snapshot), DO NOT flip local mute state to
+            // "notifications on" — the user would see the toggle as
+            // unmuted but pushes wouldn't arrive. Throw so the caller can
+            // surface "couldn't enable notifications, fix push setup first"
+            // instead of silently lying. PushTopicSubscriptionManager has
+            // the same gate on cache writes; this is the UI-facing
+            // equivalent.
+            guard response.remoteApplied else {
+                Log.warning(
+                    "setConversationNotificationsEnabled(true): backend skipped subscribe "
+                    + "(skipped=\(response.skipped ?? "nil")) — leaving local mute state "
+                    + "unchanged"
+                )
+                throw MessagingServiceError.notificationSubscribeNotApplied(skipped: response.skipped)
+            }
         } else {
             try await result.apiClient.unsubscribeFromTopics(
                 clientId: clientId,
@@ -501,6 +519,13 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 enum MessagingServiceError: Error {
     case noIdentity
     case cannotRevokeCurrentDevice
+    /// The subscribe call returned 200 but the backend reported
+    /// `remoteApplied: false` (no push token / device disabled / etc).
+    /// Surfaced from `setConversationNotificationsEnabled` so callers can
+    /// show user feedback instead of falsely flipping local mute state to
+    /// "notifications on" while delivery is blocked. The associated string
+    /// is the backend's `skipped` reason for diagnostics.
+    case notificationSubscribeNotApplied(skipped: String?)
 }
 
 private extension MessagingService {

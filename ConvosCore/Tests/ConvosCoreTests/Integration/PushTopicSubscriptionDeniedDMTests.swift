@@ -166,10 +166,20 @@ private final class ThrowawayPushAPIClient: ConvosAPIClientProtocol, @unchecked 
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String { "" }
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
         lock.withLock {
             $0.append(SubscribeCall(deviceId: deviceId, clientId: clientId, topics: topics))
         }
+        return .init(
+            ok: true, remoteApplied: true,
+            snapshot: .init(hash: "mock", count: topics.count, lastSubscribeAt: ""),
+            skipped: nil
+        )
     }
 
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}

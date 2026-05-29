@@ -37,4 +37,24 @@ extension SyncingManager {
         }
         await streamProcessor.reconcilePushSubscriptions(params: params, context: "after token change")
     }
+
+    /// Stack 2 T17 "Force Reconcile" button: clear the iOS cache, then
+    /// drive a full reconcile through the wire regardless of conversation
+    /// count. Bypasses the D3 count-gate (which exists specifically to
+    /// suppress redundant reconciles) by going straight at
+    /// streamProcessor.reconcilePushSubscriptions. Skips if there's no
+    /// active SyncClientParams (idle / stopping / error state).
+    func forceReconcilePushTopics() async {
+        await streamProcessor.clearPushSubscriptionCache()
+        let activeParams: SyncClientParams?
+        switch _state {
+        case .idle, .stopping, .error: activeParams = nil
+        case .starting(let params, _), .ready(let params), .paused(let params): activeParams = params
+        }
+        guard let params = activeParams else {
+            Log.warning("forceReconcilePushTopics: no active SyncClientParams (state: \(_state))")
+            return
+        }
+        await streamProcessor.reconcilePushSubscriptions(params: params, context: "forced from debug screen")
+    }
 }

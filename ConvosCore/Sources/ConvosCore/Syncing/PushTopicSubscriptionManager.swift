@@ -369,24 +369,45 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         }
 
         do {
-            try await params.apiClient.subscribeToTopics(
+            let response = try await params.apiClient.subscribeToTopics(
                 deviceId: deviceId,
                 clientId: identity.clientId,
-                topics: subscriptions.map(\.topic)
+                topics: subscriptions.map(\.topic),
+                options: ConvosAPI.SubscribeOptions(
+                    context: context,
+                    source: "ios-main",
+                    kindSummary: kindSummaryDict(subscriptions)
+                )
             )
-            Log.info("Subscribed to push topics \(context): \(topicSummary(subscriptions))")
+            Log.info(
+                "Subscribed to push topics \(context): \(topicSummary(subscriptions)) "
+                + "remoteApplied=\(response.remoteApplied) skipped=\(response.skipped ?? "nil")"
+            )
             Log.debug("Subscribed push topic values \(context): \(subscriptions.map(\.topic).joined(separator: ", "))")
-            // Success-only cache write. A failure path falls through to the
-            // catch arm below and leaves the cache untouched so the next
-            // reconcile retries. The cacheKey is nil for per-conversation
-            // subscribe paths (group join / invite DM) since they're deltas,
-            // not full sweeps and don't participate in reconcile debounce.
-            if let cacheKey = cacheKey, let cache = cache {
-                // Reuse the hash reconcile already computed when checking the
-                // cache miss. Falls back to computing it here only when the
-                // per-conversation path opts into caching (it doesn't today).
+            // D16: cache writes ONLY when the backend actually applied the
+            // subscribe at the XMTP notifications server. Skipping when
+            // skipped == "idempotent" is fine — backend's snapshot tells
+            // us the state is current. Skipping when skipped == "no_push_
+            // token" / "disabled" leaves the cache stale on purpose so the
+            // next reconcile attempts to send (covers the case where the
+            // device gets a token / gets re-enabled and we haven't received
+            // a token-change notification yet).
+            if let cacheKey = cacheKey, let cache = cache, response.remoteApplied {
                 let hash = precomputedHash ?? PushTopicHash.of(subscriptions.map(\.topic))
                 cache.storeHash(hash, forKey: cacheKey)
+            } else if let skipped = response.skipped {
+                // "idempotent" is the expected steady-state path - backend snapshot already
+                // matches our hash. Anything else (no_push_token / disabled / etc.) means the
+                // device is in a degraded state where push delivery cannot work; surface that
+                // at warning level so it shows up in log review.
+                let isIdempotent = skipped == "idempotent"
+                let message = "Skipping cache write for \(context): backend returned skipped=\(skipped) " +
+                    "(remoteApplied=\(response.remoteApplied)); next reconcile will retry"
+                if isIdempotent {
+                    Log.info(message)
+                } else {
+                    Log.warning(message)
+                }
             }
         } catch {
             Log.warning("Failed subscribing to push topics \(context): \(error)")
@@ -525,14 +546,20 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     }
 
     private func kindSummary(_ subscriptions: [TopicSubscription]) -> String {
+        kindSummaryDict(subscriptions)
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: ",")
+    }
+
+    /// Structured kind counts for the subscribe request body (Stack 2 D6).
+    /// Same data as `kindSummary(_:)` but typed as a dict for JSON encoding.
+    private func kindSummaryDict(_ subscriptions: [TopicSubscription]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for subscription in subscriptions {
             counts[subscription.kind.rawValue, default: 0] += 1
         }
         return counts
-            .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: ",")
     }
 
     private func welcomeSubscription(params: SyncClientParams) -> TopicSubscription {

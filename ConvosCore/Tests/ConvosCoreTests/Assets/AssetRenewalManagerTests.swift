@@ -477,7 +477,16 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func accountAuthCheck(jwt: String?) async throws -> ConvosAPI.AuthCheckResponse { .init(success: jwt != nil) }
     func uploadAttachment(data: Data, filename: String, contentType: String, acl: String) async throws -> String { "" }
     func uploadAttachmentAndExecute(data: Data, filename: String, afterUpload: @escaping (String) async throws -> Void) async throws -> String { "" }
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {}
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
+        .init(ok: true, remoteApplied: true,
+              snapshot: .init(hash: "mock", count: topics.count, lastSubscribeAt: ""),
+              skipped: nil)
+    }
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}
     func unregisterInstallation(clientId: String) async throws {}
     func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {

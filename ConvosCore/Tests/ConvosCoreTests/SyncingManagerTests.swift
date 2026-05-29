@@ -381,7 +381,15 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         return uploadedURL
     }
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
+        .init(ok: true, remoteApplied: true,
+              snapshot: .init(hash: "mock", count: topics.count, lastSubscribeAt: ""),
+              skipped: nil)
     }
 
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {

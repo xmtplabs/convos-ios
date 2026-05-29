@@ -286,6 +286,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
     func requestDiscovery() async {
     }
 
+    func forceReconcilePushTopics() async {
+    }
+
     nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
         await incrementBatchCatchUpCount()
     }

@@ -77,12 +77,50 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Notifications mocks
 
-    func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
-        // no-op in mock
+    func subscribeToTopics(
+        deviceId: String,
+        clientId: String,
+        topics: [String],
+        options: ConvosAPI.SubscribeOptions
+    ) async throws -> ConvosAPI.SubscribeResponse {
+        // no-op in mock — return a synthetic success so tests don't have to
+        // care about cache-write contracts unless they explicitly inject a
+        // recording API client.
+        return ConvosAPI.SubscribeResponse(
+            ok: true,
+            remoteApplied: true,
+            snapshot: ConvosAPI.SubscribeResponse.Snapshot(
+                hash: "mock-hash",
+                count: topics.count,
+                lastSubscribeAt: ISO8601DateFormatter().string(from: Date())
+            ),
+            skipped: nil
+        )
     }
 
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {
         // no-op in mock
+    }
+
+    func debugStatus(
+        deviceId: String,
+        clientId: String,
+        pushTokenSha256: String?,
+        pushTokenType: String?,
+        apnsEnv: String?
+    ) async throws -> ConvosAPI.DebugStatusResponse {
+        ConvosAPI.DebugStatusResponse(
+            device: .init(exists: false, hasPushToken: false, pushTokenMatches: nil,
+                          pushTokenTypeMatches: nil, apnsEnvMatches: nil, disabled: nil,
+                          pushFailures: nil, lastSentAt: nil, lastFailureAt: nil, updatedAt: nil),
+            client: .init(exists: false, mappedDeviceId: nil, deviceIdMatchesJwt: nil,
+                          accountIdMatchesJwt: nil, updatedAt: nil),
+            subscriptionSnapshot: .init(exists: false, topicCount: nil, topicHash: nil,
+                                        hasKindSummary: false, lastContext: nil, lastSubscribeAt: nil,
+                                        lastRemoteApplySucceeded: nil, hasLastRemoteApplyError: false,
+                                        pushTokenMatchesAtApply: nil, apnsEnvMatchesAtApply: nil,
+                                        isActualRemoteState: false)
+        )
     }
 
     func unregisterInstallation(clientId: String) async throws {
