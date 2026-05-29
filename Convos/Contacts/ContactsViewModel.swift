@@ -153,7 +153,11 @@ final class ContactsViewModel {
     /// displayName is missing/empty render as "Somebody" via
     /// `resolvedDisplayName`; a "Somebody" row carries no useful info
     /// for the browser, so we hide it until a profile name arrives.
-    private static func isVisibleInList(_ contact: Contact) -> Bool {
+    ///
+    /// Exposed (no `private`) so other surfaces in the Convos target can
+    /// match the same visibility rule when they compute their own badge
+    /// counts or filtered lists (e.g. the App Settings "Contacts" row).
+    static func isVisibleInList(_ contact: Contact) -> Bool {
         if contact.isVerifiedAgent { return false }
         guard let name = contact.displayName, !name.isEmpty else { return false }
         return true

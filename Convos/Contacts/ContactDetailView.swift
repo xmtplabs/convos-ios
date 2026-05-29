@@ -48,6 +48,7 @@ struct ContactDetailView: View {
     let showsCloseButton: Bool
     private let contactsWriter: any ContactsWriterProtocol
     private let contactsRepository: any ContactsRepositoryProtocol
+    private let agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
     private let session: (any SessionManagerProtocol)?
     private let profileSettingsViewModel: ProfileSettingsViewModel
     private let onRemove: (() -> Void)?
@@ -66,6 +67,8 @@ struct ContactDetailView: View {
         mode: ContactDetailMode = .standalone,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
+        agentTemplateContactsRepository: any AgentTemplateContactsRepositoryProtocol
+            = MockAgentTemplateContactsRepository(contacts: []),
         session: (any SessionManagerProtocol)? = nil,
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
@@ -75,6 +78,7 @@ struct ContactDetailView: View {
         self.mode = mode
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
+        self.agentTemplateContactsRepository = agentTemplateContactsRepository
         self.session = session
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsCloseButton = showsCloseButton
@@ -232,6 +236,7 @@ struct ContactDetailView: View {
         ContactsPickerView(
             mode: .newConversation,
             contactsRepository: contactsRepository,
+            agentTemplateContactsRepository: agentTemplateContactsRepository,
             preselectedInboxIds: [contact.inboxId],
             onConfirm: handlePickerConfirm
         )
