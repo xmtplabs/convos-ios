@@ -153,6 +153,13 @@ final class ContactsPickerViewModel {
         if let initialAgentContacts = try? agentTemplateContactsRepository.fetchAll() {
             allAgentContacts = initialAgentContacts
         }
+        // Prune before `rebuildSections` so a preselected inboxId for a
+        // contact that's blocked, a verified agent, or unnamed (i.e. one
+        // `isVisibleInPicker` will drop) doesn't survive in `selected`
+        // until the async publisher fires. Without this, `selectionCount`
+        // is inflated, `canConfirm` passes with no visible UI to remove
+        // the phantom, and `pillSubtitle` shows the wrong count.
+        pruneSelectionToKnownEntities()
         rebuildSections()
         // A repository whose publisher doesn't emit synchronously on
         // subscription would otherwise leave `isLoading` stuck at `true`
