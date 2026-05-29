@@ -154,6 +154,10 @@ final class ContactsPickerViewModel {
             allAgentContacts = initialAgentContacts
         }
         rebuildSections()
+        // A repository whose publisher doesn't emit synchronously on
+        // subscription would otherwise leave `isLoading` stuck at `true`
+        // even though `sections` is populated from the fetch above.
+        isLoading = false
     }
 
     // MARK: - Derived state
