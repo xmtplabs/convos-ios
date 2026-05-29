@@ -40,6 +40,11 @@ protocol PushTopicSubscriptionManaging: Actor {
         params: SyncClientParams,
         context: String
     ) async
+
+    /// Drops every cached push-topic-set hash. Production callers invoke
+    /// this on sign-out / "Delete all data" paths; tests use it to force
+    /// a deterministic cache miss.
+    func clearCache() async
 }
 
 protocol PushTopicConversationListing: Sendable {
@@ -109,17 +114,29 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let deviceInfoProvider: (any DeviceInfoProviding)?
     private let conversationLister: any PushTopicConversationListing
+    /// Hash debounce cache. When nil, every reconcile hits the wire (used by
+    /// tests that want to assert delivery without thinking about caching, and
+    /// by NSE one-shot constructions where reconcile is never called).
+    private let cache: PushTopicSubscriptionCache?
+    /// Returns the current APNS token, hashed into the cache key so token
+    /// rotation forces a miss. Closure-based so tests can drive both nil and
+    /// non-nil paths without touching the global singleton.
+    private let pushTokenProvider: (@Sendable () -> String?)?
 
     init(
         identityStore: any KeychainIdentityStoreProtocol,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
         deviceInfoProvider: (any DeviceInfoProviding)? = nil,
-        conversationLister: any PushTopicConversationListing = XMTPPushTopicConversationLister()
+        conversationLister: any PushTopicConversationListing = XMTPPushTopicConversationLister(),
+        cache: PushTopicSubscriptionCache? = nil,
+        pushTokenProvider: (@Sendable () -> String?)? = nil
     ) {
         self.identityStore = identityStore
         self.deviceRegistrationManager = deviceRegistrationManager
         self.deviceInfoProvider = deviceInfoProvider
         self.conversationLister = conversationLister
+        self.cache = cache
+        self.pushTokenProvider = pushTokenProvider
     }
 
     func subscribeToGroupAndWelcome(
@@ -201,10 +218,98 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
         )
     }
 
+    // Reconcile pipeline (D8 hash debounce + D14 token-change trigger compatible):
+    //
+    //     reconcilePushTopics(params, context)
+    //       |
+    //       +-- computeReconcileDesiredSubscriptions  (welcome + groups + DMs)
+    //       |
+    //       +-- dedupe                                (per-topic uniqueness)
+    //       |
+    //       +-- if cache + token + identity available:
+    //       |     |
+    //       |     +-- cacheKey = (inboxId, clientId, deviceId, pushTokenSha256)
+    //       |     +-- hash     = SHA256 of sorted-joined topic set
+    //       |     +-- if cache.lookup(cacheKey) == hash -> SKIP (no wire call)
+    //       |     +-- else                               -> subscribe(cacheKey)
+    //       |
+    //       +-- else (no cache wired, or no token/identity yet):
+    //             +-- subscribe(cacheKey: nil)            (legacy "always send")
+    //
+    //     subscribe(to:params:context:cacheKey:)
+    //       |
+    //       +-- POST /v2/notifications/subscribe
+    //       |     |
+    //       |     +-- success -> log + if cacheKey != nil { cache.store(hash) }
+    //       |     +-- throw   -> Log.warning + QAEvent + NO cache write
+    //       |                    (next reconcile retries the wire)
     func reconcilePushTopics(
         params: SyncClientParams,
         context: String
     ) async {
+        let subscriptions = await computeReconcileDesiredSubscriptions(
+            params: params,
+            context: context
+        )
+        let deduped = dedupe(subscriptions)
+        guard !deduped.isEmpty else { return }
+
+        guard let cache = cache,
+              let cacheKey = await currentCacheKey(params: params, context: context) else {
+            await subscribe(to: deduped, params: params, context: context, cacheKey: nil)
+            return
+        }
+        let currentHash = PushTopicHash.of(deduped.map(\.topic))
+        if let cached = cache.lookupHash(forKey: cacheKey.keyString), cached == currentHash {
+            Log.debug("Reconcile no-op \(context): topic hash matches cached state")
+            return
+        }
+        // Pass currentHash through so subscribe doesn't recompute SHA-256 over
+        // the same topic set on success.
+        await subscribe(
+            to: deduped,
+            params: params,
+            context: context,
+            cacheKey: cacheKey.keyString,
+            precomputedHash: currentHash
+        )
+    }
+
+    /// Clears the hash debounce cache. Call on "Delete all data" / sign-out
+    /// paths when the caller wants to drop every previously-recorded state,
+    /// not just rely on partitioning by identity. Day-to-day identity rotation
+    /// is already handled by the cache key including `inboxId` and `clientId`
+    /// (a new identity reads through a fresh key automatically).
+    func clearCache() {
+        cache?.clearAll()
+    }
+
+    private func currentCacheKey(
+        params: SyncClientParams,
+        context: String
+    ) async -> PushTopicCacheKey? {
+        guard let identity = await identity(matching: params) else { return nil }
+        guard let deviceId = await deviceIdentifier(context: context) else { return nil }
+        let token = pushTokenProvider?()
+        return PushTopicCacheKey(
+            inboxId: identity.inboxId,
+            clientId: identity.clientId,
+            deviceId: deviceId,
+            pushTokenSha256: PushTopicHash.ofToken(token)
+        )
+    }
+
+    /// Computes the full desired topic set for a reconcile pass without sending
+    /// anything to the backend. Pulling this out of `reconcilePushTopics` lets
+    /// the debounce path (D8) compute a hash and decide whether to send, and
+    /// gives Stack 2's diagnostics surface the same source-of-truth iOS uses
+    /// to derive desired state. The per-conversation `subscribeToGroup...` /
+    /// `subscribeToInviteDMTopics` paths keep their own narrow builders since
+    /// they're firing one-shot deltas, not a full sweep.
+    private func computeReconcileDesiredSubscriptions(
+        params: SyncClientParams,
+        context: String
+    ) async -> [TopicSubscription] {
         var subscriptions: [TopicSubscription] = [welcomeSubscription(params: params)]
         var degradedSources: [String] = []
 
@@ -242,7 +347,7 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             ])
         }
 
-        await subscribe(to: subscriptions, params: params, context: context)
+        return subscriptions
     }
 
     // MARK: - Private
@@ -250,7 +355,9 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
     private func subscribe(
         to subscriptions: [TopicSubscription],
         params: SyncClientParams,
-        context: String
+        context: String,
+        cacheKey: String? = nil,
+        precomputedHash: String? = nil
     ) async {
         let subscriptions = dedupe(subscriptions)
         guard !subscriptions.isEmpty else { return }
@@ -269,6 +376,18 @@ actor PushTopicSubscriptionManager: PushTopicSubscriptionManaging {
             )
             Log.info("Subscribed to push topics \(context): \(topicSummary(subscriptions))")
             Log.debug("Subscribed push topic values \(context): \(subscriptions.map(\.topic).joined(separator: ", "))")
+            // Success-only cache write. A failure path falls through to the
+            // catch arm below and leaves the cache untouched so the next
+            // reconcile retries. The cacheKey is nil for per-conversation
+            // subscribe paths (group join / invite DM) since they're deltas,
+            // not full sweeps and don't participate in reconcile debounce.
+            if let cacheKey = cacheKey, let cache = cache {
+                // Reuse the hash reconcile already computed when checking the
+                // cache miss. Falls back to computing it here only when the
+                // per-conversation path opts into caching (it doesn't today).
+                let hash = precomputedHash ?? PushTopicHash.of(subscriptions.map(\.topic))
+                cache.storeHash(hash, forKey: cacheKey)
+            }
         } catch {
             Log.warning("Failed subscribing to push topics \(context): \(error)")
             QAEvent.emit(.sync, "push_topic_subscribe_failed", [

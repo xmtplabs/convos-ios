@@ -185,6 +185,195 @@ struct PushTopicSubscriptionManagerTests {
         #expect(apiClient.subscribeCallCount == 1)
     }
 
+    @Test("Reconcile cache hit skips the wire on identical topic set")
+    func reconcileCacheHitSkipsTheWire() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1"],
+            dmIds: ["dm-1"]
+        )
+        let cache = isolatedCache()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { "fake-apns-token" }
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "first"
+        )
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "second"
+        )
+
+        // First reconcile hits the wire and primes the cache; the second sees
+        // an identical hash and short-circuits before the API call.
+        #expect(apiClient.subscribeCalls.count == 1)
+    }
+
+    @Test("Reconcile cache miss sends when topic set changes between calls")
+    func reconcileCacheMissSends() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1"],
+            dmIds: []
+        )
+        let cache = isolatedCache()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { "fake-apns-token" }
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "first"
+        )
+        conversationLister.setGroupIds(["group-1", "group-2"])
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "second"
+        )
+
+        // Set grew between reconciles -> hash differs -> the second call must
+        // hit the wire so the new topic actually gets subscribed.
+        #expect(apiClient.subscribeCalls.count == 2)
+        #expect(apiClient.subscribeCalls.last?.topics.contains("group-2".xmtpGroupTopicFormat) == true)
+    }
+
+    @Test("Reconcile failure does not write to cache so the next reconcile retries")
+    func reconcileFailureSkipsCacheWrite() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let failingAPI = ThrowingPushAPIClient()
+        let recoveryAPI = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1"],
+            dmIds: []
+        )
+        let cache = isolatedCache()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { "fake-apns-token" }
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: failingAPI),
+            context: "fail"
+        )
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: recoveryAPI),
+            context: "retry"
+        )
+
+        // Iron-rule regression: a failure on the first call must leave the
+        // cache untouched so the second call re-attempts the wire even
+        // though the desired topic set is unchanged.
+        #expect(failingAPI.subscribeCallCount == 1)
+        #expect(recoveryAPI.subscribeCalls.count == 1)
+    }
+
+    @Test("Reconcile sends when APNS token changes even if topic set is identical")
+    func reconcileSendsWhenTokenChanges() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1"],
+            dmIds: []
+        )
+        let cache = isolatedCache()
+        let tokenBox = TokenBox(value: "token-A")
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { tokenBox.read() }
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "token-A"
+        )
+        tokenBox.set("token-B")
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "token-B"
+        )
+
+        // Cache key includes the token hash, so rotating the token produces a
+        // miss and a fresh wire call - which is exactly what we need to keep
+        // XMTP server's deliveryMechanism aligned with the device's APNS state.
+        #expect(apiClient.subscribeCalls.count == 2)
+    }
+
+    @Test("clearCache forces the next reconcile to hit the wire")
+    func clearCacheForcesWire() async throws {
+        let identityStore = MockKeychainIdentityStore()
+        let keys = try await identityStore.generateKeys()
+        _ = try await identityStore.save(inboxId: "test-inbox-id", clientId: "client-1", keys: keys)
+
+        let client = TestableMockClient()
+        client.inboxId = "test-inbox-id"
+        let apiClient = RecordingPushAPIClient()
+        let conversationLister = RecordingPushConversationLister(
+            groupIds: ["group-1"],
+            dmIds: []
+        )
+        let cache = isolatedCache()
+        let manager = PushTopicSubscriptionManager(
+            identityStore: identityStore,
+            deviceInfoProvider: MockDeviceInfoProvider(deviceIdentifier: "device-1"),
+            conversationLister: conversationLister,
+            cache: cache,
+            pushTokenProvider: { "fake-apns-token" }
+        )
+
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "first"
+        )
+        await manager.clearCache()
+        await manager.reconcilePushTopics(
+            params: SyncClientParams(client: client, apiClient: apiClient),
+            context: "after-clear"
+        )
+
+        // Explicit clear is the escape hatch for "Delete all data" / sign-out.
+        // Without it the second call would short-circuit on the cache hit.
+        #expect(apiClient.subscribeCalls.count == 2)
+    }
+
     @Test("Reconcile still subscribes available topics when one listing fails")
     func reconcileSubscribesAvailableTopicsWhenListingFails() async throws {
         let identityStore = MockKeychainIdentityStore()
@@ -438,6 +627,10 @@ private final class RecordingPushConversationLister: PushTopicConversationListin
         state.withLock { $0.dmCalls }
     }
 
+    func setGroupIds(_ ids: [String]) {
+        state.withLock { $0.groupIds = ids }
+    }
+
     func listGroupConversationIds(
         params _: SyncClientParams,
         consentStates: [ConsentState]?,
@@ -477,5 +670,39 @@ private final class RecordingPushConversationLister: PushTopicConversationListin
     private func usesLastActivityOrder(_ orderBy: ConversationsOrderBy) -> Bool {
         guard case .lastActivity = orderBy else { return false }
         return true
+    }
+}
+
+/// Returns a cache backed by a freshly-named UserDefaults suite so tests can
+/// run concurrently without bleeding state into each other (or into the
+/// host process's standard UserDefaults).
+private func isolatedCache() -> PushTopicSubscriptionCache {
+    let suiteName = "PushTopicSubscriptionCacheTests.\(UUID().uuidString)"
+    // Force-unwrap is intentional: a UserDefaults suite for a unique UUID
+    // cannot collide with another suite or fail allocation in practice. If
+    // this ever returns nil the cache tests would silently corrupt
+    // `.standard`; abort instead.
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+        fatalError("Failed to allocate UserDefaults suite \(suiteName) for test")
+    }
+    return PushTopicSubscriptionCache(userDefaults: defaults)
+}
+
+/// Thread-safe mutable string container for swapping the APNS token between
+/// reconcile calls. Closure-captured by the test, mutated by `.set(...)`,
+/// read by the manager's `pushTokenProvider`.
+private final class TokenBox: @unchecked Sendable {
+    private let state: OSAllocatedUnfairLock<String?>
+
+    init(value: String?) {
+        state = OSAllocatedUnfairLock(initialState: value)
+    }
+
+    func read() -> String? {
+        state.withLock { $0 }
+    }
+
+    func set(_ value: String?) {
+        state.withLock { $0 = value }
     }
 }
