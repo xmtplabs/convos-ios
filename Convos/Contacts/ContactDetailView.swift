@@ -60,6 +60,14 @@ struct ContactDetailView: View {
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
     @State private var presentingNewConvo: NewConversationViewModel?
+    /// Resolved share link for a template-backed agent, lazily populated by
+    /// the top-bar share action (seeded from the persisted published URL, or
+    /// fetched via the publish endpoint on first tap).
+    @State private var resolvedAgentShareURL: URL?
+    @State private var isPublishingAgentTemplate: Bool = false
+    @State private var presentingAgentShareSheet: Bool = false
+    @State private var presentingPublishError: Bool = false
+    @State private var publishErrorMessage: String?
 
     init(
         contact: Contact,
@@ -89,6 +97,7 @@ struct ContactDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { closeToolbarItem }
+            .toolbar { agentShareToolbarItem }
             .modifier(ContactDetailModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
@@ -96,6 +105,10 @@ struct ContactDetailView: View {
                 sendMessageErrorMessage: sendMessageErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
+                presentingAgentShareSheet: $presentingAgentShareSheet,
+                agentShareURL: resolvedAgentShareURL,
+                presentingPublishError: $presentingPublishError,
+                publishErrorMessage: publishErrorMessage,
                 blockAlertActions: { blockAlertActions },
                 pickerSheet: { pickerSheet }
             ))
@@ -116,6 +129,29 @@ struct ContactDetailView: View {
                 let action = { dismiss() }
                 Button(role: .cancel, action: action)
                     .accessibilityIdentifier("contact-detail-close")
+            }
+        }
+    }
+
+    /// Share affordance for a template-backed agent: publishes the template
+    /// (if not already published) and presents the system share sheet with
+    /// the resulting link. Only shown for agent contacts when a session is
+    /// available to drive the publish call.
+    @ToolbarContentBuilder
+    private var agentShareToolbarItem: some ToolbarContent {
+        if isAgentTemplate, session != nil {
+            ToolbarItem(placement: .topBarTrailing) {
+                let action = { handlePublishAndShareAgentTemplate() }
+                Button(action: action) {
+                    if isPublishingAgentTemplate {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                .disabled(isPublishingAgentTemplate)
+                .accessibilityLabel("Share agent")
+                .accessibilityIdentifier("contact-detail-share-agent")
             }
         }
     }
@@ -161,7 +197,6 @@ struct ContactDetailView: View {
                         && mode.canRemoveMembers,
                     showBlock: !mode.isCurrentUser,
                     contactDisplayName: contact.resolvedDisplayName,
-                    agentTemplateShareURL: agentTemplateShareURL,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
@@ -434,6 +469,36 @@ struct ContactDetailView: View {
         )
     }
 
+    /// Resolves a shareable template link and presents the share sheet. Uses
+    /// the already-published URL when present, otherwise publishes the
+    /// template via the backend on first tap. A publish failure (e.g. the
+    /// caller isn't the template owner) surfaces an alert.
+    private func handlePublishAndShareAgentTemplate() {
+        if let url = resolvedAgentShareURL ?? agentTemplateShareURL {
+            resolvedAgentShareURL = url
+            presentingAgentShareSheet = true
+            return
+        }
+        guard let session, let templateId = contact.agentTemplateId else { return }
+        isPublishingAgentTemplate = true
+        Task {
+            defer { isPublishingAgentTemplate = false }
+            do {
+                let template = try await session.publishAgentTemplate(id: templateId)
+                guard let urlString = template.publishedUrl, let url = URL(string: urlString) else {
+                    publishErrorMessage = "This agent can't be shared yet."
+                    presentingPublishError = true
+                    return
+                }
+                resolvedAgentShareURL = url
+                presentingAgentShareSheet = true
+            } catch {
+                publishErrorMessage = error.localizedDescription
+                presentingPublishError = true
+            }
+        }
+    }
+
     private func syncBlockedState() async {
         do {
             guard let updated = try contactsRepository.fetchContact(inboxId: contact.inboxId) else {
@@ -529,8 +594,6 @@ private struct ContactDetailActions: View {
     let showRemove: Bool
     let showBlock: Bool
     let contactDisplayName: String
-    /// Non-nil only for template-backed agents; drives the Share row.
-    let agentTemplateShareURL: URL?
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
@@ -552,12 +615,6 @@ private struct ContactDetailActions: View {
         VStack(spacing: DesignConstants.Spacing.step6x) {
             if showChat {
                 chatButton
-            }
-            if let agentTemplateShareURL {
-                ContactDetailShareRow(
-                    url: agentTemplateShareURL,
-                    contactDisplayName: contactDisplayName
-                )
             }
             if showAgentLinks {
                 agentLinkRows
@@ -695,37 +752,6 @@ private struct ContactDetailActionRow: View {
 }
 
 // MARK: - Share row (template-backed agents)
-
-/// Share row for a template-backed agent. Mirrors `ContactDetailActionRow`'s
-/// capsule-plus-footer shape, but wraps a SwiftUI `ShareLink` (which presents
-/// the system share sheet) rather than a plain action button, since the
-/// share intent is fully handled by the system. Rendered only when the
-/// agent carries a template `publishedUrl`.
-private struct ContactDetailShareRow: View {
-    let url: URL
-    let contactDisplayName: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            ShareLink(item: url) {
-                Text("Share")
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .background(Capsule().fill(.colorFillMinimal))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Share \(contactDisplayName)")
-            .accessibilityIdentifier("contact-card-share-agent-template")
-            Text("Share a link to add \(contactDisplayName) to a convo")
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-        }
-    }
-}
 
 // MARK: - Debug instance id row (internal builds only)
 
@@ -873,6 +899,10 @@ private struct ContactDetailModalsModifier<
     let sendMessageErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
+    @Binding var presentingAgentShareSheet: Bool
+    let agentShareURL: URL?
+    @Binding var presentingPublishError: Bool
+    let publishErrorMessage: String?
     let blockAlertActions: () -> BlockActions
     let pickerSheet: () -> PickerContent
 
@@ -892,9 +922,30 @@ private struct ContactDetailModalsModifier<
             } message: { message in
                 Text(message)
             }
+            .alert(
+                "Couldn't share agent",
+                isPresented: $presentingPublishError,
+                presenting: publishErrorMessage
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
             .sheet(isPresented: $presentingPicker) {
                 pickerSheet()
             }
+            .sheet(isPresented: $presentingAgentShareSheet) {
+                agentShareSheet
+            }
+    }
+
+    @ViewBuilder
+    private var agentShareSheet: some View {
+        if let agentShareURL {
+            AutoShareSheetView(items: [agentShareURL]) {
+                Color.colorBackgroundSurfaceless.ignoresSafeArea()
+            }
+        }
     }
 }
 
