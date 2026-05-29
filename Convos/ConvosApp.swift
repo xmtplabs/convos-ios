@@ -95,6 +95,26 @@ struct ConvosApp: App {
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
         profileSettingsViewModel.bind(session: convos.session)
+
+        Self.configureTabBarItemColors()
+    }
+
+    /// Tints the unselected tab items tertiary. The selected color is
+    /// driven by SwiftUI `.tint` (primary) on the `TabView`; the unselected
+    /// color is set on the existing appearance's `normal` item state (we
+    /// mutate the current appearance rather than build a fresh one so the
+    /// Liquid Glass background is preserved). Only `.normal` is set so
+    /// `.tint` keeps control of the selected item.
+    private static func configureTabBarItemColors() {
+        let inactive = UIColor(Color.colorTextTertiary)
+        let bar = UITabBar.appearance()
+        for appearance in [bar.standardAppearance, bar.scrollEdgeAppearance].compactMap({ $0 }) {
+            for layout in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
+                layout.normal.iconColor = inactive
+                layout.normal.titleTextAttributes = [.foregroundColor: inactive]
+            }
+        }
+        bar.unselectedItemTintColor = inactive
     }
 
     var body: some Scene {

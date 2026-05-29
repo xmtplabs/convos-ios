@@ -3,31 +3,26 @@ import PhotosUI
 import SwiftUI
 
 /// Root tab shell for the app. Hosts the existing `ConversationsView` under
-/// the "Chats" tab, a placeholder `StuffTabView` under "Stuff", and an
-/// iOS 26 `Tab(role: .search)` for the search affordance that floats at
-/// the bottom trailing edge.
+/// the "Chats" tab and `StuffTabView` under "Stuff", in a standard SwiftUI
+/// `TabView` with the system tab bar. (Search was a third tab that is
+/// temporarily removed.)
 ///
-/// The app indicator (leading) and compose button (trailing) live inside
-/// each tab's own top bar — not on this shell — because each tab's chrome
-/// is contextual (Chats has compose, Stuff and Search don't). See
-/// `ConversationsView` for the Chats top-bar wiring.
+/// The agent builder bar is pinned via a `safeAreaInset` on the edge
+/// opposite the tab bar (top on iPhone, where the tab bar is at the bottom;
+/// bottom on iPad, where the standard tab bar is at the top), shared across
+/// both tabs. It fades out on scroll and is replaced by a compact "add
+/// agent" button in the nav bar. The compose button lives in the shared
+/// toolbar; the app-indicator pill is a top-leading overlay (see
+/// `sharedAppIndicatorOverlay`).
 struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
 
-    /// Tracks which tab is currently active. The underlying SwiftUI
-    /// `TabView` uses this for selection so its content / lifecycle
-    /// machinery still works — we just hide its built-in tab bar via
-    /// `.toolbarVisibility(.hidden, for: .tabBar)` and render
-    /// `ConvosTabBar` ourselves so we control the show / hide animation
-    /// when a conversation is selected (and can sit it in the same
-    /// `GlassEffectContainer` chrome as the builder bar).
+    /// Tracks which tab is currently active and drives the standard
+    /// `TabView` selection. The system tab bar is hidden only while a
+    /// conversation / Stuff detail is pushed (or the inline empty-state
+    /// builder is up) via `.toolbar(_:for: .tabBar)`.
     @State private var activeTab: ConvosTab = .chats
-    /// Last tab the user was on before switching to `.search`. Tapping
-    /// the cancel button in the search input bar restores this so the
-    /// X-cancel returns the user to where they came from instead of
-    /// always defaulting to Chats.
-    @State private var lastNonSearchTab: ConvosTab = .chats
     /// NavigationStack path for the Stuff tab. Lifted to this shell so
     /// the bottom chrome can hide when Stuff has a detail pushed, same
     /// way it hides when Chats has a conversation selected.
@@ -37,27 +32,27 @@ struct MainTabView: View {
     /// (same morph as a chats push). Synced via `.onChange` on
     /// `stuffPushedItems` — created lazily, cleared on pop.
     @State private var stuffPushedConvoVM: ConversationViewModel?
-    /// Drives the `AgentBuilderBar` between expanded (capsule) and
-    /// collapsed (glass circle) states. Held in state with hysteresis
-    /// thresholds rather than derived purely from scroll offset so that
-    /// a bouncy scroll near the boundary doesn't flicker the bar back
-    /// and forth: once collapsed it stays collapsed until the list
-    /// returns to the top; once expanded it stays expanded until the
-    /// user has scrolled `Constant.collapseScrollThreshold` past the
-    /// top.
-    @State private var isBuilderBarExpanded: Bool = true
+    /// Whether the top `AgentBuilderBar` is revealed (shown under the nav
+    /// bar) versus faded out. Held in state with hysteresis thresholds
+    /// rather than derived purely from scroll offset so a bouncy scroll
+    /// near the boundary doesn't flicker the bar: once hidden it stays
+    /// hidden until the list returns to the top; once revealed it stays
+    /// revealed until the user has scrolled `Constant.hideScrollThreshold`
+    /// past the top. While hidden, a compact "add agent" button takes its
+    /// place in the nav bar.
+    @State private var isBuilderBarRevealed: Bool = true
     /// Latest scroll content offset from each tab's primary scroll view.
     /// Tracked per-tab so swapping tabs can re-evaluate the builder bar
     /// state against the new tab's scroll position immediately, instead
     /// of waiting for the user to scroll.
     @State private var chatsScrollOffset: CGFloat = 0
     @State private var stuffScrollOffset: CGFloat = 0
-    /// Measured height of the bottom chrome (builder bar + tab bar
-    /// stack) published via a `PreferenceKey` from inside the chrome.
-    /// Used to push an explicit additional bottom inset down into
-    /// `ConversationsViewController`, because SwiftUI's safe-area inset
-    /// chain doesn't reliably propagate to the UIKit collection view.
-    @State private var bottomChromeHeight: CGFloat = 0
+    /// Measured height of the top chrome (the agent builder bar under the
+    /// nav bar) published via a `PreferenceKey`. Used to push an explicit
+    /// additional top inset down into `ConversationsViewController`,
+    /// because SwiftUI's safe-area inset chain doesn't reliably propagate
+    /// to the UIKit collection view.
+    @State private var builderBarHeight: CGFloat = 0
     /// Photo / camera / voice-memo entry points for the
     /// `AgentBuilderBar`. Tapping the photo or camera icon presents
     /// the matching picker first; only once the user has actually picked
@@ -74,13 +69,6 @@ struct MainTabView: View {
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
-    /// Current contents of the search input bar that replaces the agent
-    /// builder bar when the Search tab is active. Owned by `MainTabView`
-    /// (rather than the tab's own view) because the bar lives in
-    /// `bottomChrome`, which the shell builds; reading it from the
-    /// tab's view requires plumbing this binding down.
-    @State private var searchQuery: String = ""
-    @FocusState private var isSearchFieldFocused: Bool
     /// Set when the inline builder (rendered inside the chats list's
     /// empty state) commits its first conversation. The shell presents
     /// the new conversation as a sheet, mirroring how the bottom-bar
@@ -124,6 +112,24 @@ struct MainTabView: View {
     /// it doesn't overlap the controls. Stays false on iPhone (no
     /// window chrome) and on iPad in fullscreen.
     @State private var isInTrafficLightWindow: Bool = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
+    /// Which edge the agent builder bar pins to. The standard `TabView`
+    /// puts the tab bar at the bottom in compact width (iPhone) and at the
+    /// top in regular width (iPad); the builder bar goes on the opposite
+    /// edge so the two never collide.
+    private var builderBarEdge: VerticalEdge {
+        horizontalSizeClass == .compact ? .top : .bottom
+    }
+
+    /// The measured builder-bar height applied to the conversation list as a
+    /// top or bottom content inset, depending on which edge the bar pins to.
+    private var chromeTopInset: CGFloat {
+        builderBarEdge == .top ? builderBarHeight : 0
+    }
+    private var chromeBottomInset: CGFloat {
+        builderBarEdge == .bottom ? builderBarHeight : 0
+    }
 
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
@@ -168,39 +174,35 @@ struct MainTabView: View {
         conversationsViewModel.isEmptyCTAActive
     }
 
-    /// True while the user is on the search tab. Swaps the agent
-    /// builder bar in `bottomChrome` for the search input bar.
-    private var isOnSearchTab: Bool {
-        activeTab == .search
-    }
-
     /// Scroll offset for whichever tab is currently active.
     private var activeTabScrollOffset: CGFloat {
         switch activeTab {
         case .chats: chatsScrollOffset
         case .stuff: stuffScrollOffset
-        case .search: 0
         }
     }
 
-    /// Apply hysteresis to the bar expansion state in response to a
-    /// scroll offset update from the active tab. Collapses once the
-    /// user has scrolled `collapseScrollThreshold` past the top, and
-    /// expands again once the list is back near the top (within
-    /// `expandScrollThreshold`). The gap between the two thresholds
-    /// prevents a bouncing scroll near the boundary from flickering the
-    /// bar.
-    private func updateBuilderBarExpansion(forOffset offset: CGFloat) {
-        if isBuilderBarExpanded {
-            if offset > Constant.collapseScrollThreshold {
+    /// Apply hysteresis to the bar reveal state in response to a scroll
+    /// offset update from the active tab. Hides the bar (fade on iPhone /
+    /// collapse to the circle on iPad) only once the user has scrolled at
+    /// least the full builder-bar height past the top, and reveals it again
+    /// once the list is back near the top (within `revealScrollThreshold`).
+    /// The gap between the two thresholds prevents a bouncing scroll near
+    /// the boundary from flickering the bar.
+    private func updateBuilderBarReveal(forOffset offset: CGFloat) {
+        // Fall back to a small fixed threshold until the bar has been
+        // measured (otherwise a zero height would hide it immediately).
+        let hideThreshold = builderBarHeight > 0 ? builderBarHeight : Constant.hideScrollThreshold
+        if isBuilderBarRevealed {
+            if offset >= hideThreshold {
                 withAnimation(.smooth(duration: 0.25)) {
-                    isBuilderBarExpanded = false
+                    isBuilderBarRevealed = false
                 }
             }
         } else {
-            if offset <= Constant.expandScrollThreshold {
+            if offset <= Constant.revealScrollThreshold {
                 withAnimation(.smooth(duration: 0.25)) {
-                    isBuilderBarExpanded = true
+                    isBuilderBarRevealed = true
                 }
             }
         }
@@ -208,17 +210,7 @@ struct MainTabView: View {
 
     var body: some View {
         ZStack {
-            NavigationStack {
-                tabView
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if !isConversationSelected && !isInlineBuilderActive {
-                            bottomChrome
-                                .transition(.blurReplace)
-                        }
-                    }
-                    .toolbar { sharedToolbar }
-                    .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
-            }
+            tabView
 
             sharedAppIndicatorOverlay
         }
@@ -290,55 +282,77 @@ struct MainTabView: View {
     @ViewBuilder
     private var tabView: some View {
         TabView(selection: $activeTab) {
-            Tab(value: ConvosTab.chats) {
-                ConversationsView(
-                    viewModel: conversationsViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    appIndicatorContext: appIndicatorContext,
-                    sidebarBottomAccessory: nil,
-                    onScrollOffsetChange: { offset in
-                        chatsScrollOffset = offset
-                        if activeTab == .chats {
-                            updateBuilderBarExpansion(forOffset: offset)
-                        }
-                    },
-                    bottomChromeInset: bottomChromeHeight,
-                    presentingCommittedConversation: $presentingCommittedConversation
-                )
-                .toolbarVisibility(.hidden, for: .tabBar)
+            Tab(ConvosTab.chats.title, systemImage: ConvosTab.chats.symbol, value: ConvosTab.chats) {
+                tabContainer {
+                    ConversationsView(
+                        viewModel: conversationsViewModel,
+                        profileSettingsViewModel: profileSettingsViewModel,
+                        appIndicatorContext: appIndicatorContext,
+                        sidebarBottomAccessory: nil,
+                        onScrollOffsetChange: { offset in
+                            chatsScrollOffset = offset
+                            if activeTab == .chats {
+                                updateBuilderBarReveal(forOffset: offset)
+                            }
+                        },
+                        topChromeInset: chromeTopInset,
+                        bottomChromeInset: chromeBottomInset,
+                        presentingCommittedConversation: $presentingCommittedConversation
+                    )
+                }
             }
 
-            Tab(value: ConvosTab.stuff) {
-                StuffTabView(
-                    appIndicatorContext: appIndicatorContext,
-                    conversationsViewModel: conversationsViewModel,
-                    pushedItems: $stuffPushedItems,
-                    onScrollOffsetChange: { offset in
-                        stuffScrollOffset = offset
-                        if activeTab == .stuff {
-                            updateBuilderBarExpansion(forOffset: offset)
+            Tab(ConvosTab.stuff.title, systemImage: ConvosTab.stuff.symbol, value: ConvosTab.stuff) {
+                tabContainer {
+                    StuffTabView(
+                        appIndicatorContext: appIndicatorContext,
+                        conversationsViewModel: conversationsViewModel,
+                        pushedItems: $stuffPushedItems,
+                        onScrollOffsetChange: { offset in
+                            stuffScrollOffset = offset
+                            if activeTab == .stuff {
+                                updateBuilderBarReveal(forOffset: offset)
+                            }
                         }
-                    }
-                )
-                .toolbarVisibility(.hidden, for: .tabBar)
-            }
-
-            Tab(value: ConvosTab.search) {
-                SearchTabView()
-                    .toolbarVisibility(.hidden, for: .tabBar)
+                    )
+                }
             }
         }
+        .tint(Color.colorTextPrimary)
         .onChange(of: activeTab) { _, _ in
-            updateBuilderBarExpansion(forOffset: activeTabScrollOffset)
+            updateBuilderBarReveal(forOffset: activeTabScrollOffset)
         }
     }
 
-    /// Shared toolbar rendered once by the outer `NavigationStack` so
-    /// the compose button persists across Chats / Stuff / Search tab
-    /// swaps with iOS 26 native nav-bar styling. The AppIndicatorPill
-    /// is *not* a toolbar item — native toolbars clip the slot height
-    /// (~44pt) and the pill is taller. It's rendered as a SwiftUI
-    /// overlay anchored at top-leading instead (see `sharedAppIndicatorOverlay`).
+    /// Wraps each tab's content in its own `NavigationStack` carrying the
+    /// shared chrome (compose toolbar + agent builder bar). Making the
+    /// `TabView` the root and giving each tab its own stack is the native
+    /// iPad pattern: iOS 26 renders the tab bar and the nav-bar toolbar in
+    /// one merged top bar (tabs centered, toolbar items on the sides),
+    /// instead of stacking the tab bar on a separate row below the nav bar.
+    /// The conversation-detail push (via `ConversationsView`'s
+    /// `navigationDestination`) lands on this per-tab stack.
+    @ViewBuilder
+    private func tabContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        NavigationStack {
+            content()
+                .safeAreaInset(edge: builderBarEdge, spacing: 0) {
+                    if !isConversationSelected && !isInlineBuilderActive {
+                        builderBar
+                            .transition(.blurReplace)
+                    }
+                }
+                .toolbar { sharedToolbar }
+                .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
+                .toolbar((isConversationSelected || isInlineBuilderActive) ? .hidden : .visible, for: .tabBar)
+        }
+    }
+
+    /// Shared toolbar (compose + add-agent) applied to each tab's
+    /// `NavigationStack`. The AppIndicatorPill is *not* a toolbar item —
+    /// native toolbars clip the slot height (~44pt) and the pill is taller.
+    /// It's rendered as a SwiftUI overlay anchored at top-leading instead
+    /// (see `sharedAppIndicatorOverlay`).
     @ToolbarContentBuilder
     private var sharedToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -349,6 +363,34 @@ struct MainTabView: View {
             .accessibilityIdentifier("compose-button")
             .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
         }
+        // Declared after Compose so it sits at the trailing edge (to the
+        // right of Compose) once the top builder bar has faded on scroll.
+        if showsToolbarBuilderButton {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: openBuilder) {
+                    Image("addAgentIcon")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                }
+                .accessibilityLabel("Make an agent")
+                .accessibilityIdentifier("toolbar-add-agent-button")
+                .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
+            }
+        }
+    }
+
+    /// The compact "add agent" nav-bar button replaces the builder bar once
+    /// it has faded out on scroll. iPhone only (compact width): on iPad the
+    /// bar collapses to its own circle instead, so no nav-bar button. Also
+    /// hidden while the bar is revealed, while a conversation is pushed, and
+    /// during the inline empty-state builder.
+    private var showsToolbarBuilderButton: Bool {
+        horizontalSizeClass == .compact
+            && !isBuilderBarRevealed
+            && !isConversationSelected
+            && !isInlineBuilderActive
     }
 
     /// AppIndicatorPill rendered as an overlay above the entire app
@@ -491,55 +533,22 @@ struct MainTabView: View {
         )
     }
 
-    /// The shared bottom chrome — agent builder bar stacked above the
-    /// custom `ConvosTabBar`. Lives in one VStack so when the chrome
-    /// hides (because a conversation got selected) the builder bar and
-    /// the tab pills disappear together. The system tab bar is hidden
-    /// in every tab via `.toolbarVisibility(.hidden, for: .tabBar)` so
-    /// only this custom chrome shows up at the bottom.
+    /// The agent builder bar, shared across the Chats and Stuff tabs, on the
+    /// edge opposite the tab bar. Its scroll behavior differs by platform:
+    /// on iPhone (compact) the expanded bar blurs/fades out and a compact
+    /// "add agent" button takes its place in the nav bar; on iPad (regular)
+    /// the bar stays visible and morphs to the collapsed circle instead. Its
+    /// measured height is published so the UIKit list can inset its content.
     @ViewBuilder
-    private var bottomChrome: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            if !isOnSearchTab {
-                agentBuilderBar
-                    .transition(.blurReplace)
-            }
-            if isOnSearchTab {
-                searchInputBar
-                    .transition(.blurReplace)
-            } else {
-                ConvosTabBar(activeTab: $activeTab)
-                    .padding(.horizontal, DesignConstants.Spacing.step6x)
-                    .transition(.blurReplace)
-            }
-        }
-        .animation(.smooth(duration: 0.25), value: isOnSearchTab)
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: BottomChromeHeightKey.self, value: proxy.size.height)
-            }
-        )
-        .onPreferenceChange(BottomChromeHeightKey.self) { value in
-            bottomChromeHeight = value
-        }
-        .onChange(of: activeTab) { oldTab, newTab in
-            if newTab != .search {
-                lastNonSearchTab = newTab
-            }
-            if newTab == .search {
-                isSearchFieldFocused = true
-            } else if oldTab == .search {
-                searchQuery = ""
-                isSearchFieldFocused = false
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var agentBuilderBar: some View {
+    private var builderBar: some View {
+        let revealed = isBuilderBarRevealed
+        let isCompactWidth = horizontalSizeClass == .compact
+        // iPhone keeps the expanded bar and fades it out; iPad morphs between
+        // the expanded capsule and the collapsed circle on scroll.
+        let expanded = isCompactWidth ? true : revealed
+        let faded = isCompactWidth && !revealed
         AgentBuilderBar(
-            isExpanded: isBuilderBarExpanded,
+            isExpanded: expanded,
             onTap: openBuilder,
             onTapPhotos: { isPhotoPickerPresented = true },
             onTapCamera: { isCameraPresented = true },
@@ -547,59 +556,21 @@ struct MainTabView: View {
             transitionSourceNamespace: namespace,
             transitionSourceId: Constant.builderTransitionId
         )
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-    }
-
-    /// Replaces the agent builder bar in `bottomChrome` while the
-    /// Search tab is active. Renders a glass-pill text field with a
-    /// trailing X that returns the user to the Chats tab and clears
-    /// the query. The actual search results UI lives inside
-    /// `SearchTabView` and reads `searchQuery` through the binding.
-    private var searchInputBar: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(.colorTextSecondary)
-                TextField("Search", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFieldFocused)
-                    .submitLabel(.search)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .accessibilityIdentifier("search-input")
-                if !searchQuery.isEmpty {
-                    Button {
-                        searchQuery = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.colorTextTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
-                }
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .glassEffect(.regular.interactive(), in: .capsule)
-            Button {
-                withAnimation(.smooth(duration: 0.3)) {
-                    activeTab = lastNonSearchTab
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.circle)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .accessibilityLabel("Cancel search")
-            .accessibilityIdentifier("search-cancel")
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .opacity(faded ? 0 : 1)
+        .blur(radius: faded ? Constant.builderBarHiddenBlur : 0)
+        .allowsHitTesting(!faded)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.top, DesignConstants.Spacing.step2x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: BuilderBarHeightKey.self, value: proxy.size.height)
+            }
+        )
+        .onPreferenceChange(BuilderBarHeightKey.self) { value in
+            builderBarHeight = value
+        }
     }
 
     private func openBuilder() {
@@ -664,12 +635,16 @@ struct MainTabView: View {
         static let builderTransitionId: String = "agent-builder-transition-source"
         static let appSettingsTransitionId: String = "app-settings-transition-source"
         static let composerTransitionId: String = "composer-transition-source"
-        /// Hysteresis thresholds for the builder bar expansion. The gap
-        /// between them eats overscroll bounce noise near the top so the
-        /// bar doesn't flicker when the user is dragging back and forth
-        /// at the boundary.
-        static let collapseScrollThreshold: CGFloat = 20.0
-        static let expandScrollThreshold: CGFloat = 4.0
+        /// Fallback hide threshold used only before the builder bar's
+        /// height has been measured; once measured, the bar hides after
+        /// scrolling past its full height. `revealScrollThreshold` brings
+        /// it back near the top; the gap eats overscroll bounce noise so
+        /// the bar doesn't flicker at the boundary.
+        static let hideScrollThreshold: CGFloat = 20.0
+        static let revealScrollThreshold: CGFloat = 4.0
+        /// Blur radius applied to the top builder bar while it's hidden, so
+        /// it dissolves rather than hard-cutting as the list scrolls.
+        static let builderBarHiddenBlur: CGFloat = 8.0
         /// Leading inset on the app-indicator pill when the iPad app is
         /// in a windowed (non-fullscreen) state. iPadOS 26 renders
         /// window chrome ("traffic lights": close / minimize /
@@ -680,10 +655,10 @@ struct MainTabView: View {
     }
 }
 
-/// Carries the measured height of `MainTabView.bottomChrome` up via the
+/// Carries the measured height of `MainTabView.builderBar` up via the
 /// SwiftUI preference system so the host can plumb it into UIKit-hosted
 /// scroll views that don't see SwiftUI's safe-area inset.
-private struct BottomChromeHeightKey: PreferenceKey {
+private struct BuilderBarHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
