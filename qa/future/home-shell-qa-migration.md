@@ -108,36 +108,45 @@ identifiers), pending on-sim validation:
 - `39-html-attachment.{md,yaml}` - new test. Single device + CLI. Tile id
   `html-attachment-bubble`, preview sheet `attachment-preview-close` /
   `-share` / `-sender`. Needs the CLI upload provider (`CONVOS_API_KEY`).
+  **Validated on-sim (PASS, all 6 criteria)** - YAML refined from the run
+  (tap the tile body; preview toolbar verified visually, not via idb). The
+  other four (32/33/34/38) remain pending on-sim validation.
 
-## 6. First validation run (test 39, run c8ed5edc151b)
+## 6. First validation run (test 39, run c8ed5edc151b) - PASS
 
-Ran the new `qa-run` workflow (`.claude/workflows/qa-run.js`) on test 39 only,
-on iPhone 17 with the #910 build. The workflow harness worked (dispatched a
-`qa-runner`, ran ~15 min, aggregated). Test 39 itself came back ERROR -
-**blocked by setup, not a feature defect**:
+Ran the new `qa-run` workflow (`.claude/workflows/qa-run.js`) on test 39, on
+iPhone 17 with the #910 build. The harness works (dispatches a `qa-runner`,
+aggregates). The first attempt came back ERROR (blocked by setup); see the
+environment fix below. After the fix, **test 39 PASSED all 6 criteria**: the
+CLI HTML attachment renders as the `html-attachment-bubble` tile (blue page
+content filling the thumbnail, not a generic file bubble), tapping the tile
+body opens the full-screen WKWebView preview, and close returns with the tile
+intact. `message.received (type=attachments)` confirmed.
 
-- No shared app<->CLI conversation could be established in **either**
-  direction on the dev XMTP network: app-side `invite.join_request_sent`
-  fired but the CLI's `process-join-requests --watch` never received the DM
-  (member count stayed 1 across 4 attempts); reverse `add-members` succeeded
-  server-side (count -> 2) but the app never received the MLS welcome (group
-  topic never appeared, app stuck on "Verifying") even after relaunch+sync.
-  This blocks every multi-party test (02/03/04/33/34/38/39, ...) until the
-  delivery issue is resolved - likely a dev-environment / sync problem, worth
-  a manual check or retry before another run.
-- App-level log noise during the run: recurring
-  `auto reveal preference: conversationNotFound`, `refresh credit balance:
-  forbidden`, `Sentry DSN is empty`.
+### Environment blocker (diagnosed + fixed) - see [[project_qa_cli_libxmtp_fresh_home]]
+
+App<->CLI MLS welcome/DM delivery failed in both directions, blocking every
+multi-party test. NOT a dev-network outage (app<->app worked) and NOT the QA
+code. Root cause: the convos CLI's libxmtp lagged the app's, and its `~/.convos`
+home was created under the older libxmtp, leaving a stale installation the app
+couldn't deliver to. Fix: build the CLI from source (matching libxmtp commit)
+AND `rm -rf ~/.convos && convos init --env dev --force` (re-add `CONVOS_API_KEY`).
+After that, app->CLI join delivered and the app joined (2 members), end to end.
 
 ### Findings to action
 
-- **App a11y gap:** the share affordance inside `invite-qr-code` (new-convo
-  QR view) has no `accessibilityIdentifier` and isn't enumerable by idb;
-  recommend adding `invite-share-button`. The runner read the invite URL from
-  the CLI instead.
-- **Docs:** `cli_process_joins` `timeout` param is now documented in the
-  structured README (it wraps `--watch` + kill; `process-join-requests` has
-  no `--timeout` flag).
+- **App bug (minor):** the HTML tile thumbnail shows the error triangle after a
+  cold app relaunch - `HTMLThumbnailRenderer resuming early: load timed out`.
+  The thumbnail rendered fine pre-relaunch and didn't recover within ~12s. In
+  the HTML-attachment feature area (PR #878); worth a follow-up there.
+- **App a11y gaps:** the `invite-qr-code` share affordance has no id
+  (suggest `invite-share-button`); the `AttachmentPreviewSheet` toolbar
+  controls (`attachment-preview-close`/`-sender`/`-share`) and
+  `html-attachment-bubble-sender` overlay a WKWebView and aren't enumerated by
+  idb - test 39 verifies them visually and taps via MCP. Adding stable ids
+  would make them scriptable.
+- **Docs:** `cli_process_joins` `timeout` param documented in the structured
+  README (wraps `--watch` + kill; `process-join-requests` has no `--timeout`).
 
 ## 7. Still missing (later, separate PRs)
 

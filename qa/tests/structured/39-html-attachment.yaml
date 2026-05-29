@@ -94,15 +94,17 @@ steps:
   - id: tile_shows_sender_header
     name: "Tile shows sender header and View affordance"
     actions:
-      - find_elements: { pattern: "html-attachment-bubble-sender" }
       - screenshot: {}
     verify:
-      - element_exists: { id: "html-attachment-bubble-sender" }
       - visual_check: >
           The tile header shows the sender avatar and name "Agent" on the left
           and a "View ->" affordance (text + chevron) on the right, with a thin
           divider beneath the header.
     criteria: tile_header_present
+    note: >
+      html-attachment-bubble-sender is not enumerated as a distinct id by idb
+      (only the parent html-attachment-bubble, label "HTML page from <name>",
+      appears) - verify the header visually.
 
   - id: tile_renders_content
     name: "Tile thumbnail renders the page content filled"
@@ -126,17 +128,21 @@ steps:
     name: "Tap the tile to open the full-screen preview"
     actions:
       - tap: { id: "html-attachment-bubble" }
-      - wait_for_element: { id: "attachment-preview-close", timeout: 15 }
+      - screenshot: {}
     verify:
-      - element_exists: { id: "attachment-preview-close" }
-      - element_exists: { id: "attachment-preview-sender" }
-      - element_exists: { id: "attachment-preview-share" }
+      - visual_check: >
+          A full-screen preview opened over the conversation, with a close
+          (X) control top-leading, a sender indicator, and a share icon in
+          the toolbar.
     criteria: preview_opens_with_controls
     note: >
-      AttachmentPreviewSheet routes isHTMLFile to AttachmentHTMLContent (a live
-      WKWebView). The share affordance is always present for HTML
-      (canShareImage returns true), though the ShareLink only becomes active
-      once the rendered share image is written.
+      Tap the tile BODY (the thumbnail area, ~logical (201,600) on iPhone 17),
+      not the header - tapping the header avatar opens the sender's contact
+      card instead. AttachmentPreviewSheet routes isHTMLFile to a live
+      WKWebView; its toolbar controls (attachment-preview-close / -sender /
+      -share) overlay the web view and are NOT reliably enumerated by idb
+      describe-all, so verify them visually. Prefer an MCP ui_tap for these
+      controls; idb taps on the toolbar can leak to springboard.
 
   - id: preview_renders_html
     name: "HTML renders live in the preview web view"
@@ -159,8 +165,12 @@ steps:
     verify:
       - element_exists: { id: "message-text-field" }
       - element_exists: { id: "html-attachment-bubble" }
-      - element_not_exists: { id: "attachment-preview-close" }
     criteria: preview_dismissable
+    note: >
+      attachment-preview-close overlays the WKWebView and isn't idb-
+      discoverable; use an MCP ui_tap on the top-leading close (X), ~logical
+      (38,109) on iPhone 17. Return is confirmed by message-text-field and the
+      tile both being present again (both ARE discoverable).
 
 teardown:
   - action: explode_conversation
