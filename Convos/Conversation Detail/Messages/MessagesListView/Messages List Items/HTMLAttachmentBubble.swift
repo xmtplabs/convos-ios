@@ -11,10 +11,8 @@ import UIKit
 struct HTMLAttachmentBubble: View {
     let attachment: HydratedAttachment
     let profile: Profile
-    let reactions: [MessageReaction]
     var agentVerification: AgentVerification = .unverified
     var onTapAvatar: (() -> Void)?
-    var onTapReactions: (() -> Void)?
     var cornerRadiusOverride: CGFloat?
     /// Namespace owned by the SwiftUI host (`MessagesView`) and threaded
     /// down through `MessagesViewController`'s cell config so the bubble
@@ -40,18 +38,14 @@ struct HTMLAttachmentBubble: View {
 
     @ViewBuilder
     private var bubble: some View {
+        // No inline reaction overlay: HTML tiles render through the normal
+        // (non-full-bleed) bubble path, where `MessagesGroupView.reactionRow`
+        // shows reactions underneath the tile like text / file bubbles.
+        // Overlaying them here too would double them up.
         let base = preview
             .frame(width: Constant.size, height: Constant.size)
             .background(Color.colorFillMinimal)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(alignment: .bottomLeading) {
-                if !reactions.isEmpty {
-                    let tap: () -> Void = {
-                        onTapReactions?()
-                    }
-                    MediaContainerReax(reactions: reactions, onTap: tap)
-                }
-            }
         if let transitionNamespace {
             base.matchedTransitionSource(id: attachment.key, in: transitionNamespace)
         } else {

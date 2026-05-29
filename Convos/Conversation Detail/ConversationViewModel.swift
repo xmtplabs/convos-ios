@@ -31,6 +31,17 @@ struct PendingFileAttachment: Identifiable, Equatable {
         self.fileSize = fileSize
     }
 
+    /// Mirrors `HydratedAttachment.isHTMLFile` so the composer's staged-file
+    /// preview can match the in-chat HTML tile (square thumbnail) instead of
+    /// the generic filename + type chip.
+    var isHTMLFile: Bool {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        if ext == "html" || ext == "htm" {
+            return true
+        }
+        return mimeType.lowercased() == "text/html"
+    }
+
     static func == (lhs: PendingFileAttachment, rhs: PendingFileAttachment) -> Bool {
         lhs.id == rhs.id
     }
