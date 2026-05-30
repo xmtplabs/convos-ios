@@ -801,9 +801,18 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let prepared: PreparedAttachmentBundle? = bundleItems.isEmpty
             ? nil
             : try await prepareBuilderBundleAttachments(items: bundleItems, clientMessageId: bundleClientMessageId, inboxReady: inboxReady)
-        let textMessageId: String? = text.isEmpty
-            ? nil
-            : try await prepareBuilderBundleText(text, clientMessageId: textClientMessageId, inboxReady: inboxReady)
+        let textMessageId: String?
+        do {
+            textMessageId = text.isEmpty
+                ? nil
+                : try await prepareBuilderBundleText(text, clientMessageId: textClientMessageId, inboxReady: inboxReady)
+        } catch {
+            // The attachment bundle is already prepared and persisted "sending";
+            // a text-prepare failure aborts the send before publishing, so mark
+            // the bundle failed too rather than stranding it.
+            if let prepared { try? await markMessageFailed(messageId: prepared.messageId) }
+            throw error
+        }
 
         let bundledMessageIds: [String] = [prepared?.messageId, textMessageId].compactMap { $0 }
         guard !bundledMessageIds.isEmpty else { return }
@@ -933,10 +942,23 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         inboxReady: InboxReadyResult
     ) async throws {
         let conversationIdLocal = self.conversationId
-        guard let sender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
-            throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
+        let sender: any MessageSender
+        let manifestMessageId: String
+        do {
+            guard let resolvedSender = try await inboxReady.client.messageSender(for: conversationIdLocal) else {
+                throw OutgoingMessageWriterError.conversationNotFound(conversationId: conversationIdLocal)
+            }
+            sender = resolvedSender
+            manifestMessageId = try await resolvedSender.prepare(builderBundleManifest: BuilderBundleManifest(messageIds: manifestIds))
+        } catch {
+            // Sender resolution and the manifest prepare run before anything
+            // publishes, but the bundle and text are already persisted
+            // "sending". A failure here aborts the send, so mark them failed --
+            // otherwise they'd be stuck "sending" with no retry affordance.
+            if let prepared { try? await markMessageFailed(messageId: prepared.messageId) }
+            if let textMessageId { try? await markMessageFailed(messageId: textMessageId) }
+            throw error
         }
-        let manifestMessageId = try await sender.prepare(builderBundleManifest: BuilderBundleManifest(messageIds: manifestIds))
         do {
             try await sender.publishMessage(messageId: manifestMessageId)
         } catch {
